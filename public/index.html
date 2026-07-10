@@ -166,7 +166,7 @@ const NAVDEF = [
   ['Administração', [['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -179,6 +179,14 @@ const TITLES = {
   fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
   comissoes:['Comissões','Comissão por venda e por vendedor'],
   impostos:['Impostos — Lucro Presumido','Estimativa de tributos federais'],
+  pcp:['Painel de PCP','Programação, capacidade e prazos das OPs'],
+  producao:['Ordens de Produção','Quadro de OPs por etapa'],
+  piloto:['Peças Piloto','Trava a produção até a aprovação da amostra'],
+  compras:['Ordens de Compra','Geradas por déficit de material'],
+  estoque:['Estoque — Produto Acabado','Saldo por item e rastreio por lote'],
+  expedicao:['Expedição','Envios com rastreio, NF e lote consumido'],
+  usuarios:['Usuários & Acessos','Gestão de logins e permissões · admin'],
+  logs:['Auditoria / Logs','Histórico de ações no sistema · admin'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -403,6 +411,14 @@ async function loadRoute(){
     if(S.route==='fluxo') return await viewFluxo(c);
     if(S.route==='comissoes') return await viewComissoes(c);
     if(S.route==='impostos') return await viewImpostos(c);
+    if(S.route==='pcp') return await viewPcp(c);
+    if(S.route==='producao') return await viewProducao(c);
+    if(S.route==='piloto') return await viewPiloto(c);
+    if(S.route==='compras') return await viewCompras(c);
+    if(S.route==='estoque') return await viewEstoque(c);
+    if(S.route==='expedicao') return await viewExpedicao(c);
+    if(S.route==='usuarios') return await viewUsuarios(c);
+    if(S.route==='logs') return await viewLogs(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -795,6 +811,258 @@ async function pagarComissao(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Bloco Produção ----------
+const OP_STATUS = ['aguardando_material','a_iniciar','em_corte','em_producao','em_faccao','concluido'];
+const PIL_STATUS = ['em_desenvolvimento','enviada_ao_cliente','aprovada','aprovada_c_ajustes','reprovada'];
+function opPill(s){ const c = s==='concluido'?'green':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
+function pilPill(s){ const c = (s==='aprovada'||s==='aprovada_c_ajustes')?'green':(s==='reprovada'?'red':(s==='enviada_ao_cliente'?'blue':'gold')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
+function ocPill(s){ const c = s==='recebida'?'green':(s==='cancelada'?'red':'gold'); return `<span class="pill ${c}">${esc(s)}</span>`; }
+function prioPill(p){ const c = p==='alta'?'red':(p==='baixa'?'gray':'gold'); return `<span class="pill ${c}">${esc(p)}</span>`; }
+function bar(pct){ pct=Number(pct||0); return `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:7px;background:#eceae2;border-radius:6px;overflow:hidden;min-width:60px"><div style="height:100%;width:${pct}%;background:var(--gold)"></div></div><span style="font-size:11px;color:var(--muted)">${pct}%</span></div>`; }
+
+async function viewPcp(c){
+  const [painel, cap] = await Promise.all([api('/pcp/painel'), api('/pcp/capacidade')]);
+  const dist = o => Object.entries(o||{}).map(([k,v])=>esc(k.replace(/_/g,' '))+': '+v).join(' · ')||'—';
+  c.innerHTML = `
+    <div class="cards">
+      ${kpi('OPs ativas', cap.opsAtivas, '')}
+      ${kpi('Peças em produção', cap.pecasEmProducao, '')}
+      ${kpi('Por prioridade', dist(cap.porPrioridade), '')}
+      ${kpi('Por setor', dist(cap.porSetor), '')}
+    </div>
+    <div class="sect"><h3>Programação (OPs em aberto)</h3>` +
+    panelTable(['OP','Pedido','Qtd','Status','Prioridade','Progresso','Entrega','Atraso'],
+      painel.map(o=>[
+        `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido||'—'), o.quantidade, opPill(o.status),
+        prioPill(o.prioridade), bar(o.progresso), dfmt(o.entregaPrev),
+        o.atrasada?'<span class="pill red">atrasada</span>':(o.diasParaEntrega!=null?(o.diasParaEntrega+'d'):'—')
+      ]), painel.length?null:'Nenhuma OP em aberto.') + `</div>`;
+}
+async function viewProducao(c){
+  const list = await api('/ops');
+  c.innerHTML = toolbar('Ordens de produção', '', '') + panelTable(
+    ['OP','Pedido','Qtd','Status','Progresso','Setor','Prioridade','Ações'],
+    list.map(o=>[
+      `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
+      opPill(o.status), bar(o.progresso), esc(o.setorAtual||'—'), prioPill(o.prioridade),
+      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button>`
+    ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
+}
+function formOp(o){
+  const opts = OP_STATUS.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('');
+  openModal(`<h3>Atualizar OP ${esc(o.numero)}</h3>
+    <div class="mrow"><label class="fl">Status</label><select id="f_st" class="inp">${opts}</select></div>
+    <div class="grid2">${field('f_setor','Setor atual','value="'+esc(o.setorAtual||'')+'"')}${field('f_resp','Responsável','value="'+esc(o.responsavel||'')+'"')}</div>
+    ${field('f_prog','Progresso (%)','type="number" min="0" max="100" value="'+(o.progresso||0)+'"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveOp(${o.id})">Salvar</button></div>`);
+}
+async function saveOp(id){
+  try{
+    await api('/ops/'+id+'/status',{method:'PATCH',body:{status:val('f_st'), setorAtual:val('f_setor')||undefined, responsavel:val('f_resp')||undefined}});
+    await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:Number(val('f_prog')||0)}});
+    closeModal(); toast('OP atualizada.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function viewPiloto(c){
+  const list = await api('/pilotos');
+  c.innerHTML = toolbar('Peças piloto', 'Solicitar piloto', 'APP.formPiloto()') + panelTable(
+    ['Código','Pedido','Status','Liberado','Tentativa','Ações'],
+    list.map(p=>[
+      `<span class="mono gold">${esc(p.codigo)}</span>`, '#'+p.pedidoId, pilPill(p.status),
+      p.liberado?'<span class="pill green">sim</span>':'<span class="pill gray">não</span>', p.tentativa,
+      p.liberado?'<span class="muted">—</span>':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`
+    ]), list.length?null:'Nenhuma peça-piloto.');
+}
+async function formPiloto(){
+  const pedidos = await api('/pedidos');
+  const opts = pedidos.map(p=>`<option value="${p.id}">${esc(p.numero)} · ${esc(p.cliente?p.cliente.nome:'')}</option>`).join('');
+  openModal(`<h3>Solicitar peça-piloto</h3>
+    <div class="mrow"><label class="fl">Pedido *</label><select id="f_ped" class="inp">${opts||'<option>—</option>'}</select></div>
+    ${field('f_prazo','Prazo de retorno','type="date"')}
+    ${field('f_obs','Observação','')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.savePiloto()">Solicitar</button></div>`);
+}
+async function savePiloto(){
+  const body = { pedidoId:Number(val('f_ped')) };
+  const pz=val('f_prazo'); if(pz) body.prazoRetorno=pz;
+  const ob=val('f_obs'); if(ob) body.obs=ob;
+  if(!body.pedidoId){ toast('Selecione o pedido.','err'); return; }
+  try{ const p=await api('/pilotos',{method:'POST',body}); closeModal(); toast('Piloto '+p.codigo+' solicitado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function aprovarPiloto(id){
+  try{ await api('/pilotos/'+id+'/aprovar',{method:'POST'}); toast('Piloto aprovado — produção liberada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+async function viewCompras(c){
+  const [list, forn] = await Promise.all([api('/ordens-compra'), api('/fornecedores')]);
+  const nome={}; forn.forEach(f=>nome[f.id]=f.nome);
+  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()') + panelTable(
+    ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
+    list.map(o=>[
+      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
+      esc(o.quantidade)+' '+esc(o.unidade), money(o.valor), ocPill(o.status),
+      o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button>`:'<span class="muted">—</span>'
+    ]), list.length?null:'Nenhuma ordem de compra.');
+}
+async function formCompra(){
+  const [forn, mats] = await Promise.all([api('/fornecedores'), api('/materiais')]);
+  const fo = forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
+  const mo = ['<option value="">— sem material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-desc="${esc(m.descricao)}">${esc(m.codigo)} · ${esc(m.descricao)}</option>`)).join('');
+  openModal(`<h3>Nova ordem de compra</h3>
+    <div class="mrow"><label class="fl">Fornecedor *</label><select id="f_forn" class="inp">${fo||'<option>—</option>'}</select></div>
+    <div class="mrow"><label class="fl">Material</label><select id="f_mat" class="inp" onchange="APP.ocMat()">${mo}</select></div>
+    ${field('f_desc','Descrição *','')}
+    <div class="grid3">${field('f_qtd','Quantidade *','type="number" step="0.001"')}${field('f_un','Unidade *','value="un"')}${field('f_val','Valor total *','type="number" step="0.01"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveCompra()">Salvar</button></div>`);
+}
+function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0]; if(o&&o.value){ if(!$('f_desc').value) $('f_desc').value=o.getAttribute('data-desc')||''; if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un'; } }
+async function saveCompra(){
+  const body = { fornecedorId:Number(val('f_forn')), descricao:val('f_desc'), quantidade:Number(val('f_qtd')), unidade:val('f_un')||'un', valor:Number(val('f_val')) };
+  const mid=val('f_mat'); if(mid) body.materialId=Number(mid);
+  if(!body.fornecedorId||!body.descricao||!body.quantidade||!body.valor){ toast('Preencha fornecedor, descrição, quantidade e valor.','err'); return; }
+  try{ const o=await api('/ordens-compra',{method:'POST',body}); closeModal(); toast('OC '+o.numero+' criada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function receberCompra(id){
+  try{ await api('/ordens-compra/'+id+'/receber',{method:'POST'}); toast('OC recebida — material reposto no estoque.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function cancelarCompra(id){
+  try{ await api('/ordens-compra/'+id+'/cancelar',{method:'POST'}); toast('OC cancelada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+async function viewEstoque(c){
+  const list = await api('/estoque');
+  c.innerHTML = toolbar('Estoque de produto acabado', 'Movimentar', 'APP.formMov()') + panelTable(
+    ['Produto','Tamanho','Entradas','Saídas','Saldo','Local',''],
+    list.map(e=>[
+      `<span class="mono gold">${esc(e.produto.codigo)}</span> <span class="muted" style="font-size:11px">${esc(e.produto.descricao)}</span>`,
+      esc(e.tamanho), e.entradas, e.saidas, `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
+      `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
+    ]), list.length?null:'Estoque vazio. Faça uma entrada de produção.');
+}
+async function formMov(){
+  const prods = await api('/produtos');
+  const po = prods.map(p=>`<option value="${p.id}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+  openModal(`<h3>Movimentar estoque</h3>
+    <div class="mrow"><label class="fl">Produto *</label><select id="f_prod" class="inp">${po||'<option>—</option>'}</select></div>
+    <div class="grid3">
+      <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp"><option value="entrada">entrada</option><option value="saida">saída</option></select></div>
+      ${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}${field('f_qtd','Quantidade *','type="number" min="1"')}
+    </div>
+    ${field('f_loc','Localização (entrada)','')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveMov()">Confirmar</button></div>`);
+}
+async function saveMov(){
+  const body = { produtoId:Number(val('f_prod')), tamanho:val('f_tam'), tipo:val('f_tipo'), quantidade:Number(val('f_qtd')) };
+  const loc=val('f_loc'); if(loc) body.localizacao=loc;
+  if(!body.produtoId||!body.tamanho||!body.quantidade){ toast('Preencha produto, tamanho e quantidade.','err'); return; }
+  try{ const r=await api('/estoque/movimentar',{method:'POST',body}); closeModal(); toast(r.lote?('Entrada · lote '+r.lote.codigoLote+' criado.'):'Saída registrada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function verLotes(codigo){
+  try{
+    const lotes = await api('/estoque/'+encodeURIComponent(codigo)+'/lotes');
+    openModal(`<h3>Lotes · ${esc(codigo)}</h3>`+ (lotes.length? panelTable(['Lote','Tamanho','Qtd','Data'],
+      lotes.map(l=>[`<span class="mono">${esc(l.codigoLote)}</span>`, esc(l.estoque?l.estoque.tamanho:'—'), l.quantidade, dfmt(l.data)])) :
+      '<div class="empty">Sem lotes.</div>') + `<div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  }catch(e){ toast(e.message,'err'); }
+}
+
+async function viewExpedicao(c){
+  const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
+  const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
+  c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()') + panelTable(
+    ['Número','Cliente','Peças','Transportadora','Rastreio','Status','Data'],
+    list.map(e=>[
+      `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
+      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`, `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data)
+    ]), list.length?null:'Nenhuma expedição.');
+}
+async function formExpedicao(){
+  const [clientes, pedidos] = await Promise.all([api('/clientes'), api('/pedidos')]);
+  const co = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  const po = ['<option value="">— sem pedido —</option>'].concat(pedidos.map(p=>`<option value="${p.id}">${esc(p.numero)}</option>`)).join('');
+  openModal(`<h3>Nova expedição</h3>
+    <div class="grid2">
+      <div><label class="fl">Cliente *</label><select id="f_cli" class="inp">${co||'<option>—</option>'}</select></div>
+      <div><label class="fl">Pedido</label><select id="f_ped" class="inp">${po}</select></div>
+    </div>
+    <div class="grid3">${field('f_pecas','Peças *','type="number" min="1"')}${field('f_lote','Lote ID (consome estoque)','type="number"')}${field('f_vol','Volumes','type="number" value="1"')}</div>
+    <div class="grid2">${field('f_transp','Transportadora','')}${field('f_cid','Cidade/UF','')}</div>
+    ${field('f_nf','Nota fiscal','')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveExpedicao()">Criar</button></div>`);
+}
+async function saveExpedicao(){
+  const body = { clienteId:Number(val('f_cli')), pecas:Number(val('f_pecas')) };
+  const ped=val('f_ped'); if(ped) body.pedidoId=Number(ped);
+  const lote=val('f_lote'); if(lote) body.loteId=Number(lote);
+  const vol=val('f_vol'); if(vol) body.volumes=Number(vol);
+  ['transp:transportadora','cid:cidadeUf','nf:nf'].forEach(m=>{ const [f,k]=m.split(':'); const v=val('f_'+f); if(v) body[k]=v; });
+  if(!body.clienteId||!body.pecas){ toast('Informe cliente e peças.','err'); return; }
+  try{ const e=await api('/expedicoes',{method:'POST',body}); closeModal(); toast('Expedição '+e.numero+' criada · rastreio '+e.rastreio,'ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+// ---------- Bloco Administração ----------
+const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro'];
+async function viewUsuarios(c){
+  const list = await api('/usuarios');
+  c.innerHTML = toolbar('Usuários & acessos', 'Novo usuário', 'APP.formUsuario()') + panelTable(
+    ['Nome','Login','Perfil','Setor','Horário','Ativo','Ações'],
+    list.map(u=>[
+      `<b>${esc(u.nome)}</b>`, '@'+esc(u.usuario),
+      `<span class="pill ${u.acesso==='total'?'gold':'gray'}">${esc(u.acesso)}</span>`, esc(u.setor||'—'),
+      (u.horarioInicio&&u.horarioFim)?esc(u.horarioInicio+'–'+u.horarioFim):'integral',
+      u.ativo?'<span class="pill green">sim</span>':'<span class="pill red">não</span>',
+      `<button class="btn-sm" onclick='APP.formUsuario(${JSON.stringify(u).replace(/'/g,"&#39;")})'>Editar</button>` + (u.acesso!=='total'?` <button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'')
+    ]), list.length?null:'Nenhum usuário.');
+}
+function formUsuario(u){
+  u = u||{};
+  const ao = ACESSOS.map(a=>`<option value="${a}" ${a===u.acesso?'selected':''}>${a}</option>`).join('');
+  openModal(`<h3>${u.id?'Editar':'Novo'} usuário</h3>
+    <div class="grid2">${field('f_nome','Nome *','value="'+esc(u.nome||'')+'"')}${field('f_user','Login *','value="'+esc(u.usuario||'')+'"'+(u.id?' disabled':''))}</div>
+    ${field('f_senha','Senha '+(u.id?'(deixe em branco p/ manter)':'*'),'type="password"')}
+    <div class="mrow"><label class="fl">Perfil de acesso *</label><select id="f_acesso" class="inp">${ao}</select></div>
+    <div class="grid2">${field('f_cargo','Cargo','value="'+esc(u.cargo||'')+'"')}${field('f_setor','Setor','value="'+esc(u.setor||'')+'"')}</div>
+    <div class="grid2">${field('f_hi','Horário início','type="time" value="'+esc(u.horarioInicio||'')+'"')}${field('f_hf','Horário fim','type="time" value="'+esc(u.horarioFim||'')+'"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveUsuario(${u.id||0})">Salvar</button></div>`);
+}
+async function saveUsuario(id){
+  const body = { nome:val('f_nome'), acesso:val('f_acesso'), cargo:val('f_cargo')||undefined, setor:val('f_setor')||undefined,
+    horarioInicio:val('f_hi')||undefined, horarioFim:val('f_hf')||undefined };
+  if(!id) body.usuario=val('f_user');
+  const s=val('f_senha'); if(s) body.senha=s;
+  if(!body.nome||(!id&&!body.usuario)||(!id&&!s)){ toast('Nome, login e senha são obrigatórios.','err'); return; }
+  try{ await api(id?('/usuarios/'+id):'/usuarios',{method:id?'PATCH':'POST',body}); closeModal(); toast('Usuário salvo.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function removeUsuario(id){
+  try{ await api('/usuarios/'+id,{method:'DELETE'}); toast('Usuário desativado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function viewLogs(c){
+  const list = await api('/logs?limit=200');
+  c.innerHTML = `<div class="toolbar"><h3 style="font-size:15px">Auditoria · ${list.length} registros</h3></div>` + panelTable(
+    ['Quando','Usuário','Ação','Entidade','Detalhe'],
+    list.map(l=>[
+      `<span class="mono" style="font-size:11.5px">${l.timestamp?new Date(l.timestamp).toLocaleString('pt-BR'):'—'}</span>`,
+      esc(l.usuario), `<span class="mono" style="font-size:11.5px">${esc(l.acao)}</span>`,
+      esc(l.entidade||'—'), esc(l.detalhe||'—')
+    ]), list.length?null:'Sem registros de auditoria.');
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -820,6 +1088,10 @@ window.APP = {
   formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formComissao, comTot, saveComissao, pagarComissao,
+  formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
+  formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
+  formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
+  formUsuario, saveUsuario, removeUsuario,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();
