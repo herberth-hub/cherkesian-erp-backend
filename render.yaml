@@ -7,9 +7,11 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm install && npm run build
+    # --include=dev garante @nestjs/cli, typescript e prisma no build
+    # (NODE_ENV=production faria o npm pular as devDependencies)
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
     # migrate deploy aplica as migrations no Neon antes de subir a API
-    startCommand: npm run start:migrate
+    startCommand: npx prisma migrate deploy && node dist/main.js
     healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:
