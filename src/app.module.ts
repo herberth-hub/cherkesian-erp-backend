@@ -1,5 +1,7 @@
+import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ServeStaticModule } from '@nestjs/serve-static';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -27,7 +29,14 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // envFilePath fixo torna o .env independente do diretório de execução;
+    // em produção (Render) não há arquivo .env e usa-se process.env normalmente.
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: join(__dirname, '..', '.env') }),
+    // Serve o frontend (public/) na raiz; a API fica sob /api/v1.
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'),
+      exclude: ['/api/(.*)'],
+    }),
     PrismaModule,
     AuthModule,
     UsuariosModule,
