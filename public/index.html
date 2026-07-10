@@ -166,7 +166,7 @@ const NAVDEF = [
   ['Administração', [['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -174,6 +174,11 @@ const TITLES = {
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
   materia:['Matéria-prima','Tecidos e insumos · MP-CAT-0000'],
   fornecedores:['Fornecedores','Fornecedores e facções'],
+  receber:['Contas a Receber','O que os clientes devem'],
+  pagar:['Contas a Pagar','Fornecedores, facção e despesas'],
+  fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
+  comissoes:['Comissões','Comissão por venda e por vendedor'],
+  impostos:['Impostos — Lucro Presumido','Estimativa de tributos federais'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -393,6 +398,11 @@ async function loadRoute(){
     if(S.route==='materia') return await viewMateriais(c);
     if(S.route==='fornecedores') return await viewFornecedores(c);
     if(S.route==='vendas') return await viewPedidos(c);
+    if(S.route==='receber') return await viewReceber(c);
+    if(S.route==='pagar') return await viewPagar(c);
+    if(S.route==='fluxo') return await viewFluxo(c);
+    if(S.route==='comissoes') return await viewComissoes(c);
+    if(S.route==='impostos') return await viewImpostos(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -632,6 +642,159 @@ async function gerarOp(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Bloco Financeiro ----------
+const dfmt = iso => { if(!iso) return '—'; try{ return new Date(iso).toLocaleDateString('pt-BR',{timeZone:'UTC'}); }catch(e){ return iso; } };
+function tituloPill(st){
+  const map = { a_vencer:['blue','a vencer'], vencendo:['gold','vencendo'], vencida:['red','vencida'], pago:['green','pago'] };
+  const m = map[st]||['gray',st]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
+}
+function pct(v){ return (Number(v||0)*100).toFixed(2).replace('.',',')+'%'; }
+
+async function viewReceber(c){
+  const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
+  const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
+  const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
+  c.innerHTML = toolbar('Contas a receber · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formReceber()') + panelTable(
+    ['Vencimento','Cliente','Valor','Pago','Saldo','Status','Ações'],
+    list.map(t=>[
+      dfmt(t.vencimento), esc(nome[t.clienteId]||('#'+t.clienteId)),
+      money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
+      t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:'<span class="muted">—</span>'
+    ]), list.length?null:'Nenhum título a receber.');
+}
+async function viewPagar(c){
+  const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
+  const nome = {}; forn.forEach(f=>nome[f.id]=f.nome);
+  const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
+  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()') + panelTable(
+    ['Vencimento','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
+    list.map(t=>[
+      dfmt(t.vencimento), esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
+      esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
+      t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:'<span class="muted">—</span>'
+    ]), list.length?null:'Nenhum título a pagar.');
+}
+async function viewFluxo(c){
+  const f = await api('/financeiro/fluxo');
+  const bkt = (b,label)=>`<div class="card"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:8px">${label}</div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Vencida</span><b style="color:#c14a34">${money(b.vencida)}</b></div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Vencendo</span><b class="gold">${money(b.vencendo)}</b></div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">A vencer</span><b>${money(b.a_vencer)}</b></div></div>`;
+  c.innerHTML = `
+    <div class="cards">
+      ${kpi('Recebido (realizado)', money(f.realizado.recebido), '')}
+      ${kpi('Pago (realizado)', money(f.realizado.pago), '')}
+      ${kpi('Saldo realizado', money(f.realizado.saldo), 'recebido − pago')}
+      ${kpi('Saldo projetado', money(f.saldoProjetado), 'realizado + aberto')}
+    </div>
+    <div class="sect"><h3>Em aberto</h3><div class="cards">
+      ${kpi('A receber', money(f.aberto.aReceber), '')}
+      ${kpi('A pagar', money(f.aberto.aPagar), '')}
+    </div></div>
+    <div class="sect"><h3>Por vencimento</h3><div class="cards">
+      ${bkt(f.receberPorVencimento,'A RECEBER')}
+      ${bkt(f.pagarPorVencimento,'A PAGAR')}
+    </div></div>`;
+}
+async function viewComissoes(c){
+  const list = await api('/financeiro/comissoes');
+  const total = list.filter(k=>k.statusPgto!=='Pago').reduce((s,k)=>s+Number(k.comissao),0);
+  c.innerHTML = toolbar('Comissões · '+money(total)+' a pagar', 'Nova comissão', 'APP.formComissao()') + panelTable(
+    ['Vendedor','Pedido','Valor venda','%','Comissão','Status','Ações'],
+    list.map(k=>[
+      esc(k.vendedor), '#'+k.pedidoId, money(k.valorVenda), pct(k.percentual), `<b>${money(k.comissao)}</b>`,
+      k.statusPgto==='Pago'?'<span class="pill green">pago</span>':'<span class="pill gold">a pagar</span>',
+      k.statusPgto!=='Pago'?`<button class="btn-sm" onclick="APP.pagarComissao(${k.id})">Marcar pago</button>`:'<span class="muted">—</span>'
+    ]), list.length?null:'Nenhuma comissão lançada.');
+}
+async function viewImpostos(c){
+  const t = await api('/financeiro/impostos');
+  c.innerHTML = `
+    <div class="cards">
+      ${kpi('Faturamento (pedidos)', money(t.faturamento), t.regime)}
+      ${kpi('Total estimado', money(t.totalEstimado), 'carga efetiva '+esc(t.cargaEfetiva))}
+    </div>
+    <div class="sect"><h3>Tributos federais (estimativa)</h3><div class="cards">
+      ${kpi('PIS (0,65%)', money(t.tributos.pis), '')}
+      ${kpi('COFINS (3%)', money(t.tributos.cofins), '')}
+      ${kpi('IRPJ', money(t.tributos.irpj), 'presunção 8% × 15%')}
+      ${kpi('CSLL', money(t.tributos.csll), 'presunção 12% × 9%')}
+    </div></div>
+    <div class="card" style="margin-top:16px;background:#fbf7e8;border-color:#efe2b8">
+      <div style="font-size:12.5px;color:#7a6a2e">⚠️ ${esc(t.observacao)}</div>
+    </div>`;
+}
+
+// Formulários financeiros
+async function formReceber(){
+  const clientes = await api('/clientes');
+  const opts = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  openModal(`<h3>Novo título a receber</h3>
+    <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${opts||'<option>—</option>'}</select></div>
+    <div class="grid2">${field('f_venc','Vencimento *','type="date"')}${field('f_valor','Valor *','type="number" step="0.01"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveReceber()">Salvar</button></div>`);
+}
+async function saveReceber(){
+  const body = { clienteId:Number(val('f_cli')), vencimento:val('f_venc'), valor:Number(val('f_valor')) };
+  if(!body.clienteId||!body.vencimento||!body.valor){ toast('Preencha cliente, vencimento e valor.','err'); return; }
+  try{ await api('/financeiro/receber',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function formPagar(){
+  const forn = await api('/fornecedores');
+  const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
+  openModal(`<h3>Novo título a pagar</h3>
+    ${field('f_cat','Categoria * (ex.: Facção, Aluguel)','')}
+    <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
+    ${field('f_ref','Referência','placeholder="ex.: OC-0001, NF 123"')}
+    <div class="grid2">${field('f_venc','Vencimento *','type="date"')}${field('f_valor','Valor *','type="number" step="0.01"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.savePagar()">Salvar</button></div>`);
+}
+async function savePagar(){
+  const body = { categoria:val('f_cat'), vencimento:val('f_venc'), valor:Number(val('f_valor')) };
+  const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
+  const ref=val('f_ref'); if(ref) body.referencia=ref;
+  if(!body.categoria||!body.vencimento||!body.valor){ toast('Preencha categoria, vencimento e valor.','err'); return; }
+  try{ await api('/financeiro/pagar',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+function baixar(tipo, id, saldo){
+  openModal(`<h3>${tipo==='receber'?'Receber':'Pagar'} título</h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:12px">Saldo em aberto: <b>${money(saldo)}</b>. Deixe o valor em branco para quitar o total.</div>
+    ${field('f_baixa','Valor da baixa','type="number" step="0.01" placeholder="'+saldo+'"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
+}
+async function confirmBaixar(tipo, id){
+  const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
+  try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast('Baixa registrada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function formComissao(){
+  const pedidos = await api('/pedidos');
+  const opts = pedidos.map(p=>`<option value="${p.id}" data-tot="${p.valorTotal}">${esc(p.numero)} · ${money(p.valorTotal)}</option>`).join('');
+  openModal(`<h3>Nova comissão</h3>
+    <div class="mrow"><label class="fl">Pedido *</label><select id="f_ped" class="inp" onchange="APP.comTot()">${opts||'<option>—</option>'}</select></div>
+    ${field('f_vend','Vendedor *','')}
+    <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="0.05"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveComissao()">Salvar</button></div>`);
+  comTot();
+}
+function comTot(){ const s=$('f_ped'); const t=s&&s.selectedOptions[0]?s.selectedOptions[0].getAttribute('data-tot'):''; if(t && $('f_venda') && !$('f_venda').value) $('f_venda').value=t; }
+async function saveComissao(){
+  const body = { pedidoId:Number(val('f_ped')), vendedor:val('f_vend'), valorVenda:Number(val('f_venda')), percentual:Number(val('f_pct')) };
+  if(!body.pedidoId||!body.vendedor||!body.valorVenda||!body.percentual){ toast('Preencha pedido, vendedor, valor e percentual.','err'); return; }
+  try{ await api('/financeiro/comissoes',{method:'POST',body}); closeModal(); toast('Comissão lançada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function pagarComissao(id){
+  try{ await api('/financeiro/comissoes/'+id+'/pagar',{method:'POST'}); toast('Comissão marcada como paga.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -655,6 +818,8 @@ window.APP = {
   closeModal, formCliente, saveCliente, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
+  formComissao, comTot, saveComissao, pagarComissao,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();
