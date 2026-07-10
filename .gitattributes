@@ -1,0 +1,5 @@
+# Normaliza finais de linha para LF no repositório (build roda em Linux no Render).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
