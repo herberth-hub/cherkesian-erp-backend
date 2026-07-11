@@ -49,6 +49,7 @@ export class DocumentosService {
   /** Registra o documento e devolve a URL do PDF (gerado sob demanda no GET). */
   async criar(tipo: string, referenciaId: number, user: AuthUser) {
     const def = this.validarTipo(tipo, user);
+    await this.validarEstadoReferencia(tipo, referenciaId, user.empresaId);
     // Garante que a referência existe (e pertence à empresa) antes de registrar.
     await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA');
 
@@ -124,6 +125,36 @@ export class DocumentosService {
       doc.on('error', reject);
       doc.end();
     });
+  }
+
+  /**
+   * Regras de negócio por etapa (verdade no backend):
+   * proposta pertence à fase de ORÇAMENTO; o documento "pedido" só existe
+   * após a aprovação do cliente. Reimpressão de documentos já emitidos
+   * (GET /:id/pdf) não passa por aqui — histórico continua acessível.
+   */
+  private async validarEstadoReferencia(
+    tipo: string,
+    referenciaId: number,
+    empresaId: number,
+  ): Promise<void> {
+    if (tipo !== 'proposta' && tipo !== 'pedido') return;
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: referenciaId } });
+    if (!pedido || pedido.empresaId !== empresaId) {
+      throw new NotFoundException(`Pedido ${referenciaId} não encontrado.`);
+    }
+    if (tipo === 'proposta' && pedido.etapa !== 'orcamento') {
+      throw new BadRequestException(
+        `Proposta comercial é emitida na fase de orçamento. O ${pedido.numero} já foi aprovado ` +
+          `(etapa: ${pedido.etapa}) — emita o documento "pedido".`,
+      );
+    }
+    if (tipo === 'pedido' && pedido.etapa === 'orcamento') {
+      throw new BadRequestException(
+        `O documento "pedido" é emitido após a aprovação do orçamento. ` +
+          `O ${pedido.numero} ainda está em orçamento — emita a "proposta".`,
+      );
+    }
   }
 
   private validarTipo(tipo: string, user: AuthUser) {

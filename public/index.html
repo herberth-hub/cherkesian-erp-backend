@@ -523,11 +523,15 @@ async function viewPedidos(c){
 }
 function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
 function pedidoAcoes(p){
+  // Proposta pertence à fase de orçamento; após a aprovação o documento é o Pedido.
   let b='';
-  if(p.etapa==='orcamento') b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
-  if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
-  b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
-  if(p.etapa!=='orcamento') b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+  if(p.etapa==='orcamento'){
+    b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
+    b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
+  } else {
+    if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
+    b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+  }
   b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button>`;
   return b||'<span class="muted">—</span>';
 }
