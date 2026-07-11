@@ -61,6 +61,39 @@ export class ProdutosService {
     });
   }
 
+  /**
+   * Ficha de custo do produto: BOM (Consumo) × custo unitário do material.
+   * Base da precificação — a margem/impostos são aplicados pelo cliente da API.
+   */
+  async custo(id: number, empresaId: number) {
+    const produto = await this.findOne(id, empresaId);
+    const bom = await this.prisma.consumo.findMany({
+      where: { produtoId: id },
+      include: {
+        material: { select: { codigo: true, descricao: true, unidade: true, custo: true } },
+      },
+    });
+    let custoMaterial = new Prisma.Decimal(0);
+    const itens = bom.map((b) => {
+      const subtotal = b.quantidade.mul(b.material.custo);
+      custoMaterial = custoMaterial.plus(subtotal);
+      return {
+        material: b.material.codigo,
+        descricao: b.material.descricao,
+        quantidade: b.quantidade.toFixed(4),
+        unidade: b.unidade,
+        custoUnit: b.material.custo.toFixed(2),
+        subtotal: subtotal.toFixed(2),
+      };
+    });
+    return {
+      produto: { id: produto.id, codigo: produto.codigo, descricao: produto.descricao },
+      precoBase: produto.precoBase ? produto.precoBase.toFixed(2) : null,
+      itens,
+      custoMaterial: custoMaterial.toFixed(2),
+    };
+  }
+
   /** Gera o próximo código PRD-CAT-0000 para a categoria informada. */
   private async gerarCodigo(categoria: string, empresaId: number): Promise<string> {
     const existentes = await this.prisma.produto.findMany({

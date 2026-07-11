@@ -1,4 +1,4 @@
-import { Controller, Get, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { LogsService } from './logs.service';
 import { Areas } from '../common/decorators/acesso.decorator';
 
@@ -12,8 +12,10 @@ export class LogsController {
   findAll(
     @Query('usuario') usuario?: string,
     @Query('entidade') entidade?: string,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('limit') limit?: string,
   ) {
-    return this.logsService.findAll({ usuario, entidade, limit });
+    // parse manual: o ValidationPipe global (implicit conversion) conflita com ParseIntPipe optional
+    const n = limit ? Number(limit) : undefined;
+    return this.logsService.findAll({ usuario, entidade, limit: Number.isInteger(n) ? n : undefined });
   }
 }

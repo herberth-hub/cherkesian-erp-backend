@@ -30,6 +30,12 @@ export class ProdutosController {
     return this.produtosService.findOne(id, user.empresaId);
   }
 
+  /** Ficha de custo (BOM × custo do material) — base da precificação. */
+  @Get(':id/custo')
+  custo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.produtosService.custo(id, user.empresaId);
+  }
+
   @Post()
   create(@Body() dto: CreateProdutoDto, @CurrentUser() user: AuthUser) {
     return this.produtosService.create(dto, user.empresaId);

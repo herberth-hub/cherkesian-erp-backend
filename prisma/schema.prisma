@@ -107,6 +107,7 @@ model Cliente {
   clienteNovo Boolean @default(true)
   obs        String?
   pedidos    Pedido[]
+  medidas    Medida[]
   criadoEm   DateTime @default(now())
 }
 
@@ -325,6 +326,23 @@ model Documento {
   urlPdf     String?
   geradoPor  String?
   geradoEm   DateTime @default(now())
+}
+
+model Medida { // Ficha de medidas — grade de tamanho por colaborador do cliente
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  clienteId   Int
+  cliente     Cliente  @relation(fields: [clienteId], references: [id])
+  colaborador String
+  cargo       String?
+  tamanho     String   // PP, P, M, G, G2...
+  torax       Decimal? @db.Decimal(6,2)
+  cintura     Decimal? @db.Decimal(6,2)
+  quadril     Decimal? @db.Decimal(6,2)
+  altura      Decimal? @db.Decimal(6,2)
+  obs         String?
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
 }
 
 model Log {

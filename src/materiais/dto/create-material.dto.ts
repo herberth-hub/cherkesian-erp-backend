@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -8,11 +9,16 @@ import {
 } from 'class-validator';
 
 export class CreateMaterialDto {
-  /** Opcional: se omitido, o sistema gera no padrão MP-CAT-0000. */
+  /** Opcional: se omitido, o sistema gera no padrão MP-CAT-0000 (ou AVI-CAT-0000). */
   @IsOptional()
   @IsString()
   @MaxLength(30)
   codigo?: string;
+
+  /** Prefixo do código gerado: MP (matéria-prima, padrão) ou AVI (aviamento). */
+  @IsOptional()
+  @IsIn(['MP', 'AVI'], { message: "prefixo deve ser 'MP' ou 'AVI'." })
+  prefixo?: 'MP' | 'AVI';
 
   @IsString()
   @IsNotEmpty({ message: 'Informe a categoria.' })

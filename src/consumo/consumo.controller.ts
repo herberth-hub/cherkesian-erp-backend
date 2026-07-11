@@ -21,11 +21,10 @@ export class ConsumoController {
   constructor(private readonly consumoService: ConsumoService) {}
 
   @Get()
-  findAll(
-    @CurrentUser() user: AuthUser,
-    @Query('produtoId', new ParseIntPipe({ optional: true })) produtoId?: number,
-  ) {
-    return this.consumoService.findAll(user.empresaId, produtoId);
+  findAll(@CurrentUser() user: AuthUser, @Query('produtoId') produtoId?: string) {
+    // parse manual: o ValidationPipe global (implicit conversion) conflita com ParseIntPipe optional
+    const id = produtoId ? Number(produtoId) : undefined;
+    return this.consumoService.findAll(user.empresaId, Number.isInteger(id) ? id : undefined);
   }
 
   @Post()

@@ -29,7 +29,9 @@ export class MateriaisService {
   }
 
   async create(dto: CreateMaterialDto, empresaId: number): Promise<Material> {
-    const codigo = dto.codigo?.trim() || (await this.gerarCodigo(dto.categoria, empresaId));
+    const codigo =
+      dto.codigo?.trim() ||
+      (await this.gerarCodigo(dto.categoria, empresaId, dto.prefixo ?? 'MP'));
     try {
       return await this.prisma.material.create({
         data: {
@@ -71,12 +73,16 @@ export class MateriaisService {
     return materiais.filter((m) => m.saldo.lessThan(m.minimo));
   }
 
-  private async gerarCodigo(categoria: string, empresaId: number): Promise<string> {
+  private async gerarCodigo(
+    categoria: string,
+    empresaId: number,
+    prefixo: 'MP' | 'AVI' = 'MP',
+  ): Promise<string> {
     const existentes = await this.prisma.material.findMany({
       where: { empresaId },
       select: { codigo: true },
     });
-    return proximoCodigo('MP', categoria, existentes.map((m) => m.codigo));
+    return proximoCodigo(prefixo, categoria, existentes.map((m) => m.codigo));
   }
 
   private tratarErroUnico(err: unknown, codigo: string): Error {

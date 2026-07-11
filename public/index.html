@@ -157,16 +157,16 @@ const ACCESS = {
   financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes'],
 };
 const NAVDEF = [
-  ['Visão geral', [['dashboard','Dashboard','grid']]],
-  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['comissoes','Comissões','pct']]],
+  ['Visão geral', [['dashboard','Dashboard','grid'],['tv','Painel de TV','tv']]],
+  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
-  ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['fornecedores','Fornecedores','users']]],
+  ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Administração', [['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -187,6 +187,11 @@ const TITLES = {
   expedicao:['Expedição','Envios com rastreio, NF e lote consumido'],
   usuarios:['Usuários & Acessos','Gestão de logins e permissões · admin'],
   logs:['Auditoria / Logs','Histórico de ações no sistema · admin'],
+  medidas:['Ficha de Medidas','Grade de tamanhos por colaborador do cliente'],
+  precificacao:['Precificação','Ficha de custo · preço sugerido pela margem'],
+  aviamentos:['Aviamentos','Botões, zíperes, etiquetas · AVI-CAT-0000'],
+  tv:['Painel de Setor','Modo TV · produção em tempo real'],
+  regras:['Categorias & Regras','Padronização de códigos do sistema'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -207,6 +212,11 @@ const ICONS = {
   layers:'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
   shield:'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z',
   clock:'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18',
+  tv:'M3 7h18v11H3zM8 21h8M8 3l4 4 4-4',
+  ruler:'M3 17L17 3l4 4L7 21zM8 12l2 2M11 9l2 2M14 6l2 2',
+  tag:'M3 12V3h9l9 9-9 9zM7.5 7.5a.5.5 0 100 .01',
+  scissors:'M6 9a3 3 0 100-6 3 3 0 000 6M6 21a3 3 0 100-6 3 3 0 000 6M20 4L8.5 15.5M20 20L8.5 8.5',
+  book:'M4 19V5a2 2 0 012-2h14v18H6a2 2 0 01-2-2zM4 17h16',
 };
 function icon(k){ const d=ICONS[k]||'M5 12h14'; return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+d+'"/></svg>'; }
 
@@ -397,6 +407,7 @@ function go(route){
 }
 async function loadRoute(){
   const c = $('content'); if(!c) return;
+  if(S._tv){ clearInterval(S._tv); S._tv=null; } // encerra auto-refresh do modo TV
   if(!READY.has(S.route)){ c.innerHTML = `<div class="empty">A tela <b>${esc((TITLES[S.route]||[S.route])[0])}</b> ainda não faz parte desta fatia vertical.<br>Já funciona no backend — será conectada nas próximas etapas.</div>`; return; }
   c.innerHTML = `<div class="spin"></div>`;
   try{
@@ -419,6 +430,11 @@ async function loadRoute(){
     if(S.route==='expedicao') return await viewExpedicao(c);
     if(S.route==='usuarios') return await viewUsuarios(c);
     if(S.route==='logs') return await viewLogs(c);
+    if(S.route==='medidas') return await viewMedidas(c);
+    if(S.route==='precificacao') return await viewPrecificacao(c);
+    if(S.route==='aviamentos') return await viewAviamentos(c);
+    if(S.route==='tv') return await viewTv(c);
+    if(S.route==='regras') return viewRegras(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -473,7 +489,7 @@ async function viewProdutos(c){
     ]), list.length?null:'Nenhum produto ainda.');
 }
 async function viewMateriais(c){
-  const list = await api('/materiais');
+  const list = (await api('/materiais')).filter(m=>!m.codigo.startsWith('AVI-'));
   c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()') + panelTable(
     ['Código','Descrição','Un.','Saldo','Mínimo','Custo'],
     list.map(m=>{
@@ -1063,6 +1079,189 @@ async function viewLogs(c){
     ]), list.length?null:'Sem registros de auditoria.');
 }
 
+// ---------- Telas finais: medidas, precificação, aviamentos, TV, regras ----------
+async function viewMedidas(c){
+  const list = await api('/medidas');
+  c.innerHTML = toolbar('Fichas de medidas', 'Nova ficha', 'APP.formMedida()') + panelTable(
+    ['Cliente','Colaborador','Cargo','Tamanho','Tórax','Cintura','Quadril','Altura','Ações'],
+    list.map(m=>[
+      esc(m.cliente?m.cliente.nome:('#'+m.clienteId)), `<b>${esc(m.colaborador)}</b>`, esc(m.cargo||'—'),
+      `<span class="pill gold">${esc(m.tamanho)}</span>`,
+      m.torax??'—', m.cintura??'—', m.quadril??'—', m.altura??'—',
+      `<button class="btn-sm" onclick='APP.formMedida(${JSON.stringify(m).replace(/'/g,"&#39;")})'>Editar</button> <button class="btn-sm" onclick="APP.removeMedida(${m.id})">Excluir</button>`
+    ]), list.length?null:'Nenhuma ficha de medidas.');
+}
+async function formMedida(m){
+  m = m||{};
+  const clientes = await api('/clientes');
+  const co = clientes.map(cl=>`<option value="${cl.id}" ${cl.id===m.clienteId?'selected':''}>${esc(cl.nome)}</option>`).join('');
+  openModal(`<h3>${m.id?'Editar':'Nova'} ficha de medidas</h3>
+    <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp" ${m.id?'disabled':''}>${co||'<option>—</option>'}</select></div>
+    <div class="grid2">${field('f_colab','Colaborador *','value="'+esc(m.colaborador||'')+'"')}${field('f_cargo','Cargo','value="'+esc(m.cargo||'')+'"')}</div>
+    <div class="grid2">${field('f_tam','Tamanho * (PP, P, M...)','value="'+esc(m.tamanho||'')+'"')}${field('f_alt','Altura (cm)','type="number" step="0.5" value="'+(m.altura??'')+'"')}</div>
+    <div class="grid3">${field('f_torax','Tórax (cm)','type="number" step="0.5" value="'+(m.torax??'')+'"')}${field('f_cint','Cintura (cm)','type="number" step="0.5" value="'+(m.cintura??'')+'"')}${field('f_quad','Quadril (cm)','type="number" step="0.5" value="'+(m.quadril??'')+'"')}</div>
+    ${field('f_obs','Observação','value="'+esc(m.obs||'')+'"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveMedida(${m.id||0})">Salvar</button></div>`);
+}
+async function saveMedida(id){
+  const body = { colaborador:val('f_colab'), tamanho:val('f_tam') };
+  if(!id) body.clienteId = Number(val('f_cli'));
+  const opt = { cargo:'f_cargo', obs:'f_obs' };
+  Object.entries(opt).forEach(([k,f])=>{ const v=val(f); if(v) body[k]=v; });
+  const nums = { torax:'f_torax', cintura:'f_cint', quadril:'f_quad', altura:'f_alt' };
+  Object.entries(nums).forEach(([k,f])=>{ const v=val(f); if(v) body[k]=Number(v); });
+  if(!body.colaborador||!body.tamanho||(!id&&!body.clienteId)){ toast('Preencha cliente, colaborador e tamanho.','err'); return; }
+  try{ await api(id?('/medidas/'+id):'/medidas',{method:id?'PATCH':'POST',body}); closeModal(); toast('Ficha salva.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function removeMedida(id){
+  try{ await api('/medidas/'+id,{method:'DELETE'}); toast('Ficha excluída.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+async function viewPrecificacao(c){
+  const prods = await api('/produtos');
+  const po = ['<option value="">— selecione o produto —</option>'].concat(prods.map(p=>`<option value="${p.id}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`)).join('');
+  c.innerHTML = `
+    <div class="panel" style="padding:18px">
+      <label class="fl">Produto</label>
+      <select id="pr_prod" class="inp" style="max-width:520px" onchange="APP.loadCusto()">${po}</select>
+    </div>
+    <div id="pr_out" style="margin-top:18px"><div class="empty">Selecione um produto para montar a ficha de custo.</div></div>`;
+}
+async function loadCusto(){
+  const id = val('pr_prod'); const out = $('pr_out');
+  if(!id){ out.innerHTML = '<div class="empty">Selecione um produto.</div>'; return; }
+  out.innerHTML = '<div class="spin"></div>';
+  try{
+    const d = await api('/produtos/'+id+'/custo');
+    window.__CUSTO = Number(d.custoMaterial);
+    out.innerHTML = `
+      <div class="sect" style="margin-top:0"><h3>Consumo (BOM) · ${esc(d.produto.codigo)}</h3>` +
+      (d.itens.length ? panelTable(['Material','Descrição','Qtd','Custo unit.','Subtotal'],
+        d.itens.map(i=>[`<span class="mono gold">${esc(i.material)}</span>`, esc(i.descricao), esc(i.quantidade)+' '+esc(i.unidade), money(i.custoUnit), `<b>${money(i.subtotal)}</b>`]))
+        : '<div class="panel"><div class="empty">Este produto ainda não tem receita (BOM) cadastrada.</div></div>') + `</div>
+      <div class="sect"><h3>Composição do preço</h3>
+        <div class="panel" style="padding:18px">
+          <div class="grid3">
+            <div><label class="fl">Custo de material (BOM)</label><input class="inp" value="${money(d.custoMaterial)}" disabled></div>
+            ${field('pr_mo','Mão de obra + facção (R$)','type="number" step="0.01" value="0" oninput="APP.calcPreco()"')}
+            ${field('pr_outros','Outros custos (R$)','type="number" step="0.01" value="0" oninput="APP.calcPreco()"')}
+          </div>
+          <div class="grid2" style="margin-top:4px">
+            ${field('pr_imp','Impostos sobre venda (%)','type="number" step="0.01" value="5.93" oninput="APP.calcPreco()"')}
+            ${field('pr_marg','Margem desejada (%)','type="number" step="0.5" value="40" oninput="APP.calcPreco()"')}
+          </div>
+          <div id="pr_res" style="margin-top:10px"></div>
+        </div>
+      </div>`;
+    calcPreco();
+  }catch(e){ out.innerHTML = `<div class="empty" style="color:#c14a34">${esc(e.message)}</div>`; }
+}
+function calcPreco(){
+  const custo = (window.__CUSTO||0) + Number(val('pr_mo')||0) + Number(val('pr_outros')||0);
+  const imp = Number(val('pr_imp')||0), marg = Number(val('pr_marg')||0);
+  const divisor = 1 - (imp+marg)/100;
+  const el = $('pr_res'); if(!el) return;
+  if(divisor <= 0){ el.innerHTML = '<div class="err">Impostos + margem não podem somar 100% ou mais.</div>'; return; }
+  const preco = custo/divisor, lucro = preco*marg/100;
+  el.innerHTML = `<div class="cards">
+    ${kpi('Custo total da peça', money(custo), 'material + mão de obra + outros')}
+    ${kpi('Preço de venda sugerido', money(preco), 'markup divisor: 1 − (imp% + margem%)')}
+    ${kpi('Lucro estimado / peça', money(lucro), marg+'% sobre o preço')}
+  </div>`;
+}
+
+async function viewAviamentos(c){
+  const list = (await api('/materiais')).filter(m=>m.codigo.startsWith('AVI-'));
+  c.innerHTML = toolbar('Aviamentos (botões, zíperes, etiquetas...)', 'Novo aviamento', 'APP.formAviamento()') + panelTable(
+    ['Código','Descrição','Un.','Saldo','Mínimo','Custo'],
+    list.map(m=>{
+      const baixo = Number(m.saldo) < Number(m.minimo);
+      return [
+        `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao), esc(m.unidade),
+        `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo)
+      ];
+    }), list.length?null:'Nenhum aviamento cadastrado.');
+}
+async function formAviamento(){
+  openModal(`<h3>Novo aviamento</h3>
+    ${field('f_cat','Categoria * (ex.: Botão, Zíper)','')}
+    ${field('f_desc','Descrição *','')}
+    <div class="grid3">${field('f_cor','Cor','')}${field('f_un','Unidade','value="un"')}${field('f_custo','Custo','type="number" step="0.01"')}</div>
+    <div class="grid2">${field('f_saldo','Saldo inicial','type="number" step="0.001" value="0"')}${field('f_min','Mínimo','type="number" step="0.001" value="0"')}</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">O código AVI-CAT-0000 é gerado automaticamente.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveAviamento()">Salvar</button></div>`);
+}
+async function saveAviamento(){
+  const body = { prefixo:'AVI', categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), unidade:val('f_un')||'un',
+    custo:Number(val('f_custo')||0), saldo:Number(val('f_saldo')||0), minimo:Number(val('f_min')||0) };
+  if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
+  if(!body.cor) delete body.cor;
+  try{ await api('/materiais',{method:'POST',body}); closeModal(); toast('Aviamento criado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+async function viewTv(c){
+  async function render(){
+    const [d, painel] = await Promise.all([api('/dashboard'), api('/pcp/painel')]);
+    const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    const rows = painel.map(o=>`
+      <div style="display:grid;grid-template-columns:110px 1fr 90px 140px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07)">
+        <div class="mono" style="color:var(--gold-l);font-size:17px;font-weight:600">${esc(o.numero)}</div>
+        <div><div style="font-size:14px;color:#e8e4d8">${esc(o.pedido||'—')} · ${o.quantidade} pçs ${o.atrasada?'<span class="pill red" style="margin-left:8px">ATRASADA</span>':''}</div>
+          <div style="height:8px;background:rgba(255,255,255,.1);border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${o.progresso}%;background:var(--gold)"></div></div></div>
+        <div style="font-family:'Sora';font-size:21px;font-weight:700;color:#fff;text-align:right">${o.progresso}%</div>
+        <div style="font-size:12px;color:#a8a396;text-align:right">${esc(o.status.replace(/_/g,' '))}${o.setorAtual?'<br>'+esc(o.setorAtual):''}</div>
+      </div>`).join('');
+    c.innerHTML = `
+      <div style="background:var(--onyx);border-radius:16px;padding:26px;min-height:70vh">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px">
+          <div><span class="kicker">GRUPO CHERKESIAN</span>
+            <div style="font-family:'Sora';font-weight:700;font-size:24px;color:var(--ivory)">Painel de Produção</div></div>
+          <div style="font-family:'Sora';font-weight:700;font-size:34px;color:var(--gold-l)">${hora}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px">
+          ${[['OPs ativas',d.producao.opsAtivas],['Peças em produção',d.producao.pecasEmProducao],['Compras aguardando',d.compras.ordensAguardando],['Pedidos',d.pedidos.total]].map(([k,v])=>`
+            <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:16px">
+              <div style="font-size:11px;color:#a8a396;letter-spacing:.06em">${k}</div>
+              <div style="font-family:'Sora';font-weight:700;font-size:34px;color:#fff;margin-top:4px">${v}</div>
+            </div>`).join('')}
+        </div>
+        <div style="border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden">
+          ${rows || '<div style="padding:40px;text-align:center;color:#a8a396">Nenhuma OP em aberto — produção em dia ✨</div>'}
+        </div>
+        <div style="margin-top:14px;font-size:11px;color:#6d6857;text-align:right">atualiza a cada 30s</div>
+      </div>`;
+  }
+  await render();
+  S._tv = setInterval(()=>{ if(S.route==='tv') render().catch(()=>{}); }, 30000);
+}
+
+function viewRegras(c){
+  const CATS = {
+    'PRD — Produtos acabados': [['CAM','Camisa / Polo'],['CAL','Calça'],['JAL','Jaleco'],['AVE','Avental'],['DOL','Dólmã'],['SCR','Scrub'],['MAC','Macacão'],['COL','Colete'],['BLA','Blazer'],['MOL','Moletom'],['OUT','Outros']],
+    'MP — Matéria-prima': [['TEC','Tecido'],['MAL','Malha'],['BRI','Brim'],['FOR','Forro'],['ENT','Entretela'],['LIN','Linha'],['ELA','Elástico'],['OUT','Outros']],
+    'AVI — Aviamentos': [['BTN','Botão'],['ZIP','Zíper'],['VEL','Velcro'],['REB','Rebite'],['FIV','Fivela'],['ETI','Etiqueta'],['CAD','Cadarço'],['OUT','Outros']],
+  };
+  const SEQ = [['Pedido de venda','PV01'],['Ordem de produção','OP-0001'],['Ordem de compra','OC-0001'],['Peça piloto','PIL-0001'],['Expedição','EXP-0001'],['Lote de estoque','L2607-01 (LAAMM-NN)']];
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:18px">
+      <div style="font-size:13.5px;color:var(--ink2);line-height:1.6">Todo código do sistema segue o padrão
+      <span class="mono gold">PREFIXO-CAT-0000</span> — o prefixo identifica o tipo, a categoria abrevia a família
+      e o sequencial é gerado automaticamente pelo servidor.</div>
+    </div>
+    <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      ${Object.entries(CATS).map(([t,rows])=>`
+        <div class="panel"><div style="padding:12px 14px;border-bottom:1px solid var(--line);font-family:'Sora';font-weight:600;font-size:13px">${t}</div>
+        <table><tbody>${rows.map(([c2,n])=>`<tr><td style="width:70px"><span class="mono gold">${c2}</span></td><td>${n}</td></tr>`).join('')}</tbody></table></div>`).join('')}
+      <div class="panel"><div style="padding:12px 14px;border-bottom:1px solid var(--line);font-family:'Sora';font-weight:600;font-size:13px">Sequenciais do sistema</div>
+        <table><tbody>${SEQ.map(([n,x])=>`<tr><td>${n}</td><td style="text-align:right"><span class="mono gold">${x}</span></td></tr>`).join('')}</tbody></table></div>
+    </div>`;
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -1092,6 +1291,8 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formUsuario, saveUsuario, removeUsuario,
+  formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
+  formAviamento, saveAviamento,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();
