@@ -869,10 +869,13 @@ async function viewProducao(c){
 }
 function formOp(o){
   const opts = OP_STATUS.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('');
+  const gradeAtual = o.gradeTamanhos ? Object.entries(o.gradeTamanhos).map(([t,q])=>t+':'+q).join(', ') : '';
   openModal(`<h3>Atualizar OP ${esc(o.numero)}</h3>
     <div class="mrow"><label class="fl">Status</label><select id="f_st" class="inp">${opts}</select></div>
     <div class="grid2">${field('f_setor','Setor atual','value="'+esc(o.setorAtual||'')+'"')}${field('f_resp','Responsável','value="'+esc(o.responsavel||'')+'"')}</div>
     ${field('f_prog','Progresso (%)','type="number" min="0" max="100" value="'+(o.progresso||0)+'"')}
+    ${field('f_gradeop','Grade de tamanhos (ex.: P:10, M:20, G:8)','value="'+esc(gradeAtual)+'" placeholder="deve somar '+o.quantidade+' peças"')}
+    <div class="muted" style="font-size:11px;margin-bottom:8px">A grade aparece em caixinhas no PDF da OP. Deixe em branco para imprimir a grade do produto vazia (preenchimento manual).</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveOp(${o.id})">Salvar</button></div>`);
 }
@@ -880,6 +883,15 @@ async function saveOp(id){
   try{
     await api('/ops/'+id+'/status',{method:'PATCH',body:{status:val('f_st'), setorAtual:val('f_setor')||undefined, responsavel:val('f_resp')||undefined}});
     await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:Number(val('f_prog')||0)}});
+    const gradeTxt = val('f_gradeop');
+    const grade = {};
+    if(gradeTxt){
+      for(const par of gradeTxt.split(/[,;]+/)){
+        const [t,q] = par.split(':').map(s=>s.trim());
+        if(t && q) grade[t.toUpperCase()] = Number(q);
+      }
+    }
+    await api('/ops/'+id+'/grade',{method:'PATCH',body:{grade}});
     closeModal(); toast('OP atualizada.','ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }

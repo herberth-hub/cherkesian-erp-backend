@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OP } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
@@ -42,6 +42,31 @@ export class OpsService {
       data.progresso = 100;
     }
     return this.prisma.oP.update({ where: { id }, data });
+  }
+
+  /** Define a grade de tamanhos da OP, ex.: {"P":10,"M":20,"G":8}. {} limpa. */
+  async updateGrade(id: number, grade: Record<string, unknown>, empresaId: number): Promise<OP> {
+    const op = await this.findOne(id, empresaId);
+    const limpa: Record<string, number> = {};
+    let total = 0;
+    for (const [tamanho, qtd] of Object.entries(grade ?? {})) {
+      const t = String(tamanho).trim().toUpperCase();
+      const n = Number(qtd);
+      if (!t || t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
+      if (!Number.isInteger(n) || n < 0) {
+        throw new BadRequestException(`Quantidade inválida para ${t}: "${qtd}".`);
+      }
+      if (n > 0) { limpa[t] = n; total += n; }
+    }
+    if (total > 0 && total !== op.quantidade) {
+      throw new BadRequestException(
+        `A grade soma ${total} peças, mas a OP tem ${op.quantidade}. Ajuste as quantidades.`,
+      );
+    }
+    return this.prisma.oP.update({
+      where: { id },
+      data: { gradeTamanhos: total > 0 ? limpa : undefined },
+    });
   }
 
   async updateProgresso(id: number, dto: UpdateOpProgressoDto, empresaId: number): Promise<OP> {

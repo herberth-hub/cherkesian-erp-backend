@@ -141,6 +141,40 @@ export function tabela(
   doc.y = y + 8;
 }
 
+/**
+ * Grade de tamanhos em caixinhas (visualização de operação na OP).
+ * Cada caixa: tamanho no topo (faixa dourada) e quantidade grande abaixo;
+ * quantidade vazia ('') desenha a caixa em branco para preenchimento manual.
+ */
+export function gradeCaixinhas(doc: Pdf, itens: Array<[string, string]>): void {
+  const larguraCaixa = 62;
+  const alturaCaixa = 52;
+  const gap = 8;
+  const x0 = 50;
+  const maxX = doc.page.width - 50;
+  let x = x0;
+  let y = doc.y + 6;
+
+  for (const [tamanho, qtd] of itens) {
+    if (x + larguraCaixa > maxX) { x = x0; y += alturaCaixa + gap; }
+    if (y + alturaCaixa > doc.page.height - 110) { doc.addPage(); y = 128; x = x0; }
+    // moldura
+    doc.roundedRect(x, y, larguraCaixa, alturaCaixa, 5).lineWidth(0.9).strokeColor(OURO).stroke();
+    // faixa do tamanho
+    doc.roundedRect(x, y, larguraCaixa, 17, 5).fill('#f7efd3');
+    doc.rect(x, y + 9, larguraCaixa, 8).fill('#f7efd3'); // esconde cantos inferiores da faixa
+    doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(9)
+      .text(tamanho, x, y + 5, { width: larguraCaixa, align: 'center' });
+    // quantidade
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(17)
+      .text(qtd || ' ', x, y + 25, { width: larguraCaixa, align: 'center' });
+    x += larguraCaixa + gap;
+  }
+  doc.x = x0;
+  doc.y = y + alturaCaixa + 12;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
 /** Destaque de total (caixa dourada à direita). */
 export function totalDestaque(doc: Pdf, rotulo: string, valor: string): void {
   const w = 220;

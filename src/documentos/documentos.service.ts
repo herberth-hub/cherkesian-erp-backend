@@ -15,6 +15,7 @@ import {
   assinaturas,
   camposDuplos,
   dataBR,
+  gradeCaixinhas,
   money,
   novaEtiqueta,
   novoDocumento,
@@ -261,6 +262,17 @@ export class DocumentosService {
       ]);
     }
 
+    // Grade de tamanhos em caixinhas: usa a distribuição da OP quando definida;
+    // sem distribuição, desenha os tamanhos do produto em branco (preenchimento manual).
+    const grade = op.gradeTamanhos as Record<string, number> | null;
+    if (grade && Object.keys(grade).length) {
+      secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
+      gradeCaixinhas(doc, Object.entries(grade).map(([t, q]) => [t, String(q)]));
+    } else if (produto?.grade) {
+      secao(doc, 'Grade de tamanhos (preencher)');
+      gradeCaixinhas(doc, this.expandirGrade(produto.grade).map((t) => [t, '']));
+    }
+
     if (bom.length) {
       secao(doc, 'Consumo de material (por peça × total da OP)');
       tabela(
@@ -281,6 +293,22 @@ export class DocumentosService {
     }
     assinaturas(doc, 'PCP / Programação', 'Produção — Recebido');
     return doc;
+  }
+
+  /**
+   * Expande a grade textual do produto em lista de tamanhos:
+   * "PP,GA" → [PP, GA] · "PP ao G4" → escada padrão entre os extremos.
+   */
+  private expandirGrade(grade: string): string[] {
+    const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8'];
+    const texto = grade.trim().toUpperCase();
+    const m = /^(\S+)\s+AO?\s+(\S+)$/.exec(texto);
+    if (m) {
+      const i = ESCADA.indexOf(m[1]);
+      const f = ESCADA.indexOf(m[2]);
+      if (i >= 0 && f >= i) return ESCADA.slice(i, f + 1);
+    }
+    return texto.split(/[,;/]+/).map((t) => t.trim()).filter(Boolean).slice(0, 16);
   }
 
   private async pdfCompra(ocId: number, empresaId: number, numero: string): Promise<Pdf> {

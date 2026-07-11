@@ -7,7 +7,7 @@ import {
   Patch,
 } from '@nestjs/common';
 import { OpsService } from './ops.service';
-import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
+import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -34,6 +34,15 @@ export class OpsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.opsService.updateStatus(id, dto, user.empresaId);
+  }
+
+  @Patch(':id/grade')
+  updateGrade(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateOpGradeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.updateGrade(id, dto.grade, user.empresaId);
   }
 
   @Patch(':id/progresso')

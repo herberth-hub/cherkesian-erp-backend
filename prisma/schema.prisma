@@ -223,6 +223,7 @@ model OP {
   progresso      Int      @default(0)
   pilotoLiberado Boolean  @default(false)
   prioridade     Prioridade @default(media)
+  gradeTamanhos  Json?    // distribuição por tamanho, ex.: {"P":10,"M":20,"G":8}
   lotes          Lote[]
 }
 
