@@ -525,7 +525,9 @@ function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='producao'||e===
 function pedidoAcoes(p){
   let b='';
   if(p.etapa==='orcamento') b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
-  if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button>`;
+  if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
+  b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
+  if(p.etapa!=='orcamento') b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button>`;
   return b||'<span class="muted">—</span>';
 }
 
@@ -861,7 +863,7 @@ async function viewProducao(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), esc(o.setorAtual||'—'), prioPill(o.prioridade),
-      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button>`
+      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
 }
 function formOp(o){
@@ -922,7 +924,7 @@ async function viewCompras(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor), ocPill(o.status),
-      o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button>`:'<span class="muted">—</span>'
+      (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma ordem de compra.');
 }
 async function formCompra(){
@@ -987,8 +989,8 @@ async function saveMov(){
 async function verLotes(codigo){
   try{
     const lotes = await api('/estoque/'+encodeURIComponent(codigo)+'/lotes');
-    openModal(`<h3>Lotes · ${esc(codigo)}</h3>`+ (lotes.length? panelTable(['Lote','Tamanho','Qtd','Data'],
-      lotes.map(l=>[`<span class="mono">${esc(l.codigoLote)}</span>`, esc(l.estoque?l.estoque.tamanho:'—'), l.quantidade, dfmt(l.data)])) :
+    openModal(`<h3>Lotes · ${esc(codigo)}</h3>`+ (lotes.length? panelTable(['Lote','Tamanho','Qtd','Data','Etiqueta'],
+      lotes.map(l=>[`<span class="mono">${esc(l.codigoLote)}</span>`, esc(l.estoque?l.estoque.tamanho:'—'), l.quantidade, dfmt(l.data), `<button class="btn-sm" onclick="APP.gerarDoc('etiqueta',${l.id})">🖨</button>`])) :
       '<div class="empty">Sem lotes.</div>') + `<div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
   }catch(e){ toast(e.message,'err'); }
 }
@@ -997,10 +999,11 @@ async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()') + panelTable(
-    ['Número','Cliente','Peças','Transportadora','Rastreio','Status','Data'],
+    ['Número','Cliente','Peças','Transportadora','Rastreio','Status','Data','Doc'],
     list.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
-      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`, `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data)
+      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`, `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data),
+      `<button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
 }
 async function formExpedicao(){
@@ -1088,7 +1091,7 @@ async function viewMedidas(c){
       esc(m.cliente?m.cliente.nome:('#'+m.clienteId)), `<b>${esc(m.colaborador)}</b>`, esc(m.cargo||'—'),
       `<span class="pill gold">${esc(m.tamanho)}</span>`,
       m.torax??'—', m.cintura??'—', m.quadril??'—', m.altura??'—',
-      `<button class="btn-sm" onclick='APP.formMedida(${JSON.stringify(m).replace(/'/g,"&#39;")})'>Editar</button> <button class="btn-sm" onclick="APP.removeMedida(${m.id})">Excluir</button>`
+      `<button class="btn-sm" onclick='APP.formMedida(${JSON.stringify(m).replace(/'/g,"&#39;")})'>Editar</button> <button class="btn-sm" onclick="APP.removeMedida(${m.id})">Excluir</button> <button class="btn-sm" onclick="APP.gerarDoc('ficha_medidas',${m.clienteId})">🖨</button>`
     ]), list.length?null:'Nenhuma ficha de medidas.');
 }
 async function formMedida(m){
@@ -1262,6 +1265,18 @@ function viewRegras(c){
     </div>`;
 }
 
+// ---------- Documentos (PDF em papel timbrado) ----------
+async function gerarDoc(tipo, refId){
+  try{
+    const d = await api('/documentos/'+tipo, {method:'POST', body:{referenciaId:refId}});
+    const r = await fetch(d.urlPdf, { headers: { Authorization:'Bearer '+S.access } });
+    if(!r.ok) throw new Error('Falha ao baixar o PDF ('+r.status+').');
+    const blob = await r.blob();
+    window.open(URL.createObjectURL(blob), '_blank');
+    toast('Documento '+d.numero+' gerado.','ok');
+  }catch(e){ toast(e.message,'err'); }
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -1292,7 +1307,7 @@ window.APP = {
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formUsuario, saveUsuario, removeUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
-  formAviamento, saveAviamento,
+  formAviamento, saveAviamento, gerarDoc,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();

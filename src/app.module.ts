@@ -19,6 +19,7 @@ import { EstoqueModule } from './estoque/estoque.module';
 import { ExpedicoesModule } from './expedicoes/expedicoes.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { MedidasModule } from './medidas/medidas.module';
+import { DocumentosModule } from './documentos/documentos.module';
 import { LogsModule } from './logs/logs.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PcpModule } from './pcp/pcp.module';
@@ -54,6 +55,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     ExpedicoesModule,
     FinanceiroModule,
     MedidasModule,
+    DocumentosModule,
     LogsModule,
     DashboardModule,
     PcpModule,
