@@ -64,10 +64,13 @@ export class EmailService {
           'SMTP não configurado — envio simulado. Defina SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM para enviar de verdade.',
       };
     }
-    const from =
-      this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER');
+    // Se SMTP_FROM já vem no formato "Nome <email>", usa como está;
+    // se for só o e-mail, adiciona o nome da marca.
+    const fromEnv =
+      this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || '';
+    const from = fromEnv.includes('<') ? fromEnv : `"GRUPO CHERKESIAN" <${fromEnv}>`;
     const info = await this.transporter.sendMail({
-      from: `"GRUPO CHERKESIAN" <${from}>`,
+      from,
       to: envio.para,
       subject: envio.assunto,
       text: envio.texto,
