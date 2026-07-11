@@ -150,23 +150,23 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','clientes','medidas','comissoes','precificacao','receber'],
+  comercial:['dashboard','tv','vendas','clientes','medidas','comissoes','precificacao','receber','notas'],
   producao:['dashboard','tv','pcp','producao','piloto','compras','estoque','medidas','produtos','materia','aviamentos','regras'],
   chao:['tv','producao','piloto','estoque'],
-  expedicao:['dashboard','tv','estoque','expedicao'],
-  financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes'],
+  expedicao:['dashboard','tv','estoque','expedicao','notas'],
+  financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas'],
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['tv','Painel de TV','tv']]],
   ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
-  ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck']]],
+  ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Administração', [['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -193,6 +193,7 @@ const TITLES = {
   tv:['Painel de Setor','Modo TV · produção em tempo real'],
   regras:['Categorias & Regras','Padronização de códigos do sistema'],
   empresa:['Configuração Fiscal','Empresa emitente da NF-e + numeração · admin'],
+  notas:['Notas Fiscais','NF-e emitidas · status, chave e protocolo'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -429,6 +430,7 @@ async function loadRoute(){
     if(S.route==='compras') return await viewCompras(c);
     if(S.route==='estoque') return await viewEstoque(c);
     if(S.route==='expedicao') return await viewExpedicao(c);
+    if(S.route==='notas') return await viewNotas(c);
     if(S.route==='usuarios') return await viewUsuarios(c);
     if(S.route==='logs') return await viewLogs(c);
     if(S.route==='medidas') return await viewMedidas(c);
@@ -1341,6 +1343,24 @@ async function sendEmailDoc(tipo, refId){
     if(r.simulado) toast('E-mail SIMULADO p/ '+para+' (configure SMTP_* p/ envio real). Doc '+r.documento+'.','err');
     else toast('E-mail enviado para '+para+' com o documento '+r.documento+'.','ok');
   }catch(e){ toast(e.message,'err'); }
+}
+
+// ---------- Notas Fiscais emitidas ----------
+function nfPill(s){
+  const map = { autorizada:['green','autorizada'], pendente:['blue','pendente'], simulada:['gold','simulada'], rejeitada:['red','rejeitada'], cancelada:['gray','cancelada'] };
+  const m = map[s]||['gray',s]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
+}
+async function viewNotas(c){
+  const [list, clientes] = await Promise.all([api('/nfe'), api('/clientes').catch(()=>[])]);
+  const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
+  const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', '', '') + panelTable(
+    ['Número','Série','Status','Valor','Chave de acesso','Provedor','Emitida em','Por'],
+    list.map(n=>[
+      `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
+      n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
+      esc(n.provedor), n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—', esc(n.emitidaPor||'—')
+    ]), list.length?null:'Nenhuma nota fiscal emitida ainda. Emita a partir da tela de Expedição.');
 }
 
 // ---------- Config fiscal da empresa (NF-e) ----------
