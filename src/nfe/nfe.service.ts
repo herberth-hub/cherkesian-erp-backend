@@ -78,6 +78,18 @@ export class NfeService {
       ? await this.emitirFocusNfe(token, `NFE-${empresaId}-${serie}-${numeroSeq}`, payload)
       : this.emitirSimulada();
 
+    // Rejeitada: não persiste nem consome número (a SEFAZ/provedor não aceitou).
+    // Devolve a rejeição para o usuário corrigir (auditada pelo interceptor).
+    if (emissao.status === 'rejeitada') {
+      return {
+        status: 'rejeitada' as const,
+        numero: numeroNota,
+        motivo: emissao.motivo,
+        provedor: emissao.provedor,
+        payloadPreview: token ? undefined : payload,
+      };
+    }
+
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
@@ -95,15 +107,12 @@ export class NfeService {
           emitidaPor: usuario,
         },
       });
-      // Não rejeitada: consome o número da sequência e vincula à expedição.
-      // (pendente = enviada à SEFAZ; a autorização é assíncrona.)
-      if (emissao.status !== 'rejeitada') {
-        await tx.empresa.update({
-          where: { id: empresaId },
-          data: { nfeProximoNumero: numeroSeq + 1 },
-        });
-        await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
-      }
+      // pendente/simulada: consome o número da sequência e vincula à expedição.
+      await tx.empresa.update({
+        where: { id: empresaId },
+        data: { nfeProximoNumero: numeroSeq + 1 },
+      });
+      await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
       return criada;
     });
 
