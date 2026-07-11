@@ -1313,7 +1313,9 @@ async function gerarDoc(tipo, refId){
 async function emitirNfe(expedicaoId){
   try{
     const n = await api('/nfe/emitir',{method:'POST',body:{expedicaoId}});
-    if(n.status==='simulada') toast('NF '+n.numero+' emitida em MODO SIMULADO (configure FOCUS_NFE_TOKEN p/ emissão real).','err');
+    if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
+    else if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
+    else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — aguardando autorização.','ok');
     else toast('NF '+n.numero+' — '+n.status+'.','ok');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
