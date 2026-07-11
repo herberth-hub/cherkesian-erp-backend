@@ -36,6 +36,10 @@ export class EmailService {
         port: Number(this.config.get<string>('SMTP_PORT')) || 587,
         secure: Number(this.config.get<string>('SMTP_PORT')) === 465,
         auth: { user, pass },
+        // Falha rápida e clara em problemas de rede (em vez de pendurar a request).
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 30_000,
       });
       this.logger.log(`SMTP configurado (${host}).`);
     } else {

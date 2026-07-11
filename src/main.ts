@@ -1,4 +1,9 @@
+import { setDefaultResultOrder } from 'dns';
 import { NestFactory } from '@nestjs/core';
+
+// Prefere IPv4 na resolução DNS: containers PaaS (Render) sem rota IPv6 de
+// saída falham com ENETUNREACH ao conectar em hosts dual-stack (ex.: Gmail SMTP).
+setDefaultResultOrder('ipv4first');
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
