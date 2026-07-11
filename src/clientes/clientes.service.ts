@@ -37,6 +37,7 @@ export class ClientesService {
         segmento: dto.segmento,
         clienteNovo: dto.clienteNovo ?? true,
         obs: dto.obs,
+        ...this.dadosFiscais(dto),
       },
     });
   }
@@ -56,7 +57,23 @@ export class ClientesService {
         segmento: dto.segmento,
         clienteNovo: dto.clienteNovo,
         obs: dto.obs,
+        ...this.dadosFiscais(dto),
       },
     });
+  }
+
+  /** Campos fiscais do destinatário presentes no DTO. */
+  private dadosFiscais(dto: CreateClienteDto | UpdateClienteDto) {
+    return {
+      inscricaoEstadual: dto.inscricaoEstadual,
+      indicadorIE: dto.indicadorIE,
+      logradouro: dto.logradouro,
+      numeroEndereco: dto.numeroEndereco,
+      bairro: dto.bairro,
+      municipio: dto.municipio,
+      codMunicipio: dto.codMunicipio,
+      uf: dto.uf,
+      cep: dto.cep,
+    };
   }
 }

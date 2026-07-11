@@ -73,6 +73,24 @@ model Empresa {
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]
+
+  // ===== Dados fiscais (emitente da NF-e) =====
+  cnpj              String?
+  inscricaoEstadual String?
+  crt               Int?    @default(3) // 1=Simples, 2=Simples excesso, 3=Regime Normal
+  nomeFantasia      String?
+  logradouro        String?
+  numeroEndereco    String?
+  complemento       String?
+  bairro            String?
+  municipio         String?
+  codMunicipio      String? // código IBGE (7 dígitos)
+  uf                String?
+  cep               String?
+  telefone          String?
+  // Numeração da NF-e (continuar de onde o sistema anterior parou)
+  nfeSerie          String  @default("1")
+  nfeProximoNumero  Int     @default(1)
 }
 
 model Usuario {
@@ -109,6 +127,17 @@ model Cliente {
   pedidos    Pedido[]
   medidas    Medida[]
   criadoEm   DateTime @default(now())
+
+  // ===== Dados fiscais (destinatário da NF-e) =====
+  inscricaoEstadual String?
+  indicadorIE       Int?    // 1=Contribuinte, 2=Isento, 9=Não contribuinte
+  logradouro        String?
+  numeroEndereco    String?
+  bairro            String?
+  municipio         String?
+  codMunicipio      String?
+  uf                String?
+  cep               String?
 }
 
 model Fornecedor {
@@ -135,6 +164,17 @@ model Produto {
   precoBase Decimal? @db.Decimal(12,2)
   consumo   Consumo[]
   estoque   Estoque[]
+
+  // ===== Dados fiscais (item da NF-e) — validar com a contabilidade =====
+  ncm             String? // 8 dígitos
+  cfop            String? // 4 dígitos (ex.: 5101 venda de produção no estado)
+  origem          Int?    @default(0) // 0=Nacional, 1=Estrangeira import. direta...
+  unidadeComercial String? @default("UN")
+  cest            String?
+  icmsCst         String? // CST (regime normal) ou CSOSN (Simples)
+  pisCst          String? @default("01")
+  cofinsCst       String? @default("01")
+  icmsAliquota    Decimal? @db.Decimal(5,2)
 }
 
 model Material {

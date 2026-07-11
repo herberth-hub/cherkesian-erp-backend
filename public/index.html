@@ -163,10 +163,10 @@ const NAVDEF = [
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
-  ['Administração', [['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
+  ['Administração', [['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -192,6 +192,7 @@ const TITLES = {
   aviamentos:['Aviamentos','Botões, zíperes, etiquetas · AVI-CAT-0000'],
   tv:['Painel de Setor','Modo TV · produção em tempo real'],
   regras:['Categorias & Regras','Padronização de códigos do sistema'],
+  empresa:['Configuração Fiscal','Empresa emitente da NF-e + numeração · admin'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -435,6 +436,7 @@ async function loadRoute(){
     if(S.route==='aviamentos') return await viewAviamentos(c);
     if(S.route==='tv') return await viewTv(c);
     if(S.route==='regras') return viewRegras(c);
+    if(S.route==='empresa') return await viewEmpresa(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -482,10 +484,12 @@ async function viewClientes(c){
 async function viewProdutos(c){
   const list = await api('/produtos');
   c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()') + panelTable(
-    ['Código','Descrição','Categoria','Cor','Grade','Preço base'],
+    ['Código','Descrição','Categoria','Cor','Preço base','NCM','Fiscal'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao), esc(p.categoria),
-      esc(p.cor||'—'), esc(p.grade||'—'), p.precoBase?money(p.precoBase):'—'
+      esc(p.cor||'—'), p.precoBase?money(p.precoBase):'—',
+      p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
+      `<button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button>`
     ]), list.length?null:'Nenhum produto ainda.');
 }
 async function viewMateriais(c){
@@ -560,11 +564,20 @@ async function formCliente(id){
     <div class="grid2">${field('f_contato','Contato','value="'+esc(cl.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(cl.telefone||'')+'"')}</div>
     ${field('f_email','E-mail','value="'+esc(cl.email||'')+'" type="email"')}
     <div class="mrow"><label class="fl"><input type="checkbox" id="f_novo" ${cl.clienteNovo!==false?'checked':''}> Cliente novo (exige peça-piloto)</label></div>
+    <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (destinatário da NF-e)</b></div>
+    <div class="grid2">${field('f_cnpj','CNPJ/CPF','value="'+esc(cl.cnpjCpf||'')+'"')}${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
+    <div class="grid2"><div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${cl.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${cl.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${cl.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>${field('f_cep','CEP','value="'+esc(cl.cep||'')+'"')}</div>
+    <div class="grid3">${field('f_log','Logradouro','value="'+esc(cl.logradouro||'')+'"')}${field('f_numend','Número','value="'+esc(cl.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(cl.bairro||'')+'"')}</div>
+    <div class="grid3">${field('f_mun','Município','value="'+esc(cl.municipio||'')+'"')}${field('f_codmun','Cód. IBGE','value="'+esc(cl.codMunicipio||'')+'"')}${field('f_uf','UF','value="'+esc(cl.uf||'')+'" maxlength="2"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCliente(${id||0})">Salvar</button></div>`);
 }
 async function saveCliente(id){
-  const body = { nome:val('f_nome'), cidadeUf:val('f_cidade'), segmento:val('f_seg'), contato:val('f_contato'), telefone:val('f_tel'), email:val('f_email'), clienteNovo:$('f_novo').checked };
+  const body = { nome:val('f_nome'), cidadeUf:val('f_cidade'), segmento:val('f_seg'), contato:val('f_contato'), telefone:val('f_tel'), email:val('f_email'), clienteNovo:$('f_novo').checked,
+    cnpjCpf:val('f_cnpj'), inscricaoEstadual:val('f_ie'), cep:val('f_cep'),
+    logradouro:val('f_log'), numeroEndereco:val('f_numend'), bairro:val('f_bairro'),
+    municipio:val('f_mun'), codMunicipio:val('f_codmun'), uf:(val('f_uf')||'').toUpperCase() };
+  const ind=val('f_indie'); if(ind) body.indicadorIE=Number(ind);
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/clientes/'+id):'/clientes', {method:id?'PATCH':'POST', body}); closeModal(); toast('Cliente salvo.','ok'); loadRoute(); }
@@ -1328,6 +1341,66 @@ async function sendEmailDoc(tipo, refId){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Config fiscal da empresa (NF-e) ----------
+async function viewEmpresa(c){
+  const [e, pron] = await Promise.all([api('/empresa'), api('/empresa/prontidao-fiscal')]);
+  const iv = (id,lbl,val,attrs)=>`<div><label class="fl">${esc(lbl)}</label><input id="${id}" class="inp" value="${esc(val==null?'':val)}" ${attrs||''}></div>`;
+  const crtOpts = [[1,'Simples Nacional'],[3,'Regime Normal (Lucro Presumido/Real)']].map(([v,t])=>`<option value="${v}" ${e.crt===v?'selected':''}>${t}</option>`).join('');
+  const alerta = pron.pronto
+    ? `<div class="card" style="background:#e3f5e9;border-color:#bfe6cd"><b style="color:#1f8a4c">✓ Pronto para emitir NF-e.</b> ${esc(pron.integracao)}</div>`
+    : `<div class="card" style="background:#fbf7e8;border-color:#efe2b8"><b style="color:#7a6a2e">⚠️ Pendências para emitir NF-e:</b><ul style="margin:8px 0 0 18px;font-size:13px;color:#7a6a2e">${pron.pendencias.map(p=>`<li>${esc(p)}</li>`).join('')}</ul><div style="font-size:12px;color:#7a6a2e;margin-top:8px">${esc(pron.integracao)}</div></div>`;
+  c.innerHTML = `
+    ${alerta}
+    <div class="sect"><h3>Identificação</h3><div class="panel" style="padding:18px">
+      <div class="grid2">${iv('e_nome','Razão social',e.nome)}${iv('e_fant','Nome fantasia',e.nomeFantasia)}</div>
+      <div class="grid3" style="margin-top:12px">${iv('e_cnpj','CNPJ',e.cnpj,'placeholder="00.000.000/0000-00"')}${iv('e_ie','Inscrição Estadual',e.inscricaoEstadual)}
+        <div><label class="fl">Regime (CRT)</label><select id="e_crt" class="inp">${crtOpts}</select></div></div>
+      <div class="grid2" style="margin-top:12px">${iv('e_tel','Telefone',e.telefone)}${iv('e_regime','Regime (texto)',e.regime)}</div>
+    </div></div>
+    <div class="sect"><h3>Endereço fiscal</h3><div class="panel" style="padding:18px">
+      <div class="grid3">${iv('e_log','Logradouro',e.logradouro)}${iv('e_num','Número',e.numeroEndereco)}${iv('e_comp','Complemento',e.complemento)}</div>
+      <div class="grid3" style="margin-top:12px">${iv('e_bairro','Bairro',e.bairro)}${iv('e_mun','Município',e.municipio)}${iv('e_codmun','Cód. IBGE do município',e.codMunicipio,'placeholder="7 dígitos"')}</div>
+      <div class="grid2" style="margin-top:12px">${iv('e_uf','UF',e.uf,'maxlength="2" placeholder="SP"')}${iv('e_cep','CEP',e.cep)}</div>
+    </div></div>
+    <div class="sect"><h3>Numeração da NF-e</h3><div class="panel" style="padding:18px">
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Configure para continuar de onde o sistema anterior (Bling) parou: informe a <b>série</b> e o <b>próximo número</b> (último emitido + 1).</div>
+      <div class="grid2">${iv('e_serie','Série',e.nfeSerie,'placeholder="1"')}${iv('e_prox','Próximo número','', 'type="number" min="1" value="'+(e.nfeProximoNumero||1)+'"')}</div>
+    </div></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn-primary" onclick="APP.saveEmpresa()">Salvar configuração fiscal</button></div>`;
+}
+async function saveEmpresa(){
+  const body = {
+    nome:val('e_nome'), nomeFantasia:val('e_fant'), cnpj:val('e_cnpj'), inscricaoEstadual:val('e_ie'),
+    crt:Number(val('e_crt')), telefone:val('e_tel'), regime:val('e_regime'),
+    logradouro:val('e_log'), numeroEndereco:val('e_num'), complemento:val('e_comp'), bairro:val('e_bairro'),
+    municipio:val('e_mun'), codMunicipio:val('e_codmun'), uf:val('e_uf').toUpperCase(), cep:val('e_cep'),
+    nfeSerie:val('e_serie')||'1', nfeProximoNumero:Number(val('e_prox')||1),
+  };
+  Object.keys(body).forEach(k=>{ if(body[k]==='' ) delete body[k]; });
+  try{ await api('/empresa',{method:'PATCH',body}); toast('Configuração fiscal salva.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
+// Fiscal do produto (NCM/CFOP/...)
+async function formProdutoFiscal(id){
+  const p = await api('/produtos/'+id);
+  openModal(`<h3>Fiscal · ${esc(p.codigo)}</h3>
+    <div class="muted" style="font-size:11.5px;margin-bottom:10px">Valide estes campos com sua contabilidade. Usados na emissão da NF-e.</div>
+    <div class="grid2">${field('pf_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'"')}${field('pf_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
+    <div class="grid3">${field('pf_orig','Origem (0-8)','type="number" min="0" max="8" value="'+(p.origem??0)+'"')}${field('pf_un','Unidade','value="'+esc(p.unidadeComercial||'UN')+'"')}${field('pf_cest','CEST','value="'+esc(p.cest||'')+'"')}</div>
+    <div class="grid3">${field('pf_icst','ICMS CST/CSOSN','value="'+esc(p.icmsCst||'')+'" placeholder="00 ou 102"')}${field('pf_ialq','ICMS alíq. (%)','type="number" step="0.01" value="'+(p.icmsAliquota??'')+'"')}${field('pf_pis','PIS/COFINS CST','value="'+esc(p.pisCst||'01')+'"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveProdutoFiscal(${id})">Salvar</button></div>`);
+}
+async function saveProdutoFiscal(id){
+  const body = { ncm:val('pf_ncm'), cfop:val('pf_cfop'), origem:Number(val('pf_orig')||0), unidadeComercial:val('pf_un'),
+    cest:val('pf_cest'), icmsCst:val('pf_icst'), pisCst:val('pf_pis'), cofinsCst:val('pf_pis') };
+  const alq=val('pf_ialq'); if(alq) body.icmsAliquota=Number(alq);
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api('/produtos/'+id,{method:'PATCH',body}); closeModal(); toast('Dados fiscais do produto salvos.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -1360,6 +1433,7 @@ window.APP = {
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
+  saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();

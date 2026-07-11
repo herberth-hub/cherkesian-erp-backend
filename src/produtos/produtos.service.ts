@@ -40,6 +40,7 @@ export class ProdutosService {
           cor: dto.cor,
           grade: dto.grade,
           precoBase: dto.precoBase,
+          ...this.dadosFiscais(dto),
         },
       });
     } catch (err) {
@@ -57,8 +58,24 @@ export class ProdutosService {
         cor: dto.cor,
         grade: dto.grade,
         precoBase: dto.precoBase,
+        ...this.dadosFiscais(dto),
       },
     });
+  }
+
+  /** Extrai apenas os campos fiscais presentes no DTO (para create/update). */
+  private dadosFiscais(dto: CreateProdutoDto | UpdateProdutoDto) {
+    return {
+      ncm: dto.ncm,
+      cfop: dto.cfop,
+      origem: dto.origem,
+      unidadeComercial: dto.unidadeComercial,
+      cest: dto.cest,
+      icmsCst: dto.icmsCst,
+      pisCst: dto.pisCst,
+      cofinsCst: dto.cofinsCst,
+      icmsAliquota: dto.icmsAliquota,
+    };
   }
 
   /**

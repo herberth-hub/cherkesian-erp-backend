@@ -5,8 +5,9 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
+import { ClienteFiscalDto } from './create-cliente.dto';
 
-export class UpdateClienteDto {
+export class UpdateClienteDto extends ClienteFiscalDto {
   @IsOptional()
   @IsString()
   @MaxLength(150)
