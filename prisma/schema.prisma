@@ -345,6 +345,31 @@ model Medida { // Ficha de medidas — grade de tamanho por colaborador do clien
   atualizadoEm DateTime @updatedAt
 }
 
+enum NFeStatus {
+  pendente
+  autorizada
+  rejeitada
+  cancelada
+  simulada
+}
+
+model NotaFiscal {
+  id          Int       @id @default(autoincrement())
+  empresaId   Int
+  expedicaoId Int?
+  pedidoId    Int?
+  numero      String    @unique // NF-000001
+  serie       String    @default("1")
+  chave       String?   // chave de acesso (44 dígitos)
+  status      NFeStatus @default(pendente)
+  protocolo   String?
+  motivo      String?   // retorno da SEFAZ/provedor (autorização ou rejeição)
+  valor       Decimal   @db.Decimal(12,2)
+  provedor    String    @default("simulado") // simulado | focusnfe
+  emitidaEm   DateTime  @default(now())
+  emitidaPor  String?
+}
+
 model Log {
   id         Int      @id @default(autoincrement())
   usuario    String

@@ -20,6 +20,8 @@ import { ExpedicoesModule } from './expedicoes/expedicoes.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
 import { MedidasModule } from './medidas/medidas.module';
 import { DocumentosModule } from './documentos/documentos.module';
+import { EmailModule } from './email/email.module';
+import { NfeModule } from './nfe/nfe.module';
 import { LogsModule } from './logs/logs.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PcpModule } from './pcp/pcp.module';
@@ -55,7 +57,9 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     ExpedicoesModule,
     FinanceiroModule,
     MedidasModule,
+    EmailModule,
     DocumentosModule,
+    NfeModule,
     LogsModule,
     DashboardModule,
     PcpModule,

@@ -10,6 +10,7 @@ import {
 import { Response } from 'express';
 import { DocumentosService } from './documentos.service';
 import { CreateDocumentoDto } from './dto/create-documento.dto';
+import { EnviarEmailDto } from './dto/enviar-email.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
 
@@ -33,6 +34,16 @@ export class DocumentosController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.documentosService.criar(tipo, dto.referenciaId, user);
+  }
+
+  /** Envia o documento por e-mail com o PDF anexo (integração de e-mail). */
+  @Post(':id/enviar-email')
+  enviarEmail(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EnviarEmailDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.documentosService.enviarPorEmail(id, user, dto.para, dto.assunto, dto.mensagem);
   }
 
   /** Stream do PDF (gerado sob demanda a partir dos dados atuais do banco). */

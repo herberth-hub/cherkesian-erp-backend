@@ -527,7 +527,8 @@ function pedidoAcoes(p){
   if(p.etapa==='orcamento') b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
   if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
   b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
-  if(p.etapa!=='orcamento') b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button>`;
+  if(p.etapa!=='orcamento') b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+  b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button>`;
   return b||'<span class="muted">—</span>';
 }
 
@@ -999,10 +1000,12 @@ async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()') + panelTable(
-    ['Número','Cliente','Peças','Transportadora','Rastreio','Status','Data','Doc'],
+    ['Número','Cliente','Peças','Transportadora','Rastreio','NF-e','Status','Data','Doc'],
     list.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
-      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`, `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data),
+      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`,
+      e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
+      `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data),
       `<button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
 }
@@ -1277,6 +1280,38 @@ async function gerarDoc(tipo, refId){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Integrações (Fase 4): NF-e e e-mail ----------
+async function emitirNfe(expedicaoId){
+  try{
+    const n = await api('/nfe/emitir',{method:'POST',body:{expedicaoId}});
+    if(n.status==='simulada') toast('NF '+n.numero+' emitida em MODO SIMULADO (configure FOCUS_NFE_TOKEN p/ emissão real).','err');
+    else toast('NF '+n.numero+' — '+n.status+'.','ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function formEmailDoc(tipo, refId, clienteId){
+  let emailSugerido = '';
+  try{ const cl = await api('/clientes/'+clienteId); emailSugerido = cl.email||''; }catch(e){}
+  openModal(`<h3>Enviar ${tipo==='proposta'?'proposta':'pedido'} por e-mail</h3>
+    ${field('f_para','Para (e-mail) *','type="email" value="'+esc(emailSugerido)+'"')}
+    ${field('f_msg','Mensagem (opcional)','placeholder="Ex.: Segue a proposta conforme conversado."')}
+    <div class="muted" style="font-size:11px;margin-bottom:8px">O PDF em papel timbrado vai anexo automaticamente.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.sendEmailDoc('${tipo}',${refId})">Enviar</button></div>`);
+}
+async function sendEmailDoc(tipo, refId){
+  const para = val('f_para'); const mensagem = val('f_msg');
+  if(!para){ toast('Informe o e-mail de destino.','err'); return; }
+  try{
+    const d = await api('/documentos/'+tipo,{method:'POST',body:{referenciaId:refId}});
+    const body = { para }; if(mensagem) body.mensagem = mensagem;
+    const r = await api('/documentos/'+d.id+'/enviar-email',{method:'POST',body});
+    closeModal();
+    if(r.simulado) toast('E-mail SIMULADO p/ '+para+' (configure SMTP_* p/ envio real). Doc '+r.documento+'.','err');
+    else toast('E-mail enviado para '+para+' com o documento '+r.documento+'.','ok');
+  }catch(e){ toast(e.message,'err'); }
+}
+
 // ---------- Bootstrap ----------
 function boot(){
   S.access = localStorage.getItem(LS.access);
@@ -1308,6 +1343,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
+  emitirNfe, formEmailDoc, sendEmailDoc,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Documento } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { proximoSequencial } from '../common/utils/codigo.util';
@@ -35,7 +36,10 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area }> = {
 
 @Injectable()
 export class DocumentosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   listar(): Promise<Documento[]> {
     return this.prisma.documento.findMany({ orderBy: { id: 'desc' }, take: 200 });
@@ -81,6 +85,44 @@ export class DocumentosService {
       documento.numero,
     );
     return { doc, numero: documento.numero };
+  }
+
+  /** Envia o documento por e-mail com o PDF anexo (Fase 4 · integração e-mail). */
+  async enviarPorEmail(
+    id: number,
+    user: AuthUser,
+    para: string,
+    assunto?: string,
+    mensagem?: string,
+  ) {
+    const documento = await this.prisma.documento.findUnique({ where: { id } });
+    if (!documento) throw new NotFoundException(`Documento ${id} não encontrado.`);
+    const def = this.validarTipo(documento.tipo, user);
+
+    const { doc, numero } = await this.gerarPdf(id, user);
+    const pdf = await this.pdfParaBuffer(doc);
+
+    const resultado = await this.email.enviar({
+      para,
+      assunto: assunto || `${def.titulo} ${numero} — GRUPO CHERKESIAN`,
+      texto:
+        (mensagem ? mensagem + '\n\n' : '') +
+        `Segue em anexo o documento ${numero} (${def.titulo}).\n\n` +
+        'GRUPO CHERKESIAN · Uniformes Profissionais\n"Vestindo quem faz acontecer"',
+      anexos: [{ filename: `${numero}.pdf`, content: pdf, contentType: 'application/pdf' }],
+    });
+
+    return { documento: numero, para, ...resultado };
+  }
+
+  private pdfParaBuffer(doc: Pdf): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      doc.on('data', (c: Buffer) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.end();
+    });
   }
 
   private validarTipo(tipo: string, user: AuthUser) {
