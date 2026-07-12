@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  doc-page:not(:defined){visibility:hidden}
+  doc-page{font-family:'Inter',system-ui,sans-serif;color:#1f1d1a;font-size:10.5pt;line-height:1.55}
+  h1{font-family:'Sora',sans-serif;font-weight:800;font-size:23pt;color:#0A0A0A;margin:0 0 4pt;letter-spacing:-.015em;text-wrap:balance}
+  h2{font-family:'Sora',sans-serif;font-weight:700;font-size:15pt;color:#0A0A0A;margin:24pt 0 9pt;padding-bottom:5pt;border-bottom:2px solid #C9A227;text-wrap:balance}
+  h3{font-family:'Sora',sans-serif;font-weight:600;font-size:11.5pt;color:#161310;margin:15pt 0 5pt}
+  p{margin:0 0 8pt}
+  ul,ol{margin:0 0 9pt;padding-left:17pt}
+  li{margin:2.5pt 0}
+  strong{color:#0A0A0A}
+  code{font-family:'IBM Plex Mono',monospace;font-size:9pt;background:#f4f1e8;padding:1px 4px;border-radius:3px;color:#8a6d12}
+  pre{font-family:'IBM Plex Mono',monospace;font-size:8.5pt;line-height:1.5;background:#0A0A0A;color:#e9e6dd;padding:12pt 14pt;border-radius:7px;margin:0 0 10pt;white-space:pre-wrap;word-break:break-word}
+  pre .k{color:#E4C76B}
+  table{width:100%;border-collapse:collapse;margin:2pt 0 12pt;font-size:9pt}
+  th{background:#faf6ea;border:1px solid #e3ddcb;text-align:left;padding:5pt 7pt;font-family:'Sora',sans-serif;font-weight:600;color:#0A0A0A;font-size:8.5pt}
+  td{border:1px solid #e7e4dc;padding:5pt 7pt;vertical-align:top}
+  a{color:#8a6d12;text-decoration:none}
+  a:hover{color:#C9A227}
+  .rg{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#1F8A5B;vertical-align:middle;margin-right:5pt}
+  .ry{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#C9A227;vertical-align:middle;margin-right:5pt}
+  .rr{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#B4231F;vertical-align:middle;margin-right:5pt}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" margin="0.7in" hint-size="100%,760px">
+
+  <div slot="header" style="display:flex;justify-content:space-between;align-items:center;padding:6pt 0 8pt;border-bottom:1px solid #e7e4dc;font-family:'Inter',sans-serif">
+    <div style="display:flex;align-items:center;gap:8pt"><img src="assets/emblema-dourado.png" alt="" style="width:20pt;height:20pt;object-fit:contain"><span style="font-family:'Sora';font-weight:700;font-size:9pt;letter-spacing:.14em;color:#0A0A0A">GRUPO CHERKESIAN</span></div>
+    <span style="font-size:7.5pt;letter-spacing:.1em;color:#999;text-transform:uppercase">Agente Secretário · Confidencial</span>
+  </div>
+
+  <div slot="footer" style="display:flex;justify-content:space-between;padding-top:6pt;border-top:1px solid #e7e4dc;font-size:7.5pt;color:#999;font-family:'Inter',sans-serif">
+    <span>Grupo Cherkesian — Uniformes Profissionais</span>
+    <span>Especificação do agente · v1.0</span>
+  </div>
+
+  <div style="margin-bottom:6pt;font-size:9pt;letter-spacing:.28em;text-transform:uppercase;color:#C9A227;font-weight:600;font-family:'Sora'">Especificação de agente de IA</div>
+  <h1>Agente Secretário — Cherkesian</h1>
+  <p style="font-size:12pt;color:#555;margin-bottom:10pt">Um assistente executivo de IA que lê seus e-mails, organiza sua agenda, opera o ERP e prepara tarefas financeiras — sempre pedindo sua autorização antes de qualquer ação com efeito externo ou financeiro.</p>
+  <div style="display:flex;gap:26pt;font-size:8.5pt;color:#777;border-top:1px solid #e7e4dc;border-bottom:1px solid #e7e4dc;padding:7pt 0;margin-bottom:6pt">
+    <div><b style="color:#0A0A0A">Versão</b> &nbsp;1.0</div>
+    <div><b style="color:#0A0A0A">Cérebro</b> &nbsp;Claude (tool use)</div>
+    <div><b style="color:#0A0A0A">Princípio</b> &nbsp;Human-in-the-loop</div>
+    <div><b style="color:#0A0A0A">Banco</b> &nbsp;OFX / CSV</div>
+  </div>
+
+  <h2>1. O que é o Agente Secretário</h2>
+  <p>É um assistente de IA que funciona como um <strong>secretário executivo digital</strong>. Ele não é uma tela nova: é uma inteligência que <strong>lê informações e prepara ações</strong> nos sistemas que você já usa — e-mail, agenda, o ERP Cherkesian e os extratos bancários. O princípio central é <strong>"prepara tudo, mas só executa com sua autorização"</strong> (human-in-the-loop).</p>
+  <p>Na prática, você conversa com ele em linguagem natural ("resuma meus e-mails de hoje", "prepare a NF-e do pedido PV02 para o cliente", "faça o fechamento de caixa de ontem") e ele executa o trabalho pesado, apresentando o resultado para você aprovar com um clique.</p>
+
+  <div style="border:1px solid #e3ddcb;border-radius:8px;padding:14pt;background:#fbfaf6;margin-bottom:12pt">
+    <div style="display:flex;flex-direction:column;gap:7pt;align-items:center;font-family:'Sora';font-size:9pt">
+      <div style="width:100%;text-align:center;background:#0A0A0A;color:#E4C76B;padding:8pt;border-radius:6px;font-weight:600">Você (Herberth) &nbsp;·&nbsp; conversa e autoriza</div>
+      <div style="color:#C9A227;font-size:12pt">↓ ↑</div>
+      <div style="width:100%;text-align:center;background:#C9A227;color:#0A0A0A;padding:8pt;border-radius:6px;font-weight:700">Agente Secretário — Claude (tool use) &nbsp;·&nbsp; raciocina, prepara, pede aprovação</div>
+      <div style="color:#C9A227;font-size:12pt">↓ ↑ &nbsp; ferramentas (tools)</div>
+      <div style="display:flex;gap:8pt;width:100%">
+        <div style="flex:1;text-align:center;background:#fff;border:1px solid #d8d3c4;padding:8pt;border-radius:6px;font-weight:600">Gmail / Workspace</div>
+        <div style="flex:1;text-align:center;background:#fff;border:1px solid #d8d3c4;padding:8pt;border-radius:6px;font-weight:600">Google Calendar</div>
+        <div style="flex:1;text-align:center;background:#fff;border:1px solid #d8d3c4;padding:8pt;border-radius:6px;font-weight:600">ERP Cherkesian (API)</div>
+        <div style="flex:1;text-align:center;background:#fff;border:1px solid #d8d3c4;padding:8pt;border-radius:6px;font-weight:600">Extratos OFX / CSV</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>2. Capacidades e níveis de autorização</h2>
+  <p>Cada tarefa tem um nível de risco. O agente sempre pode <strong>ler e preparar</strong> livremente; o que muda é o gatilho de execução. Legenda: <span class="rg"></span><strong>Verde</strong> = executa livre (só leitura) · <span class="ry"></span><strong>Amarelo</strong> = pede 1 clique de aprovação · <span class="rr"></span><strong>Vermelho</strong> = confirmação reforçada (você relê e confirma valores).</p>
+  <table>
+    <thead><tr><th style="width:30%">Tarefa</th><th style="width:12%">Nível</th><th>Como funciona</th></tr></thead>
+    <tbody>
+      <tr><td>Resumir a caixa de entrada</td><td><span class="rg"></span>Verde</td><td>Lê e-mails, prioriza urgentes, resume o dia. Sem envio.</td></tr>
+      <tr><td>Redigir resposta de e-mail</td><td><span class="ry"></span>Amarelo</td><td>Escreve o rascunho no seu tom; você revisa e aprova o envio.</td></tr>
+      <tr><td>Enviar e-mail</td><td><span class="ry"></span>Amarelo</td><td>Só dispara após seu OK. Mostra destinatário, assunto e corpo.</td></tr>
+      <tr><td>Consultar / sugerir agenda</td><td><span class="rg"></span>Verde</td><td>Lê o calendário, encontra horários livres, propõe encaixes.</td></tr>
+      <tr><td>Agendar / mover reunião</td><td><span class="ry"></span>Amarelo</td><td>Cria o evento e convites após aprovação.</td></tr>
+      <tr><td>Consultar o ERP (tudo)</td><td><span class="rg"></span>Verde</td><td>Vê pedidos, OPs, estoque, financeiro, clientes — leitura total.</td></tr>
+      <tr><td>Gerar documento no ERP</td><td><span class="ry"></span>Amarelo</td><td>Monta proposta / pedido / OP / NF-e em PDF; você aprova.</td></tr>
+      <tr><td>Enviar NF-e ao cliente</td><td><span class="ry"></span>Amarelo</td><td>Anexa a nota, escreve o e-mail, aguarda seu OK para enviar.</td></tr>
+      <tr><td>Enviar pedido de compra a fornecedor</td><td><span class="ry"></span>Amarelo</td><td>Puxa a OC do ERP, prepara o e-mail, envia após aprovação.</td></tr>
+      <tr><td>Ações que movem estoque / criam OP</td><td><span class="ry"></span>Amarelo</td><td>Segue as travas do ERP (piloto, material) e pede confirmação.</td></tr>
+      <tr><td>Importar extrato (OFX/CSV) e conciliar</td><td><span class="ry"></span>Amarelo</td><td>Lê o extrato, casa com títulos do ERP, aponta divergências.</td></tr>
+      <tr><td>Fechamento de caixa</td><td><span class="rr"></span>Vermelho</td><td>Calcula e monta o relatório; você relê valores e confirma.</td></tr>
+      <tr><td>Baixar título / registrar pagamento</td><td><span class="rr"></span>Vermelho</td><td>Nunca automático. Exige confirmação explícita com valor à vista.</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:9pt;color:#777"><strong>Regra de ouro:</strong> o agente nunca movimenta dinheiro de verdade nem envia algo para fora sozinho. Dinheiro e comunicação externa são sempre <em>amarelo</em> ou <em>vermelho</em>.</p>
+
+  <h2>3. Acesso ao ERP Cherkesian</h2>
+  <p>Este é o coração do pedido: o agente enxerga <strong>todo o ERP</strong>. Ele entra como um "usuário" especial (perfil <code>agente</code>) que tem <strong>leitura total</strong> em todos os módulos e <strong>escrita apenas mediante sua autorização</strong>. Toda ação dele é registrada na trilha de auditoria, igual a qualquer colaborador.</p>
+  <table>
+    <thead><tr><th style="width:34%">Módulo do ERP</th><th style="width:20%">O agente pode ler</th><th>O agente pode preparar (com seu OK)</th></tr></thead>
+    <tbody>
+      <tr><td>Dashboard / KPIs</td><td>✔ Tudo</td><td>Relatórios e resumos</td></tr>
+      <tr><td>Vendas / Pedidos</td><td>✔ Tudo</td><td>Orçamento, aprovação, geração de documento</td></tr>
+      <tr><td>Produção / OPs / PCP</td><td>✔ Tudo</td><td>Gerar OP (com travas de piloto e material)</td></tr>
+      <tr><td>Estoque / Lotes</td><td>✔ Tudo</td><td>Apontar déficit, sugerir ordem de compra</td></tr>
+      <tr><td>Compras / Fornecedores</td><td>✔ Tudo</td><td>Preparar e enviar pedido de compra</td></tr>
+      <tr><td>Expedição / Rastreio</td><td>✔ Tudo</td><td>Preparar romaneio, etiquetas</td></tr>
+      <tr><td>Financeiro (receber/pagar)</td><td>✔ Tudo</td><td>Conciliar, montar fechamento (baixa só com confirmação)</td></tr>
+      <tr><td>Clientes / Cadastros</td><td>✔ Tudo</td><td>Sugerir cadastro/atualização</td></tr>
+      <tr><td>Documentos</td><td>✔ Tudo</td><td>Gerar PDF em papel timbrado</td></tr>
+    </tbody>
+  </table>
+  <p>Tecnicamente, o agente usa as <strong>mesmas rotas da API</strong> do backend que já subimos no Render — expostas a ele como "ferramentas". Ele não tem um atalho secreto: passa pela mesma autenticação, permissões e auditoria que o resto do sistema. É por isso que o backend vinha primeiro.</p>
+
+  <h2>4. Ferramentas do agente (tool use)</h2>
+  <p>O agente é o cérebro; as "mãos" são as ferramentas. Cada ferramenta é uma função que ele pode chamar. Abaixo, as principais, agrupadas por área.</p>
+
+  <h3>E-mail e agenda (Google Workspace)</h3>
+  <pre>ler_emails(filtro, periodo)          → lista + resumo (verde)
+redigir_email(para, assunto, contexto) → rascunho (amarelo)
+enviar_email(rascunho_id, confirmar)  → envia após OK (amarelo)
+ler_agenda(periodo)                   → eventos + horários livres (verde)
+agendar_reuniao(titulo, quando, convidados, confirmar) → cria evento (amarelo)</pre>
+
+  <h3>ERP Cherkesian</h3>
+  <pre>erp_consultar(modulo, filtros)        → leitura total (verde)
+erp_gerar_documento(tipo, ref_id)     → PDF papel timbrado (amarelo)
+erp_gerar_op(pedido_id, confirmar)    → cria OP c/ travas (amarelo)
+erp_gerar_ordem_compra(material_id, qtd, confirmar) → OC (amarelo)
+enviar_nfe_cliente(pedido_id, confirmar) → anexa nota + e-mail (amarelo)
+enviar_pedido_compra(oc_id, confirmar)   → e-mail ao fornecedor (amarelo)</pre>
+
+  <h3>Financeiro / banco (OFX / CSV)</h3>
+  <pre>importar_extrato(arquivo_ofx_csv)     → lê lançamentos (amarelo)
+conciliar(periodo)                    → casa extrato × títulos ERP (amarelo)
+fechamento_caixa(data, confirmar)     → relatório p/ conferência (vermelho)
+baixar_titulo(titulo_id, valor, confirmar) → registra pagamento (vermelho)</pre>
+  <p style="font-size:9pt;color:#777">Banco por <strong>OFX/CSV</strong>: você (ou o gerente) baixa o extrato do internet banking e entrega ao agente. Ele lê, concilia com o contas a receber/pagar do ERP e aponta o que bate e o que diverge — sem precisar de conexão automática com o banco (mais simples e seguro para começar).</p>
+
+  <h2>5. O "cérebro" do agente (system prompt)</h2>
+  <p>O comportamento do agente é definido por um <strong>system prompt</strong> — as instruções permanentes que ele carrega. É onde ficam a personalidade, as regras de autorização e o conhecimento do negócio Cherkesian.</p>
+  <pre>Você é o Secretário Executivo do Grupo Cherkesian, empresa de
+uniformes profissionais. Responde a Herberth (diretor).
+
+PRINCÍPIOS
+- Você PREPARA e PROPÕE; quem AUTORIZA é o Herberth.
+- Ações de dinheiro e envio externo SEMPRE pedem confirmação.
+- Nunca invente dados: consulte o ERP e os e-mails reais.
+- Registre tudo; toda ação sua vai para a auditoria.
+
+TOM
+- Objetivo, cordial e profissional. Português do Brasil.
+- Assina e-mails como "Grupo Cherkesian".
+
+CONHECIMENTO DO NEGÓCIO
+- Fluxo: orçamento → aprovação → (cliente novo? peça-piloto)
+  → checagem de material (BOM × estoque) → OP / ordem de compra
+  → produção → estoque por lote → expedição com rastreio.
+- Ao faltar material para uma OP, sugira ordem de compra.
+- NF-e e pedido de compra: prepare o documento, mostre e aguarde OK.
+
+ROTINA DIÁRIA
+- De manhã: resuma e-mails, agenda e pendências do ERP.
+- Ao fim do dia: relatório do que avançou e o que fica p/ amanhã.</pre>
+
+  <h2>6. Segurança e limites (não-negociáveis)</h2>
+  <ul>
+    <li><span class="rr"></span><strong>Dinheiro nunca é automático.</strong> Baixa de título, pagamento e fechamento exigem confirmação explícita sua, com valores à vista.</li>
+    <li><span class="ry"></span><strong>Nada sai para fora sem OK.</strong> Todo e-mail (cliente, fornecedor, NF-e) é mostrado antes do envio.</li>
+    <li><strong>Escopo mínimo.</strong> As conexões (Gmail, Calendar, ERP) usam permissões só do necessário; o acesso bancário é apenas leitura de extrato (OFX/CSV), sem poder movimentar conta.</li>
+    <li><strong>Auditoria total.</strong> Cada ação do agente grava usuário=<code>agente</code>, o comando, o resultado e o horário — consultável no módulo de Logs do ERP.</li>
+    <li><strong>Você pode desligar.</strong> Um interruptor "pausar agente" corta todas as ações imediatamente.</li>
+    <li><strong>LGPD.</strong> Dados de clientes e colaboradores tratados com base legal, trânsito criptografado e retenção definida.</li>
+  </ul>
+
+  <h2>7. Exemplo de uso — um dia com o agente</h2>
+  <table>
+    <thead><tr><th style="width:16%">Horário</th><th style="width:34%">Você diz</th><th>O agente faz</th></tr></thead>
+    <tbody>
+      <tr><td>08:00</td><td>"Bom dia, o que temos hoje?"</td><td>Resume 14 e-mails (3 urgentes), 2 reuniões, e 4 pendências do ERP (1 pedido aguardando piloto, 1 OP sem material).</td></tr>
+      <tr><td>08:10</td><td>"Responda o cliente Alpha confirmando o prazo."</td><td>Redige a resposta no seu tom → você aprova → envia.</td></tr>
+      <tr><td>10:30</td><td>"Falta tecido pra OP-021?"</td><td>Consulta BOM × estoque, aponta déficit de 40m, prepara ordem de compra ao fornecedor → aguarda OK.</td></tr>
+      <tr><td>14:00</td><td>"Manda a NF-e do PV02 pro cliente."</td><td>Gera a nota, anexa, escreve o e-mail → você confirma → envia.</td></tr>
+      <tr><td>18:00</td><td>"Fecha o caixa de hoje."</td><td>Importa o extrato OFX, concilia, monta o fechamento → você relê os valores e confirma.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>8. Roadmap de implementação</h2>
+  <table>
+    <thead><tr><th style="width:14%">Fase</th><th style="width:40%">Entrega</th><th>Resultado</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1 · Leitura</strong></td><td>Conectar Gmail + Calendar + ERP (só leitura). Resumo diário.</td><td>Agente que informa e organiza</td></tr>
+      <tr><td><strong>2 · Redação</strong></td><td>Rascunho de e-mails + agendamento com aprovação</td><td>Menos tempo escrevendo</td></tr>
+      <tr><td><strong>3 · ERP ativo</strong></td><td>Gerar documentos, NF-e ao cliente, pedido de compra (c/ OK)</td><td>Documentos e envios assistidos</td></tr>
+      <tr><td><strong>4 · Financeiro</strong></td><td>Importar OFX/CSV, conciliar, fechamento de caixa</td><td>Fechamento assistido</td></tr>
+      <tr><td><strong>5 · Rotina</strong></td><td>Briefing automático de manhã e de fim de dia</td><td>Secretário no piloto do dia</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. Próximos passos (handoff)</h2>
+  <ol>
+    <li>Validar esta especificação e o mapa de autorizações (verde/amarelo/vermelho).</li>
+    <li>Garantir que o backend do ERP exponha as rotas usadas pelas ferramentas (já em andamento no Render).</li>
+    <li>Criar o agente no <strong>Claude Console → Agentes</strong> (ou via Claude Code) com o system prompt e as ferramentas acima.</li>
+    <li>Conectar Gmail + Google Calendar (Workspace <code>@hcqualitycorp.com.br</code>) com escopo mínimo.</li>
+    <li>Rodar a Fase 1 (só leitura) por alguns dias antes de liberar as ações amarelas.</li>
+  </ol>
+  <p style="margin-top:14pt;padding:11pt 13pt;background:#faf6ea;border:1px solid #e3ddcb;border-radius:7px;font-size:9.5pt"><strong>Observação.</strong> Este documento é a especificação do agente. A construção usa a Claude API (tool use) conectada ao backend do ERP e ao Google Workspace — feita em ambiente de desenvolvimento (Claude Code), com este documento como guia. Comece sempre pela fase de leitura e só amplie o poder do agente conforme a confiança aumenta.</p>
+
+</x-import>
+</x-dc>
+</body>
+</html>

@@ -457,6 +457,7 @@ async function viewDashboard(c){
       ${kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas')}
       ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
     </div>
+    ${entregasSec(d.entregas)}
     <div class="sect"><h3>Financeiro</h3>
       <div class="cards">
         ${kpi('A receber (aberto)', money(d.financeiro.aReceber), '')}
@@ -479,6 +480,12 @@ async function viewDashboard(c){
       .chart-bar{height:100%;border-radius:6px;background:#C9A227;min-width:2px;transition:width .5s ease}
       .chart-val{flex:0 0 auto;font-weight:600;color:#201e18;min-width:64px;text-align:right}
       .charts2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+      .ent-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto}
+      .ent-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;padding:10px 12px}
+      .ent-main{min-width:0}
+      .ent-side{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
+      .ent-date{font-size:12px;color:#4a473f;font-weight:600}
+      .ent-badge{color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
     </style>
     <div class="sect"><h3>Gráficos</h3>
       <div class="charts2">
@@ -493,6 +500,46 @@ async function viewDashboard(c){
     </div>`;
 }
 function kpi(k,v,s){ return `<div class="card kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`; }
+function entregaBadge(dias){
+  if(dias<0)  return {txt:'Atrasada '+(-dias)+'d', cor:'#c14a34'};
+  if(dias===0)return {txt:'Entrega HOJE', cor:'#c14a34'};
+  if(dias<=5) return {txt:'Faltam '+dias+'d', cor:'#e08a2b'};
+  if(dias<=10)return {txt:'Faltam '+dias+'d', cor:'#C9A227'};
+  return {txt:'Faltam '+dias+'d', cor:'#3a8f4f'};
+}
+function entregasSec(e){
+  if(!e) return '';
+  const f = e.faixas||{};
+  if(!e.lista || !e.lista.length){
+    return `<div class="sect"><h3>🚚 Entregas — próximos ${e.janela} dias</h3>
+      <div class="panel"><div class="empty" style="color:#3a8f4f">✅ Nenhuma OP com entrega nos próximos ${e.janela} dias. Prazos sob controle!</div></div></div>`;
+  }
+  const chart = barsH([
+    {label:'Atrasadas', value:f.atrasadas||0, fmt:String(f.atrasadas||0), color:'#c14a34'},
+    {label:'Em até 5 dias', value:f.ate5||0, fmt:String(f.ate5||0), color:'#e08a2b'},
+    {label:'6 a 10 dias', value:f.ate10||0, fmt:String(f.ate10||0), color:'#C9A227'},
+    {label:'11 a 15 dias', value:f.ate15||0, fmt:String(f.ate15||0), color:'#3a8f4f'},
+  ], '');
+  const linhas = e.lista.map(o=>{
+    const b = entregaBadge(o.dias);
+    return `<div class="ent-row" style="border-left:4px solid ${b.cor}">
+      <div class="ent-main">
+        <div><span class="mono gold">${esc(o.numero)}</span> ${o.pedido?'· <span class="muted">'+esc(o.pedido)+'</span>':''} ${o.cliente?'· '+esc(o.cliente):''}</div>
+        <div class="muted" style="font-size:12px">${o.quantidade} pç · ${esc(o.status)} · ${o.progresso}%</div>
+      </div>
+      <div class="ent-side">
+        <div class="ent-date">${esc(o.entrega.split('-').reverse().join('/'))}</div>
+        <div class="ent-badge" style="background:${b.cor}">${esc(b.txt)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="sect"><h3>🚚 Entregas — próximos ${e.janela} dias · foco anti-atraso</h3>
+    <div class="charts2">
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">Por urgência</div>${chart}</div>
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">Ordens de produção (${e.lista.length})</div>
+        <div class="ent-list">${linhas}</div></div>
+    </div></div>`;
+}
 function barsH(entries, vazio){
   if(!entries.length) return `<div class="chart"><div class="muted" style="font-size:13px">${esc(vazio||'Sem dados.')}</div></div>`;
   const max = Math.max(1, ...entries.map(e=>e.value));
@@ -581,9 +628,39 @@ function toolbar(title, btn, action, extra){
   return `<div class="toolbar"><h3 style="font-size:15px">${esc(title)}</h3>${right?`<div style="display:flex;gap:8px;align-items:center">${right}</div>`:''}</div>`;
 }
 function relBtn(tipo){ return `<button class="btn-sm" onclick="APP.relatorio('${tipo}')">📄 Relatório</button>`; }
-async function relatorio(tipo){
+const REL_FILTROS = {
+  pedidos:{periodo:true, status:{label:'Etapa', opts:['orcamento','aprovado','piloto','material','compra','producao','estoque','expedicao']}},
+  ops:{periodo:true, status:{label:'Status', opts:['aguardando_material','a_iniciar','em_corte','em_producao','em_faccao','concluido']}},
+  nfs:{periodo:true, status:{label:'Status', opts:['pendente','autorizada','rejeitada','cancelada','simulada']}},
+  clientes:{periodo:true},
+  receber:{periodo:true, status:{label:'Status', opts:['a_vencer','vencendo','vencida','pago']}},
+  pagar:{periodo:true, status:{label:'Status', opts:['a_vencer','vencendo','vencida','pago']}},
+  expedicoes:{periodo:true},
+  compras:{periodo:true, status:{label:'Status', opts:['aguardando','recebida','cancelada']}},
+  comissoes:{status:{label:'Status', opts:['A pagar','Pago']}},
+  produtos:{}, materiais:{},
+};
+function relatorio(tipo){
+  const cfg = REL_FILTROS[tipo]||{};
+  if(!cfg.periodo && !cfg.status){ return baixarRel(tipo, ''); }
+  const periodo = cfg.periodo ? `<div class="grid2">${field('rel_de','De','type="date"')}${field('rel_ate','Até','type="date"')}</div>` : '';
+  const status = cfg.status ? `<div class="mrow"><label class="fl">${esc(cfg.status.label)}</label><select id="rel_status" class="inp"><option value="">— todos —</option>${cfg.status.opts.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>` : '';
+  openModal(`<h3>📄 Relatório — filtros</h3>
+    <p class="muted" style="font-size:12px;margin:-4px 0 10px">Deixe em branco para incluir tudo.</p>
+    ${periodo}${status}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.relGerar('${tipo}')">Gerar PDF</button></div>`);
+}
+function relGerar(tipo){
+  const p = new URLSearchParams();
+  const de=val('rel_de'), ate=val('rel_ate'), se=$('rel_status');
+  if(de) p.set('de',de); if(ate) p.set('ate',ate); if(se && se.value) p.set('status',se.value);
+  closeModal();
+  baixarRel(tipo, p.toString());
+}
+async function baixarRel(tipo, qs){
   try{
-    const r = await fetch(API+'/relatorios/'+tipo+'/pdf', { headers:{ Authorization:'Bearer '+S.access } });
+    const r = await fetch(API+'/relatorios/'+tipo+'/pdf'+(qs?'?'+qs:''), { headers:{ Authorization:'Bearer '+S.access } });
     if(!r.ok){ let m='Falha ao gerar relatório ('+r.status+').'; try{ const j=await r.json(); m=j.message||m; }catch(e){} throw new Error(m); }
     const blob = await r.blob();
     window.open(URL.createObjectURL(blob), '_blank');
@@ -1644,7 +1721,7 @@ window.APP = {
   emitirNfe, formEmailDoc, sendEmailDoc,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
-  relatorio,
+  relatorio, relGerar,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  doc-page:not(:defined){visibility:hidden}
+  doc-page{font-family:'Inter',system-ui,sans-serif;color:#1f1d1a;font-size:10.5pt;line-height:1.55}
+  h1{font-family:'Sora',sans-serif;font-weight:800;font-size:23pt;color:#0A0A0A;margin:0 0 4pt;letter-spacing:-.015em;text-wrap:balance}
+  h2{font-family:'Sora',sans-serif;font-weight:700;font-size:15pt;color:#0A0A0A;margin:24pt 0 9pt;padding-bottom:5pt;border-bottom:2px solid #C9A227;text-wrap:balance}
+  h3{font-family:'Sora',sans-serif;font-weight:600;font-size:11.5pt;color:#161310;margin:15pt 0 5pt}
+  p{margin:0 0 8pt}
+  ul,ol{margin:0 0 9pt;padding-left:17pt}
+  li{margin:2.5pt 0}
+  strong{color:#0A0A0A}
+  code{font-family:'IBM Plex Mono',monospace;font-size:9pt;background:#f4f1e8;padding:1px 4px;border-radius:3px;color:#8a6d12}
+  pre{font-family:'IBM Plex Mono',monospace;font-size:8.5pt;line-height:1.5;background:#0A0A0A;color:#e9e6dd;padding:12pt 14pt;border-radius:7px;margin:0 0 10pt;white-space:pre-wrap;word-break:break-word}
+  table{width:100%;border-collapse:collapse;margin:2pt 0 12pt;font-size:9pt}
+  th{background:#faf6ea;border:1px solid #e3ddcb;text-align:left;padding:5pt 7pt;font-family:'Sora',sans-serif;font-weight:600;color:#0A0A0A;font-size:8.5pt}
+  td{border:1px solid #e7e4dc;padding:5pt 7pt;vertical-align:top}
+  a{color:#8a6d12;text-decoration:none}
+  a:hover{color:#C9A227}
+  .rg{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#1F8A5B;vertical-align:middle;margin-right:5pt}
+  .ry{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#C9A227;vertical-align:middle;margin-right:5pt}
+  .rr{display:inline-block;width:9pt;height:9pt;border-radius:50%;background:#B4231F;vertical-align:middle;margin-right:5pt}
+  .time{font-family:'IBM Plex Mono',monospace;font-weight:500;color:#0A0A0A;white-space:nowrap}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" margin="0.7in" hint-size="100%,760px">
+
+  <div slot="header" style="display:flex;justify-content:space-between;align-items:center;padding:6pt 0 8pt;border-bottom:1px solid #e7e4dc;font-family:'Inter',sans-serif">
+    <div style="display:flex;align-items:center;gap:8pt"><img src="assets/emblema-dourado.png" alt="" style="width:20pt;height:20pt;object-fit:contain"><span style="font-family:'Sora';font-weight:700;font-size:9pt;letter-spacing:.14em;color:#0A0A0A">GRUPO CHERKESIAN</span></div>
+    <span style="font-size:7.5pt;letter-spacing:.1em;color:#999;text-transform:uppercase">Rotina do Agente · Confidencial</span>
+  </div>
+
+  <div slot="footer" style="display:flex;justify-content:space-between;padding-top:6pt;border-top:1px solid #e7e4dc;font-size:7.5pt;color:#999;font-family:'Inter',sans-serif">
+    <span>Grupo Cherkesian — Uniformes Profissionais</span>
+    <span>Rotina do agente · v1.0</span>
+  </div>
+
+  <div style="margin-bottom:6pt;font-size:9pt;letter-spacing:.28em;text-transform:uppercase;color:#C9A227;font-weight:600;font-family:'Sora'">Rotina operacional</div>
+  <h1>Rotina do Agente Secretário</h1>
+  <p style="font-size:12pt;color:#555;margin-bottom:10pt">Os horários fixos e os gatilhos do dia a dia — com foco na rotina financeira: janelas de pagamento, conciliação e fechamento de caixa, sempre com sua autorização.</p>
+  <div style="display:flex;gap:26pt;font-size:8.5pt;color:#777;border-top:1px solid #e7e4dc;border-bottom:1px solid #e7e4dc;padding:7pt 0;margin-bottom:6pt">
+    <div><b style="color:#0A0A0A">Versão</b> &nbsp;1.0</div>
+    <div><b style="color:#0A0A0A">Fuso</b> &nbsp;America/Sao_Paulo</div>
+    <div><b style="color:#0A0A0A">Dias úteis</b> &nbsp;Seg–Sex</div>
+    <div><b style="color:#0A0A0A">Fechamento</b> &nbsp;Diário 18:00</div>
+  </div>
+
+  <h2>1. Como a rotina funciona</h2>
+  <p>O agente trabalha por <strong>gatilhos de horário</strong> (agendados) e <strong>gatilhos de evento</strong> (ex.: chegou um e-mail de fornecedor, um título venceu hoje). Em cada gatilho ele <strong>prepara</strong> o trabalho e te avisa; nada financeiro é executado sem sua confirmação. Legenda: <span class="rg"></span>Verde = automático (leitura) · <span class="ry"></span>Amarelo = 1 clique · <span class="rr"></span>Vermelho = confirmação reforçada.</p>
+  <p>Você recebe os avisos por onde preferir — <strong>e-mail, WhatsApp ou no próprio ERP</strong> (painel do agente). Cada aviso traz um resumo e os botões <em>Aprovar / Ajustar / Recusar</em>.</p>
+
+  <h2>2. Rotina diária (dias úteis)</h2>
+  <table>
+    <thead><tr><th style="width:14%">Horário</th><th style="width:30%">Tarefa</th><th style="width:10%">Nível</th><th>O que o agente faz</th></tr></thead>
+    <tbody>
+      <tr><td><span class="time">08:00</span></td><td>Briefing da manhã</td><td><span class="rg"></span></td><td>Resume e-mails da noite, agenda do dia e pendências do ERP. Lista o que vence hoje (títulos a pagar/receber).</td></tr>
+      <tr><td><span class="time">08:30</span></td><td>Triagem de e-mails</td><td><span class="ry"></span></td><td>Separa urgentes, redige rascunhos de resposta para sua aprovação.</td></tr>
+      <tr><td><span class="time">09:00</span></td><td>Contas a receber</td><td><span class="ry"></span></td><td>Lista recebimentos previstos; prepara cobranças/lembretes de vencidos.</td></tr>
+      <tr><td><span class="time">11:00</span></td><td><strong>Janela de pagamentos</strong></td><td><span class="rr"></span></td><td>Monta a fila de contas a pagar do dia (fornecedores, folha, impostos) com valores e vencimentos. Você aprova o lote → agente registra a baixa no ERP.</td></tr>
+      <tr><td><span class="time">14:00</span></td><td>Documentos e envios</td><td><span class="ry"></span></td><td>NF-e a clientes, pedidos de compra a fornecedores — prepara e aguarda OK.</td></tr>
+      <tr><td><span class="time">16:00</span></td><td>2ª janela de pagamentos</td><td><span class="rr"></span></td><td>Pagamentos que chegaram após as 11:00 (opcional). Mesmo fluxo de aprovação.</td></tr>
+      <tr><td><span class="time">17:30</span></td><td>Conciliação bancária</td><td><span class="ry"></span></td><td>Importa o extrato OFX/CSV do dia, casa com os títulos do ERP e aponta divergências.</td></tr>
+      <tr><td><span class="time">18:00</span></td><td><strong>Fechamento de caixa</strong></td><td><span class="rr"></span></td><td>Consolida entradas × saídas do dia, saldo por banco e caixa. Monta o relatório; você relê os valores e confirma o fechamento.</td></tr>
+      <tr><td><span class="time">18:15</span></td><td>Relatório de fim de dia</td><td><span class="rg"></span></td><td>Resumo do que avançou (vendas, OPs, expedições, financeiro) e o que fica para amanhã.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. Rotina financeira em detalhe</h2>
+
+  <h3><span class="rr"></span>Janela de pagamentos — 11:00 (e 16:00 opcional)</h3>
+  <p>Uma <strong>janela única no dia</strong> concentra os pagamentos, para você aprovar tudo de uma vez em vez de ser interrompido o tempo todo. Passo a passo:</p>
+  <ol>
+    <li><strong>Seleção:</strong> o agente lista os títulos a pagar com vencimento ≤ hoje (fornecedores, folha, impostos, contas fixas).</li>
+    <li><strong>Validação:</strong> confere valor, fornecedor, categoria e se há saldo em caixa/banco suficiente. Sinaliza duplicidade ou valor fora do padrão.</li>
+    <li><strong>Apresentação:</strong> mostra a fila com total do lote e saldo resultante. Ex.: <em>"7 títulos · R$ 18.430,00 · saldo após: R$ 42.100,00"</em>.</li>
+    <li><strong>Sua decisão:</strong> você aprova o lote inteiro, ajusta itens ou adia. <span class="rr"></span><strong>Pagamentos nunca saem sem seu OK.</strong></li>
+    <li><strong>Registro:</strong> após aprovado, o agente dá baixa no contas a pagar do ERP e guarda o comprovante (se você anexar). Tudo vai para a auditoria.</li>
+  </ol>
+  <p style="font-size:9pt;color:#777">Importante: o agente <strong>não movimenta a conta bancária</strong> (não faz o PIX/TED por você nesta fase). Ele organiza, valida e registra no ERP; a transferência no banco é feita por você/gerente. A conciliação das 17:30 confirma que saiu certo.</p>
+
+  <h3><span class="rr"></span>Fechamento de caixa — 18:00</h3>
+  <p>Todo dia útil às 18:00 o agente monta o fechamento para sua conferência:</p>
+  <ul>
+    <li><strong>Entradas:</strong> recebimentos do dia (PIX, boleto, cartão) conciliados com o extrato.</li>
+    <li><strong>Saídas:</strong> pagamentos aprovados na(s) janela(s).</li>
+    <li><strong>Saldos:</strong> por banco e caixa, com o saldo de abertura × fechamento.</li>
+    <li><strong>Divergências:</strong> qualquer lançamento no extrato sem título correspondente no ERP (ou vice-versa) — destacado em vermelho.</li>
+    <li><strong>Sua confirmação:</strong> você relê os valores e confirma. Só então o dia é marcado como "fechado". Divergências em aberto bloqueiam o fechamento até resolver.</li>
+  </ul>
+  <pre>FECHAMENTO DE CAIXA — 11/07/2026            [aguardando sua confirmação]
+ Saldo abertura ................... R$  61.100,00
+ (+) Entradas conciliadas ......... R$  22.480,00   (5 recebimentos)
+ (-) Saídas aprovadas ............. R$  18.430,00   (7 pagamentos)
+ -------------------------------------------------
+ Saldo fechamento ................. R$  65.150,00
+ Divergências ..................... 1  (PIX R$ 320,00 sem título)
+ [ Confirmar fechamento ]  [ Ver divergência ]  [ Ajustar ]</pre>
+
+  <h2>4. Rotina semanal e mensal</h2>
+  <table>
+    <thead><tr><th style="width:20%">Quando</th><th style="width:32%">Tarefa</th><th>Descrição</th></tr></thead>
+    <tbody>
+      <tr><td><span class="time">Seg 08:30</span></td><td>Planejamento da semana</td><td>Contas a pagar/receber da semana, reuniões, OPs com entrega próxima.</td></tr>
+      <tr><td><span class="time">Sex 17:00</span></td><td>Resumo semanal</td><td>Faturamento, recebido × pago, inadimplência, produção concluída.</td></tr>
+      <tr><td><span class="time">Dia 1º</span></td><td>Fechamento mensal</td><td>Consolida o mês: DRE simplificada, fluxo de caixa, comissões, impostos a recolher.</td></tr>
+      <tr><td><span class="time">Dia 5 / 20</span></td><td>Alertas de impostos</td><td>Lembra vencimentos fiscais (simples/DAS, INSS, FGTS) com base no cadastro.</td></tr>
+      <tr><td><span class="time">Mensal</span></td><td>Custo industrial</td><td>Recalcula o rateio (despesas ÷ peças) e sugere o % para a precificação.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Gatilhos por evento (fora de horário fixo)</h2>
+  <table>
+    <thead><tr><th style="width:38%">Quando acontece</th><th>O agente faz</th></tr></thead>
+    <tbody>
+      <tr><td>Chega e-mail de cliente/fornecedor</td><td>Classifica, resume e prepara rascunho de resposta.</td></tr>
+      <tr><td>Pedido aprovado no ERP</td><td>Verifica cliente novo → piloto; checa material → sugere OP ou ordem de compra.</td></tr>
+      <tr><td>Estoque de material abaixo do mínimo</td><td>Prepara ordem de compra ao fornecedor habitual.</td></tr>
+      <tr><td>Título vence hoje e não foi pago</td><td>Inclui na próxima janela de pagamentos e te alerta.</td></tr>
+      <tr><td>Recebimento cai na conta</td><td>Concilia com o título e sugere baixa no contas a receber.</td></tr>
+      <tr><td>Expedição criada</td><td>Prepara romaneio + e-mail ao cliente com o rastreio.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>6. Configurações que você controla</h2>
+  <ul>
+    <li><strong>Horários:</strong> pode mudar as janelas (ex.: pagamentos às 10:00, fechamento às 17:30).</li>
+    <li><strong>Limites de alçada:</strong> defina um valor abaixo do qual o agente age no amarelo e acima do qual sobe para vermelho (ex.: pagamentos acima de R$ 5.000 sempre pedem confirmação reforçada).</li>
+    <li><strong>Canais de aviso:</strong> e-mail, WhatsApp e/ou painel do ERP.</li>
+    <li><strong>Dias/feriados:</strong> calendário de dias úteis; o agente pula fins de semana e feriados.</li>
+    <li><strong>Pausar:</strong> botão para suspender toda a rotina a qualquer momento.</li>
+  </ul>
+
+  <h2>7. Resumo dos horários financeiros</h2>
+  <table>
+    <thead><tr><th style="width:22%">Horário</th><th style="width:34%">Evento financeiro</th><th>Sua ação</th></tr></thead>
+    <tbody>
+      <tr><td><span class="time">09:00</span></td><td>Contas a receber do dia</td><td>Aprovar cobranças/lembretes</td></tr>
+      <tr><td><span class="time">11:00</span></td><td><strong>Janela de pagamentos (principal)</strong></td><td>Aprovar o lote</td></tr>
+      <tr><td><span class="time">16:00</span></td><td>Janela de pagamentos (extra)</td><td>Aprovar o lote (se houver)</td></tr>
+      <tr><td><span class="time">17:30</span></td><td>Conciliação bancária (OFX/CSV)</td><td>Revisar divergências</td></tr>
+      <tr><td><span class="time">18:00</span></td><td><strong>Fechamento de caixa</strong></td><td>Conferir e confirmar</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:14pt;padding:11pt 13pt;background:#faf6ea;border:1px solid #e3ddcb;border-radius:7px;font-size:9.5pt"><strong>Observação.</strong> Esta rotina complementa a especificação do agente. Os horários acima entram como agendamentos (cron) e o system prompt do agente ganha uma seção de rotina. Comece rodando só os itens verdes (briefings e resumos) por alguns dias; ative as janelas financeiras (amarelo/vermelho) quando estiver confortável com o comportamento do agente.</p>
+
+</x-import>
+</x-dc>
+</body>
+</html>

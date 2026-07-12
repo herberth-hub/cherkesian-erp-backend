@@ -5,13 +5,30 @@ import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { novoDocumento, tabela, totalDestaque, money, dataBR, Pdf } from '../documentos/pdf.renderer';
 
 type Coluna = { titulo: string; largura: number; alinhamento?: 'left' | 'right' };
+export interface Filtros {
+  de?: string;
+  ate?: string;
+  status?: string;
+}
 interface Relatorio {
   area: Area;
   titulo: string;
-  build: (empresaId: number) => Promise<{ colunas: Coluna[]; linhas: string[][]; total?: { rotulo: string; valor: string } }>;
+  build: (empresaId: number, f: Filtros) => Promise<{ colunas: Coluna[]; linhas: string[][]; total?: { rotulo: string; valor: string } }>;
 }
 
 const n = (v: unknown) => Number(v ?? 0);
+
+/** Fragmento de período (gte/lte) para o campo de data do tipo, se informado. */
+function periodo(campo: string, f: Filtros): Record<string, unknown> {
+  const w: Record<string, Date> = {};
+  if (f.de) w.gte = new Date(f.de + 'T00:00:00');
+  if (f.ate) w.lte = new Date(f.ate + 'T23:59:59');
+  return Object.keys(w).length ? { [campo]: w } : {};
+}
+/** Igualdade de status no campo indicado, se informado. */
+function statusEq(campo: string, f: Filtros): Record<string, unknown> {
+  return f.status ? { [campo]: f.status } : {};
+}
 
 /**
  * Relatórios em PDF (papel timbrado) por área. Um botão "Relatório" em cada tela
@@ -21,15 +38,23 @@ const n = (v: unknown) => Number(v ?? 0);
 export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async gerar(tipo: string, user: AuthUser): Promise<{ doc: Pdf; nome: string }> {
+  async gerar(tipo: string, user: AuthUser, filtros: Filtros = {}): Promise<{ doc: Pdf; nome: string }> {
     const rel = this.relatorios()[tipo];
     if (!rel) throw new NotFoundException('Relatório desconhecido.');
     if (!perfilPodeAcessar(user.acesso, rel.area)) {
       throw new ForbiddenException('Seu perfil não pode gerar este relatório.');
     }
-    const { colunas, linhas, total } = await rel.build(user.empresaId);
+    const { colunas, linhas, total } = await rel.build(user.empresaId, filtros);
 
     const doc = novoDocumento(rel.titulo, `${linhas.length} registro(s)`);
+    const descFiltro = [
+      filtros.de || filtros.ate ? `Período: ${filtros.de ? dataBR(filtros.de) : '…'} a ${filtros.ate ? dataBR(filtros.ate) : '…'}` : '',
+      filtros.status ? `Status: ${filtros.status}` : '',
+    ].filter(Boolean).join('   ·   ');
+    if (descFiltro) {
+      doc.moveDown(0.3).fillColor('#807d72').font('Helvetica').fontSize(9).text('Filtros aplicados — ' + descFiltro);
+      doc.moveDown(0.2).fillColor('#242a26');
+    }
     if (linhas.length) {
       tabela(doc, colunas, linhas);
       if (total) totalDestaque(doc, total.rotulo, total.valor);
@@ -44,8 +69,8 @@ export class RelatoriosService {
       pedidos: {
         area: 'vendas',
         titulo: 'Relatório de Pedidos',
-        build: async (empresaId) => {
-          const regs = await this.prisma.pedido.findMany({ where: { empresaId }, include: { cliente: { select: { nome: true } } }, orderBy: { id: 'desc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.pedido.findMany({ where: { empresaId, ...periodo('data', f), ...statusEq('etapa', f) }, include: { cliente: { select: { nome: true } } }, orderBy: { id: 'desc' }, take: 500 });
           const total = regs.reduce((s, p) => s + n(p.valorTotal), 0);
           return {
             colunas: [
@@ -64,8 +89,8 @@ export class RelatoriosService {
       ops: {
         area: 'producao',
         titulo: 'Relatório de Ordens de Produção',
-        build: async () => {
-          const regs = await this.prisma.oP.findMany({ orderBy: { id: 'desc' }, take: 500 });
+        build: async (_e, f) => {
+          const regs = await this.prisma.oP.findMany({ where: { ...periodo('entregaPrev', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           return {
             colunas: [
               { titulo: 'Número', largura: 75 },
@@ -82,8 +107,8 @@ export class RelatoriosService {
       nfs: {
         area: 'expedicao',
         titulo: 'Relatório de Notas Fiscais',
-        build: async (empresaId) => {
-          const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId }, orderBy: { id: 'desc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId, ...periodo('emitidaEm', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           const total = regs.reduce((s, nf) => s + n(nf.valor), 0);
           return {
             colunas: [
@@ -102,8 +127,8 @@ export class RelatoriosService {
       clientes: {
         area: 'clientes',
         titulo: 'Relatório de Clientes',
-        build: async (empresaId) => {
-          const regs = await this.prisma.cliente.findMany({ where: { empresaId }, orderBy: { nome: 'asc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.cliente.findMany({ where: { empresaId, ...periodo('criadoEm', f) }, orderBy: { nome: 'asc' }, take: 500 });
           return {
             colunas: [
               { titulo: 'Nome', largura: 150 },
@@ -153,8 +178,8 @@ export class RelatoriosService {
       compras: {
         area: 'compras',
         titulo: 'Relatório de Ordens de Compra',
-        build: async () => {
-          const regs = await this.prisma.ordemCompra.findMany({ orderBy: { id: 'desc' }, take: 500, include: { fornecedor: { select: { nome: true } } } });
+        build: async (_e, f) => {
+          const regs = await this.prisma.ordemCompra.findMany({ where: { ...periodo('previsao', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500, include: { fornecedor: { select: { nome: true } } } });
           const total = regs.reduce((s, o) => s + n(o.valor), 0);
           return {
             colunas: [
@@ -173,8 +198,8 @@ export class RelatoriosService {
       expedicoes: {
         area: 'expedicao',
         titulo: 'Relatório de Expedições',
-        build: async () => {
-          const regs = await this.prisma.expedicao.findMany({ orderBy: { id: 'desc' }, take: 500 });
+        build: async (_e, f) => {
+          const regs = await this.prisma.expedicao.findMany({ where: { ...periodo('data', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           return {
             colunas: [
               { titulo: 'Número', largura: 75 },
@@ -191,8 +216,8 @@ export class RelatoriosService {
       receber: {
         area: 'receber',
         titulo: 'Relatório de Contas a Receber',
-        build: async (empresaId) => {
-          const regs = await this.prisma.contaReceber.findMany({ where: { empresaId }, orderBy: { vencimento: 'asc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.contaReceber.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
           return {
             colunas: [
@@ -210,8 +235,8 @@ export class RelatoriosService {
       pagar: {
         area: 'pagar',
         titulo: 'Relatório de Contas a Pagar',
-        build: async (empresaId) => {
-          const regs = await this.prisma.contaPagar.findMany({ where: { empresaId }, orderBy: { vencimento: 'asc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.contaPagar.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
           return {
             colunas: [
@@ -230,8 +255,8 @@ export class RelatoriosService {
       comissoes: {
         area: 'comissoes',
         titulo: 'Relatório de Comissões',
-        build: async (empresaId) => {
-          const regs = await this.prisma.comissao.findMany({ where: { empresaId }, orderBy: { id: 'desc' }, take: 500 });
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.comissao.findMany({ where: { empresaId, ...statusEq('statusPgto', f) }, orderBy: { id: 'desc' }, take: 500 });
           const total = regs.filter((c) => c.statusPgto !== 'Pago').reduce((s, c) => s + n(c.comissao), 0);
           return {
             colunas: [

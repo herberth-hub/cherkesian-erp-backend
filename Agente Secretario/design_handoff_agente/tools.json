@@ -1,0 +1,201 @@
+{
+  "_comment": "Definição das ferramentas (function calling) do Agente Secretário Cherkesian. Cada tool mapeia para uma rota da API do ERP (/api/v1) ou para um conector (Gmail/Calendar/OFX). O campo _nivel indica o gatilho de autorização: verde=livre, amarelo=1 clique, vermelho=confirmação reforçada. 'confirmar' quando presente deve ser true (após aprovação humana) para efetivar a ação.",
+  "tools": [
+    {
+      "name": "ler_emails",
+      "_nivel": "verde",
+      "description": "Lista e resume e-mails da caixa de entrada. Somente leitura.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filtro": { "type": "string", "description": "Ex.: 'nao lidos', 'de:cliente', 'urgentes'" },
+          "periodo": { "type": "string", "description": "Ex.: 'hoje', 'ultimas 24h', '2026-07-10'" }
+        }
+      }
+    },
+    {
+      "name": "redigir_email",
+      "_nivel": "amarelo",
+      "description": "Cria um rascunho de e-mail no tom da empresa. Não envia — retorna o rascunho para aprovação.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "para": { "type": "string" },
+          "assunto": { "type": "string" },
+          "contexto": { "type": "string", "description": "Do que se trata; o agente escreve o corpo." },
+          "anexos": { "type": "array", "items": { "type": "string" }, "description": "IDs/URLs de anexos do ERP, se houver" }
+        },
+        "required": ["para", "contexto"]
+      }
+    },
+    {
+      "name": "enviar_email",
+      "_nivel": "amarelo",
+      "description": "Envia um rascunho previamente aprovado pelo Herberth.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rascunho_id": { "type": "string" },
+          "confirmar": { "type": "boolean", "description": "true somente após aprovação humana" }
+        },
+        "required": ["rascunho_id", "confirmar"]
+      }
+    },
+    {
+      "name": "ler_agenda",
+      "_nivel": "verde",
+      "description": "Lê o Google Calendar: eventos e horários livres no período.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "periodo": { "type": "string", "description": "Ex.: 'hoje', 'esta semana', '2026-07-15'" } },
+        "required": ["periodo"]
+      }
+    },
+    {
+      "name": "agendar_reuniao",
+      "_nivel": "amarelo",
+      "description": "Cria um evento no calendário e envia convites, após aprovação.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "titulo": { "type": "string" },
+          "quando": { "type": "string", "description": "Data/hora ISO 8601" },
+          "duracao_min": { "type": "integer" },
+          "convidados": { "type": "array", "items": { "type": "string" } },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["titulo", "quando", "confirmar"]
+      }
+    },
+    {
+      "name": "erp_consultar",
+      "_nivel": "verde",
+      "description": "Leitura total de qualquer módulo do ERP: dashboard, vendas, producao, estoque, compras, expedicao, financeiro, clientes, fornecedores, produtos, materiais, logs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modulo": { "type": "string" },
+          "filtros": { "type": "object", "description": "Ex.: { 'status': 'aberto', 'vencimento': 'hoje' }" }
+        },
+        "required": ["modulo"]
+      }
+    },
+    {
+      "name": "erp_gerar_documento",
+      "_nivel": "amarelo",
+      "description": "Gera um documento em papel timbrado (PDF): proposta, pedido, op, os_faccao, ficha_tecnica, romaneio, pedido_compra, nfe, etc. Retorna a URL do PDF para aprovação.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tipo": { "type": "string" },
+          "ref_id": { "type": "integer", "description": "ID do pedido/OP/OC a que o documento se refere" }
+        },
+        "required": ["tipo", "ref_id"]
+      }
+    },
+    {
+      "name": "erp_gerar_op",
+      "_nivel": "amarelo",
+      "description": "Gera uma Ordem de Produção para um pedido, após checar piloto liberado e disponibilidade de material (BOM × estoque). Se faltar material, retorna o déficit em vez de criar.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pedido_id": { "type": "integer" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["pedido_id", "confirmar"]
+      }
+    },
+    {
+      "name": "erp_gerar_ordem_compra",
+      "_nivel": "amarelo",
+      "description": "Cria uma ordem de compra de material (ex.: por déficit para uma OP ou estoque abaixo do mínimo).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "material_id": { "type": "integer" },
+          "quantidade": { "type": "number" },
+          "fornecedor_id": { "type": "integer" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["material_id", "quantidade", "confirmar"]
+      }
+    },
+    {
+      "name": "enviar_nfe_cliente",
+      "_nivel": "amarelo",
+      "description": "Prepara o e-mail com a NF-e anexada para o cliente de um pedido. Mostra para aprovação; envia só com confirmar=true.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pedido_id": { "type": "integer" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["pedido_id", "confirmar"]
+      }
+    },
+    {
+      "name": "enviar_pedido_compra",
+      "_nivel": "amarelo",
+      "description": "Prepara o e-mail com o pedido de compra para o fornecedor. Envia só com confirmar=true.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "oc_id": { "type": "integer" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["oc_id", "confirmar"]
+      }
+    },
+    {
+      "name": "importar_extrato",
+      "_nivel": "amarelo",
+      "description": "Lê um extrato bancário em OFX ou CSV (upload) e retorna os lançamentos normalizados.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "arquivo": { "type": "string", "description": "ID/URL do arquivo OFX/CSV enviado" },
+          "banco": { "type": "string" }
+        },
+        "required": ["arquivo"]
+      }
+    },
+    {
+      "name": "conciliar",
+      "_nivel": "amarelo",
+      "description": "Casa os lançamentos do extrato com os títulos a receber/pagar do ERP no período e aponta divergências.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "periodo": { "type": "string" } },
+        "required": ["periodo"]
+      }
+    },
+    {
+      "name": "fechamento_caixa",
+      "_nivel": "vermelho",
+      "description": "Consolida entradas x saidas e saldos do dia e monta o relatório de fechamento. Só marca como fechado com confirmar=true (após conferência dos valores). Divergências em aberto impedem o fechamento.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "string", "description": "Data do fechamento (ISO)" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["data", "confirmar"]
+      }
+    },
+    {
+      "name": "baixar_titulo",
+      "_nivel": "vermelho",
+      "description": "Registra a baixa/pagamento de um título no contas a pagar/receber do ERP. NUNCA automático — exige confirmar=true com o valor à vista. Não movimenta conta bancária.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "titulo_id": { "type": "integer" },
+          "valor": { "type": "number" },
+          "confirmar": { "type": "boolean" }
+        },
+        "required": ["titulo_id", "valor", "confirmar"]
+      }
+    }
+  ]
+}

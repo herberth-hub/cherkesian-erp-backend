@@ -35,6 +35,40 @@ export class DashboardService {
     const pecasEmProducao = opsAtivas.reduce((s, o) => s + o.quantidade, 0);
     const materiaisAbaixoMinimo = materiais.filter((m) => m.saldo.lessThan(m.minimo)).length;
 
+    // ===== Radar de entregas: OPs não concluídas com entrega em até 15 dias
+    // (inclui atrasadas). Foco anti-atraso — dobrar atenção nos prazos. =====
+    const JANELA = 15;
+    const hojeMid = new Date();
+    hojeMid.setHours(0, 0, 0, 0);
+    const limite = new Date(hojeMid);
+    limite.setDate(limite.getDate() + JANELA);
+    limite.setHours(23, 59, 59, 999);
+    const opsEntrega = await this.prisma.oP.findMany({
+      where: { pedido: { empresaId }, status: { not: 'concluido' }, entregaPrev: { not: null, lte: limite } },
+      select: { numero: true, quantidade: true, status: true, progresso: true, entregaPrev: true, pedido: { select: { numero: true, cliente: { select: { nome: true } } } } },
+      orderBy: { entregaPrev: 'asc' },
+    });
+    const listaEntrega = opsEntrega.map((o) => {
+      const dias = Math.round((new Date(o.entregaPrev as Date).setHours(0, 0, 0, 0) - hojeMid.getTime()) / 86400000);
+      return {
+        numero: o.numero,
+        pedido: o.pedido?.numero ?? null,
+        cliente: o.pedido?.cliente?.nome ?? null,
+        quantidade: o.quantidade,
+        status: o.status,
+        progresso: o.progresso,
+        entrega: (o.entregaPrev as Date).toISOString().slice(0, 10),
+        dias,
+      };
+    });
+    const faixas = { atrasadas: 0, ate5: 0, ate10: 0, ate15: 0 };
+    for (const o of listaEntrega) {
+      if (o.dias < 0) faixas.atrasadas++;
+      else if (o.dias <= 5) faixas.ate5++;
+      else if (o.dias <= 10) faixas.ate10++;
+      else faixas.ate15++;
+    }
+
     return {
       pedidos: {
         total: pedidos.length,
@@ -57,6 +91,7 @@ export class DashboardService {
         saldoRealizado: fluxo.realizado.saldo,
         saldoProjetado: fluxo.saldoProjetado,
       },
+      entregas: { janela: JANELA, faixas, lista: listaEntrega },
     };
   }
 }
