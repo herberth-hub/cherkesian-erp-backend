@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import { FinanceiroService } from './financeiro.service';
 import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
+import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { BaixarDto } from './dto/baixar.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -102,6 +105,22 @@ export class FinanceiroController {
   @HttpCode(HttpStatus.OK)
   pagarComissao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.financeiro.pagarComissao(id, user.empresaId);
+  }
+
+  @Areas('comissoes')
+  @Patch('comissoes/:id')
+  editarComissao(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateComissaoDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.financeiro.editarComissao(id, dto, user.empresaId);
+  }
+
+  @Areas('comissoes')
+  @Delete('comissoes/:id')
+  excluirComissao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.financeiro.excluirComissao(id, user.empresaId);
   }
 
   // ===== Impostos (estimativa) =====

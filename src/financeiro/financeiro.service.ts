@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Comissao, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
+import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
 const D = (n: Prisma.Decimal.Value = 0) => new Prisma.Decimal(n);
@@ -101,6 +102,38 @@ export class FinanceiroService {
       throw new NotFoundException(`Comissão ${id} não encontrada.`);
     }
     return this.prisma.comissao.update({ where: { id }, data: { statusPgto: 'Pago' } });
+  }
+
+  async editarComissao(id: number, dto: UpdateComissaoDto, empresaId: number): Promise<Comissao> {
+    const c = await this.prisma.comissao.findUnique({ where: { id } });
+    if (!c || c.empresaId !== empresaId) {
+      throw new NotFoundException(`Comissão ${id} não encontrada.`);
+    }
+    const valorVenda = dto.valorVenda != null ? D(dto.valorVenda) : c.valorVenda;
+    const percentual = dto.percentual != null ? D(dto.percentual) : c.percentual;
+    // Recalcula a comissão quando venda/percentual mudam e a comissão não veio explícita.
+    let comissao = c.comissao;
+    if (dto.comissao != null) comissao = D(dto.comissao);
+    else if (dto.valorVenda != null || dto.percentual != null) comissao = valorVenda.mul(percentual);
+    return this.prisma.comissao.update({
+      where: { id },
+      data: {
+        vendedor: dto.vendedor ?? c.vendedor,
+        valorVenda,
+        percentual,
+        comissao,
+        statusPgto: dto.statusPgto ?? c.statusPgto,
+      },
+    });
+  }
+
+  async excluirComissao(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    const c = await this.prisma.comissao.findUnique({ where: { id } });
+    if (!c || c.empresaId !== empresaId) {
+      throw new NotFoundException(`Comissão ${id} não encontrada.`);
+    }
+    await this.prisma.comissao.delete({ where: { id } });
+    return { removido: true, id };
   }
 
   // ===== Impostos (estimativa) =====

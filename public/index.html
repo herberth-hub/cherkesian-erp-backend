@@ -908,13 +908,18 @@ async function viewFluxo(c){
 }
 async function viewComissoes(c){
   const list = await api('/financeiro/comissoes');
+  window.__COMS = list;
   const total = list.filter(k=>k.statusPgto!=='Pago').reduce((s,k)=>s+Number(k.comissao),0);
   c.innerHTML = toolbar('Comissões · '+money(total)+' a pagar', 'Nova comissão', 'APP.formComissao()', relBtn('comissoes')) + panelTable(
     ['Vendedor','Pedido','Valor venda','%','Comissão','Status','Ações'],
     list.map(k=>[
       esc(k.vendedor), '#'+k.pedidoId, money(k.valorVenda), pct(k.percentual), `<b>${money(k.comissao)}</b>`,
       k.statusPgto==='Pago'?'<span class="pill green">pago</span>':'<span class="pill gold">a pagar</span>',
-      k.statusPgto!=='Pago'?`<button class="btn-sm" onclick="APP.pagarComissao(${k.id})">Marcar pago</button>`:'<span class="muted">—</span>'
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+        ${k.statusPgto!=='Pago'?`<button class="btn-sm" onclick="APP.pagarComissao(${k.id})">Marcar pago</button>`:''}
+        <button class="btn-sm" onclick="APP.formComissao(${k.id})">Editar</button>
+        <button class="btn-sm" style="color:#c14a34" onclick="APP.excluirComissao(${k.id})">Excluir</button>
+      </div>`
     ]), list.length?null:'Nenhuma comissão lançada.');
 }
 async function viewImpostos(c){
@@ -982,7 +987,18 @@ async function confirmBaixar(tipo, id){
   try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast('Baixa registrada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
-async function formComissao(){
+async function formComissao(id){
+  const k = id ? (window.__COMS||[]).find(x=>x.id===id) : null;
+  if(k){
+    openModal(`<h3>Editar comissão · pedido #${k.pedidoId}</h3>
+      ${field('f_vend','Vendedor *','value="'+esc(k.vendedor)+'"')}
+      <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01" value="'+Number(k.valorVenda)+'"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="'+Number(k.percentual)+'"')}</div>
+      <div class="mrow"><label class="fl">Status</label><select id="f_st" class="inp"><option value="A pagar"${k.statusPgto!=='Pago'?' selected':''}>A pagar</option><option value="Pago"${k.statusPgto==='Pago'?' selected':''}>Pago</option></select></div>
+      <p class="muted" style="font-size:12px;margin:4px 0 0">Deixe a comissão recalcular por venda × percentual. Ajuste o valor da venda/percentual se necessário.</p>
+      <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+        <button class="btn-primary" onclick="APP.saveComissao(${k.id})">Salvar</button></div>`);
+    return;
+  }
   const pedidos = await api('/pedidos');
   const opts = pedidos.map(p=>`<option value="${p.id}" data-tot="${p.valorTotal}">${esc(p.numero)} · ${money(p.valorTotal)}</option>`).join('');
   openModal(`<h3>Nova comissão</h3>
@@ -994,7 +1010,14 @@ async function formComissao(){
   comTot();
 }
 function comTot(){ const s=$('f_ped'); const t=s&&s.selectedOptions[0]?s.selectedOptions[0].getAttribute('data-tot'):''; if(t && $('f_venda') && !$('f_venda').value) $('f_venda').value=t; }
-async function saveComissao(){
+async function saveComissao(id){
+  if(id){ // edição
+    const body = { vendedor:val('f_vend'), valorVenda:Number(val('f_venda')), percentual:Number(val('f_pct')), statusPgto:val('f_st') };
+    if(!body.vendedor||!body.valorVenda||!body.percentual){ toast('Preencha vendedor, valor e percentual.','err'); return; }
+    try{ await api('/financeiro/comissoes/'+id,{method:'PATCH',body}); closeModal(); toast('Comissão atualizada.','ok'); loadRoute(); }
+    catch(e){ toast(e.message,'err'); }
+    return;
+  }
   const body = { pedidoId:Number(val('f_ped')), vendedor:val('f_vend'), valorVenda:Number(val('f_venda')), percentual:Number(val('f_pct')) };
   if(!body.pedidoId||!body.vendedor||!body.valorVenda||!body.percentual){ toast('Preencha pedido, vendedor, valor e percentual.','err'); return; }
   try{ await api('/financeiro/comissoes',{method:'POST',body}); closeModal(); toast('Comissão lançada.','ok'); loadRoute(); }
@@ -1002,6 +1025,11 @@ async function saveComissao(){
 }
 async function pagarComissao(id){
   try{ await api('/financeiro/comissoes/'+id+'/pagar',{method:'POST'}); toast('Comissão marcada como paga.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function excluirComissao(id){
+  if(!confirm('Excluir esta comissão? Esta ação não pode ser desfeita.')) return;
+  try{ await api('/financeiro/comissoes/'+id,{method:'DELETE'}); toast('Comissão excluída.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 
@@ -1746,7 +1774,7 @@ window.APP = {
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
-  formComissao, comTot, saveComissao, pagarComissao,
+  formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
