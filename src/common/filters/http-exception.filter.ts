@@ -37,7 +37,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
         error = r.error ?? exception.name;
       }
     } else if (exception instanceof Error) {
-      message = exception.message;
+      // Erro não-HTTP (ex.: falha inesperada/Prisma): registra o detalhe real no
+      // servidor, mas NUNCA devolve a mensagem interna ao cliente (evita vazar
+      // estrutura do banco/stack). O cliente recebe apenas o texto genérico.
       this.logger.error(exception.stack ?? exception.message);
     }
 

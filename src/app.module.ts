@@ -2,6 +2,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -39,6 +40,9 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     // envFilePath fixo torna o .env independente do diretório de execução;
     // em produção (Render) não há arquivo .env e usa-se process.env normalmente.
     ConfigModule.forRoot({ isGlobal: true, envFilePath: join(__dirname, '..', '.env') }),
+    // Rate limiting (anti brute-force / abuso): 200 req / 60s por IP (padrão global).
+    // Rotas sensíveis (login) apertam esse limite via @Throttle no controller.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),
     // Serve o frontend (public/) na raiz; a API fica sob /api/v1.
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
@@ -72,6 +76,8 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
   ],
   controllers: [AppController],
   providers: [
+    // Rate limit ANTES de tudo (barra brute-force/abuso mesmo em rota pública).
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Ordem importa: autentica -> checa RBAC -> checa horário comercial.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
