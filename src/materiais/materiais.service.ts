@@ -67,6 +67,14 @@ export class MateriaisService {
     });
   }
 
+  async remove(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    await this.findOne(id, empresaId);
+    const bom = await this.prisma.consumo.count({ where: { materialId: id } });
+    if (bom) throw new ConflictException(`Não é possível excluir: material usado em ${bom} ficha(s) técnica(s) (BOM).`);
+    await this.prisma.material.delete({ where: { id } });
+    return { removido: true, id };
+  }
+
   /** Materiais com saldo abaixo do mínimo — apoio a compras/estoque. */
   async abaixoDoMinimo(empresaId: number): Promise<Material[]> {
     const materiais = await this.prisma.material.findMany({ where: { empresaId } });

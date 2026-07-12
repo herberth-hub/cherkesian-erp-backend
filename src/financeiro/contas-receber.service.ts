@@ -7,6 +7,7 @@ import {
 import { ContaReceber, Prisma, TituloStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
+import { UpdateContaReceberDto } from './dto/update-conta-receber.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
 /** Título a receber com status recalculado e saldo em aberto. */
@@ -76,6 +77,32 @@ export class ContasReceberService {
       },
     });
     return this.comStatus(atualizado);
+  }
+
+  async editar(id: number, dto: UpdateContaReceberDto, empresaId: number): Promise<ContaReceberView> {
+    const t = await this.prisma.contaReceber.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) {
+      throw new NotFoundException(`Título a receber ${id} não encontrado.`);
+    }
+    const vencimento = dto.vencimento ? new Date(dto.vencimento) : t.vencimento;
+    const valor = dto.valor != null ? new Prisma.Decimal(dto.valor) : t.valor;
+    if (valor.lessThan(t.pago)) {
+      throw new BadRequestException(`O valor não pode ser menor que o já recebido (${t.pago.toFixed(2)}).`);
+    }
+    const atualizado = await this.prisma.contaReceber.update({
+      where: { id },
+      data: { vencimento, valor, status: calcularStatusTitulo(valor, t.pago, vencimento) },
+    });
+    return this.comStatus(atualizado);
+  }
+
+  async excluir(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    const t = await this.prisma.contaReceber.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) {
+      throw new NotFoundException(`Título a receber ${id} não encontrado.`);
+    }
+    await this.prisma.contaReceber.delete({ where: { id } });
+    return { removido: true, id };
   }
 
   private comStatus(t: ContaReceber): ContaReceberView {

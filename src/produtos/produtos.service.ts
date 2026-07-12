@@ -63,6 +63,22 @@ export class ProdutosService {
     });
   }
 
+  async remove(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    await this.findOne(id, empresaId);
+    const [bom, estoque, itens] = await Promise.all([
+      this.prisma.consumo.count({ where: { produtoId: id } }),
+      this.prisma.estoque.count({ where: { produtoId: id } }),
+      this.prisma.pedidoItem.count({ where: { produtoId: id } }),
+    ]);
+    const b: string[] = [];
+    if (bom) b.push(`${bom} item(ns) de ficha técnica`);
+    if (estoque) b.push(`${estoque} registro(s) de estoque`);
+    if (itens) b.push(`${itens} item(ns) de pedido`);
+    if (b.length) throw new ConflictException(`Não é possível excluir: produto vinculado a ${b.join(', ')}.`);
+    await this.prisma.produto.delete({ where: { id } });
+    return { removido: true, id };
+  }
+
   /** Extrai apenas os campos fiscais presentes no DTO (para create/update). */
   private dadosFiscais(dto: CreateProdutoDto | UpdateProdutoDto) {
     return {

@@ -594,37 +594,39 @@ async function viewClientes(c){
       esc(cl.cidadeUf||'—'), esc(cl.segmento||'—'),
       esc(cl.contato||cl.telefone||cl.email||'—'),
       cl.clienteNovo?'<span class="pill gold">novo</span>':'<span class="pill gray">recorrente</span>',
-      `<button class="btn-sm" onclick='APP.formCliente(${cl.id})'>Editar</button>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick='APP.formCliente(${cl.id})'>Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/clientes',${cl.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum cliente ainda.');
 }
 async function viewProdutos(c){
   const list = await api('/produtos');
   c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', relBtn('produtos')) + panelTable(
-    ['Código','Descrição','Categoria','Cor','Preço base','NCM','Fiscal'],
+    ['Código','Descrição','Categoria','Cor','Preço base','NCM','Ações'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao), esc(p.categoria),
       esc(p.cor||'—'), p.precoBase?money(p.precoBase):'—',
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
-      `<button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum produto ainda.');
 }
 async function viewMateriais(c){
   const list = (await api('/materiais')).filter(m=>!m.codigo.startsWith('AVI-'));
   c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais')) + panelTable(
-    ['Código','Descrição','Un.','Saldo','Mínimo','Custo'],
+    ['Código','Descrição','Un.','Saldo','Mínimo','Custo','Ações'],
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
       return [
         `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao), esc(m.unidade),
-        `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo)
+        `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
+        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formMaterial(${m.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
       ];
     }), list.length?null:'Nenhum material ainda.');
 }
 async function viewFornecedores(c){
   const list = await api('/fornecedores');
   c.innerHTML = toolbar('Fornecedores e facções', 'Novo fornecedor', 'APP.formFornecedor()') + panelTable(
-    ['Nome','Tipo','Contato','Telefone','Cidade/UF'],
-    list.map(f=>[`<b>${esc(f.nome)}</b>`, esc(f.tipo||'—'), esc(f.contato||'—'), esc(f.telefone||'—'), esc(f.cidadeUf||'—')]),
+    ['Nome','Tipo','Contato','Telefone','Cidade/UF','Ações'],
+    list.map(f=>[`<b>${esc(f.nome)}</b>`, esc(f.tipo||'—'), esc(f.contato||'—'), esc(f.telefone||'—'), esc(f.cidadeUf||'—'),
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formFornecedor(${f.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/fornecedores',${f.id})">Excluir</button></div>`]),
     list.length?null:'Nenhum fornecedor ainda.');
 }
 async function viewPedidos(c){
@@ -741,54 +743,65 @@ async function saveCliente(id){
   catch(e){ toast(e.message,'err'); }
 }
 
-async function formProduto(){
-  openModal(`<h3>Novo produto</h3>
-    ${field('f_cat','Categoria * (ex.: Jaleco)','')}
-    ${field('f_desc','Descrição *','')}
-    <div class="grid3">${field('f_cor','Cor','')}${field('f_grade','Grade','')}${field('f_preco','Preço base','type="number" step="0.01"')}</div>
-    <div class="muted" style="font-size:11px;margin-bottom:8px">O código PRD-CAT-0000 é gerado automaticamente.</div>
+async function formProduto(id){
+  let p={};
+  if(id){ try{ p = await api('/produtos/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  openModal(`<h3>${id?'Editar':'Novo'} produto</h3>
+    ${field('f_cat','Categoria * (ex.: Jaleco)','value="'+esc(p.categoria||'')+'"')}
+    ${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}
+    <div class="grid3">${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade','value="'+esc(p.grade||'')+'"')}${field('f_preco','Preço base','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
+    ${id?'':'<div class="muted" style="font-size:11px;margin-bottom:8px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveProduto()">Salvar</button></div>`);
+      <button class="btn-primary" onclick="APP.saveProduto(${id||0})">Salvar</button></div>`);
 }
-async function saveProduto(){
+async function saveProduto(id){
   const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), grade:val('f_grade') };
   const preco = val('f_preco'); if(preco) body.precoBase = Number(preco);
   if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
-  try{ await api('/produtos',{method:'POST',body}); closeModal(); toast('Produto criado.','ok'); loadRoute(); }
+  try{ await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 
-async function formMaterial(){
-  openModal(`<h3>Novo material</h3>
-    ${field('f_cat','Categoria * (ex.: Tecido)','')}
-    ${field('f_desc','Descrição *','')}
-    <div class="grid3">${field('f_cor','Cor','')}${field('f_un','Unidade','value="un"')}${field('f_custo','Custo','type="number" step="0.01"')}</div>
-    <div class="grid2">${field('f_saldo','Saldo inicial','type="number" step="0.001" value="0"')}${field('f_min','Mínimo','type="number" step="0.001" value="0"')}</div>
+async function formMaterial(id){
+  let m={};
+  if(id){ try{ m = await api('/materiais/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  openModal(`<h3>${id?'Editar':'Novo'} material</h3>
+    ${field('f_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
+    ${field('f_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
+    <div class="grid3">${field('f_cor','Cor','value="'+esc(m.cor||'')+'"')}${field('f_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('f_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
+    <div class="grid2">${field('f_saldo','Saldo'+(id?'':' inicial'),'type="number" step="0.001" value="'+(m.saldo!=null?m.saldo:0)+'"')}${field('f_min','Mínimo','type="number" step="0.001" value="'+(m.minimo!=null?m.minimo:0)+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveMaterial()">Salvar</button></div>`);
+      <button class="btn-primary" onclick="APP.saveMaterial(${id||0})">Salvar</button></div>`);
 }
-async function saveMaterial(){
+async function saveMaterial(id){
   const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), unidade:val('f_un')||'un',
     custo:Number(val('f_custo')||0), saldo:Number(val('f_saldo')||0), minimo:Number(val('f_min')||0) };
   if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
-  try{ await api('/materiais',{method:'POST',body}); closeModal(); toast('Material criado.','ok'); loadRoute(); }
+  try{ await api(id?('/materiais/'+id):'/materiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 
-async function formFornecedor(){
-  openModal(`<h3>Novo fornecedor</h3>
-    ${field('f_nome','Nome *','')}
-    <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido)','')}${field('f_cidade','Cidade/UF','')}</div>
-    <div class="grid2">${field('f_contato','Contato','')}${field('f_tel','Telefone','')}</div>
+async function formFornecedor(id){
+  let f={};
+  if(id){ try{ f = await api('/fornecedores/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  openModal(`<h3>${id?'Editar':'Novo'} fornecedor</h3>
+    ${field('f_nome','Nome *','value="'+esc(f.nome||'')+'"')}
+    <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
+    <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveFornecedor()">Salvar</button></div>`);
+      <button class="btn-primary" onclick="APP.saveFornecedor(${id||0})">Salvar</button></div>`);
 }
-async function saveFornecedor(){
+async function saveFornecedor(id){
   const body = { nome:val('f_nome'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
-  try{ await api('/fornecedores',{method:'POST',body}); closeModal(); toast('Fornecedor criado.','ok'); loadRoute(); }
+  try{ await api(id?('/fornecedores/'+id):'/fornecedores',{method:id?'PATCH':'POST',body}); closeModal(); toast('Fornecedor salvo.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function delRec(path, id){
+  if(!confirm('Excluir este registro? Esta ação não pode ser desfeita.')) return;
+  try{ await api(path+'/'+id,{method:'DELETE'}); toast('Registro excluído.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 
@@ -862,6 +875,7 @@ function pct(v){ return (Number(v||0)*100).toFixed(2).replace('.',',')+'%'; }
 
 async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
+  window.__RECS = list;
   const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
   c.innerHTML = toolbar('Contas a receber · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formReceber()', relBtn('receber')) + panelTable(
@@ -869,11 +883,12 @@ async function viewReceber(c){
     list.map(t=>[
       dfmt(t.vencimento), esc(nome[t.clienteId]||('#'+t.clienteId)),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
-      t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:'<span class="muted">—</span>'
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum título a receber.');
 }
 async function viewPagar(c){
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
+  window.__PAGS = list;
   const nome = {}; forn.forEach(f=>nome[f.id]=f.nome);
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
   c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()', relBtn('pagar')) + panelTable(
@@ -881,7 +896,7 @@ async function viewPagar(c){
     list.map(t=>[
       dfmt(t.vencimento), esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
-      t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:'<span class="muted">—</span>'
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum título a pagar.');
 }
 async function viewFluxo(c){
@@ -973,6 +988,40 @@ async function savePagar(){
   const ref=val('f_ref'); if(ref) body.referencia=ref;
   if(!body.categoria||!body.vencimento||!body.valor){ toast('Preencha categoria, vencimento e valor.','err'); return; }
   try{ await api('/financeiro/pagar',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+function formReceberEdit(id){
+  const t = (window.__RECS||[]).find(x=>x.id===id); if(!t){ toast('Título não encontrado.','err'); return; }
+  openModal(`<h3>Editar título a receber</h3>
+    <div class="grid2">${field('f_venc','Vencimento','type="date" value="'+String(t.vencimento).slice(0,10)+'"')}${field('f_valor','Valor','type="number" step="0.01" value="'+Number(t.valor)+'"')}</div>
+    <p class="muted" style="font-size:12px">Já recebido: ${money(t.pago)} — o valor não pode ser menor. Para receber, use o botão "Receber".</p>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveReceberEdit(${id})">Salvar</button></div>`);
+}
+async function saveReceberEdit(id){
+  const body={}; const v=val('f_venc'); if(v) body.vencimento=v; const vl=val('f_valor'); if(vl) body.valor=Number(vl);
+  try{ await api('/financeiro/receber/'+id,{method:'PATCH',body}); closeModal(); toast('Título atualizado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function formPagarEdit(id){
+  const t = (window.__PAGS||[]).find(x=>x.id===id); if(!t){ toast('Título não encontrado.','err'); return; }
+  const forn = await api('/fornecedores');
+  const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}" ${t.fornecedorId===f.id?'selected':''}>${esc(f.nome)}</option>`)).join('');
+  openModal(`<h3>Editar título a pagar</h3>
+    ${field('f_cat','Categoria','value="'+esc(t.categoria||'')+'"')}
+    <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
+    ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
+    <div class="grid2">${field('f_venc','Vencimento','type="date" value="'+String(t.vencimento).slice(0,10)+'"')}${field('f_valor','Valor','type="number" step="0.01" value="'+Number(t.valor)+'"')}</div>
+    <p class="muted" style="font-size:12px">Já pago: ${money(t.pago)} — o valor não pode ser menor.</p>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.savePagarEdit(${id})">Salvar</button></div>`);
+}
+async function savePagarEdit(id){
+  const body={ categoria:val('f_cat'), referencia:val('f_ref') };
+  const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
+  const v=val('f_venc'); if(v) body.vencimento=v; const vl=val('f_valor'); if(vl) body.valor=Number(vl);
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api('/financeiro/pagar/'+id,{method:'PATCH',body}); closeModal(); toast('Título atualizado.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 function baixar(tipo, id, saldo){
@@ -1774,6 +1823,7 @@ window.APP = {
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
+  formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,

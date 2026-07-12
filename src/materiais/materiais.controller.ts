@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -47,5 +48,10 @@ export class MateriaisController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.materiaisService.update(id, dto, user.empresaId);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.materiaisService.remove(id, user.empresaId);
   }
 }

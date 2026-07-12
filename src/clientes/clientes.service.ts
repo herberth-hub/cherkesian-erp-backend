@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Cliente } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -60,6 +60,22 @@ export class ClientesService {
         ...this.dadosFiscais(dto),
       },
     });
+  }
+
+  async remove(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    await this.findOne(id, empresaId);
+    const [pedidos, titulos, medidas] = await Promise.all([
+      this.prisma.pedido.count({ where: { clienteId: id } }),
+      this.prisma.contaReceber.count({ where: { clienteId: id } }),
+      this.prisma.medida.count({ where: { clienteId: id } }),
+    ]);
+    const b: string[] = [];
+    if (pedidos) b.push(`${pedidos} pedido(s)`);
+    if (titulos) b.push(`${titulos} título(s) a receber`);
+    if (medidas) b.push(`${medidas} ficha(s) de medidas`);
+    if (b.length) throw new ConflictException(`Não é possível excluir: cliente vinculado a ${b.join(', ')}.`);
+    await this.prisma.cliente.delete({ where: { id } });
+    return { removido: true, id };
   }
 
   /** Campos fiscais do destinatário presentes no DTO. */

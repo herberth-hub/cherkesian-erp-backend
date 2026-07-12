@@ -7,6 +7,7 @@ import {
 import { ContaPagar, Prisma, TituloStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
+import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
 export type ContaPagarView = ContaPagar & { status: TituloStatus; saldo: string };
@@ -71,6 +72,45 @@ export class ContasPagarService {
       },
     });
     return this.comStatus(atualizado);
+  }
+
+  async editar(id: number, dto: UpdateContaPagarDto, empresaId: number): Promise<ContaPagarView> {
+    const t = await this.prisma.contaPagar.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) {
+      throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
+    }
+    if (dto.fornecedorId) {
+      const fornecedor = await this.prisma.fornecedor.findUnique({ where: { id: dto.fornecedorId } });
+      if (!fornecedor || fornecedor.empresaId !== empresaId) {
+        throw new NotFoundException(`Fornecedor ${dto.fornecedorId} não encontrado.`);
+      }
+    }
+    const vencimento = dto.vencimento ? new Date(dto.vencimento) : t.vencimento;
+    const valor = dto.valor != null ? new Prisma.Decimal(dto.valor) : t.valor;
+    if (valor.lessThan(t.pago)) {
+      throw new BadRequestException(`O valor não pode ser menor que o já pago (${t.pago.toFixed(2)}).`);
+    }
+    const atualizado = await this.prisma.contaPagar.update({
+      where: { id },
+      data: {
+        categoria: dto.categoria ?? t.categoria,
+        referencia: dto.referencia ?? t.referencia,
+        fornecedorId: dto.fornecedorId ?? t.fornecedorId,
+        vencimento,
+        valor,
+        status: calcularStatusTitulo(valor, t.pago, vencimento),
+      },
+    });
+    return this.comStatus(atualizado);
+  }
+
+  async excluir(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
+    const t = await this.prisma.contaPagar.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) {
+      throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
+    }
+    await this.prisma.contaPagar.delete({ where: { id } });
+    return { removido: true, id };
   }
 
   private comStatus(t: ContaPagar): ContaPagarView {

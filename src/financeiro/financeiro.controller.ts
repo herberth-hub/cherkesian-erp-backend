@@ -19,6 +19,8 @@ import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
 import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
+import { UpdateContaReceberDto } from './dto/update-conta-receber.dto';
+import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { BaixarDto } from './dto/baixar.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -56,6 +58,22 @@ export class FinanceiroController {
     return this.receber.baixar(id, user.empresaId, dto.valor);
   }
 
+  @Areas('receber')
+  @Patch('receber/:id')
+  editarReceber(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateContaReceberDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.receber.editar(id, dto, user.empresaId);
+  }
+
+  @Areas('receber')
+  @Delete('receber/:id')
+  excluirReceber(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.receber.excluir(id, user.empresaId);
+  }
+
   // ===== A pagar (financeiro) =====
   @Areas('pagar')
   @Get('pagar')
@@ -78,6 +96,22 @@ export class FinanceiroController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.pagar.baixar(id, user.empresaId, dto.valor);
+  }
+
+  @Areas('pagar')
+  @Patch('pagar/:id')
+  editarPagar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateContaPagarDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pagar.editar(id, dto, user.empresaId);
+  }
+
+  @Areas('pagar')
+  @Delete('pagar/:id')
+  excluirPagar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.pagar.excluir(id, user.empresaId);
   }
 
   // ===== Fluxo de caixa =====

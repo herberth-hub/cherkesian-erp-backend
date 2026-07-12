@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -48,5 +49,10 @@ export class ProdutosController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.produtosService.update(id, dto, user.empresaId);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.produtosService.remove(id, user.empresaId);
   }
 }
