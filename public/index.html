@@ -1309,8 +1309,10 @@ async function viewUsuarios(c){
       `<b>${esc(u.nome)}</b>`, '@'+esc(u.usuario),
       `<span class="pill ${u.acesso==='total'?'gold':'gray'}">${esc(u.acesso)}</span>`, esc(u.setor||'—'),
       (u.horarioInicio&&u.horarioFim)?esc(u.horarioInicio+'–'+u.horarioFim):'integral',
-      u.ativo?'<span class="pill green">sim</span>':'<span class="pill red">não</span>',
-      `<button class="btn-sm" onclick='APP.formUsuario(${JSON.stringify(u).replace(/'/g,"&#39;")})'>Editar</button>` + (u.acesso!=='total'?` <button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'')
+      u.bloqueado?'<span class="pill red">🔒 bloqueado</span>':(u.ativo?'<span class="pill green">sim</span>':'<span class="pill red">não</span>'),
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick='APP.formUsuario(${JSON.stringify(u).replace(/'/g,"&#39;")})'>Editar</button>`
+        + (u.bloqueado?`<button class="btn-sm" style="color:#3a8f4f;font-weight:600" onclick="APP.desbloquearUsuario(${u.id})">🔓 Desbloquear</button>`:'')
+        + (u.acesso!=='total'?`<button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'') + `</div>`
     ]), list.length?null:'Nenhum usuário.');
 }
 function formUsuario(u){
@@ -1336,6 +1338,11 @@ async function saveUsuario(id){
 }
 async function removeUsuario(id){
   try{ await api('/usuarios/'+id,{method:'DELETE'}); toast('Usuário desativado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function desbloquearUsuario(id){
+  if(!confirm('Desbloquear esta conta? O usuário poderá tentar entrar novamente.')) return;
+  try{ await api('/usuarios/'+id+'/desbloquear',{method:'PATCH'}); toast('Conta desbloqueada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 async function viewLogs(c){
@@ -1828,7 +1835,7 @@ window.APP = {
   formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formUsuario, saveUsuario, removeUsuario,
+  formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,

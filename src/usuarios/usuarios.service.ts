@@ -82,6 +82,16 @@ export class UsuariosService {
     }
   }
 
+  /** Desbloqueia a conta e zera o contador de tentativas (ação do admin). */
+  async desbloquear(id: number, empresaId: number): Promise<UsuarioPublico> {
+    await this.findOne(id, empresaId);
+    const usuario = await this.prisma.usuario.update({
+      where: { id },
+      data: { bloqueado: false, tentativasFalhas: 0, bloqueadoEm: null },
+    });
+    return this.semSenha(usuario);
+  }
+
   /** Exclusão lógica: desativa o usuário (preserva histórico/auditoria). */
   async remove(id: number, empresaId: number): Promise<UsuarioPublico> {
     await this.findOne(id, empresaId);

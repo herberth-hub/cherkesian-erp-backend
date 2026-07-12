@@ -106,6 +106,10 @@ model Usuario {
   horarioInicio String?  // "08:00"
   horarioFim    String?  // "18:00"
   ativo         Boolean  @default(true)
+  // Segurança: bloqueio de conta após tentativas de login malsucedidas.
+  tentativasFalhas Int      @default(0)
+  bloqueado        Boolean  @default(false)
+  bloqueadoEm      DateTime?
   criadoEm      DateTime @default(now())
   atualizadoEm  DateTime @updatedAt
 }

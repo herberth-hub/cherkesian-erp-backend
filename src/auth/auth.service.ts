@@ -1,8 +1,12 @@
 import {
   ForbiddenException,
+  HttpException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+
+/** HTTP 423 Locked — conta bloqueada (não colide com o 403 do gate off-hours). */
+const HTTP_LOCKED = 423;
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Usuario } from '@prisma/client';
@@ -34,15 +38,51 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Valida usuário + senha (bcrypt). Lança 401 se inválido/inativo. */
+  /** Máximo de tentativas de login malsucedidas antes do bloqueio da conta. */
+  private readonly MAX_TENTATIVAS = 3;
+
+  /**
+   * Valida usuário + senha (bcrypt). Lança 401 se inválido/inativo, 423 se a
+   * conta estiver bloqueada. Após 3 falhas seguidas, bloqueia a conta (somente
+   * o administrador desbloqueia). O perfil `total` (admin) é ISENTO do
+   * auto-bloqueio para não travar o ERP — segue protegido pelo rate-limit.
+   */
   async validarCredenciais(usuario: string, senha: string): Promise<Usuario> {
     const user = await this.prisma.usuario.findUnique({ where: { usuario } });
     if (!user || !user.ativo) {
       throw new UnauthorizedException('Usuário ou senha inválidos.');
     }
+    if (user.bloqueado) {
+      throw new HttpException(
+        'Conta bloqueada por tentativas de acesso. Solicite o desbloqueio ao administrador do ERP.',
+        HTTP_LOCKED,
+      );
+    }
     const ok = await bcrypt.compare(senha, user.senhaHash);
     if (!ok) {
+      if (user.acesso !== 'total') {
+        const tentativas = user.tentativasFalhas + 1;
+        const bloquear = tentativas >= this.MAX_TENTATIVAS;
+        await this.prisma.usuario.update({
+          where: { id: user.id },
+          data: {
+            tentativasFalhas: tentativas,
+            bloqueado: bloquear,
+            bloqueadoEm: bloquear ? new Date() : null,
+          },
+        });
+        if (bloquear) {
+          throw new HttpException(
+            `Conta bloqueada após ${this.MAX_TENTATIVAS} tentativas incorretas. Solicite o desbloqueio ao administrador do ERP.`,
+            HTTP_LOCKED,
+          );
+        }
+      }
       throw new UnauthorizedException('Usuário ou senha inválidos.');
+    }
+    // Sucesso: zera o contador de falhas se havia alguma.
+    if (user.tentativasFalhas > 0) {
+      await this.prisma.usuario.update({ where: { id: user.id }, data: { tentativasFalhas: 0 } });
     }
     return user;
   }

@@ -48,6 +48,12 @@ export class UsuariosController {
     return this.usuariosService.update(id, dto, user.empresaId);
   }
 
+  /** Desbloqueia uma conta travada por tentativas de login (somente admin). */
+  @Patch(':id/desbloquear')
+  desbloquear(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.usuariosService.desbloquear(id, user.empresaId);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.usuariosService.remove(id, user.empresaId);
