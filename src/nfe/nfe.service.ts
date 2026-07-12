@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Empresa, NotaFiscal, Prisma } from '@prisma/client';
+import { Cliente, Filial, NotaFiscal, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Só dígitos (CNPJ/CPF/CEP/telefone). */
@@ -37,9 +37,6 @@ export class NfeService {
   }
 
   async emitir(expedicaoId: number, empresaId: number, usuario: string) {
-    const empresa = await this.prisma.empresa.findUnique({ where: { id: empresaId } });
-    if (!empresa) throw new NotFoundException('Empresa não encontrada.');
-
     const exp = await this.prisma.expedicao.findUnique({ where: { id: expedicaoId } });
     if (!exp) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
     const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
@@ -57,11 +54,19 @@ export class NfeService {
     const itens = pedido?.itens ?? [];
     const valor = pedido?.valorTotal ?? new Prisma.Decimal(0);
 
-    const token = this.config.get<string>('FOCUS_NFE_TOKEN');
+    // Emitente = filial do pedido; se não houver, a matriz da empresa.
+    let filial = pedido?.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: pedido.filialId } })
+      : null;
+    if (!filial) filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado. Cadastre a matriz em Filiais (Config. Fiscal).');
+
+    // Token: o da filial tem prioridade; senão, o global do ambiente.
+    const token = filial.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
 
     // Validação fiscal mínima só quando vai emitir DE VERDADE (com provedor).
     if (token) {
-      const faltas = this.validarFiscal(empresa, cliente, itens.length);
+      const faltas = this.validarFiscal(filial, cliente, itens.length);
       if (faltas.length) {
         throw new BadRequestException(
           'Dados fiscais incompletos para emissão real: ' + faltas.join('; ') + '.',
@@ -69,13 +74,13 @@ export class NfeService {
       }
     }
 
-    const serie = empresa.nfeSerie;
-    const numeroSeq = empresa.nfeProximoNumero;
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const payload = await this.montarPayload(empresa, cliente, exp, itens, serie, numeroSeq, valor);
+    const payload = await this.montarPayload(filial, cliente, exp, itens, serie, numeroSeq, valor);
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFE-${empresaId}-${serie}-${numeroSeq}`, payload)
+      ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload)
       : this.emitirSimulada();
 
     // Rejeitada: não persiste nem consome número (a SEFAZ/provedor não aceitou).
@@ -94,6 +99,7 @@ export class NfeService {
       const criada = await tx.notaFiscal.create({
         data: {
           empresaId,
+          filialId: filial.id,
           expedicaoId,
           pedidoId: exp.pedidoId,
           numero: numeroNota,
@@ -107,9 +113,9 @@ export class NfeService {
           emitidaPor: usuario,
         },
       });
-      // pendente/simulada: consome o número da sequência e vincula à expedição.
-      await tx.empresa.update({
-        where: { id: empresaId },
+      // pendente/simulada: consome o número da sequência DA FILIAL e vincula à expedição.
+      await tx.filial.update({
+        where: { id: filial.id },
         data: { nfeProximoNumero: numeroSeq + 1 },
       });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
@@ -121,11 +127,11 @@ export class NfeService {
   }
 
   // ===== Validação =====
-  private validarFiscal(empresa: Empresa, cliente: Cliente, qtdItens: number): string[] {
+  private validarFiscal(emitente: Filial, cliente: Cliente, qtdItens: number): string[] {
     const f: string[] = [];
-    if (!empresa.cnpj) f.push('CNPJ da empresa');
-    if (!empresa.inscricaoEstadual) f.push('Inscrição Estadual da empresa');
-    if (!empresa.municipio || !empresa.uf || !empresa.cep) f.push('Endereço fiscal da empresa');
+    if (!emitente.cnpj) f.push('CNPJ da filial emissora');
+    if (!emitente.inscricaoEstadual) f.push('Inscrição Estadual da filial');
+    if (!emitente.municipio || !emitente.uf || !emitente.cep) f.push('Endereço fiscal da filial');
     if (!cliente.cnpjCpf) f.push('CNPJ/CPF do cliente');
     if (!cliente.municipio || !cliente.uf || !cliente.cep) f.push('Endereço fiscal do cliente');
     if (qtdItens === 0) f.push('itens no pedido');
@@ -134,7 +140,7 @@ export class NfeService {
 
   // ===== Montagem do payload (formato Focus NFe) =====
   private async montarPayload(
-    empresa: Empresa,
+    emitente: Filial,
     cliente: Cliente,
     exp: { pecas: number },
     itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }>,
@@ -162,7 +168,7 @@ export class NfeService {
         valor_bruto: Number(bruto.toFixed(2)),
         ncm: p?.ncm ?? '00000000',
         icms_origem: p?.origem ?? 0,
-        icms_situacao_tributaria: p?.icmsCst ?? (empresa.crt === 3 ? '00' : '102'),
+        icms_situacao_tributaria: p?.icmsCst ?? (emitente.crt === 3 ? '00' : '102'),
         icms_aliquota: p?.icmsAliquota ? Number(p.icmsAliquota) : undefined,
         pis_situacao_tributaria: p?.pisCst ?? '01',
         cofins_situacao_tributaria: p?.cofinsCst ?? '01',
@@ -178,7 +184,7 @@ export class NfeService {
       serie,
       numero,
       // Emitente (dados também configurados no painel do provedor)
-      cnpj_emitente: digitos(empresa.cnpj),
+      cnpj_emitente: digitos(emitente.cnpj),
       // Destinatário
       nome_destinatario: cliente.nome,
       [docDest.length === 11 ? 'cpf_destinatario' : 'cnpj_destinatario']: docDest,

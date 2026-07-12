@@ -16,7 +16,11 @@ export class PedidosService {
   findAll(empresaId: number) {
     return this.prisma.pedido.findMany({
       where: { empresaId },
-      include: { itens: true, cliente: { select: { id: true, nome: true } } },
+      include: {
+        itens: true,
+        cliente: { select: { id: true, nome: true } },
+        filial: { select: { id: true, nome: true, matriz: true } },
+      },
       orderBy: { id: 'desc' },
     });
   }
@@ -70,12 +74,14 @@ export class PedidosService {
     }
 
     const numero = await this.gerarNumeroPedido(empresaId);
+    const filialId = await this.resolverFilial(empresaId, dto.filialId);
 
     const pedido = await this.prisma.pedido.create({
       data: {
         empresaId,
         numero,
         clienteId: dto.clienteId,
+        filialId,
         valorTotal,
         status: 'Orçamento',
         etapa: 'orcamento',
@@ -234,6 +240,7 @@ export class PedidosService {
         data: {
           numero: numeroOp,
           pedidoId: pedido.id,
+          filialId: pedido.filialId,
           produtoId,
           quantidade: totalPecas,
           status: 'a_iniciar',
@@ -260,6 +267,18 @@ export class PedidosService {
   }
 
   // ===== Helpers =====
+
+  /** Resolve a filial emissora: a informada (validada) ou a matriz da empresa. */
+  private async resolverFilial(empresaId: number, filialId?: number): Promise<number | null> {
+    if (filialId) {
+      const f = await this.prisma.filial.findUnique({ where: { id: filialId } });
+      if (!f || f.empresaId !== empresaId) throw new NotFoundException(`Filial ${filialId} não encontrada.`);
+      if (!f.ativa) throw new BadRequestException('Filial inativa — escolha uma filial ativa.');
+      return f.id;
+    }
+    const matriz = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    return matriz?.id ?? null;
+  }
 
   private async gerarNumeroPedido(empresaId: number): Promise<string> {
     const existentes = await this.prisma.pedido.findMany({

@@ -163,10 +163,10 @@ const NAVDEF = [
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
-  ['Administração', [['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
+  ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','agente']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','agente','filiais']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -193,6 +193,7 @@ const TITLES = {
   tv:['Painel de Setor','Modo TV · produção em tempo real'],
   regras:['Categorias & Regras','Padronização de códigos do sistema'],
   empresa:['Configuração Fiscal','Empresa emitente da NF-e + numeração · admin'],
+  filiais:['Filiais / CNPJs do grupo','Matriz e filiais emissoras de NF-e · admin'],
   notas:['Notas Fiscais','NF-e emitidas · status, chave e protocolo'],
   agente:['Assistente IA','Pergunte sobre pedidos, produção, estoque e financeiro'],
 };
@@ -442,6 +443,7 @@ async function loadRoute(){
     if(S.route==='tv') return await viewTv(c);
     if(S.route==='regras') return viewRegras(c);
     if(S.route==='empresa') return await viewEmpresa(c);
+    if(S.route==='filiais') return await viewFiliais(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -633,10 +635,11 @@ async function viewPedidos(c){
   const list = await api('/pedidos');
   const canCreate = canAccess('vendas');
   c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos')) + panelTable(
-    ['Número','Cliente','Itens','Total','Etapa','Ações'],
+    ['Número','Cliente','Empresa','Itens','Total','Etapa','Ações'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>`,
       esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
+      p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       (p.itens?p.itens.length:0)+' item(ns)',
       money(p.valorTotal),
       `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`,
@@ -809,11 +812,16 @@ async function delRec(path, id){
 let PITENS = [];
 async function formPedido(){
   PITENS = [{}];
-  const [clientes, produtos] = await Promise.all([api('/clientes'), api('/produtos')]);
+  const [clientes, produtos, filiais] = await Promise.all([api('/clientes'), api('/produtos'), api('/filiais')]);
   window.__PROD = produtos;
+  const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   const clientesOpts = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  const filialOpts = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   openModal(`<h3>Novo pedido</h3>
-    <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${clientesOpts||'<option>—</option>'}</select></div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${clientesOpts||'<option>—</option>'}</select></div>
+      <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="f_filial" class="inp">${filialOpts||'<option value="">— matriz —</option>'}</select></div>
+    </div>
     <label class="fl">Itens</label>
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
@@ -847,6 +855,7 @@ async function savePedido(){
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
+  const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   try{ const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
@@ -1786,6 +1795,50 @@ async function saveEmpresa(){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Filiais / CNPJs do grupo ----------
+async function viewFiliais(c){
+  const list = await api('/filiais');
+  window.__FILIAIS = list;
+  c.innerHTML = toolbar('Filiais / CNPJs do grupo · '+list.length, 'Nova filial', 'APP.formFilial()') + panelTable(
+    ['Nome','Tipo','CNPJ','Município/UF','Série · Próx. nº','NF-e','Ações'],
+    list.map(f=>[
+      `<b>${esc(f.nome)}</b>`,
+      f.matriz?'<span class="pill gold">matriz</span>':(f.ativa?'<span class="pill gray">filial</span>':'<span class="pill red">inativa</span>'),
+      f.cnpj?`<span class="mono">${esc(f.cnpj)}</span>`:'<span class="pill red">falta</span>',
+      esc((f.municipio||'—')+(f.uf?'/'+f.uf:'')),
+      `<span class="mono">${esc(f.nfeSerie)} · ${esc(f.nfeProximoNumero)}</span>`,
+      f.focusToken?'<span class="pill green">token próprio</span>':'<span class="muted">token global</span>',
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formFilial(${f.id})">Editar</button>${f.matriz?'':`<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/filiais',${f.id})">Excluir</button>`}</div>`
+    ]), list.length?null:'Nenhuma filial. A matriz é criada automaticamente.');
+}
+function formFilial(id){
+  const f = id ? (window.__FILIAIS||[]).find(x=>x.id===id) : {};
+  const crtOpts = [[1,'Simples Nacional'],[3,'Regime Normal']].map(([v,t])=>`<option value="${v}" ${f.crt===v?'selected':''}>${t}</option>`).join('');
+  openModal(`<h3>${id?'Editar':'Nova'} filial / CNPJ</h3>
+    <div class="grid2">${field('fl_nome','Nome * (ex.: Filial SP)','value="'+esc(f.nome||'')+'"')}
+      <div class="mrow" style="align-self:end"><label class="fl"><input type="checkbox" id="fl_matriz" ${f.matriz?'checked':''}> É a matriz</label> &nbsp; <label class="fl"><input type="checkbox" id="fl_ativa" ${f.ativa!==false?'checked':''}> Ativa</label></div></div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (emitente da NF-e)</b></div>
+    <div class="grid3">${field('fl_cnpj','CNPJ','value="'+esc(f.cnpj||'')+'" placeholder="00.000.000/0000-00"')}${field('fl_ie','Inscrição Estadual','value="'+esc(f.inscricaoEstadual||'')+'"')}<div class="mrow"><label class="fl">Regime (CRT)</label><select id="fl_crt" class="inp">${crtOpts}</select></div></div>
+    <div class="grid2">${field('fl_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}${field('fl_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
+    <div class="grid3">${field('fl_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('fl_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('fl_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
+    <div class="grid3">${field('fl_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('fl_codmun','Cód. IBGE','value="'+esc(f.codMunicipio||'')+'"')}${field('fl_uf','UF','value="'+esc(f.uf||'')+'" maxlength="2"')}</div>
+    <div class="grid2">${field('fl_cep','CEP','value="'+esc(f.cep||'')+'"')}${field('fl_token','Token Focus NFe (opcional)','value="'+esc(f.focusToken||'')+'" placeholder="usa o global se vazio"')}</div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">NUMERAÇÃO DA NF-e (independente por CNPJ)</b></div>
+    <div class="grid2">${field('fl_serie','Série','value="'+esc(f.nfeSerie||'1')+'"')}${field('fl_prox','Próximo número','type="number" min="1" value="'+(f.nfeProximoNumero||1)+'"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveFilial(${id||0})">Salvar</button></div>`);
+}
+async function saveFilial(id){
+  const body = { nome:val('fl_nome'), matriz:$('fl_matriz').checked, ativa:$('fl_ativa').checked,
+    cnpj:val('fl_cnpj'), inscricaoEstadual:val('fl_ie'), crt:Number(val('fl_crt')), nomeFantasia:val('fl_fant'), telefone:val('fl_tel'),
+    logradouro:val('fl_log'), numeroEndereco:val('fl_num'), bairro:val('fl_bairro'), municipio:val('fl_mun'), codMunicipio:val('fl_codmun'),
+    uf:(val('fl_uf')||'').toUpperCase(), cep:val('fl_cep'), focusToken:val('fl_token'), nfeSerie:val('fl_serie')||'1', nfeProximoNumero:Number(val('fl_prox')||1) };
+  if(!body.nome){ toast('Informe o nome da filial.','err'); return; }
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api(id?('/filiais/'+id):'/filiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Filial salva.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // Fiscal do produto (NCM/CFOP/...)
 async function formProdutoFiscal(id){
   const p = await api('/produtos/'+id);
@@ -1840,6 +1893,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
+  formFilial, saveFilial,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar,
 };

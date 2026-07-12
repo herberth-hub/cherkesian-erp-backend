@@ -41,6 +41,12 @@ export class CreatePedidoDto {
   @IsPositive()
   clienteId!: number;
 
+  /** CNPJ emissor (matriz/filial). Se omitido, usa a matriz. */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  filialId?: number;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'O pedido precisa de pelo menos um item.' })
   @ValidateNested({ each: true })

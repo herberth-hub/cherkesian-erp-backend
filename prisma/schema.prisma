@@ -73,6 +73,7 @@ model Empresa {
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]
+  filiais   Filial[]
 
   // ===== Dados fiscais (emitente da NF-e) =====
   cnpj              String?
@@ -91,6 +92,40 @@ model Empresa {
   // Numeração da NF-e (continuar de onde o sistema anterior parou)
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
+}
+
+// Filial / estabelecimento do grupo (matriz + filiais). Cada CNPJ é um emitente
+// de NF-e independente, com sua PRÓPRIA numeração fiscal (série + próximo número)
+// e, opcionalmente, seu próprio token Focus NFe. A operação (clientes, produtos,
+// estoque, financeiro) é compartilhada; o pedido/OP/NF escolhem a filial emissora.
+model Filial {
+  id                Int      @id @default(autoincrement())
+  empresaId         Int
+  empresa           Empresa  @relation(fields: [empresaId], references: [id])
+  nome              String   // "Matriz", "Filial São Paulo"...
+  matriz            Boolean  @default(false)
+  ativa             Boolean  @default(true)
+  // ===== Dados fiscais (emitente da NF-e) =====
+  cnpj              String?
+  inscricaoEstadual String?
+  crt               Int?    @default(3)
+  nomeFantasia      String?
+  logradouro        String?
+  numeroEndereco    String?
+  complemento       String?
+  bairro            String?
+  municipio         String?
+  codMunicipio      String?
+  uf                String?
+  cep               String?
+  telefone          String?
+  nfeSerie          String  @default("1")
+  nfeProximoNumero  Int     @default(1)
+  focusToken        String? // token Focus NFe da filial (senão usa FOCUS_NFE_TOKEN global)
+  criadoEm          DateTime @default(now())
+  pedidos           Pedido[]
+  ops               OP[]
+  notasFiscais      NotaFiscal[]
 }
 
 model Usuario {
@@ -212,6 +247,8 @@ model Pedido {
   numero         String       @unique // PV01
   clienteId      Int
   cliente        Cliente      @relation(fields: [clienteId], references: [id])
+  filialId       Int?         // CNPJ emissor (matriz/filial); null = matriz
+  filial         Filial?      @relation(fields: [filialId], references: [id])
   data           DateTime     @default(now())
   prazoEntrega   DateTime?    // prazo combinado de entrega ao cliente (radar anti-atraso)
   valorTotal     Decimal      @db.Decimal(12,2)
@@ -258,6 +295,8 @@ model OP {
   numero         String   @unique // OP-0031
   pedidoId       Int?
   pedido         Pedido?  @relation(fields: [pedidoId], references: [id])
+  filialId       Int?
+  filial         Filial?  @relation(fields: [filialId], references: [id])
   produtoId      Int?
   quantidade     Int
   inicio         DateTime?
@@ -402,6 +441,8 @@ enum NFeStatus {
 model NotaFiscal {
   id          Int       @id @default(autoincrement())
   empresaId   Int
+  filialId    Int?
+  filial      Filial?   @relation(fields: [filialId], references: [id])
   expedicaoId Int?
   pedidoId    Int?
   numero      String    @unique // NF-000001
