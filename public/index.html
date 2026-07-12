@@ -470,9 +470,39 @@ async function viewDashboard(c){
         ${kpi('Clientes', d.cadastros.clientes, '')}
         ${kpi('Produtos', d.cadastros.produtos, '')}
       </div>
+    </div>
+    <style>
+      .chart{display:flex;flex-direction:column;gap:10px;background:#fff;border:1px solid #e7e3d8;border-radius:12px;padding:16px 18px}
+      .chart-row{display:flex;align-items:center;gap:12px;font-size:13px}
+      .chart-lbl{flex:0 0 130px;color:#4a473f;text-transform:capitalize}
+      .chart-track{flex:1;background:#F4F2ED;border-radius:6px;height:20px;overflow:hidden}
+      .chart-bar{height:100%;border-radius:6px;background:#C9A227;min-width:2px;transition:width .5s ease}
+      .chart-val{flex:0 0 auto;font-weight:600;color:#201e18;min-width:64px;text-align:right}
+      .charts2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+    </style>
+    <div class="sect"><h3>Gráficos</h3>
+      <div class="charts2">
+        <div><div class="muted" style="font-size:12px;margin-bottom:6px">Pedidos por etapa</div>
+          ${barsH(Object.entries(et).map(([k,v])=>({label:k, value:Number(v), fmt:String(v)})), 'Sem pedidos ainda.')}</div>
+        <div><div class="muted" style="font-size:12px;margin-bottom:6px">Financeiro em aberto</div>
+          ${barsH([
+            {label:'A receber', value:Number(d.financeiro.aReceber)||0, fmt:money(d.financeiro.aReceber), color:'#3a8f4f'},
+            {label:'A pagar', value:Number(d.financeiro.aPagar)||0, fmt:money(d.financeiro.aPagar), color:'#c14a34'},
+          ], '')}</div>
+      </div>
     </div>`;
 }
 function kpi(k,v,s){ return `<div class="card kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`; }
+function barsH(entries, vazio){
+  if(!entries.length) return `<div class="chart"><div class="muted" style="font-size:13px">${esc(vazio||'Sem dados.')}</div></div>`;
+  const max = Math.max(1, ...entries.map(e=>e.value));
+  return `<div class="chart">`+ entries.map(e=>`
+    <div class="chart-row">
+      <div class="chart-lbl">${esc(e.label)}</div>
+      <div class="chart-track"><div class="chart-bar" style="width:${(e.value/max*100).toFixed(1)}%${e.color?';background:'+e.color:''}"></div></div>
+      <div class="chart-val">${esc(e.fmt!=null?e.fmt:e.value)}</div>
+    </div>`).join('') +`</div>`;
+}
 
 async function viewClientes(c){
   const list = await api('/clientes');
@@ -1379,6 +1409,19 @@ function agFmt(t){
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
 }
+function agCard(m,i){
+  if(m.estado==='pendente'){
+    return `<div class="ag-card pend"><div class="ag-card-h">⚡ Ação proposta — precisa da sua confirmação</div>
+      <div class="ag-card-d">${esc(m.descricao)}</div>
+      <div class="ag-card-b">
+        <button class="ag-ok" onclick="APP.agenteExec(${i})">Confirmar e executar</button>
+        <button class="ag-no" onclick="APP.agenteCancel(${i})">Cancelar</button>
+      </div></div>`;
+  }
+  if(m.estado==='feito') return `<div class="ag-card ok"><div class="ag-card-h">✅ Executado</div><div class="ag-card-d">${esc(m.resultado||m.descricao)}</div></div>`;
+  if(m.estado==='erro')  return `<div class="ag-card err"><div class="ag-card-h">❌ Não executado</div><div class="ag-card-d">${esc(m.descricao)} — ${esc(m.resultado||'')}</div></div>`;
+  return `<div class="ag-card canc"><div class="ag-card-d">✖ Ação cancelada: ${esc(m.descricao)}</div></div>`;
+}
 function renderAgMsgs(pendente){
   const box = $('agMsgs'); if(!box) return;
   let html = '';
@@ -1386,7 +1429,8 @@ function renderAgMsgs(pendente){
     html += `<div class="ag-intro">👋 Olá! Sou o assistente do Cherkesian ERP. Posso consultar pedidos, produção, estoque, clientes e financeiro (conforme o seu acesso). Pergunte à vontade:</div>`;
     html += `<div class="ag-sug">`+ AG_SUGESTOES.map(s=>`<button class="ag-chip" onclick="APP.agenteSug('${esc(s).replace(/'/g,"\\'")}')">${esc(s)}</button>`).join('') +`</div>`;
   }
-  AG.hist.forEach(m=>{
+  AG.hist.forEach((m,i)=>{
+    if(m.role==='acao'){ html += agCard(m,i); return; }
     html += `<div class="ag-row ${m.role}"><div class="ag-bubble ${m.role}">${m.role==='user'?esc(m.content):agFmt(m.content)}</div></div>`;
   });
   if(pendente){
@@ -1424,6 +1468,17 @@ async function viewAgente(c){
       .ag-send{background:#C9A227;color:#0A0A0A;border:0;border-radius:10px;padding:0 20px;font-weight:600;cursor:pointer}
       .ag-send:disabled{opacity:.5;cursor:default}
       .ag-warn{background:#fff7e6;border:1px solid #f0d9a0;color:#7a5a12;padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:13px}
+      .ag-card{border-radius:12px;padding:12px 14px;font-size:13.5px;max-width:76%}
+      .ag-card.pend{background:#fffaf0;border:1px solid #C9A227}
+      .ag-card.ok{background:#eef7ee;border:1px solid #bcdcbc;color:#245a24}
+      .ag-card.err{background:#fbecea;border:1px solid #e6b7ad;color:#8a3222}
+      .ag-card.canc{background:#f3f2ee;border:1px solid #e2ddce;color:#8a857a}
+      .ag-card-h{font-weight:700;margin-bottom:4px}
+      .ag-card-d{line-height:1.5}
+      .ag-card-b{display:flex;gap:8px;margin-top:10px}
+      .ag-ok{background:#C9A227;color:#0A0A0A;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer}
+      .ag-no{background:#fff;border:1px solid #d8d3c4;color:#3a372f;border-radius:8px;padding:8px 14px;cursor:pointer}
+      .ag-ok:disabled,.ag-no:disabled{opacity:.5;cursor:default}
       .ag-tools{display:flex;justify-content:flex-end;padding:6px 14px 0}
       .ag-clear{background:none;border:0;color:#9a958a;font-size:12px;cursor:pointer;text-decoration:underline}
     </style>
@@ -1453,9 +1508,10 @@ async function agenteSend(){
   AG.busy=true; const btn=$('agSend'); if(btn) btn.disabled=true;
   renderAgMsgs(msg);
   try{
-    const r = await api('/agente/chat', { method:'POST', body:{ mensagem: msg, historico: prev } });
+    const r = await api('/agente/chat', { method:'POST', body:{ mensagem: msg, historico: prev.filter(x=>x.role==='user'||x.role==='assistant') } });
     AG.hist.push({role:'user', content: msg});
     AG.hist.push({role:'assistant', content: r.resposta || '—'});
+    (r.acoes||[]).forEach(a=> AG.hist.push({role:'acao', tipo:a.tipo, dados:a.dados, descricao:a.descricao, estado:'pendente'}));
   }catch(e){
     AG.hist.push({role:'user', content: msg});
     AG.hist.push({role:'assistant', content: 'Desculpe, não consegui responder agora ('+esc(e.message)+').'});
@@ -1464,6 +1520,23 @@ async function agenteSend(){
     renderAgMsgs();
     const t2=$('agInput'); if(t2) t2.focus();
   }
+}
+async function agenteExec(i){
+  const a = AG.hist[i]; if(!a || a.estado!=='pendente' || AG.busy) return;
+  AG.busy=true; renderAgMsgs();
+  try{
+    const r = await api('/agente/executar', { method:'POST', body:{ tipo:a.tipo, dados:a.dados } });
+    a.estado = r && r.ok ? 'feito' : 'erro';
+    a.resultado = (r && r.resumo) || '';
+    if(a.estado==='feito') toast(a.resultado,'ok');
+  }catch(e){
+    a.estado='erro'; a.resultado = e.message || 'Falha ao executar.';
+    toast(a.resultado,'err');
+  }finally{ AG.busy=false; renderAgMsgs(); }
+}
+function agenteCancel(i){
+  const a = AG.hist[i]; if(!a || a.estado!=='pendente') return;
+  a.estado='cancelado'; renderAgMsgs();
 }
 
 // ---------- Config fiscal da empresa (NF-e) ----------
@@ -1559,7 +1632,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
-  agenteSend, agenteKey, agenteSug, agenteClear,
+  agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();
