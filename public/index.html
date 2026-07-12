@@ -506,7 +506,7 @@ function barsH(entries, vazio){
 
 async function viewClientes(c){
   const list = await api('/clientes');
-  c.innerHTML = toolbar('Clientes cadastrados', 'Novo cliente', 'APP.formCliente()') + panelTable(
+  c.innerHTML = toolbar('Clientes cadastrados', 'Novo cliente', 'APP.formCliente()', relBtn('clientes')) + panelTable(
     ['Nome','Cidade/UF','Segmento','Contato','Novo?',''],
     list.map(cl=>[
       `<b>${esc(cl.nome)}</b>${cl.fantasia?'<div class="muted" style="font-size:11px">'+esc(cl.fantasia)+'</div>':''}`,
@@ -518,7 +518,7 @@ async function viewClientes(c){
 }
 async function viewProdutos(c){
   const list = await api('/produtos');
-  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()') + panelTable(
+  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', relBtn('produtos')) + panelTable(
     ['Código','Descrição','Categoria','Cor','Preço base','NCM','Fiscal'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao), esc(p.categoria),
@@ -529,7 +529,7 @@ async function viewProdutos(c){
 }
 async function viewMateriais(c){
   const list = (await api('/materiais')).filter(m=>!m.codigo.startsWith('AVI-'));
-  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()') + panelTable(
+  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais')) + panelTable(
     ['Código','Descrição','Un.','Saldo','Mínimo','Custo'],
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
@@ -549,7 +549,7 @@ async function viewFornecedores(c){
 async function viewPedidos(c){
   const list = await api('/pedidos');
   const canCreate = canAccess('vendas');
-  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'') + panelTable(
+  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos')) + panelTable(
     ['Número','Cliente','Itens','Total','Etapa','Ações'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>`,
@@ -575,8 +575,19 @@ function pedidoAcoes(p){
   return b||'<span class="muted">—</span>';
 }
 
-function toolbar(title, btn, action){
-  return `<div class="toolbar"><h3 style="font-size:15px">${esc(title)}</h3>${btn?`<button class="btn-primary" onclick="${action}">+ ${esc(btn)}</button>`:''}</div>`;
+function toolbar(title, btn, action, extra){
+  const primary = btn?`<button class="btn-primary" onclick="${action}">+ ${esc(btn)}</button>`:'';
+  const right = (extra||'')+primary;
+  return `<div class="toolbar"><h3 style="font-size:15px">${esc(title)}</h3>${right?`<div style="display:flex;gap:8px;align-items:center">${right}</div>`:''}</div>`;
+}
+function relBtn(tipo){ return `<button class="btn-sm" onclick="APP.relatorio('${tipo}')">📄 Relatório</button>`; }
+async function relatorio(tipo){
+  try{
+    const r = await fetch(API+'/relatorios/'+tipo+'/pdf', { headers:{ Authorization:'Bearer '+S.access } });
+    if(!r.ok){ let m='Falha ao gerar relatório ('+r.status+').'; try{ const j=await r.json(); m=j.message||m; }catch(e){} throw new Error(m); }
+    const blob = await r.blob();
+    window.open(URL.createObjectURL(blob), '_blank');
+  }catch(e){ toast(e.message,'err'); }
 }
 function panelTable(cols, rows, emptyMsg){
   if(emptyMsg) return `<div class="panel"><div class="empty">${esc(emptyMsg)}</div></div>`;
@@ -741,7 +752,7 @@ async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
   const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
-  c.innerHTML = toolbar('Contas a receber · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formReceber()') + panelTable(
+  c.innerHTML = toolbar('Contas a receber · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formReceber()', relBtn('receber')) + panelTable(
     ['Vencimento','Cliente','Valor','Pago','Saldo','Status','Ações'],
     list.map(t=>[
       dfmt(t.vencimento), esc(nome[t.clienteId]||('#'+t.clienteId)),
@@ -753,7 +764,7 @@ async function viewPagar(c){
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
   const nome = {}; forn.forEach(f=>nome[f.id]=f.nome);
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
-  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()') + panelTable(
+  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()', relBtn('pagar')) + panelTable(
     ['Vencimento','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
     list.map(t=>[
       dfmt(t.vencimento), esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
@@ -786,7 +797,7 @@ async function viewFluxo(c){
 async function viewComissoes(c){
   const list = await api('/financeiro/comissoes');
   const total = list.filter(k=>k.statusPgto!=='Pago').reduce((s,k)=>s+Number(k.comissao),0);
-  c.innerHTML = toolbar('Comissões · '+money(total)+' a pagar', 'Nova comissão', 'APP.formComissao()') + panelTable(
+  c.innerHTML = toolbar('Comissões · '+money(total)+' a pagar', 'Nova comissão', 'APP.formComissao()', relBtn('comissoes')) + panelTable(
     ['Vendedor','Pedido','Valor venda','%','Comissão','Status','Ações'],
     list.map(k=>[
       esc(k.vendedor), '#'+k.pedidoId, money(k.valorVenda), pct(k.percentual), `<b>${money(k.comissao)}</b>`,
@@ -911,7 +922,7 @@ async function viewPcp(c){
 }
 async function viewProducao(c){
   const list = await api('/ops');
-  c.innerHTML = toolbar('Ordens de produção', '', '') + panelTable(
+  c.innerHTML = toolbar('Ordens de produção', '', '', relBtn('ops')) + panelTable(
     ['OP','Pedido','Qtd','Status','Progresso','Setor','Prioridade','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
@@ -984,7 +995,7 @@ async function aprovarPiloto(id){
 async function viewCompras(c){
   const [list, forn] = await Promise.all([api('/ordens-compra'), api('/fornecedores')]);
   const nome={}; forn.forEach(f=>nome[f.id]=f.nome);
-  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()') + panelTable(
+  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', relBtn('compras')) + panelTable(
     ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
@@ -1063,7 +1074,7 @@ async function verLotes(codigo){
 async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
-  c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()') + panelTable(
+  c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()', relBtn('expedicoes')) + panelTable(
     ['Número','Cliente','Peças','Transportadora','Rastreio','NF-e','Status','Data','Doc'],
     list.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
@@ -1387,7 +1398,7 @@ async function viewNotas(c){
   const [list, clientes] = await Promise.all([api('/nfe'), api('/clientes').catch(()=>[])]);
   const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', '', '') + panelTable(
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', '', '', relBtn('nfs')) + panelTable(
     ['Número','Série','Status','Valor','Chave de acesso','Provedor','Emitida em','Por'],
     list.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
@@ -1633,6 +1644,7 @@ window.APP = {
   emitirNfe, formEmailDoc, sendEmailDoc,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
+  relatorio,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 boot();

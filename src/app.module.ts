@@ -24,6 +24,7 @@ import { EmailModule } from './email/email.module';
 import { NfeModule } from './nfe/nfe.module';
 import { EmpresaModule } from './empresa/empresa.module';
 import { AgenteModule } from './agente/agente.module';
+import { RelatoriosModule } from './relatorios/relatorios.module';
 import { LogsModule } from './logs/logs.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PcpModule } from './pcp/pcp.module';
@@ -64,6 +65,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     NfeModule,
     EmpresaModule,
     AgenteModule,
+    RelatoriosModule,
     LogsModule,
     DashboardModule,
     PcpModule,
