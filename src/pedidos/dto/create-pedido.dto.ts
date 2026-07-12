@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -45,6 +46,11 @@ export class CreatePedidoDto {
   @ValidateNested({ each: true })
   @Type(() => CreatePedidoItemDto)
   itens!: CreatePedidoItemDto[];
+
+  /** Prazo combinado de entrega ao cliente (aparece no radar do dashboard). */
+  @IsOptional()
+  @IsDateString()
+  prazoEntrega?: string;
 
   @IsOptional()
   @IsString()

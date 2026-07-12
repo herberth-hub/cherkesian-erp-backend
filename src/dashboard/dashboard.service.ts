@@ -69,6 +69,25 @@ export class DashboardService {
       else faixas.ate15++;
     }
 
+    // Mesmo radar, no nível do PEDIDO (prazo combinado com o cliente).
+    // Mostra pedidos ainda não expedidos com prazo em até 15 dias (inclui atrasados).
+    const pedidosPrazo = await this.prisma.pedido.findMany({
+      where: { empresaId, etapa: { not: 'expedicao' }, prazoEntrega: { not: null, lte: limite } },
+      select: { numero: true, valorTotal: true, etapa: true, prazoEntrega: true, cliente: { select: { nome: true } } },
+      orderBy: { prazoEntrega: 'asc' },
+    });
+    const listaPedidos = pedidosPrazo.map((p) => {
+      const dias = Math.round((new Date(p.prazoEntrega as Date).setHours(0, 0, 0, 0) - hojeMid.getTime()) / 86400000);
+      return { numero: p.numero, cliente: p.cliente?.nome ?? null, valor: Number(p.valorTotal), etapa: p.etapa, prazo: (p.prazoEntrega as Date).toISOString().slice(0, 10), dias };
+    });
+    const faixasPed = { atrasadas: 0, ate5: 0, ate10: 0, ate15: 0 };
+    for (const p of listaPedidos) {
+      if (p.dias < 0) faixasPed.atrasadas++;
+      else if (p.dias <= 5) faixasPed.ate5++;
+      else if (p.dias <= 10) faixasPed.ate10++;
+      else faixasPed.ate15++;
+    }
+
     return {
       pedidos: {
         total: pedidos.length,
@@ -92,6 +111,7 @@ export class DashboardService {
         saldoProjetado: fluxo.saldoProjetado,
       },
       entregas: { janela: JANELA, faixas, lista: listaEntrega },
+      pedidosEntrega: { janela: JANELA, faixas: faixasPed, lista: listaPedidos },
     };
   }
 }

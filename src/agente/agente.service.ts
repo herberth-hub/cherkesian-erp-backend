@@ -330,7 +330,7 @@ export class AgenteService {
       ),
       acao(
         'criar_orcamento',
-        { name: 'criar_orcamento', description: 'PROPÕE criar um orçamento. Informe o cliente (nome ou id) e os itens (descrição, quantidade, valor unitário).', input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'Nome ou id do cliente.' }, itens: { type: 'array', items: { type: 'object', properties: { descricao: { type: 'string' }, quantidade: { type: 'integer' }, valorUnit: { type: 'number' }, produtoId: { type: 'integer' } }, required: ['quantidade', 'valorUnit'] } }, formaPagamento: { type: 'string' }, obs: { type: 'string' } }, required: ['cliente', 'itens'] } },
+        { name: 'criar_orcamento', description: 'PROPÕE criar um orçamento. Informe o cliente (nome ou id) e os itens (descrição, quantidade, valor unitário). Opcional: prazo de entrega.', input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'Nome ou id do cliente.' }, itens: { type: 'array', items: { type: 'object', properties: { descricao: { type: 'string' }, quantidade: { type: 'integer' }, valorUnit: { type: 'number' }, produtoId: { type: 'integer' } }, required: ['quantidade', 'valorUnit'] } }, prazoEntrega: { type: 'string', description: 'Prazo de entrega no formato AAAA-MM-DD (opcional).' }, formaPagamento: { type: 'string' }, obs: { type: 'string' } }, required: ['cliente', 'itens'] } },
         async (empresaId, input) => {
           const { id: clienteId, nome } = await this.resolverCliente(empresaId, input.cliente);
           const itensIn = Array.isArray(input.itens) ? (input.itens as Record<string, unknown>[]) : [];
@@ -344,8 +344,9 @@ export class AgenteService {
             return { produtoId: it.produtoId ? Number(it.produtoId) : undefined, descricao: it.descricao as string | undefined, quantidade, valorUnit };
           });
           const total = itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
-          const dados = { clienteId, itens, formaPagamento: input.formaPagamento, obs: input.obs };
-          return { dados, descricao: `Criar orçamento para ${nome} — ${itens.length} item(ns), total R$ ${total.toFixed(2)}` };
+          const prazo = input.prazoEntrega ? String(input.prazoEntrega) : undefined;
+          const dados = { clienteId, itens, prazoEntrega: prazo, formaPagamento: input.formaPagamento, obs: input.obs };
+          return { dados, descricao: `Criar orçamento para ${nome} — ${itens.length} item(ns), total R$ ${total.toFixed(2)}${prazo ? ' · entrega ' + prazo.split('-').reverse().join('/') : ''}` };
         },
       ),
       acao(

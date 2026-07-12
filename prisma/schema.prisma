@@ -209,6 +209,7 @@ model Pedido {
   clienteId      Int
   cliente        Cliente      @relation(fields: [clienteId], references: [id])
   data           DateTime     @default(now())
+  prazoEntrega   DateTime?    // prazo combinado de entrega ao cliente (radar anti-atraso)
   valorTotal     Decimal      @db.Decimal(12,2)
   status         String
   formaPagamento String?

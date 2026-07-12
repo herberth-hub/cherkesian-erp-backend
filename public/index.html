@@ -457,6 +457,7 @@ async function viewDashboard(c){
       ${kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas')}
       ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
     </div>
+    ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
     <div class="sect"><h3>Financeiro</h3>
       <div class="cards">
@@ -506,6 +507,39 @@ function entregaBadge(dias){
   if(dias<=5) return {txt:'Faltam '+dias+'d', cor:'#e08a2b'};
   if(dias<=10)return {txt:'Faltam '+dias+'d', cor:'#C9A227'};
   return {txt:'Faltam '+dias+'d', cor:'#3a8f4f'};
+}
+function pedidosSec(e){
+  if(!e) return '';
+  const f = e.faixas||{};
+  if(!e.lista || !e.lista.length){
+    return `<div class="sect"><h3>📦 Pedidos — prazo de entrega (${e.janela} dias) · atenção dobrada</h3>
+      <div class="panel"><div class="empty" style="color:#3a8f4f">✅ Nenhum pedido com prazo de entrega nos próximos ${e.janela} dias.</div></div></div>`;
+  }
+  const chart = barsH([
+    {label:'Atrasados', value:f.atrasadas||0, fmt:String(f.atrasadas||0), color:'#c14a34'},
+    {label:'Em até 5 dias', value:f.ate5||0, fmt:String(f.ate5||0), color:'#e08a2b'},
+    {label:'6 a 10 dias', value:f.ate10||0, fmt:String(f.ate10||0), color:'#C9A227'},
+    {label:'11 a 15 dias', value:f.ate15||0, fmt:String(f.ate15||0), color:'#3a8f4f'},
+  ], '');
+  const linhas = e.lista.map(o=>{
+    const b = entregaBadge(o.dias);
+    return `<div class="ent-row" style="border-left:4px solid ${b.cor}">
+      <div class="ent-main">
+        <div><span class="mono gold">${esc(o.numero)}</span>${o.cliente?' · '+esc(o.cliente):''}</div>
+        <div class="muted" style="font-size:12px">${esc(o.etapa)} · ${money(o.valor)}</div>
+      </div>
+      <div class="ent-side">
+        <div class="ent-date">${esc(o.prazo.split('-').reverse().join('/'))}</div>
+        <div class="ent-badge" style="background:${b.cor}">${esc(b.txt)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="sect"><h3>📦 Pedidos — prazo de entrega (${e.janela} dias) · atenção dobrada</h3>
+    <div class="charts2">
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">Por urgência</div>${chart}</div>
+      <div><div class="muted" style="font-size:12px;margin-bottom:6px">Pedidos (${e.lista.length})</div>
+        <div class="ent-list">${linhas}</div></div>
+    </div></div>`;
 }
 function entregasSec(e){
   if(!e) return '';
@@ -770,7 +804,7 @@ async function formPedido(){
     <label class="fl">Itens</label>
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
-    ${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"')}
+    <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"')}${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido()">Criar pedido</button></div>`);
   renderItens();
@@ -800,6 +834,7 @@ async function savePedido(){
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
+  const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   try{ const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }

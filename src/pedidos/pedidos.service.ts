@@ -80,6 +80,7 @@ export class PedidosService {
         status: 'Orçamento',
         etapa: 'orcamento',
         clienteNovo: cliente.clienteNovo,
+        prazoEntrega: dto.prazoEntrega ? new Date(dto.prazoEntrega) : undefined,
         formaPagamento: dto.formaPagamento,
         obs: dto.obs,
         criadoPor,
