@@ -1,5 +1,6 @@
 node_modules/
 .env
 token.google.json
+aprovacoes.json
 *.log
 dist/

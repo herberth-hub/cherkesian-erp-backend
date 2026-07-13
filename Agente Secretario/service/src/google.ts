@@ -125,3 +125,72 @@ export async function lerAgenda(periodo: string): Promise<unknown> {
   }));
   return { conectado: true, periodo, quantidade: eventos.length, eventos };
 }
+
+// ===== Ações efetivas (só chamadas APÓS aprovação humana, pelo CLI) =====
+
+function exigirGoogle(): OAuth2Client {
+  const client = clienteAutenticado();
+  if (!client) {
+    throw new Error(
+      'Google não conectado. Rode `npm run auth:google` (com GOOGLE_CLIENT_ID/SECRET no .env) e autorize.',
+    );
+  }
+  return client;
+}
+
+/** Monta um e-mail MIME (assunto e corpo em UTF-8) e devolve o raw base64url. */
+function montarMime(from: string, to: string, assunto: string, corpo: string): string {
+  const assuntoEnc = `=?UTF-8?B?${Buffer.from(assunto, 'utf8').toString('base64')}?=`;
+  const corpoB64 = Buffer.from(corpo, 'utf8').toString('base64').replace(/(.{76})/g, '$1\r\n');
+  const mime = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${assuntoEnc}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    corpoB64,
+  ].join('\r\n');
+  return Buffer.from(mime, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Envia um e-mail (Gmail). Só deve ser chamado após aprovação humana. */
+export async function enviarEmail(
+  para: string,
+  assunto: string,
+  corpo: string,
+  de: string,
+): Promise<{ id: string; threadId: string }> {
+  const gmail = google.gmail({ version: 'v1', auth: exigirGoogle() });
+  const raw = montarMime(de, para, assunto, corpo);
+  const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+  return { id: res.data.id || '', threadId: res.data.threadId || '' };
+}
+
+/** Cria um evento no Calendar e envia os convites. Só após aprovação humana. */
+export async function criarEvento(
+  titulo: string,
+  inicioISO: string,
+  duracaoMin: number,
+  convidados: string[],
+  descricao: string | undefined,
+  timezone: string,
+): Promise<{ id: string; link: string }> {
+  const calendar = google.calendar({ version: 'v3', auth: exigirGoogle() });
+  const inicio = new Date(inicioISO);
+  if (isNaN(inicio.getTime())) throw new Error(`Data/hora inválida: "${inicioISO}" (use ISO 8601).`);
+  const fim = new Date(inicio.getTime() + (duracaoMin || 30) * 60000);
+  const res = await calendar.events.insert({
+    calendarId: 'primary',
+    sendUpdates: 'all',
+    requestBody: {
+      summary: titulo,
+      description: descricao,
+      start: { dateTime: inicio.toISOString(), timeZone: timezone },
+      end: { dateTime: fim.toISOString(), timeZone: timezone },
+      attendees: (convidados || []).map((email) => ({ email })),
+    },
+  });
+  return { id: res.data.id || '', link: res.data.htmlLink || '' };
+}

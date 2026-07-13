@@ -4,18 +4,21 @@ Serviço Node.js/TypeScript que orquestra a **Claude API (tool use)** para agir 
 secretário executivo do Grupo Cherkesian. Ele **não acessa o banco** — usa a API REST
 do ERP (`/api/v1`) e o Google Workspace (Gmail + Calendar).
 
-Esta é a **Fase 1 — somente leitura**: briefings, consultas ao ERP e resumo de
-e-mails/agenda. Nenhuma ação de escrita (enviar e-mail, gerar NF-e, pagar) é executada.
+Fases implementadas: **1 (leitura)** e **2 (redação com aprovação humana)**.
 
-## Ferramentas ativas na Fase 1 (nível 🟢 verde)
+## Ferramentas ativas (Fases 1–2)
 
-| Tool | O que faz |
-|---|---|
-| `erp_consultar` | Lê qualquer módulo do ERP (dashboard, vendas, produção, estoque, compras, expedição, financeiro, clientes, fornecedores, produtos, materiais, comissões, nfe, logs) |
-| `ler_emails` | Lista/resume e-mails (Gmail, somente leitura) |
-| `ler_agenda` | Lê eventos do Google Calendar |
+| Tool | Nível | O que faz |
+|---|---|---|
+| `erp_consultar` | 🟢 | Lê qualquer módulo do ERP (dashboard, vendas, produção, estoque, compras, expedição, financeiro, clientes, fornecedores, produtos, materiais, comissões, nfe, logs) |
+| `ler_emails` | 🟢 | Lista/resume e-mails (Gmail, somente leitura) |
+| `ler_agenda` | 🟢 | Lê eventos do Google Calendar |
+| `redigir_email` | 🟡 | **Prepara** um rascunho de e-mail — NÃO envia; vira proposta pendente |
+| `agendar_reuniao` | 🟡 | **Propõe** um evento no Calendar — NÃO cria; vira proposta pendente |
 
-As tools de escrita (🟡/🔴) do `tools.json` entram nas Fases 2–4.
+As tools 🟡 **nunca executam sozinhas**: registram uma proposta na fila de aprovações.
+O envio/agendamento real só acontece quando o Herberth aprova pelo CLI. As demais
+ações (NF-e, pedido de compra, financeiro) entram nas Fases 3–4.
 
 ## Instalação
 
@@ -44,9 +47,23 @@ cp .env.example .env      # preencha as variáveis
 ```bash
 npm run briefing                       # briefing da manhã (dashboard + vencimentos + agenda/e-mails)
 npm run agente -- "quanto tenho a receber vencido?"
-npm run agente -- "quais materiais estão abaixo do mínimo?"
+npm run agente -- "responda o e-mail do fornecedor X confirmando o recebimento"
 npm run typecheck                      # checagem de tipos
 ```
+
+### Fluxo de aprovação (Fase 2)
+
+Quando você pede algo que gera e-mail/reunião, o agente **prepara e propõe** — nada
+é enviado na hora. As propostas ficam pendentes até você decidir:
+
+```bash
+npm run aprovacoes                     # lista as propostas pendentes (mostra o e-mail/evento completo)
+npm run aprovar -- <id>                # aprova e EXECUTA (envia o e-mail / cria o evento no Calendar)
+npm run recusar -- <id>                # descarta a proposta
+```
+
+Enviar e-mail e criar eventos exigem o **Google conectado** (`npm run auth:google`).
+A fila fica em `aprovacoes.json` (fora do git).
 
 ## Próximas fases
 

@@ -6,6 +6,9 @@
   "scripts": {
     "agente": "tsx src/cli.ts",
     "briefing": "tsx src/cli.ts briefing",
+    "aprovacoes": "tsx src/cli.ts aprovacoes",
+    "aprovar": "tsx src/cli.ts aprovar",
+    "recusar": "tsx src/cli.ts recusar",
     "auth:google": "tsx src/authorize-google.ts",
     "typecheck": "tsc --noEmit"
   },

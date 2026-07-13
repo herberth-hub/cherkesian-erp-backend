@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { cfg, exigirIA } from './config';
 import { systemPrompt } from './prompt';
-import { TOOLS_FASE1, executarTool } from './tools';
+import { TOOLS_ATIVAS, executarTool } from './tools';
 
 export interface ResultadoAgente {
   resposta: string;
@@ -30,7 +30,7 @@ export async function runAgente(
       model: cfg.model,
       max_tokens: 4096,
       system: systemPrompt(),
-      tools: TOOLS_FASE1,
+      tools: TOOLS_ATIVAS,
       messages,
     });
 
