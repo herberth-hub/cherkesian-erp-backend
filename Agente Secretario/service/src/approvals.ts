@@ -8,7 +8,13 @@ import { randomBytes } from 'node:crypto';
  * O modelo NUNCA marca uma proposta como aprovada por conta própria.
  */
 
-export type AprovacaoTipo = 'email' | 'reuniao';
+export type AprovacaoTipo =
+  | 'email'
+  | 'reuniao'
+  | 'op'
+  | 'ordem_compra'
+  | 'nfe'
+  | 'email_documento';
 export type AprovacaoStatus = 'pendente' | 'aprovada' | 'recusada' | 'erro';
 
 export interface Aprovacao {

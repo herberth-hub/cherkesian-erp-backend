@@ -2,6 +2,10 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { consultarModulo, modulosDisponiveis } from './erp';
 import { lerEmails, lerAgenda } from './google';
 import { criarAprovacao } from './approvals';
+import { gerarDocumento } from './erp-actions';
+
+/** Tipos de documento que o ERP sabe gerar (PDF timbrado). */
+const DOC_TIPOS = ['proposta', 'pedido', 'op', 'pedido_compra', 'romaneio', 'ficha_medidas', 'ficha_tecnica'];
 
 /**
  * Ferramentas ativas nas FASES 1–2.
@@ -79,6 +83,82 @@ export const TOOLS_ATIVAS: Anthropic.Tool[] = [
       required: ['titulo', 'quando'],
     },
   },
+
+  // ===== Fase 3 — ERP ativo (🟡 exceto gerar_documento) =====
+  {
+    name: 'erp_gerar_documento',
+    description:
+      'Gera um documento em PDF timbrado no ERP e devolve a URL para revisão. Tipos: ' +
+      DOC_TIPOS.join(', ') +
+      '. Executa direto (é material de apoio; não envia nada a ninguém). ref_id = id do pedido/OP/expedição/cliente conforme o tipo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo: { type: 'string', enum: DOC_TIPOS },
+        ref_id: { type: 'integer', description: 'Id da referência (pedido/OP/expedição/cliente).' },
+      },
+      required: ['tipo', 'ref_id'],
+    },
+  },
+  {
+    name: 'erp_gerar_op',
+    description:
+      'PROPÕE gerar a Ordem de Produção de um pedido (checa piloto e material; se faltar, cria ordem de compra). ' +
+      'NÃO executa na hora — vira proposta PENDENTE até o Herberth aprovar.',
+    input_schema: {
+      type: 'object',
+      properties: { pedido_id: { type: 'integer', description: 'Id do pedido (veja em erp_consultar módulo pedidos).' } },
+      required: ['pedido_id'],
+    },
+  },
+  {
+    name: 'erp_gerar_ordem_compra',
+    description:
+      'PROPÕE criar uma ordem de compra a um fornecedor. NÃO executa — vira proposta PENDENTE. ' +
+      'Informe fornecedor_id e material_id (veja em erp_consultar módulos fornecedores/materiais).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        fornecedor_id: { type: 'integer' },
+        descricao: { type: 'string' },
+        quantidade: { type: 'number' },
+        unidade: { type: 'string', description: "Ex.: 'm', 'un', 'kg'." },
+        valor: { type: 'number', description: 'Valor total da compra (R$).' },
+        material_id: { type: 'integer' },
+        previsao: { type: 'string', description: 'Previsão de entrega ISO-8601 (opcional).' },
+        motivo: { type: 'string' },
+      },
+      required: ['fornecedor_id', 'descricao', 'quantidade', 'unidade', 'valor'],
+    },
+  },
+  {
+    name: 'emitir_nfe',
+    description:
+      'PROPÕE emitir a NF-e de uma EXPEDIÇÃO (pelo provedor configurado no ERP). NÃO emite na hora — ' +
+      'vira proposta PENDENTE até o Herberth aprovar. Informe o id da expedição (veja em erp_consultar módulo expedicao).',
+    input_schema: {
+      type: 'object',
+      properties: { expedicao_id: { type: 'integer' } },
+      required: ['expedicao_id'],
+    },
+  },
+  {
+    name: 'enviar_documento_email',
+    description:
+      'PROPÕE gerar um documento (proposta/pedido/pedido_compra/etc.) e enviá-lo por e-mail com o PDF anexo ' +
+      '(via ERP). NÃO envia na hora — vira proposta PENDENTE até o Herberth aprovar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo: { type: 'string', enum: DOC_TIPOS },
+        ref_id: { type: 'integer' },
+        para: { type: 'string', description: 'E-mail do destinatário.' },
+        assunto: { type: 'string' },
+        mensagem: { type: 'string', description: 'Mensagem opcional no corpo.' },
+      },
+      required: ['tipo', 'ref_id', 'para'],
+    },
+  },
 ];
 
 const AVISO_PENDENTE =
@@ -116,6 +196,72 @@ export async function executarTool(nome: string, input: Record<string, unknown>)
         descricao: input.descricao ? String(input.descricao) : undefined,
       };
       const a = criarAprovacao('reuniao', `Reunião "${titulo}" em ${quando}`, dados);
+      return { proposta_registrada: true, id: a.id, resumo: a.resumo, aviso: AVISO_PENDENTE };
+    }
+
+    // ===== Fase 3 =====
+    case 'erp_gerar_documento': {
+      const tipo = String(input.tipo ?? '').trim();
+      const refId = Number(input.ref_id);
+      if (!tipo || !refId) return { erro: 'Informe tipo e ref_id.' };
+      try {
+        const d = await gerarDocumento(tipo, refId);
+        return { gerado: true, numero: d.numero, url_pdf: d.urlPdf };
+      } catch (e) {
+        return { erro: e instanceof Error ? e.message : 'Falha ao gerar documento.' };
+      }
+    }
+
+    case 'erp_gerar_op': {
+      const pedidoId = Number(input.pedido_id);
+      if (!pedidoId) return { erro: 'Informe pedido_id.' };
+      const a = criarAprovacao('op', `Gerar OP do pedido #${pedidoId}`, { pedidoId });
+      return { proposta_registrada: true, id: a.id, resumo: a.resumo, aviso: AVISO_PENDENTE };
+    }
+
+    case 'erp_gerar_ordem_compra': {
+      const fornecedorId = Number(input.fornecedor_id);
+      const descricao = String(input.descricao ?? '').trim();
+      const quantidade = Number(input.quantidade);
+      const unidade = String(input.unidade ?? '').trim();
+      const valor = Number(input.valor);
+      if (!fornecedorId || !descricao || !(quantidade > 0) || !unidade || !(valor > 0)) {
+        return { erro: 'Informe fornecedor_id, descricao, quantidade>0, unidade e valor>0.' };
+      }
+      const dados = {
+        fornecedorId,
+        descricao,
+        quantidade,
+        unidade,
+        valor,
+        materialId: input.material_id ? Number(input.material_id) : undefined,
+        previsao: input.previsao ? String(input.previsao) : undefined,
+        motivo: input.motivo ? String(input.motivo) : undefined,
+      };
+      const a = criarAprovacao('ordem_compra', `Ordem de compra a fornecedor #${fornecedorId} — ${descricao} (R$ ${valor.toFixed(2)})`, dados);
+      return { proposta_registrada: true, id: a.id, resumo: a.resumo, aviso: AVISO_PENDENTE };
+    }
+
+    case 'emitir_nfe': {
+      const expedicaoId = Number(input.expedicao_id);
+      if (!expedicaoId) return { erro: 'Informe expedicao_id.' };
+      const a = criarAprovacao('nfe', `Emitir NF-e da expedição #${expedicaoId}`, { expedicaoId });
+      return { proposta_registrada: true, id: a.id, resumo: a.resumo, aviso: AVISO_PENDENTE };
+    }
+
+    case 'enviar_documento_email': {
+      const tipo = String(input.tipo ?? '').trim();
+      const refId = Number(input.ref_id);
+      const para = String(input.para ?? '').trim();
+      if (!tipo || !refId || !para) return { erro: 'Informe tipo, ref_id e para (e-mail).' };
+      const dados = {
+        tipo,
+        refId,
+        para,
+        assunto: input.assunto ? String(input.assunto) : undefined,
+        mensagem: input.mensagem ? String(input.mensagem) : undefined,
+      };
+      const a = criarAprovacao('email_documento', `Enviar ${tipo} #${refId} por e-mail para ${para}`, dados);
       return { proposta_registrada: true, id: a.id, resumo: a.resumo, aviso: AVISO_PENDENTE };
     }
 

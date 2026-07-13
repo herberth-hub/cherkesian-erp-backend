@@ -3,6 +3,7 @@ import { INSTRUCAO_BRIEFING } from './prompt';
 import { cfg } from './config';
 import { listarPendentes, obter, atualizar } from './approvals';
 import { enviarEmail, criarEvento } from './google';
+import { gerarOp, criarOrdemCompra, emitirNfe, enviarDocumentoEmail } from './erp-actions';
 
 /**
  * CLI do Agente Secretário (Fases 1–2).
@@ -27,7 +28,7 @@ async function main() {
       : args.join(' ').trim() ||
         'Resuma a situação atual do ERP (dashboard) e o que precisa de atenção hoje.';
 
-  console.log(`\n🤖 Agente Secretário Cherkesian — Fase 2 (leitura + redação c/ aprovação)`);
+  console.log(`\n🤖 Agente Secretário Cherkesian — Fase 3 (leitura + redação + ERP ativo, c/ aprovação)`);
   console.log(`   modelo: ${cfg.model} · ERP: ${cfg.erpBaseUrl}\n`);
   console.log(`📋 Tarefa: ${cmd === 'briefing' ? 'Briefing da manhã' : instrucao}\n`);
 
@@ -52,15 +53,24 @@ function listar() {
   }
   console.log(`\n⏳ ${pend.length} proposta(s) pendente(s):\n`);
   for (const a of pend) {
-    console.log(`  [${a.id}] ${a.tipo.toUpperCase()} · ${a.resumo}`);
+    const alerta = a.nivel === 'vermelho' ? ' 🔴' : '';
+    console.log(`  [${a.id}] ${a.tipo.toUpperCase()}${alerta} · ${a.resumo}`);
+    const d = a.dados;
     if (a.tipo === 'email') {
-      console.log(`      Para: ${a.dados.para}`);
-      console.log(`      Assunto: ${a.dados.assunto}`);
-      console.log(`      ---\n${indent(String(a.dados.corpo || ''), '      ')}\n      ---`);
+      console.log(`      Para: ${d.para}`);
+      console.log(`      Assunto: ${d.assunto}`);
+      console.log(`      ---\n${indent(String(d.corpo || ''), '      ')}\n      ---`);
+    } else if (a.tipo === 'reuniao') {
+      console.log(`      Quando: ${d.quando} (${d.duracao_min} min)`);
+      console.log(`      Convidados: ${(d.convidados as string[])?.join(', ') || '—'}`);
+      if (d.descricao) console.log(`      Descrição: ${d.descricao}`);
+    } else if (a.tipo === 'ordem_compra') {
+      console.log(`      Fornecedor #${d.fornecedorId} · ${d.descricao}`);
+      console.log(`      Qtd: ${d.quantidade} ${d.unidade} · Valor: R$ ${Number(d.valor).toFixed(2)}`);
+    } else if (a.tipo === 'email_documento') {
+      console.log(`      Documento: ${d.tipo} #${d.refId} → ${d.para}`);
     } else {
-      console.log(`      Quando: ${a.dados.quando} (${a.dados.duracao_min} min)`);
-      console.log(`      Convidados: ${(a.dados.convidados as string[])?.join(', ') || '—'}`);
-      if (a.dados.descricao) console.log(`      Descrição: ${a.dados.descricao}`);
+      console.log(`      ${JSON.stringify(d)}`);
     }
     console.log('');
   }
@@ -90,21 +100,47 @@ async function decidir(id: string | undefined, aprovar: boolean) {
   }
 
   try {
+    const d = a.dados;
     let resultado: string;
-    if (a.tipo === 'email') {
-      const de = `Grupo Cherkesian <${cfg.diretor.email}>`;
-      const r = await enviarEmail(String(a.dados.para), String(a.dados.assunto), String(a.dados.corpo), de);
-      resultado = `E-mail enviado (id ${r.id}).`;
-    } else {
-      const r = await criarEvento(
-        String(a.dados.titulo),
-        String(a.dados.quando),
-        Number(a.dados.duracao_min ?? 30),
-        (a.dados.convidados as string[]) || [],
-        a.dados.descricao ? String(a.dados.descricao) : undefined,
-        cfg.timezone,
-      );
-      resultado = `Evento criado: ${r.link}`;
+    switch (a.tipo) {
+      case 'email': {
+        const de = `Grupo Cherkesian <${cfg.diretor.email}>`;
+        const r = await enviarEmail(String(d.para), String(d.assunto), String(d.corpo), de);
+        resultado = `E-mail enviado (id ${r.id}).`;
+        break;
+      }
+      case 'reuniao': {
+        const r = await criarEvento(
+          String(d.titulo),
+          String(d.quando),
+          Number(d.duracao_min ?? 30),
+          (d.convidados as string[]) || [],
+          d.descricao ? String(d.descricao) : undefined,
+          cfg.timezone,
+        );
+        resultado = `Evento criado: ${r.link}`;
+        break;
+      }
+      case 'op':
+        resultado = await gerarOp(Number(d.pedidoId));
+        break;
+      case 'ordem_compra':
+        resultado = await criarOrdemCompra(d as never);
+        break;
+      case 'nfe':
+        resultado = await emitirNfe(Number(d.expedicaoId));
+        break;
+      case 'email_documento':
+        resultado = await enviarDocumentoEmail(
+          String(d.tipo),
+          Number(d.refId),
+          String(d.para),
+          d.assunto ? String(d.assunto) : undefined,
+          d.mensagem ? String(d.mensagem) : undefined,
+        );
+        break;
+      default:
+        throw new Error(`Tipo de proposta desconhecido: ${a.tipo}`);
     }
     atualizar(id, { status: 'aprovada', decididoEm: new Date().toISOString(), resultado });
     console.log(`\n✅ Aprovado e executado. ${resultado}\n`);

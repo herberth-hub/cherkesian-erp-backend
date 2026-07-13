@@ -58,6 +58,32 @@ class ErpClient {
     }
     return resp.json();
   }
+
+  /** POST autenticado (ações de escrita); re-loga uma vez em caso de 401. */
+  async post(path: string, body?: unknown): Promise<unknown> {
+    const url = cfg.erpBaseUrl + (path.startsWith('/') ? path : '/' + path);
+    const enviar = (token: string) =>
+      fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    let token = await this.auth();
+    let resp = await enviar(token);
+    if (resp.status === 401) {
+      this.token = null;
+      token = await this.auth();
+      resp = await enviar(token);
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = (data as { message?: unknown }).message;
+      throw new Error(
+        `ERP POST ${path} → HTTP ${resp.status}. ${Array.isArray(msg) ? msg.join('; ') : String(msg ?? JSON.stringify(data)).slice(0, 300)}`,
+      );
+    }
+    return data;
+  }
 }
 
 /** Mapa módulo (linguagem do agente) → rota(s) de leitura do ERP. */
