@@ -607,7 +607,7 @@ async function viewProdutos(c){
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao), esc(p.categoria),
       esc(p.cor||'—'), p.precoBase?money(p.precoBase):'—',
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">📋 Ficha</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum produto ainda.');
 }
 async function viewMateriais(c){
@@ -746,22 +746,123 @@ async function saveCliente(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ----- Ficha técnica: helpers de tamanho, fotos e tabela de medidas -----
+function secDivisor(t){ return `<div style="border-top:1px solid var(--line);margin:12px 0 10px;padding-top:8px"><b style="font-size:11.5px;color:var(--muted);letter-spacing:.5px">${esc(t)}</b></div>`; }
+function taField(idv,lbl,valor,rows,ph){ return `<div class="mrow"><label class="fl">${esc(lbl)}</label><textarea id="${idv}" class="inp" rows="${rows||4}" ${ph?'placeholder="'+esc(ph)+'"':''}>${esc(valor||'')}</textarea></div>`; }
+function expandGradeJS(grade){
+  const E=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8'];
+  const t=(grade||'').trim().toUpperCase();
+  const m=/^(\S+)\s+A[O]?\s+(\S+)$/.exec(t);
+  if(m){ const i=E.indexOf(m[1]), f=E.indexOf(m[2]); if(i>=0&&f>=i) return E.slice(i,f+1); }
+  return t.split(/[,;/ ]+/).map(s=>s.trim()).filter(Boolean).slice(0,16);
+}
+function deriveSizes(p){
+  let s = expandGradeJS(p.grade);
+  if(!s.length){ const set=[]; (p.medidas||[]).forEach(m=>Object.keys(m.valores||{}).forEach(k=>{ if(!set.includes(k)) set.push(k); })); s=set; }
+  return s;
+}
+function fileToDataURL(file, maxDim, quality){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{ const img=new Image(); img.onload=()=>{
+      let w=img.width, h=img.height;
+      if(w>maxDim||h>maxDim){ const r=Math.min(maxDim/w,maxDim/h); w=Math.round(w*r); h=Math.round(h*r); }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(cv.toDataURL('image/jpeg',quality));
+    }; img.onerror=reject; img.src=fr.result; };
+    fr.onerror=reject; fr.readAsDataURL(file);
+  });
+}
+function fotoThumb(kind){
+  const u=(window.__FOTO||{})[kind];
+  if(u) return `<img src="${u}" style="max-height:96px;max-width:100%;border:1px solid #e2ddce;border-radius:8px;display:block"><a onclick="APP.fotoDel('${kind}')" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a>`;
+  return `<span class="muted" style="font-size:12px">Nenhuma imagem selecionada.</span>`;
+}
+async function fotoSel(kind, el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  try{ window.__FOTO[kind]=await fileToDataURL(f,1100,0.72); $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+  catch(e){ toast('Não foi possível ler a imagem.','err'); }
+}
+function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+function pmedSync(){
+  (window.__PMED||[]).forEach((r,i)=>{
+    const d=$('pm_desc_'+i); if(!d) return;
+    r.descricao=d.value; const tl=$('pm_tol_'+i); r.tolerancia=tl?tl.value:'';
+    r.valores=r.valores||{};
+    (window.__PMEDT||[]).forEach((t,j)=>{ const v=$('pm_val_'+i+'_'+j); if(v) r.valores[t]=v.value; });
+  });
+}
+function pmedRender(){
+  const box=$('pmedbox'); if(!box) return;
+  const T=window.__PMEDT||[], rows=window.__PMED||[];
+  let h='';
+  if(!rows.length) h+=`<div class="muted" style="font-size:12px;margin-bottom:6px">Nenhuma medida. Use "+ linha" (ex.: CINTURA, COXA, ENTREPERNAS).</div>`;
+  h+=`<div style="overflow-x:auto"><table class="pmed"><thead><tr><th style="min-width:120px">Medida</th><th>Tol.</th>`+T.map(t=>`<th>${esc(t)}</th>`).join('')+`<th></th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    h+=`<tr><td><input class="inp sm" id="pm_desc_${i}" value="${esc(r.descricao||'')}" placeholder="medida"></td>`;
+    h+=`<td><input class="inp sm" id="pm_tol_${i}" value="${esc(r.tolerancia||'')}" style="width:48px" placeholder="1 CM"></td>`;
+    h+=T.map((t,j)=>`<td><input class="inp sm" id="pm_val_${i}_${j}" value="${esc((r.valores&&r.valores[t]!=null?r.valores[t]:''))}" style="width:44px"></td>`).join('');
+    h+=`<td><button class="btn-sm" onclick="APP.pmedDel(${i})">×</button></td></tr>`;
+  });
+  h+=`</tbody></table></div>`;
+  box.innerHTML=h;
+}
+function pmedAdd(){ pmedSync(); (window.__PMED=window.__PMED||[]).push({descricao:'',tolerancia:'',valores:{}}); pmedRender(); }
+function pmedDel(i){ pmedSync(); window.__PMED.splice(i,1); pmedRender(); }
+function pmedApplySizes(){ pmedSync(); const raw=val('f_tam'); window.__PMEDT = raw.split(/[,;/ ]+/).map(s=>s.trim()).filter(Boolean).slice(0,16); pmedRender(); }
+
 async function formProduto(id){
   let p={};
   if(id){ try{ p = await api('/produtos/'+id); }catch(e){ toast(e.message,'err'); return; } }
-  openModal(`<h3>${id?'Editar':'Novo'} produto</h3>
-    ${field('f_cat','Categoria * (ex.: Jaleco)','value="'+esc(p.categoria||'')+'"')}
-    ${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}
-    <div class="grid3">${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade','value="'+esc(p.grade||'')+'"')}${field('f_preco','Preço base','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
-    ${id?'':'<div class="muted" style="font-size:11px;margin-bottom:8px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
+  window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
+  window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
+  window.__PMEDT = deriveSizes(p);
+  const fotoBox=(kind,lbl)=>`<div><label class="fl">${esc(lbl)}</label><div id="fpv_${kind}" style="margin:4px 0">${fotoThumb(kind)}</div><input type="file" accept="image/*" onchange="APP.fotoSel('${kind}',this)" style="font-size:12px"></div>`;
+  openModal(`<style>
+    .pmed{border-collapse:collapse;font-size:12px}
+    .pmed th{background:#faf6ea;color:#9a7d1e;font-size:10px;padding:4px 5px;text-align:center;border:1px solid #eee4c8;white-space:nowrap}
+    .pmed td{padding:2px 3px;border:1px solid #efece1}
+    .inp.sm{padding:5px 6px;font-size:12px;width:100%}
+  </style>
+    <h3>${id?'Editar':'Novo'} produto — ficha técnica</h3>
+    ${secDivisor('IDENTIFICAÇÃO')}
+    <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
+    <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
+    <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_preco','Preço base','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
+    <div class="grid3">${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}${field('f_tec','Tecido principal','value="'+esc(p.tecido||'')+'"')}${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}</div>
+    ${field('f_model','Modelagem (Audaces) — ex.: 3174 - N 7005-000AA','value="'+esc(p.modelagem||'')+'"')}
+    ${id?'':'<div class="muted" style="font-size:11px;margin:-2px 0 6px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
+    ${secDivisor('ESPECIFICAÇÕES DE CONFECÇÃO / COSTURA')}
+    ${taField('f_espec','Costura, acabamentos, bolsos, tabelas de zíper/elástico...','',6, p.especificacoes? '' : 'Descreva a confecção como na ficha técnica do cliente.')}
+    ${secDivisor('TABELA DE MEDIDAS')}
+    <div class="grid2" style="align-items:end">${field('f_tam','Tamanhos (colunas)','value="'+esc((window.__PMEDT||[]).join(', '))+'"')}<div class="mrow"><button class="btn-sm" onclick="APP.pmedApplySizes()">Aplicar tamanhos</button> <button class="btn-sm" onclick="APP.pmedAdd()">+ linha</button></div></div>
+    <div id="pmedbox"></div>
+    ${secDivisor('FOTOS')}
+    <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Modelagem (Audaces)')}</div>
+    ${secDivisor('OBSERVAÇÕES')}
+    ${taField('f_obs','Observações gerais da ficha','',3)}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveProduto(${id||0})">Salvar</button></div>`);
+  // preenche os textareas (evita problemas de escape em multilinha no template)
+  if(p.especificacoes) $('f_espec').value=p.especificacoes;
+  if(p.observacoes) $('f_obs').value=p.observacoes;
+  pmedRender();
 }
 async function saveProduto(id){
-  const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), grade:val('f_grade') };
+  pmedSync();
+  const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), grade:val('f_grade'),
+    referencia:val('f_ref'), marca:val('f_marca'), linha:val('f_linha'), grupo:val('f_grupo'),
+    modelagem:val('f_model'), tecido:val('f_tec'), composicao:val('f_comp'),
+    especificacoes:val('f_espec'), observacoes:val('f_obs') };
   const preco = val('f_preco'); if(preco) body.precoBase = Number(preco);
   if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  // fotos e medidas SEMPRE enviadas (string vazia limpa; medidas substituem a grade)
+  const fm=window.__FOTO||{};
+  body.fotoModelo = fm.modelo||''; body.fotoModelagem = fm.modelagem||'';
+  body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
+    .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
   try{ await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -1894,6 +1995,7 @@ window.APP = {
   emitirNfe, formEmailDoc, sendEmailDoc,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
+  fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar,
 };

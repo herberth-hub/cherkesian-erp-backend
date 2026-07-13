@@ -16,9 +16,10 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false, bodyParser: false });
   const config = app.get(ConfigService);
 
-  // Corpo limitado a 2 MB (nenhum endpoint recebe upload; PDFs são gerados no servidor).
-  app.use(json({ limit: '2mb' }));
-  app.use(urlencoded({ extended: true, limit: '2mb' }));
+  // Corpo limitado a 8 MB: acomoda as fotos (base64) da ficha técnica do produto,
+  // comprimidas no cliente; ainda barra payloads abusivos (anti-DoS).
+  app.use(json({ limit: '8mb' }));
+  app.use(urlencoded({ extended: true, limit: '8mb' }));
 
   // ===== Cabeçalhos de segurança (Helmet) =====
   // CSP sob medida: o frontend é um único HTML com scripts/estilos inline e

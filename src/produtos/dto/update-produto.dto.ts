@@ -5,9 +5,9 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { ProdutoFiscalDto } from './create-produto.dto';
+import { ProdutoFichaDto } from './create-produto.dto';
 
-export class UpdateProdutoDto extends ProdutoFiscalDto {
+export class UpdateProdutoDto extends ProdutoFichaDto {
   @IsOptional()
   @IsString()
   @MaxLength(60)

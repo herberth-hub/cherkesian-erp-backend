@@ -1,13 +1,17 @@
+import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsPositive,
   IsString,
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 /** Campos fiscais reutilizados por create/update de produto (NF-e). */
@@ -27,7 +31,44 @@ export class ProdutoFiscalDto {
   icmsAliquota?: number;
 }
 
-export class CreateProdutoDto extends ProdutoFiscalDto {
+/** Uma linha da tabela de medidas (grade) da ficha técnica. */
+export class FichaMedidaDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Informe a descrição da medida.' })
+  @MaxLength(80)
+  descricao!: string;
+
+  @IsOptional() @IsString() @MaxLength(20) tolerancia?: string;
+
+  /** Valores por tamanho: { "PP": "43", "P": "47", ... } (strings livres). */
+  @IsOptional() @IsObject() valores?: Record<string, string>;
+
+  @IsOptional() @IsInt() @Min(0) ordem?: number;
+}
+
+/** Campos descritivos da ficha técnica (herda os fiscais). */
+export class ProdutoFichaDto extends ProdutoFiscalDto {
+  @IsOptional() @IsString() @MaxLength(60) referencia?: string;
+  @IsOptional() @IsString() @MaxLength(80) marca?: string;
+  @IsOptional() @IsString() @MaxLength(60) linha?: string;
+  @IsOptional() @IsString() @MaxLength(60) grupo?: string;
+  @IsOptional() @IsString() @MaxLength(80) modelagem?: string;
+  @IsOptional() @IsString() @MaxLength(120) tecido?: string;
+  @IsOptional() @IsString() @MaxLength(160) composicao?: string;
+  @IsOptional() @IsString() @MaxLength(6000) especificacoes?: string;
+  @IsOptional() @IsString() @MaxLength(4000) observacoes?: string;
+  // Fotos em data URI base64 (comprimidas no cliente). Limite alto p/ imagens.
+  @IsOptional() @IsString() @MaxLength(4_000_000) fotoModelo?: string;
+  @IsOptional() @IsString() @MaxLength(4_000_000) fotoModelagem?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FichaMedidaDto)
+  medidas?: FichaMedidaDto[];
+}
+
+export class CreateProdutoDto extends ProdutoFichaDto {
   /** Opcional: se omitido, o sistema gera no padrão PRD-CAT-0000. */
   @IsOptional()
   @IsString()

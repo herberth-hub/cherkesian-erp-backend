@@ -16,22 +16,27 @@ import {
   camposDuplos,
   dataBR,
   gradeCaixinhas,
+  imagem,
   money,
   novaEtiqueta,
   novoDocumento,
   secao,
   tabela,
+  tabelaMedidas,
+  textoBloco,
   totalDestaque,
 } from './pdf.renderer';
 
-/** Tipos suportados nesta fase, com prefixo de numeração e área RBAC exigida. */
-const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area }> = {
+/** Tipos suportados nesta fase, com prefixo de numeração e área(s) RBAC exigida(s). */
+const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area[] }> = {
   proposta: { titulo: 'Proposta Comercial', prefixo: 'PROP', area: 'vendas' },
   pedido: { titulo: 'Pedido de Venda', prefixo: 'PVD', area: 'vendas' },
   op: { titulo: 'Ordem de Produção', prefixo: 'OPD', area: 'producao' },
   pedido_compra: { titulo: 'Pedido de Compra', prefixo: 'OCD', area: 'compras' },
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
   ficha_medidas: { titulo: 'Ficha de Medidas', prefixo: 'MED', area: 'medidas' },
+  // Ficha técnica do produto: pode ser emitida por produção (cadastros) e comercial (vendas).
+  ficha_tecnica: { titulo: 'Ficha Técnica', prefixo: 'FT', area: ['cadastros', 'vendas'] },
   etiqueta: { titulo: 'Etiqueta de Lote', prefixo: 'ETQ', area: 'estoque' },
 };
 
@@ -164,7 +169,8 @@ export class DocumentosService {
         `Tipo "${tipo}" não suportado. Disponíveis: ${Object.keys(TIPOS).join(', ')}.`,
       );
     }
-    if (!perfilPodeAcessar(user.acesso, def.area)) {
+    const areas = Array.isArray(def.area) ? def.area : [def.area];
+    if (!areas.some((a) => perfilPodeAcessar(user.acesso, a))) {
       throw new ForbiddenException(`Perfil "${user.acesso}" não pode emitir "${tipo}".`);
     }
     return def;
@@ -190,6 +196,8 @@ export class DocumentosService {
         return this.pdfRomaneio(referenciaId, empresaId, numero);
       case 'ficha_medidas':
         return this.pdfMedidas(referenciaId, empresaId, numero);
+      case 'ficha_tecnica':
+        return this.pdfFichaTecnica(referenciaId, empresaId, numero);
       case 'etiqueta':
         return this.pdfEtiqueta(referenciaId, empresaId, numero);
       default:
@@ -464,6 +472,112 @@ export class DocumentosService {
     }
     assinaturas(doc, 'GRUPO CHERKESIAN', `${cliente.nome} — Conferido`);
     return doc;
+  }
+
+  private async pdfFichaTecnica(produtoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const produto = await this.prisma.produto.findUnique({
+      where: { id: produtoId },
+      include: { medidas: { orderBy: { ordem: 'asc' } } },
+    });
+    if (!produto || produto.empresaId !== empresaId) {
+      throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
+    }
+    const bom = await this.prisma.consumo.findMany({
+      where: { produtoId },
+      include: { material: true },
+    });
+
+    const doc = novoDocumento('Ficha Técnica', numero);
+
+    secao(doc, 'Identificação');
+    camposDuplos(doc, [
+      ['Código', produto.codigo],
+      ['Referência', produto.referencia ?? '—'],
+      ['Descrição', produto.descricao],
+      ['Grupo', produto.grupo ?? produto.categoria],
+      ['Marca / cliente', produto.marca ?? '—'],
+      ['Linha', produto.linha ?? '—'],
+      ['Cor', produto.cor ?? '—'],
+      ['Grade', produto.grade ?? '—'],
+      ['Tecido', produto.tecido ?? '—'],
+      ['Composição', produto.composicao ?? '—'],
+      ['Modelagem (Audaces)', produto.modelagem ?? '—'],
+      ['Preço base', produto.precoBase ? money(produto.precoBase) : '—'],
+    ]);
+
+    if (produto.fotoModelo) {
+      secao(doc, 'Modelo');
+      imagem(doc, produto.fotoModelo, 230);
+    }
+
+    if (produto.especificacoes?.trim()) {
+      secao(doc, 'Especificações de confecção / costura');
+      textoBloco(doc, produto.especificacoes);
+    }
+
+    if (produto.medidas.length) {
+      secao(doc, 'Tabela de medidas');
+      const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
+      tabelaMedidas(
+        doc,
+        tamanhos,
+        produto.medidas.map((m) => {
+          const valores = (m.valores ?? {}) as Record<string, string>;
+          return {
+            descricao: m.descricao,
+            tolerancia: m.tolerancia ?? '',
+            valores: tamanhos.map((t) => (valores[t] != null ? String(valores[t]) : '')),
+          };
+        }),
+      );
+    }
+
+    if (bom.length) {
+      secao(doc, 'Materiais / consumo por peça');
+      tabela(
+        doc,
+        [
+          { titulo: 'Material', largura: 95 },
+          { titulo: 'Descrição', largura: 250 },
+          { titulo: 'Un.', largura: 50 },
+          { titulo: 'Consumo', largura: 100, alinhamento: 'right' },
+        ],
+        bom.map((b) => [
+          b.material.codigo,
+          b.material.descricao,
+          b.unidade,
+          b.quantidade.toFixed(4),
+        ]),
+      );
+    }
+
+    if (produto.fotoModelagem) {
+      secao(doc, 'Modelagem (Audaces)');
+      imagem(doc, produto.fotoModelagem, 230);
+    }
+
+    if (produto.observacoes?.trim()) {
+      secao(doc, 'Observações');
+      textoBloco(doc, produto.observacoes);
+    }
+
+    assinaturas(doc, 'GRUPO CHERKESIAN — Modelagem/PCP', `${produto.marca ?? 'Cliente'} — Aprovado`);
+    return doc;
+  }
+
+  /** Colunas de tamanho da tabela: a grade do produto, ou a união das chaves das medidas. */
+  private tamanhosDaFicha(grade: string | null, medidas: Array<{ valores: unknown }>): string[] {
+    if (grade?.trim()) {
+      const cols = this.expandirGrade(grade);
+      if (cols.length) return cols;
+    }
+    const set: string[] = [];
+    for (const m of medidas) {
+      for (const k of Object.keys((m.valores ?? {}) as Record<string, unknown>)) {
+        if (!set.includes(k)) set.push(k);
+      }
+    }
+    return set.slice(0, 16);
   }
 
   private async pdfEtiqueta(loteId: number, empresaId: number, numero: string): Promise<Pdf> {

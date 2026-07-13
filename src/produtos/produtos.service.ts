@@ -20,8 +20,11 @@ export class ProdutosService {
     });
   }
 
-  async findOne(id: number, empresaId: number): Promise<Produto> {
-    const produto = await this.prisma.produto.findUnique({ where: { id } });
+  async findOne(id: number, empresaId: number) {
+    const produto = await this.prisma.produto.findUnique({
+      where: { id },
+      include: { medidas: { orderBy: { ordem: 'asc' } } },
+    });
     if (!produto || produto.empresaId !== empresaId) {
       throw new NotFoundException(`Produto ${id} não encontrado.`);
     }
@@ -40,7 +43,9 @@ export class ProdutosService {
           cor: dto.cor,
           grade: dto.grade,
           precoBase: dto.precoBase,
+          ...this.dadosFicha(dto),
           ...this.dadosFiscais(dto),
+          medidas: dto.medidas?.length ? { create: this.medidasCreate(dto.medidas) } : undefined,
         },
       });
     } catch (err) {
@@ -50,17 +55,59 @@ export class ProdutosService {
 
   async update(id: number, dto: UpdateProdutoDto, empresaId: number): Promise<Produto> {
     await this.findOne(id, empresaId);
-    return this.prisma.produto.update({
-      where: { id },
-      data: {
-        categoria: dto.categoria,
-        descricao: dto.descricao,
-        cor: dto.cor,
-        grade: dto.grade,
-        precoBase: dto.precoBase,
-        ...this.dadosFiscais(dto),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const produto = await tx.produto.update({
+        where: { id },
+        data: {
+          categoria: dto.categoria,
+          descricao: dto.descricao,
+          cor: dto.cor,
+          grade: dto.grade,
+          precoBase: dto.precoBase,
+          ...this.dadosFicha(dto),
+          ...this.dadosFiscais(dto),
+        },
+      });
+      // Tabela de medidas: se veio no payload, substitui integralmente.
+      if (dto.medidas !== undefined) {
+        await tx.produtoMedida.deleteMany({ where: { produtoId: id } });
+        if (dto.medidas.length) {
+          await tx.produtoMedida.createMany({
+            data: this.medidasCreate(dto.medidas).map((m) => ({ ...m, produtoId: id })),
+          });
+        }
+      }
+      return produto;
     });
+  }
+
+  /** Normaliza as linhas da tabela de medidas para gravação (ordem sequencial). */
+  private medidasCreate(medidas: CreateProdutoDto['medidas']) {
+    return (medidas ?? [])
+      .filter((m) => m.descricao?.trim())
+      .map((m, i) => ({
+        ordem: m.ordem ?? i,
+        descricao: m.descricao.trim(),
+        tolerancia: m.tolerancia?.trim() || null,
+        valores: (m.valores ?? {}) as Prisma.InputJsonValue,
+      }));
+  }
+
+  /** Extrai os campos descritivos da ficha técnica presentes no DTO. */
+  private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {
+    return {
+      referencia: dto.referencia,
+      marca: dto.marca,
+      linha: dto.linha,
+      grupo: dto.grupo,
+      modelagem: dto.modelagem,
+      tecido: dto.tecido,
+      composicao: dto.composicao,
+      especificacoes: dto.especificacoes,
+      observacoes: dto.observacoes,
+      fotoModelo: dto.fotoModelo,
+      fotoModelagem: dto.fotoModelagem,
+    };
   }
 
   async remove(id: number, empresaId: number): Promise<{ removido: true; id: number }> {

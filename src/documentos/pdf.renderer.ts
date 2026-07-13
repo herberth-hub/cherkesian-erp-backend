@@ -175,6 +175,86 @@ export function gradeCaixinhas(doc: Pdf, itens: Array<[string, string]>): void {
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
+/** Parágrafo de texto (preserva quebras de linha). */
+export function textoBloco(doc: Pdf, texto: string): void {
+  doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(texto || '—', 50, doc.y, {
+    width: doc.page.width - 100,
+    align: 'left',
+    lineGap: 1.5,
+  });
+  doc.x = 50;
+  doc.moveDown(0.3);
+}
+
+/**
+ * Insere uma imagem a partir de um data URI base64 (foto do modelo/modelagem).
+ * Tolerante a erros: imagem inválida apenas registra um aviso e não quebra o PDF.
+ */
+export function imagem(doc: Pdf, dataUri: string | null | undefined, alturaMax = 210): void {
+  if (!dataUri) return;
+  const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(dataUri.trim());
+  if (!m) return;
+  try {
+    const buf = Buffer.from(m[1], 'base64');
+    const largura = doc.page.width - 100;
+    if (doc.y + alturaMax > doc.page.height - 90) { doc.addPage(); }
+    doc.image(buf, 50, doc.y + 2, { fit: [largura, alturaMax], align: 'center' });
+    doc.y = doc.y + alturaMax + 8;
+    doc.x = 50;
+  } catch {
+    doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(8.5).text('(imagem não pôde ser exibida)', 50, doc.y);
+    doc.moveDown(0.4);
+  }
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
+/**
+ * Tabela de medidas (grade): coluna "Medida" + "Tol." + uma coluna por tamanho.
+ * Larguras calculadas dinamicamente para caber na página, com fonte compacta.
+ */
+export function tabelaMedidas(doc: Pdf, tamanhos: string[], linhas: Array<{ descricao: string; tolerancia: string; valores: string[] }>): void {
+  const x0 = 50;
+  const larguraUtil = doc.page.width - 100;
+  const wDesc = Math.min(150, Math.max(90, larguraUtil - 40 - tamanhos.length * 34));
+  const wTol = 38;
+  const wTam = tamanhos.length ? Math.max(20, (larguraUtil - wDesc - wTol) / tamanhos.length) : 0;
+  const fonte = wTam < 26 ? 7 : 8;
+
+  const desenharCabecalho = (y: number): number => {
+    doc.rect(x0, y, larguraUtil, 18).fill('#faf6ea');
+    doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(fonte);
+    doc.text('MEDIDA', x0 + 6, y + 6, { width: wDesc - 8 });
+    doc.text('TOL.', x0 + wDesc, y + 6, { width: wTol - 4, align: 'center' });
+    let x = x0 + wDesc + wTol;
+    for (const t of tamanhos) {
+      doc.text(t, x, y + 6, { width: wTam, align: 'center' });
+      x += wTam;
+    }
+    return y + 18;
+  };
+
+  let y = desenharCabecalho(doc.y + 4);
+  doc.font('Helvetica').fontSize(fonte);
+  for (const l of linhas) {
+    if (y > doc.page.height - 100) { doc.addPage(); y = desenharCabecalho(128); doc.font('Helvetica').fontSize(fonte); }
+    const h = 15;
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(fonte).text(l.descricao, x0 + 6, y + 4, { width: wDesc - 8, ellipsis: true, height: h });
+    doc.font('Helvetica').fillColor(CINZA).text(l.tolerancia || '', x0 + wDesc, y + 4, { width: wTol - 4, align: 'center' });
+    let x = x0 + wDesc + wTol;
+    doc.fillColor(TINTA);
+    for (let i = 0; i < tamanhos.length; i++) {
+      doc.text(l.valores[i] ?? '', x, y + 4, { width: wTam, align: 'center' });
+      x += wTam;
+    }
+    y += h;
+    doc.moveTo(x0, y).lineTo(x0 + larguraUtil, y).lineWidth(0.4).strokeColor(LINHA).stroke();
+  }
+  // molduras verticais das colunas de tamanho (leitura em coluna)
+  doc.x = x0;
+  doc.y = y + 8;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
 /** Destaque de total (caixa dourada à direita). */
 export function totalDestaque(doc: Pdf, rotulo: string, valor: string): void {
   const w = 220;

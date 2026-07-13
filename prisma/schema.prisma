@@ -203,6 +203,20 @@ model Produto {
   precoBase Decimal? @db.Decimal(12,2)
   consumo   Consumo[]
   estoque   Estoque[]
+  medidas   ProdutoMedida[]
+
+  // ===== Ficha técnica (gerada a partir do cadastro; enviada ao cliente) =====
+  referencia     String? // referência do cliente/externa (ex.: 101004966)
+  marca          String? // marca / cliente (ex.: CINEMARK)
+  linha          String? // linha (ex.: PROFISSIONAL)
+  grupo          String? // grupo detalhado (ex.: CALCA)
+  modelagem      String? // referência da modelagem no Audaces (ex.: 3174 - N 7005-000AA)
+  tecido         String? // tecido principal
+  composicao     String? // composição do tecido
+  especificacoes String? @db.Text // observações de confecção / costura (texto longo)
+  observacoes    String? @db.Text // observações gerais da ficha
+  fotoModelo     String? @db.Text // foto do modelo (data URI base64)
+  fotoModelagem  String? @db.Text // imagem da modelagem Audaces (data URI base64)
 
   // ===== Dados fiscais (item da NF-e) — validar com a contabilidade =====
   ncm             String? // 8 dígitos
@@ -214,6 +228,16 @@ model Produto {
   pisCst          String? @default("01")
   cofinsCst       String? @default("01")
   icmsAliquota    Decimal? @db.Decimal(5,2)
+}
+
+model ProdutoMedida { // Tabela de medidas da ficha técnica — 1 linha por medida, valores por tamanho
+  id         Int      @id @default(autoincrement())
+  produtoId  Int
+  produto    Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  ordem      Int      @default(0)
+  descricao  String   // ex.: CINTURA, COXA, ENTREPERNAS
+  tolerancia String?  // ex.: 1 CM
+  valores    Json     @default("{}") // { "PP": "43", "P": "47", ... } por tamanho
 }
 
 model Material {
