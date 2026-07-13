@@ -1,0 +1,22 @@
+{
+  "name": "cherkesian-agente-secretario",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente Secretario do Grupo Cherkesian — orquestra a Claude API (tool use) sobre o ERP, Gmail e Calendar. Fase 1: leitura.",
+  "scripts": {
+    "agente": "tsx src/cli.ts",
+    "briefing": "tsx src/cli.ts briefing",
+    "auth:google": "tsx src/authorize-google.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
