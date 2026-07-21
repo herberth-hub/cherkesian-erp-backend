@@ -157,16 +157,23 @@ export class NfeService {
     const items = itens.map((it, idx) => {
       const p = it.produtoId ? mapa.get(it.produtoId) : undefined;
       const bruto = it.valorUnit.mul(it.quantidade);
+      const unidade = p?.unidadeComercial ?? 'UN';
+      const valorUnit = Number(it.valorUnit.toFixed(2));
       return {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
         cfop: p?.cfop ?? '5101',
-        unidade_comercial: p?.unidadeComercial ?? 'UN',
+        // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
+        codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
+        // Unidade comercial e tributável (SEFAZ exige as duas).
+        unidade_comercial: unidade,
         quantidade_comercial: it.quantidade,
-        valor_unitario_comercial: Number(it.valorUnit.toFixed(2)),
+        valor_unitario_comercial: valorUnit,
+        unidade_tributavel: unidade,
+        quantidade_tributavel: it.quantidade,
+        valor_unitario_tributavel: valorUnit,
         valor_bruto: Number(bruto.toFixed(2)),
-        ncm: p?.ncm ?? '00000000',
         icms_origem: p?.origem ?? 0,
         icms_situacao_tributaria: p?.icmsCst ?? (emitente.crt === 3 ? '00' : '102'),
         icms_aliquota: p?.icmsAliquota ? Number(p.icmsAliquota) : undefined,
@@ -181,6 +188,7 @@ export class NfeService {
       tipo_documento: 1, // 1 = saída
       finalidade_emissao: 1, // 1 = normal
       presenca_comprador: 9,
+      modalidade_frete: 9, // 9 = sem ocorrência de transporte (SEFAZ exige o campo)
       serie,
       numero,
       // Emitente (dados também configurados no painel do provedor)
