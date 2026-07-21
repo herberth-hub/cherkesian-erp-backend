@@ -154,12 +154,13 @@ export class NfeService {
     const mapa = new Map(produtos.map((p) => [p.id, p]));
     const docDest = digitos(cliente.cnpjCpf);
 
+    const regimeNormal = emitente.crt === 3;
     const items = itens.map((it, idx) => {
       const p = it.produtoId ? mapa.get(it.produtoId) : undefined;
       const bruto = it.valorUnit.mul(it.quantidade);
       const unidade = p?.unidadeComercial ?? 'UN';
       const valorUnit = Number(it.valorUnit.toFixed(2));
-      return {
+      const item: Record<string, unknown> = {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
@@ -175,11 +176,20 @@ export class NfeService {
         valor_unitario_tributavel: valorUnit,
         valor_bruto: Number(bruto.toFixed(2)),
         icms_origem: p?.origem ?? 0,
-        icms_situacao_tributaria: p?.icmsCst ?? (emitente.crt === 3 ? '00' : '102'),
-        icms_aliquota: p?.icmsAliquota ? Number(p.icmsAliquota) : undefined,
+        icms_situacao_tributaria: p?.icmsCst ?? (regimeNormal ? '00' : '102'),
         pis_situacao_tributaria: p?.pisCst ?? '01',
         cofins_situacao_tributaria: p?.cofinsCst ?? '01',
+        // ⚠️ Alíquotas PIS/COFINS — padrão Lucro Presumido (cumulativo).
+        // CONFIRME COM A CONTABILIDADE e ajuste por produto quando necessário.
+        pis_aliquota_porcentual: 0.65,
+        cofins_aliquota_porcentual: 3,
       };
+      if (regimeNormal) {
+        // Grupo ICMS (Regime Normal, CST 00): a SEFAZ exige modBC antes de vBC.
+        item.icms_modalidade_base_calculo = 3; // 3 = valor da operação
+        item.icms_aliquota = p?.icmsAliquota ? Number(p.icmsAliquota) : 18; // % — CONFIRME COM A CONTABILIDADE
+      }
+      return item;
     });
 
     return {
