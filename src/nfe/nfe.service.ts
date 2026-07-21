@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Filial, NotaFiscal, Prisma } from '@prisma/client';
+import { Cliente, Filial, NFeStatus, NotaFiscal, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Só dígitos (CNPJ/CPF/CEP/telefone). */
@@ -124,6 +124,73 @@ export class NfeService {
 
     // No modo simulado, devolve o payload para conferência da contabilidade.
     return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /**
+   * Consulta na Focus o resultado da SEFAZ e ATUALIZA a nota (a emissão é
+   * assíncrona: `emitir` devolve "pendente"; a autorização chega depois).
+   */
+  async consultar(id: number, empresaId: number) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+    if (nota.provedor !== 'focusnfe') {
+      return { ...nota, aviso: 'Nota simulada — nada a consultar no provedor.' };
+    }
+    const filial = nota.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } })
+      : null;
+    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+
+    const numeroSeq = Number(String(nota.numero).split('/').pop());
+    const ref = `NFE-${nota.filialId ?? 0}-${nota.serie}-${numeroSeq}`;
+    const r = await this.consultarFocus(token, ref);
+
+    const mapa: Record<string, NFeStatus> = {
+      autorizado: 'autorizada',
+      cancelado: 'cancelada',
+      erro_autorizacao: 'rejeitada',
+      denegado: 'rejeitada',
+      processando_autorizacao: 'pendente',
+    };
+    const novoStatus = mapa[r.status] ?? nota.status;
+
+    return this.prisma.notaFiscal.update({
+      where: { id },
+      data: {
+        status: novoStatus,
+        chave: r.chave ?? nota.chave,
+        protocolo: r.protocolo ?? nota.protocolo,
+        motivo: r.motivo ?? nota.motivo,
+      },
+    });
+  }
+
+  private async consultarFocus(token: string, ref: string) {
+    const ambiente = this.config.get<string>('NFE_AMBIENTE') === 'producao' ? '' : 'homologacao.';
+    const url = `https://${ambiente}focusnfe.com.br/v2/nfe/${encodeURIComponent(ref)}`;
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: 'Basic ' + Buffer.from(token + ':').toString('base64') },
+      });
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const status = String(body['status'] ?? '');
+      const erros = Array.isArray(body['erros'])
+        ? (body['erros'] as Array<{ mensagem?: string }>).map((e) => e.mensagem).filter(Boolean).join('; ')
+        : undefined;
+      return {
+        status,
+        chave: (body['chave_nfe'] as string) ?? null,
+        protocolo: (body['protocolo'] as string) ?? null,
+        motivo:
+          (body['mensagem_sefaz'] as string) ||
+          erros ||
+          `Consulta ao provedor: ${status || 'sem status'}.`,
+      };
+    } catch (err) {
+      this.logger.error(`Falha ao consultar Focus: ${String(err)}`);
+      return { status: '', chave: null, protocolo: null, motivo: `Erro ao consultar: ${String(err)}` };
+    }
   }
 
   // ===== Validação =====

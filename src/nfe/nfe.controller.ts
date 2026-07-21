@@ -4,6 +4,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseIntPipe,
   Post,
 } from '@nestjs/common';
 import { IsInt, IsPositive } from 'class-validator';
@@ -33,5 +35,12 @@ export class NfeController {
   @HttpCode(HttpStatus.CREATED)
   emitir(@Body() dto: EmitirNfeDto, @CurrentUser() user: AuthUser) {
     return this.nfeService.emitir(dto.expedicaoId, user.empresaId, user.usuario);
+  }
+
+  /** Consulta na SEFAZ (via Focus) e atualiza o status/chave/protocolo da nota. */
+  @Post(':id/consultar')
+  @HttpCode(HttpStatus.OK)
+  consultar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.nfeService.consultar(id, user.empresaId);
   }
 }
