@@ -330,14 +330,7 @@ function loginHtml(){
     <label class="field-lbl">Senha</label>
     <input id="l_pass" class="inp-dark" type="password" placeholder="••••••••" autocomplete="current-password">
     <div class="err">${esc(S.loginErr)}</div>
-    <button class="btn-gold" onclick="APP.login()">Entrar</button>
-    <div class="creds">
-      <div class="t">CONTAS DE DEMONSTRAÇÃO (clique para preencher)</div>
-      <div class="row" onclick="APP.fill('admin','cherkesian')">admin / cherkesian · Administrador</div>
-      <div class="row" onclick="APP.fill('camila','vendas123')">camila / vendas123 · Comercial</div>
-      <div class="row" onclick="APP.fill('rogerio','pcp123')">rogerio / pcp123 · Produção</div>
-      <div class="row" onclick="APP.fill('financeiro','fin123')">financeiro / fin123 · Financeiro</div>
-    </div>`;
+    <button class="btn-gold" onclick="APP.login()">Entrar</button>`;
 }
 function gateHtml(){
   return `
@@ -1975,7 +1968,6 @@ function boot(){
 // ---------- API pública p/ onclick ----------
 window.APP = {
   login(){ doLogin(val('l_user'), $('l_pass').value); },
-  fill(u,p){ $('l_user').value=u; $('l_pass').value=p; },
   gate(){ doGate(val('g_admin'), $('g_pass').value); },
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
