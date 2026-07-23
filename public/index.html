@@ -2078,7 +2078,10 @@ async function saveNfeAvulsa(){
 }
 async function consultarNfe(id){
   try{ const n=await api('/nfe/'+id+'/consultar',{method:'POST'});
-    if(n.status==='autorizada') toast('NF '+n.numero+' AUTORIZADA! Chave capturada.','ok');
+    if(n.status==='autorizada'){
+      toast('NF '+n.numero+' AUTORIZADA! Chave capturada.','ok');
+      if(confirm('NF '+n.numero+' autorizada!\n\nAbrir o DANFE (PDF) para download/impressão agora?')) baixarNfeArquivo(id,'danfe');
+    }
     else if(n.status==='rejeitada') toast('NF '+n.numero+' rejeitada: '+(n.motivo||''),'err');
     else toast('NF '+n.numero+' — '+n.status+' ('+(n.motivo||'aguardando')+').','ok');
     loadRoute();
