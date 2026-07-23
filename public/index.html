@@ -463,6 +463,7 @@ async function viewDashboard(c){
     ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
     ${empresasSec(d.porEmpresa)}
+    ${abcSec(d.curvaABC)}
     <div class="sect"><h3>Financeiro</h3>
       <div class="cards">
         ${kpi('A receber (aberto)', money(d.financeiro.aReceber), '')}
@@ -505,6 +506,21 @@ async function viewDashboard(c){
     </div>`;
 }
 function kpi(k,v,s){ return `<div class="card kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`; }
+function abcClasse(c){ const cor={A:'#3a8f4f',B:'#C9A227',C:'#8a8674'}[c]||'#8a8674'; return `<span style="background:${cor};color:#fff;font-size:11px;font-weight:800;padding:1px 8px;border-radius:20px">${esc(c)}</span>`; }
+function abcTabela(titulo, itens){
+  const rows=(itens||[]).map((x,i)=>`<tr><td style="text-align:center;color:#8a8674">${i+1}</td><td>${abcClasse(x.classe)} ${esc(x.nome)}</td><td style="text-align:right">${money(x.valor)}</td><td style="text-align:right;color:#4a473f">${x.pct}%</td></tr>`).join('');
+  return `<div><div class="muted" style="font-size:12px;margin-bottom:6px">${esc(titulo)}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #e7e3d8;border-radius:10px;font-size:13px">
+    <thead><tr><th style="width:28px"></th><th style="text-align:left;padding:8px 10px;background:#F4F2ED;font-size:11px;color:#4a473f">Item</th><th style="text-align:right;padding:8px 10px;background:#F4F2ED;font-size:11px;color:#4a473f">Faturamento</th><th style="text-align:right;padding:8px 10px;background:#F4F2ED;font-size:11px;color:#4a473f">% </th></tr></thead>
+    <tbody>${rows||'<tr><td colspan=4 class="muted" style="padding:10px">Sem dados ainda.</td></tr>'}</tbody></table></div></div>`;
+}
+function abcSec(abc){
+  if(!abc) return '';
+  return `<div class="sect"><h3>Curva ABC (Pareto)</h3>
+    <div class="muted" style="font-size:11.5px;margin:-4px 0 8px">Classe <b style="color:#3a8f4f">A</b> = top 80% do faturamento · <b style="color:#C9A227">B</b> = 80–95% · <b style="color:#8a8674">C</b> = cauda. Base: pedidos.</div>
+    <div class="charts2">${abcTabela('Principais produtos', abc.produtos)}${abcTabela('Principais clientes', abc.clientes)}</div>
+  </div>`;
+}
 function empresasSec(lista){
   lista = lista||[];
   if(lista.length<2) return '';

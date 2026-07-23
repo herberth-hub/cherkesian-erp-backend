@@ -116,12 +116,47 @@ export class DashboardService {
       };
     }).sort((a, b) => b.faturamentoNfe - a.faturamentoNfe || b.valorPedidos - a.valorPedidos);
 
+    // ===== Curva ABC (Pareto) por produto e por cliente (faturamento em pedidos) =====
+    const pedidosAbc = await this.prisma.pedido.findMany({
+      where: { empresaId },
+      select: {
+        valorTotal: true,
+        cliente: { select: { nome: true } },
+        itens: { select: { produtoId: true, descricao: true, quantidade: true, valorUnit: true } },
+      },
+    });
+    const prodMap = new Map<string, { nome: string; valor: number }>();
+    const cliMap = new Map<string, { nome: string; valor: number }>();
+    for (const p of pedidosAbc) {
+      const cn = p.cliente?.nome ?? '—';
+      const c = cliMap.get(cn) ?? { nome: cn, valor: 0 };
+      c.valor += Number(p.valorTotal); cliMap.set(cn, c);
+      for (const it of p.itens) {
+        const nome = it.descricao ?? ('Produto ' + (it.produtoId ?? '?'));
+        const chave = it.produtoId ? 'P' + it.produtoId : 'D:' + nome;
+        const x = prodMap.get(chave) ?? { nome, valor: 0 };
+        x.valor += Number(it.valorUnit) * it.quantidade; prodMap.set(chave, x);
+      }
+    }
+    const classificar = (m: Map<string, { nome: string; valor: number }>) => {
+      const arr = [...m.values()].filter((x) => x.valor > 0).sort((a, b) => b.valor - a.valor);
+      const total = arr.reduce((s, x) => s + x.valor, 0);
+      let acc = 0;
+      return arr.slice(0, 15).map((x) => {
+        acc += x.valor;
+        const cum = total ? (acc / total) * 100 : 0;
+        const classe = cum <= 80 ? 'A' : cum <= 95 ? 'B' : 'C';
+        return { nome: x.nome, valor: Number(x.valor.toFixed(2)), pct: Number((total ? (x.valor / total) * 100 : 0).toFixed(1)), classe };
+      });
+    };
+
     return {
       pedidos: {
         total: pedidos.length,
         porEtapa: contar(pedidos, 'etapa'),
       },
       porEmpresa,
+      curvaABC: { produtos: classificar(prodMap), clientes: classificar(cliMap) },
       producao: {
         opsAtivas: opsAtivas.length,
         pecasEmProducao,
