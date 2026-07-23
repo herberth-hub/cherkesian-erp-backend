@@ -43,4 +43,10 @@ export class CreateNfeAvulsaDto {
 
   /** Nº do pedido de compra do cliente (SAP/PO) — vai nos dados adicionais da NF. */
   @IsOptional() @IsString() @MaxLength(60) ordemCompraCliente?: string;
+
+  /** Quantidade de volumes declarada na NF (transporte). Padrão: nº de peças. */
+  @IsOptional() @IsInt() @IsPositive() volumes?: number;
+
+  /** Prazo de pagamento em dias a partir do faturamento (gera fatura/duplicata na NF). */
+  @IsOptional() @IsInt() @IsPositive() diasVencimento?: number;
 }

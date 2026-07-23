@@ -133,7 +133,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string },
+    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number },
     empresaId: number,
     usuario: string,
   ) {
@@ -179,8 +179,25 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const infoAdic = dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : undefined;
-    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor, infoAdic);
+
+    // Cobrança: vencimento em N dias a partir do faturamento (fatura + 1 duplicata).
+    let duplicatas: Array<{ numero: string; data_vencimento: string; valor: number }> | undefined;
+    let venctoTxt: string | undefined;
+    if (dto.diasVencimento && dto.diasVencimento > 0) {
+      const vencto = new Date();
+      vencto.setHours(0, 0, 0, 0);
+      vencto.setDate(vencto.getDate() + dto.diasVencimento);
+      const iso = vencto.toISOString().slice(0, 10);
+      duplicatas = [{ numero: '001', data_vencimento: iso, valor: Number(valor.toFixed(2)) }];
+      venctoTxt = `Vencimento: ${iso.split('-').reverse().join('/')} (${dto.diasVencimento} dias)`;
+    }
+    const infoAdic = [
+      dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
+      venctoTxt,
+    ].filter(Boolean).join(' | ') || undefined;
+
+    const volumes = dto.volumes && dto.volumes > 0 ? Math.round(dto.volumes) : Math.max(1, Math.round(totalQtd));
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas });
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
@@ -315,6 +332,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
+    extra?: { volumes?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -384,7 +402,16 @@ export class NfeService {
       uf_destinatario: cliente.uf,
       cep_destinatario: digitos(cliente.cep),
       valor_total: Number(valorTotal.toFixed(2)),
-      volumes_quantidade: exp.pecas,
+      volumes_quantidade: extra?.volumes ?? exp.pecas,
+      ...(extra?.duplicatas && extra.duplicatas.length
+        ? {
+            // Grupo de cobrança (fatura + duplicatas) — leva o vencimento p/ o cliente.
+            fatura_numero: String(numero),
+            fatura_valor_original: Number(valorTotal.toFixed(2)),
+            fatura_valor_liquido: Number(valorTotal.toFixed(2)),
+            duplicatas: extra.duplicatas,
+          }
+        : {}),
       ...(infoAdicional ? { informacoes_adicionais_contribuinte: infoAdicional.slice(0, 5000) } : {}),
       items,
     };

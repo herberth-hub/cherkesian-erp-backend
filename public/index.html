@@ -1913,6 +1913,7 @@ async function formNfeAvulsa(){
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
     </div>
     <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
+    <div class="grid2">${field('nf_vol','Volumes','type="number" min="1" value="1"')}${field('nf_venc','Vencimento (dias após faturamento)','type="number" min="0" placeholder="ex.: 20"')}</div>
     <label class="fl" style="margin-top:6px">Itens</label>
     <div id="nfitens"></div>
     <button class="btn-sm" onclick="APP.nfAdd()" style="margin-top:6px">+ item</button>
@@ -1949,6 +1950,8 @@ async function saveNfeAvulsa(){
   if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
   const body={ clienteId, itens }; const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
   const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
+  const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
+  const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
   try{
     const n=await api('/nfe/avulsa',{method:'POST',body}); closeModal();
     if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
