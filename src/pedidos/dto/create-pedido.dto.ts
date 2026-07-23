@@ -6,6 +6,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsPositive,
   IsString,
@@ -34,6 +35,11 @@ export class CreatePedidoItemDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valorUnit deve ter no máximo 2 casas decimais.' })
   @IsPositive({ message: 'valorUnit deve ser positivo.' })
   valorUnit!: number;
+
+  /** Grade de tamanhos (qtd por tamanho). Se informada, a quantidade = soma da grade. */
+  @IsOptional()
+  @IsObject()
+  grade?: Record<string, number>;
 }
 
 export class CreatePedidoDto {

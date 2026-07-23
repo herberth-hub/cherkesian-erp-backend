@@ -3,6 +3,7 @@ import { Kit } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AlterarLoteKitDto,
+  AtribuirCaixaDto,
   BiparKitDto,
   CreateLoteDto,
   CriarKitsDeOpDto,
@@ -191,10 +192,11 @@ export class KitsService {
           expedidoPor: usuario,
           faccaoNome: dto.faccaoNome ?? kit.faccaoNome,
           transportador: dto.transportador,
+          remessaNfNumero: dto.remessaNf ?? kit.remessaNfNumero,
           obs: dto.obs ?? kit.obs,
         },
       });
-      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'expedido', detalhe: `Facção: ${k.faccaoNome ?? '—'}${dto.transportador ? ' · Transp.: ' + dto.transportador : ''}`, usuario, ip } });
+      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'expedido', detalhe: `Facção: ${k.faccaoNome ?? '—'}${dto.remessaNf ? ' · NF remessa: ' + dto.remessaNf : ''}${dto.transportador ? ' · Transp.: ' + dto.transportador : ''}`, usuario, ip } });
       return k;
     });
     return { ja: false, mensagem: `Kit ${kit.codigo} expedido para ${atualizado.faccaoNome ?? 'facção'}.`, kit: atualizado };
@@ -211,9 +213,9 @@ export class KitsService {
     const atualizado = await this.prisma.$transaction(async (tx) => {
       const k = await tx.kit.update({
         where: { id: kit.id },
-        data: { status: 'retornado', retornadoEm: new Date(), retornadoPor: usuario, qtdRetornada: dto.qtd ?? kit.jogos, obs: dto.obs ?? kit.obs },
+        data: { status: 'retornado', retornadoEm: new Date(), retornadoPor: usuario, qtdRetornada: dto.qtd ?? kit.jogos, retornoNfNumero: dto.retornoNf, obs: dto.obs ?? kit.obs },
       });
-      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `Qtd: ${dto.qtd ?? kit.jogos}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
+      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `NF retorno: ${dto.retornoNf} · Qtd: ${dto.qtd ?? kit.jogos}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
       return k;
     });
     return { ja: false, mensagem: `Kit ${kit.codigo} retornado da facção.`, kit: atualizado };
@@ -244,6 +246,36 @@ export class KitsService {
       data: { empresaId, kitId: id, evento: 'lote_alterado', detalhe: `De ${anterior} para ${novo.codigoLote}. Motivo: ${dto.motivo}`, usuario, ip },
     });
     return k;
+  }
+
+  // ===================== CAIXAS =====================
+  /** Atribui uma caixa de armazenamento a um conjunto de kits (do mesmo pedido). */
+  async atribuirCaixa(dto: AtribuirCaixaDto, empresaId: number, usuario: string) {
+    const kits = await this.prisma.kit.findMany({ where: { id: { in: dto.kitIds }, empresaId } });
+    if (kits.length !== dto.kitIds.length) throw new NotFoundException('Um ou mais kits não foram encontrados.');
+    const pedidos = new Set(kits.map((k) => k.pedidoId));
+    if (pedidos.size > 1) throw new ConflictException('Uma caixa deve conter kits de um único pedido.');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.kit.updateMany({ where: { id: { in: dto.kitIds } }, data: { caixa: dto.caixa.trim() } });
+      for (const k of kits) await tx.kitEvento.create({ data: { empresaId, kitId: k.id, evento: 'caixa', detalhe: `Caixa ${dto.caixa}`, usuario } });
+    });
+    return { caixa: dto.caixa, kits: dto.kitIds.length };
+  }
+
+  /** Kits agrupados por caixa (para conferência física). */
+  async porCaixa(empresaId: number) {
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, caixa: { not: null } }, orderBy: [{ caixa: 'asc' }, { tamanho: 'asc' }] });
+    const map = new Map<string, typeof kits>();
+    for (const k of kits) { const c = k.caixa as string; const arr = map.get(c) ?? []; arr.push(k); map.set(c, arr); }
+    return [...map.entries()].map(([caixa, ks]) => ({
+      caixa,
+      pedidoId: ks[0].pedidoId,
+      cliente: ks[0].clienteNome,
+      totalKits: ks.length,
+      pecas: ks.reduce((s, k) => s + k.pecasTotal, 0),
+      tamanhos: ks.map((k) => `${k.tamanho}(${k.jogos})`).join(' '),
+      kits: ks.map((k) => ({ id: k.id, codigo: k.codigo, tamanho: k.tamanho, jogos: k.jogos, status: k.status })),
+    }));
   }
 
   // ===================== DASHBOARD =====================

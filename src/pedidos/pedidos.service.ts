@@ -99,12 +99,14 @@ export class PedidosService {
         throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
       }
       const valorUnit = new Prisma.Decimal(item.valorUnit);
-      valorTotal = valorTotal.plus(valorUnit.mul(item.quantidade));
+      const { grade, quantidade } = this.normalizarGrade(item);
+      valorTotal = valorTotal.plus(valorUnit.mul(quantidade));
       itensData.push({
         produtoId: item.produtoId,
         descricao,
-        quantidade: item.quantidade,
+        quantidade,
         valorUnit,
+        grade,
       });
     }
 
@@ -160,8 +162,9 @@ export class PedidosService {
       }
       if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
       const valorUnit = new Prisma.Decimal(item.valorUnit);
-      valorTotal = valorTotal.plus(valorUnit.mul(item.quantidade));
-      itensData.push({ produtoId: item.produtoId, descricao, quantidade: item.quantidade, valorUnit });
+      const { grade, quantidade } = this.normalizarGrade(item);
+      valorTotal = valorTotal.plus(valorUnit.mul(quantidade));
+      itensData.push({ produtoId: item.produtoId, descricao, quantidade, valorUnit, grade });
     }
 
     const filialId = await this.resolverFilial(empresaId, dto.filialId);
@@ -337,7 +340,10 @@ export class PedidosService {
         });
       }
       const numeroOp = await this.gerarNumeroOP(tx);
-      const produtoId = pedido.itens.find((i) => i.produtoId)?.produtoId ?? null;
+      const itemProd = pedido.itens.find((i) => i.produtoId) ?? pedido.itens[0];
+      const produtoId = itemProd?.produtoId ?? null;
+      // A OP herda a grade de tamanhos do item do pedido (flui p/ os kits do corte).
+      const gradeOp = (itemProd?.grade as Prisma.InputJsonValue | undefined) ?? undefined;
       const op = await tx.oP.create({
         data: {
           numero: numeroOp,
@@ -348,6 +354,7 @@ export class PedidosService {
           status: 'a_iniciar',
           pilotoLiberado: true,
           progresso: 0,
+          gradeTamanhos: gradeOp,
         },
       });
       await tx.pedido.update({
@@ -369,6 +376,21 @@ export class PedidosService {
   }
 
   // ===== Helpers =====
+
+  /** Normaliza a grade de tamanhos do item; se houver, a quantidade = soma da grade. */
+  private normalizarGrade(item: { grade?: Record<string, number>; quantidade: number }): { grade?: Prisma.InputJsonValue; quantidade: number } {
+    const g = item.grade;
+    if (g && typeof g === 'object') {
+      const limpa: Record<string, number> = {};
+      let soma = 0;
+      for (const [t, q] of Object.entries(g)) {
+        const n = Math.round(Number(q));
+        if (t && Number.isFinite(n) && n > 0) { limpa[String(t).toUpperCase()] = n; soma += n; }
+      }
+      if (soma > 0) return { grade: limpa, quantidade: soma };
+    }
+    return { grade: undefined, quantidade: item.quantidade };
+  }
 
   /** Resolve a filial emissora: a informada (validada) ou a matriz da empresa. */
   private async resolverFilial(empresaId: number, filialId?: number): Promise<number | null> {

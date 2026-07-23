@@ -1025,7 +1025,7 @@ async function formPedido(id){
   let ped=null;
   if(id){ try{ ped = await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; } }
   PITENS = ped && ped.itens && ped.itens.length
-    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit)}))
+    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   const selCli = ped?ped.clienteId:null;
@@ -1049,28 +1049,46 @@ async function formPedido(id){
 function prodLabel(p){ return p.codigo+' · '+p.descricao; }
 function prodByLabel(list,v){ if(!v) return null; v=String(v).trim(); const code=(v.split('·')[0]||v).trim(); return (list||[]).find(x=>prodLabel(x)===v||x.codigo===code||x.descricao===v)||null; }
 function prodDatalist(id,list){ return `<datalist id="${id}">${(list||[]).map(p=>`<option value="${esc(prodLabel(p))}"></option>`).join('')}</datalist>`; }
+const TAMS_PADRAO=['PP','P','M','G','GG','G1','G2','G3'];
+function parseGradeTxt(txt){ const o={}; let soma=0; for(const par of String(txt||'').split(/[,;]+/)){ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Math.round(Number((m[1]||'').trim())); if(t&&q>0){o[t]=q;soma+=q;} } return {o,soma}; }
 function renderItens(){
   const prods = window.__PROD||[];
   $('pitens').innerHTML = prodDatalist('prodlist',prods) + PITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
-    return `<div class="grid3" style="margin-bottom:8px;align-items:end">
-      <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar produto…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.itemPreco(${i})"></div>
-      <div><input class="inp" id="it_qtd_${i}" type="number" min="1" placeholder="qtd" value="${it.qtd||''}"></div>
-      <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.val||''}">
-        ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
+    const gradeTxt = it.grade ? Object.entries(it.grade).map(([t,q])=>t+':'+q).join(', ') : '';
+    return `<div style="border:1px solid #efece3;border-radius:8px;padding:8px;margin-bottom:8px">
+      <div class="grid2" style="align-items:end;margin-bottom:6px">
+        <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar produto…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.itemPreco(${i})"></div>
+        <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.val||''}">
+          ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
+      </div>
+      <input class="inp" id="it_grade_${i}" placeholder="Grade por tamanho: PP:8, M:2, G:2 (ou deixe vazio e informe a qtd)" value="${esc(gradeTxt)}" oninput="APP.itemQty(${i})">
+      <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        ${TAMS_PADRAO.map(t=>`<button class="btn-sm" type="button" onclick="APP.itemAddTam(${i},'${t}')">+${t}</button>`).join('')}
+        <span style="margin-left:auto;font-size:12px;color:#4a473f">Qtd total: <b id="it_qtdlbl_${i}">0</b></span>
+        <input class="inp" id="it_qtd_${i}" type="number" min="1" placeholder="qtd s/ grade" value="${it.grade?'':(it.qtd||'')}" style="width:120px" oninput="APP.itemQty(${i})">
+      </div>
     </div>`;
   }).join('');
+  PITENS.forEach((it,i)=>itemQty(i));
 }
 function addItem(){ PITENS.push({}); renderItens(); }
 function rmItem(i){ PITENS.splice(i,1); renderItens(); }
+function itemQty(i){ const g=parseGradeTxt(val('it_grade_'+i)); const lbl=$('it_qtdlbl_'+i); if(!lbl)return; const manual=Number(val('it_qtd_'+i))||0; lbl.textContent = g.soma>0?g.soma:manual; }
+function itemAddTam(i,t){ const el=$('it_grade_'+i); if(!el)return; if(new RegExp('(^|[,;\\s])'+t+'\\s*:','i').test(el.value)){toast(t+' já está na grade.','err');return;} el.value=el.value.trim()?(el.value.replace(/[,;\s]*$/,'')+', '+t+':'):(t+':'); el.focus(); itemQty(i); }
 function itemPreco(i){ const p=prodByLabel(window.__PROD,val('it_prod_'+i)); if(p && p.precoBase && !$('it_val_'+i).value) $('it_val_'+i).value=p.precoBase; }
 async function savePedido(){
   const clienteId = Number(val('f_cli'));
   const itens = [];
   for(let i=0;i<PITENS.length;i++){
-    const p=prodByLabel(window.__PROD,val('it_prod_'+i)), q=val('it_qtd_'+i), v=val('it_val_'+i);
+    const p=prodByLabel(window.__PROD,val('it_prod_'+i)), v=val('it_val_'+i);
     if(!p) continue;
-    itens.push({ produtoId:p.id, quantidade:Number(q), valorUnit:Number(v) });
+    const g=parseGradeTxt(val('it_grade_'+i)); const manual=Number(val('it_qtd_'+i))||0;
+    const quantidade = g.soma>0?g.soma:manual;
+    if(!(quantidade>0)){ toast('Item '+(i+1)+': informe a grade ou a quantidade.','err'); return; }
+    const item={ produtoId:p.id, quantidade, valorUnit:Number(v) };
+    if(g.soma>0) item.grade=g.o;
+    itens.push(item);
   }
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
@@ -2479,6 +2497,7 @@ async function viewKits(c){
     esc(k.clienteNome||'—'),
     k.lote?`<span class="mono" style="font-size:11px">${esc(k.lote.codigoLote)}</span>`:'<span class="muted">—</span>',
     esc(k.faccaoNome||'—'),
+    k.caixa?`<span class="pill gray">${esc(k.caixa)}</span>`:'<span class="muted">—</span>',
     kitPill(k.status),
     `<button class="btn-sm" onclick="APP.kitEtiqueta(${k.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.kitDetalhe(${k.id})">Histórico</button>`
   ]);
@@ -2499,14 +2518,24 @@ async function viewKits(c){
         <button class="btn-sm" onclick="APP.kitBipar('finalizar')">Finalizar</button>
       </div>
     </div>
-    ${toolbar('Kits · '+kits.length, 'Gerar kits da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
-    ${panelTable(['Código','Tam·Qtd','Modelo','Cliente','Lote','Facção','Status','Ações'], rows, kits.length?null:'Nenhum kit. Gere os kits a partir de uma OP com grade de tamanhos.')}`;
+    ${toolbar('Kits · '+kits.length, 'Gerar kits da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" onclick="APP.kitCaixas()">📦 Por caixa</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
+    ${panelTable(['Código','Tam·Qtd','Modelo','Cliente','Lote','Facção','Caixa','Status','Ações'], rows, kits.length?null:'Nenhum kit. Gere os kits a partir de uma OP com grade de tamanhos.')}`;
 }
 async function kitBipar(acao){
   const codigo = val('kit_bip'); if(!codigo){ toast('Bipe ou digite o código do kit.','err'); return; }
   let body={codigo};
-  if(acao==='expedir'){ const f=prompt('Facção destino (deixe em branco p/ usar a do kit):',''); if(f===null) return; if(f) body.faccaoNome=f; const t=prompt('Transportador (opcional):',''); if(t) body.transportador=t; }
-  if(acao==='retornar'){ const q=prompt('Quantidade retornada (deixe em branco = total):',''); if(q!==null && q!=='') body.qtd=Number(q); }
+  if(acao==='expedir'){
+    const f=prompt('Facção destino (deixe em branco p/ usar a do kit):',''); if(f===null) return; if(f) body.faccaoNome=f;
+    const nf=prompt('Nº da NF de remessa p/ industrialização (opcional):',''); if(nf) body.remessaNf=nf;
+    const t=prompt('Transportador (opcional):',''); if(t) body.transportador=t;
+  }
+  if(acao==='retornar'){
+    const nf=prompt('Nº da NF de RETORNO da facção (obrigatório p/ dar entrada):','');
+    if(nf===null) return;
+    if(!nf.trim()){ toast('Informe a NF de retorno da facção — o kit fica travado até isso.','err'); return; }
+    body.retornoNf=nf.trim();
+    const q=prompt('Quantidade retornada (deixe em branco = total):',''); if(q!==null && q!=='') body.qtd=Number(q);
+  }
   try{ const r=await api('/kits/'+acao,{method:'POST',body});
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     $('kit_bip').value=''; loadRoute();
@@ -2590,6 +2619,18 @@ function imprimirEtiquetaKit(d, zpl, silencioso){
   w.document.close();
   if(!silencioso) setTimeout(()=>{ try{w.focus();w.print();}catch(e){} }, 400);
 }
+async function kitCaixas(){
+  try{ const cx=await api('/kits/por-caixa');
+    if(!cx.length){ toast('Nenhum kit em caixa. A caixa é definida ao gerar os kits da OP.','err'); return; }
+    const blocos=cx.map(c=>`<div style="border:1px solid #e7e3d8;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between"><b>📦 Caixa ${esc(c.caixa)}</b><span class="muted">${c.totalKits} kit(s) · ${c.pecas} peças</span></div>
+      <div class="muted" style="font-size:12px">Pedido ${esc(c.pedidoId||'—')} · ${esc(c.cliente||'—')} · Tamanhos: ${esc(c.tamanhos)}</div>
+      <div style="font-size:11px;margin-top:4px">${c.kits.map(k=>`<span class="mono" style="margin-right:8px">${esc(k.codigo)}(${esc(k.tamanho)})</span>`).join('')}</div>
+    </div>`).join('');
+    openModal(`<h3>📦 Caixas · ${cx.length}</h3><div style="max-height:60vh;overflow:auto">${blocos}</div>
+      <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  }catch(e){ toast(e.message,'err'); }
+}
 async function kitBuscar(){
   const q=prompt('Buscar kit por: código, pedido, cliente, modelo, cor, tamanho, facção, lote, enfesto, OC...','');
   if(q===null||!q.trim()) return;
@@ -2622,12 +2663,12 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, excluirPedido, gerarOp,
+  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, excluirPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, etiquetaOp, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
-  viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, viewBi,
+  viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

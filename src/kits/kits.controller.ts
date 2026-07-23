@@ -1,6 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Ip, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { KitsService } from './kits.service';
-import { AlterarLoteKitDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, ExpedirKitDto, RetornarKitDto } from './dto/kits.dto';
+import { AlterarLoteKitDto, AtribuirCaixaDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, ExpedirKitDto, RetornarKitDto } from './dto/kits.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -39,6 +39,19 @@ export class KitsController {
   @Get('dashboard')
   dashboard(@CurrentUser() u: AuthUser) {
     return this.kits.dashboard(u.empresaId);
+  }
+
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Get('por-caixa')
+  porCaixa(@CurrentUser() u: AuthUser) {
+    return this.kits.porCaixa(u.empresaId);
+  }
+
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Post('atribuir-caixa')
+  @HttpCode(HttpStatus.OK)
+  atribuirCaixa(@Body() dto: AtribuirCaixaDto, @CurrentUser() u: AuthUser) {
+    return this.kits.atribuirCaixa(dto, u.empresaId, u.usuario);
   }
 
   @Areas('pcp', 'producao', 'expedicao', 'estoque')

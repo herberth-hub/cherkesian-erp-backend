@@ -365,6 +365,7 @@ model PedidoItem {
   descricao  String
   quantidade Int
   valorUnit  Decimal @db.Decimal(12,2)
+  grade      Json?   // qtd por tamanho, ex.: {"PP":8,"M":2,"G":2}
 }
 
 model Piloto {
@@ -611,6 +612,8 @@ model Kit {
   caixa         String?
   transportador String?
   remessaNfId   Int?      // NF de remessa vinculada (não duplica movimentação)
+  remessaNfNumero String? // nº da NF de remessa p/ industrialização (facção)
+  retornoNfNumero String? // nº da NF de retorno da facção (trava a entrada)
   status        String    @default("aguardando_expedicao") // criado|em_corte|aguardando_expedicao|em_faccao|retornado|em_conferencia|finalizado
   expedidoEm    DateTime?
   expedidoPor   String?
