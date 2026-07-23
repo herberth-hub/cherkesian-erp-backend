@@ -96,6 +96,7 @@ export class PedidosService {
         clienteNovo: cliente.clienteNovo,
         prazoEntrega: dto.prazoEntrega ? new Date(dto.prazoEntrega) : undefined,
         formaPagamento: dto.formaPagamento,
+        ordemCompraCliente: dto.ordemCompraCliente,
         obs: dto.obs,
         criadoPor,
         itens: { create: itensData },

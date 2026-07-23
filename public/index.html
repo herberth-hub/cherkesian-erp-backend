@@ -967,6 +967,7 @@ async function formPedido(){
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"')}${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"')}</div>
+    ${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido()">Criar pedido</button></div>`);
   renderItens();
@@ -998,6 +999,7 @@ async function savePedido(){
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
+  const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
   try{ const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -1881,7 +1883,7 @@ async function formNfeAvulsa(){
       <div class="mrow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
     </div>
-    ${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}
+    <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
     <label class="fl" style="margin-top:6px">Itens</label>
     <div id="nfitens"></div>
     <button class="btn-sm" onclick="APP.nfAdd()" style="margin-top:6px">+ item</button>
@@ -1917,6 +1919,7 @@ async function saveNfeAvulsa(){
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
   const body={ clienteId, itens }; const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
+  const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
   try{
     const n=await api('/nfe/avulsa',{method:'POST',body}); closeModal();
     if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');

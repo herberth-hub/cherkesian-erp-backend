@@ -40,4 +40,7 @@ export class CreateNfeAvulsaDto {
   itens!: NfeAvulsaItemDto[];
 
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) naturezaOperacao?: string;
+
+  /** Nº do pedido de compra do cliente (SAP/PO) — vai nos dados adicionais da NF. */
+  @IsOptional() @IsString() @MaxLength(60) ordemCompraCliente?: string;
 }

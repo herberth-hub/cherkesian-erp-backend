@@ -63,6 +63,12 @@ export class CreatePedidoDto {
   @MaxLength(120)
   formaPagamento?: string;
 
+  /** Nº do pedido de compra do cliente (SAP/PO). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  ordemCompraCliente?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(1000)

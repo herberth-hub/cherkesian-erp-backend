@@ -77,7 +77,8 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const payload = await this.montarPayload(filial, cliente, exp, itens, serie, numeroSeq, valor);
+    const infoAdic = pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : undefined;
+    const payload = await this.montarPayload(filial, cliente, exp, itens, serie, numeroSeq, valor, infoAdic);
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload)
@@ -110,6 +111,7 @@ export class NfeService {
           motivo: emissao.motivo,
           valor,
           provedor: emissao.provedor,
+          ordemCompraCliente: pedido?.ordemCompraCliente,
           emitidaPor: usuario,
         },
       });
@@ -131,7 +133,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string },
+    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string },
     empresaId: number,
     usuario: string,
   ) {
@@ -177,7 +179,8 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor);
+    const infoAdic = dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : undefined;
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor, infoAdic);
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
@@ -207,6 +210,7 @@ export class NfeService {
           motivo: emissao.motivo,
           valor,
           provedor: emissao.provedor,
+          ordemCompraCliente: dto.ordemCompraCliente,
           emitidaPor: usuario,
         },
       });
@@ -296,6 +300,12 @@ export class NfeService {
   }
 
   // ===== Montagem do payload (formato Focus NFe) =====
+  /** CFOP conforme a operação: 5xxx dentro do estado, 6xxx interestadual. */
+  private ajustarCfop(cfop: string, mesmaUf: boolean): string {
+    const c = (cfop || '5101').replace(/\D/g, '').padStart(4, '0').slice(0, 4);
+    return (mesmaUf ? '5' : '6') + c.slice(1);
+  }
+
   private async montarPayload(
     emitente: Filial,
     cliente: Cliente,
@@ -304,12 +314,14 @@ export class NfeService {
     serie: string,
     numero: number,
     valorTotal: Prisma.Decimal,
+    infoAdicional?: string,
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
     });
     const mapa = new Map(produtos.map((p) => [p.id, p]));
     const docDest = digitos(cliente.cnpjCpf);
+    const mesmaUf = (emitente.uf ?? '').toUpperCase() === (cliente.uf ?? '').toUpperCase();
 
     const regimeNormal = emitente.crt === 3;
     const items = itens.map((it, idx) => {
@@ -321,7 +333,7 @@ export class NfeService {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
-        cfop: p?.cfop ?? '5101',
+        cfop: this.ajustarCfop(p?.cfop ?? '5101', mesmaUf),
         // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
         codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
         // Unidade comercial e tributável (SEFAZ exige as duas).
@@ -373,6 +385,7 @@ export class NfeService {
       cep_destinatario: digitos(cliente.cep),
       valor_total: Number(valorTotal.toFixed(2)),
       volumes_quantidade: exp.pecas,
+      ...(infoAdicional ? { informacoes_adicionais_contribuinte: infoAdicional.slice(0, 5000) } : {}),
       items,
     };
   }
