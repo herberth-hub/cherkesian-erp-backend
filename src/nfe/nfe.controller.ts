@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { IsInt, IsPositive } from 'class-validator';
 import { NfeService } from './nfe.service';
+import { CreateNfeAvulsaDto } from './dto/create-nfe-avulsa.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -35,6 +36,14 @@ export class NfeController {
   @HttpCode(HttpStatus.CREATED)
   emitir(@Body() dto: EmitirNfeDto, @CurrentUser() user: AuthUser) {
     return this.nfeService.emitir(dto.expedicaoId, user.empresaId, user.usuario);
+  }
+
+  /** NF-e avulsa: cliente + itens, sem expedição. Comercial também emite. */
+  @Post('avulsa')
+  @Areas('vendas', 'expedicao', 'receber')
+  @HttpCode(HttpStatus.CREATED)
+  avulsa(@Body() dto: CreateNfeAvulsaDto, @CurrentUser() user: AuthUser) {
+    return this.nfeService.emitirAvulsa(dto, user.empresaId, user.usuario);
   }
 
   /** Consulta na SEFAZ (via Focus) e atualiza o status/chave/protocolo da nota. */

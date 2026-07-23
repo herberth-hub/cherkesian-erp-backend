@@ -127,6 +127,97 @@ export class NfeService {
   }
 
   /**
+   * NF-e AVULSA — emite sem expedição/pedido: escolhe o cliente e os itens
+   * direto. Mesma numeração e validação fiscal da emissão normal.
+   */
+  async emitirAvulsa(
+    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) {
+      throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+    }
+
+    // Emitente = filial informada (validada) ou a matriz.
+    let filial = dto.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: dto.filialId } })
+      : null;
+    if (filial && filial.empresaId !== empresaId) filial = null;
+    if (!filial) filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado. Cadastre a matriz em Filiais (Config. Fiscal).');
+
+    // Resolve itens (valida produto, herda descrição/dados fiscais) e soma o total.
+    const itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> = [];
+    let valor = new Prisma.Decimal(0);
+    let totalQtd = 0;
+    for (const it of dto.itens) {
+      let descricao = it.descricao;
+      if (it.produtoId) {
+        const produto = await this.prisma.produto.findUnique({ where: { id: it.produtoId } });
+        if (!produto || produto.empresaId !== empresaId) throw new NotFoundException(`Produto ${it.produtoId} não encontrado.`);
+        descricao = descricao ?? produto.descricao;
+      }
+      if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
+      const valorUnit = new Prisma.Decimal(it.valorUnit);
+      valor = valor.plus(valorUnit.mul(it.quantidade));
+      totalQtd += Number(it.quantidade);
+      itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit });
+    }
+
+    const token = filial.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    if (token) {
+      const faltas = this.validarFiscal(filial, cliente, itens.length);
+      if (faltas.length) {
+        throw new BadRequestException('Dados fiscais incompletos para emissão real: ' + faltas.join('; ') + '.');
+      }
+    }
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor);
+    if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
+
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEAV-${filial.id}-${serie}-${numeroSeq}`, payload)
+      : this.emitirSimulada();
+
+    if (emissao.status === 'rejeitada') {
+      return {
+        status: 'rejeitada' as const,
+        numero: numeroNota,
+        motivo: emissao.motivo,
+        provedor: emissao.provedor,
+        payloadPreview: token ? undefined : payload,
+      };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          empresaId,
+          filialId: filial.id,
+          numero: numeroNota,
+          serie,
+          chave: emissao.chave,
+          status: emissao.status,
+          protocolo: emissao.protocolo,
+          motivo: emissao.motivo,
+          valor,
+          provedor: emissao.provedor,
+          emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      return criada;
+    });
+
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /**
    * Consulta na Focus o resultado da SEFAZ e ATUALIZA a nota (a emissão é
    * assíncrona: `emitir` devolve "pendente"; a autorização chega depois).
    */

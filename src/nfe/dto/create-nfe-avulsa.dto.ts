@@ -1,0 +1,43 @@
+import { Type } from 'class-transformer';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+
+export class NfeAvulsaItemDto {
+  /** Produto do catálogo (traz descrição e dados fiscais). Opcional para item avulso. */
+  @IsOptional() @IsInt() @IsPositive() produtoId?: number;
+
+  @IsOptional() @IsString() @MaxLength(200) descricao?: string;
+
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
+  @IsPositive({ message: 'quantidade deve ser positiva.' })
+  quantidade!: number;
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valorUnit deve ter no máximo 2 casas.' })
+  @IsPositive({ message: 'valorUnit deve ser positivo.' })
+  valorUnit!: number;
+}
+
+export class CreateNfeAvulsaDto {
+  @IsInt() @IsPositive() clienteId!: number;
+
+  /** CNPJ emissor (matriz/filial). Se omitido, usa a matriz. */
+  @IsOptional() @IsInt() @IsPositive() filialId?: number;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'A nota precisa de ao menos um item.' })
+  @ValidateNested({ each: true })
+  @Type(() => NfeAvulsaItemDto)
+  itens!: NfeAvulsaItemDto[];
+
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) naturezaOperacao?: string;
+}

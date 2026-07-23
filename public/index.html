@@ -1810,16 +1810,84 @@ function nfPill(s){
   const m = map[s]||['gray',s]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
 }
 async function viewNotas(c){
-  const [list, clientes] = await Promise.all([api('/nfe'), api('/clientes').catch(()=>[])]);
-  const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
+  const list = await api('/nfe');
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', '', '', relBtn('nfs')) + panelTable(
-    ['Número','Série','Status','Valor','Chave de acesso','Provedor','Emitida em','Por'],
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', relBtn('nfs')) + panelTable(
+    ['Número','Série','Status','Valor','Chave de acesso','Provedor','Emitida em','Ações'],
     list.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
-      esc(n.provedor), n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—', esc(n.emitidaPor||'—')
-    ]), list.length?null:'Nenhuma nota fiscal emitida ainda. Emita a partir da tela de Expedição.');
+      esc(n.provedor), n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
+      n.status==='pendente'?`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`:'<span class="muted">—</span>'
+    ]), list.length?null:'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.');
+}
+// ----- NF-e avulsa (cliente + itens, sem expedição) -----
+let NFITENS = [];
+async function formNfeAvulsa(){
+  const [clientes, filiais, produtos] = await Promise.all([api('/clientes'), api('/filiais'), api('/produtos')]);
+  window.__NFPROD = produtos;
+  const ativas = (filiais||[]).filter(f=>f.ativa!==false);
+  const co = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  const fo = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
+  NFITENS=[{}];
+  openModal(`<h3>Emitir NF-e avulsa</h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Confira cliente, itens e impostos antes.</div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
+      <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
+    </div>
+    ${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}
+    <label class="fl" style="margin-top:6px">Itens</label>
+    <div id="nfitens"></div>
+    <button class="btn-sm" onclick="APP.nfAdd()" style="margin-top:6px">+ item</button>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveNfeAvulsa()">Emitir NF-e</button></div>`);
+  nfRender();
+}
+function nfRender(){
+  const box=$('nfitens'); if(!box) return;
+  const prods=window.__NFPROD||[];
+  const opts=['<option value="">— produto (opcional) —</option>'].concat(prods.map(p=>`<option value="${p.id}" data-desc="${esc(p.descricao)}" data-preco="${p.precoBase||''}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`)).join('');
+  box.innerHTML = NFITENS.map((it,i)=>`
+    <div class="grid2" style="margin-bottom:6px">
+      <select class="inp" id="nf_prod_${i}" onchange="APP.nfProd(${i})">${opts}</select>
+      <input class="inp" id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
+    </div>
+    <div class="grid3" style="margin-bottom:12px">
+      <input class="inp" id="nf_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}">
+      <input class="inp" id="nf_vu_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">
+      <div style="display:flex;align-items:center;gap:6px">${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})">×</button>`:''}</div>
+    </div>`).join('');
+  NFITENS.forEach((it,i)=>{ if(it.produtoId){const s=$('nf_prod_'+i); if(s)s.value=it.produtoId;} });
+}
+function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const p=$('nf_prod_'+i); it.produtoId=(p&&p.value)?Number(p.value):undefined; }); }
+function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
+function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
+function nfProd(i){ const o=$('nf_prod_'+i).selectedOptions[0]; if(o&&o.value){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=o.getAttribute('data-desc')||''; const pr=o.getAttribute('data-preco'); if(pr&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=pr; } }
+async function saveNfeAvulsa(){
+  nfSync();
+  const itens = NFITENS.filter(it=>((it.descricao&&it.descricao.trim())||it.produtoId)&&Number(it.quantidade)>0&&Number(it.valorUnit)>0)
+    .map(it=>{ const o={ quantidade:Number(it.quantidade), valorUnit:Number(it.valorUnit) }; if(it.produtoId)o.produtoId=it.produtoId; if(it.descricao&&it.descricao.trim())o.descricao=it.descricao.trim(); return o; });
+  const clienteId=Number(val('nf_cli'));
+  if(!clienteId){ toast('Selecione o cliente.','err'); return; }
+  if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
+  const body={ clienteId, itens }; const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
+  try{
+    const n=await api('/nfe/avulsa',{method:'POST',body}); closeModal();
+    if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
+    else if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
+    else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — clique em "Consultar" para o resultado.','ok');
+    else toast('NF '+n.numero+' — '+n.status+'.','ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function consultarNfe(id){
+  try{ const n=await api('/nfe/'+id+'/consultar',{method:'POST'});
+    if(n.status==='autorizada') toast('NF '+n.numero+' AUTORIZADA! Chave capturada.','ok');
+    else if(n.status==='rejeitada') toast('NF '+n.numero+' rejeitada: '+(n.motivo||''),'err');
+    else toast('NF '+n.numero+' — '+n.status+' ('+(n.motivo||'aguardando')+').','ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 // ---------- Assistente IA (Fase 5) ----------
@@ -2102,6 +2170,7 @@ window.APP = {
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, saveNfeAvulsa, consultarNfe,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
   fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
