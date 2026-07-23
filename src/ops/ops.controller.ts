@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Patch,
+  Query,
 } from '@nestjs/common';
 import { OpsService } from './ops.service';
 import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
@@ -25,6 +26,16 @@ export class OpsController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.opsService.findOne(id, user.empresaId);
+  }
+
+  /** Etiqueta do fardo (corte) para a Zebra: dados + ZPL. destino = facção/setor. */
+  @Get(':id/etiqueta')
+  etiqueta(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('destino') destino: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.etiqueta(id, user.empresaId, destino);
   }
 
   @Patch(':id/status')

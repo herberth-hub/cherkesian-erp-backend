@@ -1314,8 +1314,48 @@ async function viewProducao(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), esc(o.setorAtual||'—'), prioPill(o.prioridade),
-      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
+      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
+}
+async function etiquetaOp(id){
+  const destino = prompt('Destino do fardo (facção/oficina/estamparia/bordado ou setor):','');
+  if(destino===null) return;
+  try{
+    const r = await api('/ops/'+id+'/etiqueta'+(destino?('?destino='+encodeURIComponent(destino)):''));
+    // Se a Zebra Browser Print estiver instalada, envia o ZPL direto pra impressora.
+    if(window.BrowserPrint && window.BrowserPrint.getDefaultDevice){
+      window.BrowserPrint.getDefaultDevice('printer', dev=>{ dev.send(r.zpl, ()=>toast('Etiqueta enviada à Zebra.','ok'), e=>{toast('Falha Zebra: '+e,'err'); imprimirEtiqueta(r.dados, r.zpl);}); }, ()=>imprimirEtiqueta(r.dados, r.zpl));
+    } else {
+      imprimirEtiqueta(r.dados, r.zpl);
+    }
+  }catch(e){ toast(e.message,'err'); }
+}
+function imprimirEtiqueta(d, zpl){
+  const w = window.open('', '_blank', 'width=440,height=380');
+  if(!w){ toast('Libere o pop-up para imprimir a etiqueta.','err'); return; }
+  w.document.write(`<html><head><title>Etiqueta ${esc(d.op)}</title><style>
+    @page{size:100mm 80mm;margin:0}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
+    .lbl{width:100mm;height:80mm;box-sizing:border-box;padding:5mm;display:flex;flex-direction:column;gap:1.6mm}
+    .h{font-weight:800;font-size:15pt} .r{font-size:11pt} .big{font-size:14pt;font-weight:800;margin-top:1mm}
+    .op{margin-top:auto;text-align:center;font-family:'Courier New',monospace;font-weight:800;font-size:20pt;letter-spacing:2px;border:2px solid #000;padding:2mm}
+    .bar{position:fixed;top:4px;right:4px}@media print{.bar{display:none}}
+  </style></head><body>
+    <div class="bar"><button onclick="window.print()">Imprimir</button> <button onclick="baixarZpl()">Baixar ZPL</button></div>
+    <div class="lbl">
+      <div class="h">GRUPO CHERKESIAN</div>
+      <div class="r"><b>OP:</b> ${esc(d.op)} &nbsp; <b>PED:</b> ${esc(d.pedido)}</div>
+      <div class="r"><b>Cliente:</b> ${esc(d.cliente)}</div>
+      <div class="r"><b>Produto:</b> ${esc(d.produto)}</div>
+      <div class="r"><b>Grade:</b> ${esc(d.grade)}</div>
+      <div class="r"><b>Qtd:</b> ${d.quantidade} &nbsp; <b>Cor:</b> ${esc(d.cor)}</div>
+      <div class="big">DESTINO: ${esc(d.destino)}</div>
+      <div class="op">${esc(d.op)}</div>
+    </div>
+    <script>var ZPL=${JSON.stringify(zpl)};function baixarZpl(){var b=new Blob([ZPL],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='etiqueta-${esc(d.op)}.zpl';a.click();}<\/script>
+  </body></html>`);
+  w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
 }
 function formOp(o){
   const opts = OP_STATUS.map(s=>`<option value="${s}" ${s===o.status?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('');
@@ -2317,7 +2357,7 @@ window.APP = {
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
-  formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, etiquetaOp, formPiloto, savePiloto, aprovarPiloto,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

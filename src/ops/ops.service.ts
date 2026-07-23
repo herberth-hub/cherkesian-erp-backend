@@ -76,4 +76,61 @@ export class OpsService {
       data: { progresso: dto.progresso },
     });
   }
+
+  /**
+   * Etiqueta do fardo (corte) para impressão na Zebra. Monta os dados e o ZPL
+   * com código de barras da OP — o cortador cola no fardo em vez de escrever.
+   */
+  async etiqueta(id: number, empresaId: number, destino?: string) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id },
+      include: {
+        pedido: { select: { empresaId: true, numero: true, obs: true, cliente: { select: { nome: true } } } },
+      },
+    });
+    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    const produto = op.produtoId
+      ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } })
+      : null;
+
+    const grade = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+    const gradeTxt = Object.keys(grade).length
+      ? Object.entries(grade).map(([t, q]) => `${t}=${q}`).join('  ')
+      : '-';
+    // Cor: não é campo estruturado — tenta extrair da observação do pedido ("Cor: X").
+    const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
+    const cor = corMatch ? corMatch[1].trim() : '-';
+    const dados = {
+      op: op.numero,
+      pedido: op.pedido?.numero ?? '-',
+      cliente: op.pedido?.cliente?.nome ?? '-',
+      produto: produto ? `${produto.codigo} · ${produto.descricao}` : '-',
+      quantidade: op.quantidade,
+      grade: gradeTxt,
+      cor,
+      destino: destino?.trim() || op.setorAtual || '-',
+    };
+    return { dados, zpl: this.montarZpl(dados) };
+  }
+
+  /** ZPL para etiqueta ~100x80mm @203dpi (Code128 da OP). */
+  private montarZpl(d: { op: string; pedido: string; cliente: string; produto: string; quantidade: number; grade: string; cor: string; destino: string }): string {
+    const s = (v: string | number) => String(v).replace(/[\^~]/g, ' ').slice(0, 40);
+    return [
+      '^XA',
+      '^CI28', // UTF-8
+      '^CF0,34',
+      `^FO24,24^FDGRUPO CHERKESIAN^FS`,
+      '^CF0,28',
+      `^FO24,70^FDOP: ${s(d.op)}   PED: ${s(d.pedido)}^FS`,
+      `^FO24,108^FDCliente: ${s(d.cliente)}^FS`,
+      `^FO24,146^FDProduto: ${s(d.produto)}^FS`,
+      `^FO24,184^FDGrade: ${s(d.grade)}^FS`,
+      `^FO24,222^FDQtd total: ${d.quantidade}   Cor: ${s(d.cor)}^FS`,
+      '^CF0,32',
+      `^FO24,264^FDDESTINO: ${s(d.destino)}^FS`,
+      `^FO24,320^BY3^BCN,120,Y,N,N^FD${s(d.op)}^FS`,
+      '^XZ',
+    ].join('\n');
+  }
 }
