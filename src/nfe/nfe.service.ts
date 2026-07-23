@@ -576,12 +576,25 @@ export class NfeService {
     const docDest = digitos(cliente.cnpjCpf);
     const mesmaUf = (emitente.uf ?? '').toUpperCase() === (cliente.uf ?? '').toUpperCase();
 
-    const regimeNormal = emitente.crt === 3;
+    // ===== Regime tributário DA EMPRESA emissora (parametrizado por CNPJ) =====
+    const regime = (emitente.regimeTributario ?? (emitente.crt === 1 ? 'simples' : 'lucro_presumido')) as string;
+    const simples = regime === 'simples';
+    const pisAliqEmp = emitente.pisAliquota != null ? Number(emitente.pisAliquota) : (regime === 'lucro_real' ? 1.65 : 0.65);
+    const cofinsAliqEmp = emitente.cofinsAliquota != null ? Number(emitente.cofinsAliquota) : (regime === 'lucro_real' ? 7.6 : 3);
+    const pisCofinsCstEmp = simples ? '49' : (emitente.pisCofinsCst ?? '01');
+    const icmsInternoEmp = emitente.icmsInterno != null ? Number(emitente.icmsInterno) : 18;
+    const csosnEmp = emitente.csosn ?? '102';
+    const icmsCstEmp = emitente.icmsCstPadrao ?? '00';
+    // ICMS interestadual (origem SP, Res. Senado 22/89): Sul/Sudeste exceto ES = 12%, demais = 7%.
+    const ufDest = (cliente.uf ?? '').toUpperCase();
+    const aliqIcmsOperacao = mesmaUf ? icmsInternoEmp : (['MG', 'RJ', 'PR', 'SC', 'RS'].includes(ufDest) ? 12 : 7);
+
     const items = itens.map((it, idx) => {
       const p = it.produtoId ? mapa.get(it.produtoId) : undefined;
       const bruto = it.valorUnit.mul(it.quantidade);
       const unidade = p?.unidadeComercial ?? 'UN';
       const valorUnit = Number(it.valorUnit.toFixed(2));
+      const baseItem = Number(bruto.toFixed(2));
       const item: Record<string, unknown> = {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
@@ -589,45 +602,41 @@ export class NfeService {
         cfop: this.ajustarCfop(p?.cfop ?? '5101', mesmaUf),
         // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
         codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
-        // Unidade comercial e tributável (SEFAZ exige as duas).
         unidade_comercial: unidade,
         quantidade_comercial: it.quantidade,
         valor_unitario_comercial: valorUnit,
         unidade_tributavel: unidade,
         quantidade_tributavel: it.quantidade,
         valor_unitario_tributavel: valorUnit,
-        valor_bruto: Number(bruto.toFixed(2)),
+        valor_bruto: baseItem,
         icms_origem: p?.origem ?? 0,
-        icms_situacao_tributaria: p?.icmsCst ?? (regimeNormal ? '00' : '102'),
-        pis_situacao_tributaria: p?.pisCst ?? '01',
-        cofins_situacao_tributaria: p?.cofinsCst ?? '01',
-        // ⚠️ Alíquotas PIS/COFINS — padrão Lucro Presumido (cumulativo).
-        // CONFIRME COM A CONTABILIDADE e ajuste por produto quando necessário.
-        pis_aliquota_porcentual: 0.65,
-        cofins_aliquota_porcentual: 3,
       };
-      const baseItem = Number(bruto.toFixed(2));
-      if (regimeNormal) {
-        // Grupo ICMS (Regime Normal). CSTs tributados (00,10,20,70,90) têm base
-        // e valor; isento/não tributado/ST (40,41,50,60) ficam zerados.
-        const cstIcms = (p?.icmsCst ?? '00');
-        const aliqIcms = p?.icmsAliquota ? Number(p.icmsAliquota) : 18; // % — CONFIRME COM A CONTABILIDADE
+      if (simples) {
+        // Simples Nacional: CSOSN no ICMS + PIS/COFINS CST 49 (recolhidos no DAS).
+        item.icms_situacao_tributaria = p?.icmsCst ?? csosnEmp;
+        item.pis_situacao_tributaria = pisCofinsCstEmp;
+        item.cofins_situacao_tributaria = pisCofinsCstEmp;
+      } else {
+        // Regime Normal (Lucro Real/Presumido): ICMS destacado + PIS/COFINS por alíquota.
+        const cstIcms = p?.icmsCst ?? icmsCstEmp;
         const tributado = ['00', '10', '20', '70', '90'].includes(cstIcms);
-        item.icms_modalidade_base_calculo = 3; // 3 = valor da operação
-        item.icms_aliquota = aliqIcms;
+        item.icms_situacao_tributaria = cstIcms;
+        item.icms_modalidade_base_calculo = 3; // valor da operação
+        item.icms_aliquota = aliqIcmsOperacao;
         item.icms_base_calculo = tributado ? baseItem : 0;
-        item.icms_valor = tributado ? Number((baseItem * aliqIcms / 100).toFixed(2)) : 0;
-      }
-      // PIS/COFINS: base + valor quando tributável (CST 01/02).
-      const pisTrib = ['01', '02'].includes((p?.pisCst ?? '01'));
-      const cofinsTrib = ['01', '02'].includes((p?.cofinsCst ?? '01'));
-      if (pisTrib) {
-        item.pis_base_calculo = baseItem;
-        item.pis_valor = Number((baseItem * 0.65 / 100).toFixed(2));
-      }
-      if (cofinsTrib) {
-        item.cofins_base_calculo = baseItem;
-        item.cofins_valor = Number((baseItem * 3 / 100).toFixed(2));
+        item.icms_valor = tributado ? Number((baseItem * aliqIcmsOperacao / 100).toFixed(2)) : 0;
+        item.pis_situacao_tributaria = p?.pisCst ?? pisCofinsCstEmp;
+        item.cofins_situacao_tributaria = p?.cofinsCst ?? pisCofinsCstEmp;
+        item.pis_aliquota_porcentual = pisAliqEmp;
+        item.cofins_aliquota_porcentual = cofinsAliqEmp;
+        if (['01', '02'].includes(String(item.pis_situacao_tributaria))) {
+          item.pis_base_calculo = baseItem;
+          item.pis_valor = Number((baseItem * pisAliqEmp / 100).toFixed(2));
+        }
+        if (['01', '02'].includes(String(item.cofins_situacao_tributaria))) {
+          item.cofins_base_calculo = baseItem;
+          item.cofins_valor = Number((baseItem * cofinsAliqEmp / 100).toFixed(2));
+        }
       }
       return item;
     });

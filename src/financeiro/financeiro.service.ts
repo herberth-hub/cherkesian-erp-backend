@@ -140,32 +140,62 @@ export class FinanceiroService {
 
   /** Estimativa de impostos federais (Lucro Presumido) sobre o faturamento dos pedidos. */
   async impostos(empresaId: number) {
-    const empresa = await this.prisma.empresa.findUnique({ where: { id: empresaId } });
-    const pedidos = await this.prisma.pedido.findMany({
-      where: { empresaId },
-      select: { valorTotal: true },
+    const [filiais, pedidos] = await Promise.all([
+      this.prisma.filial.findMany({ where: { empresaId }, orderBy: [{ matriz: 'desc' }, { nome: 'asc' }] }),
+      this.prisma.pedido.findMany({ where: { empresaId }, select: { filialId: true, valorTotal: true } }),
+    ]);
+    const matriz = filiais.find((f) => f.matriz) ?? filiais[0];
+    const regimeLabel: Record<string, string> = {
+      lucro_real: 'Lucro Real',
+      lucro_presumido: 'Lucro Presumido',
+      simples: 'Simples Nacional',
+    };
+
+    const porEmpresa = filiais.map((f) => {
+      const fat = pedidos
+        .filter((p) => p.filialId === f.id || (p.filialId == null && matriz && f.id === matriz.id))
+        .reduce((s, p) => s.plus(p.valorTotal), D());
+      const regime = f.regimeTributario ?? 'lucro_presumido';
+      let pis = D(), cofins = D(), irpj = D(), csll = D();
+      let nota = '';
+      if (regime === 'simples') {
+        nota = 'Simples Nacional: PIS/COFINS/ICMS/IRPJ/CSLL recolhidos no DAS unificado, conforme a faixa do anexo. Consulte a contabilidade.';
+      } else {
+        const pisAliq = f.pisAliquota != null ? Number(f.pisAliquota) / 100 : (regime === 'lucro_real' ? 0.0165 : LUCRO_PRESUMIDO.pis);
+        const cofinsAliq = f.cofinsAliquota != null ? Number(f.cofinsAliquota) / 100 : (regime === 'lucro_real' ? 0.076 : LUCRO_PRESUMIDO.cofins);
+        pis = fat.mul(pisAliq);
+        cofins = fat.mul(cofinsAliq);
+        if (regime === 'lucro_presumido') {
+          irpj = fat.mul(LUCRO_PRESUMIDO.presuncaoIRPJ).mul(LUCRO_PRESUMIDO.aliqIRPJ);
+          csll = fat.mul(LUCRO_PRESUMIDO.presuncaoCSLL).mul(LUCRO_PRESUMIDO.aliqCSLL);
+          nota = 'Lucro Presumido (cumulativo): PIS 0,65% · COFINS 3% · IRPJ 8%×15% · CSLL 12%×9%. Sem ICMS/ISS.';
+        } else {
+          nota = 'Lucro Real (não-cumulativo): PIS 1,65% · COFINS 7,6%. IRPJ/CSLL incidem sobre o lucro real (apuração contábil), não estimados aqui.';
+        }
+      }
+      const total = pis.plus(cofins).plus(irpj).plus(csll);
+      return {
+        id: f.id,
+        nome: f.nome,
+        cnpj: f.cnpj,
+        matriz: f.matriz,
+        regime: regimeLabel[regime] ?? regime,
+        regimeCod: regime,
+        faturamento: fat.toFixed(2),
+        tributos: { pis: pis.toFixed(2), cofins: cofins.toFixed(2), irpj: irpj.toFixed(2), csll: csll.toFixed(2) },
+        totalEstimado: total.toFixed(2),
+        cargaEfetiva: fat.isZero() ? '0.00%' : total.div(fat).mul(100).toFixed(2) + '%',
+        nota,
+      };
     });
-    const faturamento = pedidos.reduce((s, p) => s.plus(p.valorTotal), D());
 
-    const pis = faturamento.mul(LUCRO_PRESUMIDO.pis);
-    const cofins = faturamento.mul(LUCRO_PRESUMIDO.cofins);
-    const irpj = faturamento.mul(LUCRO_PRESUMIDO.presuncaoIRPJ).mul(LUCRO_PRESUMIDO.aliqIRPJ);
-    const csll = faturamento.mul(LUCRO_PRESUMIDO.presuncaoCSLL).mul(LUCRO_PRESUMIDO.aliqCSLL);
-    const total = pis.plus(cofins).plus(irpj).plus(csll);
-
+    const faturamentoTotal = porEmpresa.reduce((s, e) => s.plus(e.faturamento), D());
+    const totalEstimado = porEmpresa.reduce((s, e) => s.plus(e.totalEstimado), D());
     return {
-      regime: empresa?.regime ?? 'Lucro Presumido',
-      faturamento: faturamento.toFixed(2),
-      tributos: {
-        pis: pis.toFixed(2),
-        cofins: cofins.toFixed(2),
-        irpj: irpj.toFixed(2),
-        csll: csll.toFixed(2),
-      },
-      totalEstimado: total.toFixed(2),
-      cargaEfetiva: faturamento.isZero() ? '0.00%' : total.div(faturamento).mul(100).toFixed(2) + '%',
-      observacao:
-        'Estimativa de tributos federais no Lucro Presumido. Não inclui ICMS/ISS nem retenções; consulte a contabilidade.',
+      porEmpresa,
+      faturamentoTotal: faturamentoTotal.toFixed(2),
+      totalEstimado: totalEstimado.toFixed(2),
+      observacao: 'Estimativa de tributos federais por empresa/CNPJ conforme o regime cadastrado em Filiais. Não inclui ICMS/ISS nem retenções; confirme com a contabilidade.',
     };
   }
 }

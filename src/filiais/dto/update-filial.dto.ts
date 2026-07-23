@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator';
 
 /** Edição de filial — todos os campos opcionais. */
 export class UpdateFilialDto {
@@ -24,4 +24,13 @@ export class UpdateFilialDto {
   @IsOptional() @IsString() @MaxLength(3) nfeSerie?: string;
   @IsOptional() @IsInt() @Min(1, { message: 'nfeProximoNumero deve ser >= 1.' }) nfeProximoNumero?: number;
   @IsOptional() @IsString() @MaxLength(200) focusToken?: string;
+
+  // ===== Parâmetros tributários =====
+  @IsOptional() @IsIn(['lucro_real', 'lucro_presumido', 'simples']) regimeTributario?: string;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) icmsInterno?: number;
+  @IsOptional() @IsString() @MaxLength(3) icmsCstPadrao?: string;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) pisAliquota?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) cofinsAliquota?: number;
+  @IsOptional() @IsString() @MaxLength(3) pisCofinsCst?: string;
+  @IsOptional() @IsString() @MaxLength(3) csosn?: string;
 }

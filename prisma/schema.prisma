@@ -109,6 +109,14 @@ model Filial {
   cnpj              String?
   inscricaoEstadual String?
   crt               Int?    @default(3)
+  // ===== Parâmetros tributários (por empresa/CNPJ) =====
+  regimeTributario  String   @default("lucro_presumido") // lucro_real | lucro_presumido | simples
+  icmsInterno       Decimal? @db.Decimal(5,2)  // alíquota ICMS interna (ex.: 18.00)
+  icmsCstPadrao     String?  @default("00")     // CST ICMS padrão (regime normal)
+  pisAliquota       Decimal? @db.Decimal(6,4)   // ex.: 0.6500 (presumido) / 1.6500 (real)
+  cofinsAliquota    Decimal? @db.Decimal(6,4)   // ex.: 3.0000 (presumido) / 7.6000 (real)
+  pisCofinsCst      String?  @default("01")      // CST PIS/COFINS (49 no Simples)
+  csosn             String?                       // CSOSN padrão (Simples Nacional, ex.: 102)
   nomeFantasia      String?
   logradouro        String?
   numeroEndereco    String?

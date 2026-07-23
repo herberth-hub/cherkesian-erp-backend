@@ -178,7 +178,7 @@ const TITLES = {
   pagar:['Contas a Pagar','Fornecedores, facção e despesas'],
   fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
   comissoes:['Comissões','Comissão por venda e por vendedor'],
-  impostos:['Impostos — Lucro Presumido','Estimativa de tributos federais'],
+  impostos:['Impostos por empresa','Estimativa de tributos federais por regime (Real/Presumido/Simples)'],
   pcp:['Painel de PCP','Programação, capacidade e prazos das OPs'],
   producao:['Ordens de Produção','Quadro de OPs por etapa'],
   piloto:['Peças Piloto','Trava a produção até a aprovação da amostra'],
@@ -1137,17 +1137,29 @@ async function viewComissoes(c){
 }
 async function viewImpostos(c){
   const t = await api('/financeiro/impostos');
+  const emp = t.porEmpresa||[];
+  const blocos = emp.map(e=>{
+    const simples = e.regimeCod==='simples';
+    const real = e.regimeCod==='lucro_real';
+    return `<div class="sect"><h3>${esc(e.nome)} <span class="pill ${e.matriz?'gold':'gray'}" style="margin-left:6px">${esc(e.regime)}</span></h3>
+      <div class="muted" style="font-size:11.5px;margin:-4px 0 8px">${e.cnpj?esc(e.cnpj)+' · ':''}Faturamento ${money(e.faturamento)} · carga efetiva ${esc(e.cargaEfetiva)}</div>
+      <div class="cards">
+        ${kpi('Faturamento', money(e.faturamento), e.regime)}
+        ${kpi('Total federal estimado', money(e.totalEstimado), simples?'no DAS':'')}
+        ${simples?'':kpi('PIS', money(e.tributos.pis), real?'1,65%':'0,65%')}
+        ${simples?'':kpi('COFINS', money(e.tributos.cofins), real?'7,6%':'3%')}
+        ${(simples||real)?'':kpi('IRPJ', money(e.tributos.irpj), 'presunção 8%×15%')}
+        ${(simples||real)?'':kpi('CSLL', money(e.tributos.csll), 'presunção 12%×9%')}
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:6px">${esc(e.nota)}</div>
+    </div>`;
+  }).join('');
   c.innerHTML = `
     <div class="cards">
-      ${kpi('Faturamento (pedidos)', money(t.faturamento), t.regime)}
-      ${kpi('Total estimado', money(t.totalEstimado), 'carga efetiva '+esc(t.cargaEfetiva))}
+      ${kpi('Faturamento total (todas)', money(t.faturamentoTotal), emp.length+' empresa(s)')}
+      ${kpi('Total federal estimado', money(t.totalEstimado), '')}
     </div>
-    <div class="sect"><h3>Tributos federais (estimativa)</h3><div class="cards">
-      ${kpi('PIS (0,65%)', money(t.tributos.pis), '')}
-      ${kpi('COFINS (3%)', money(t.tributos.cofins), '')}
-      ${kpi('IRPJ', money(t.tributos.irpj), 'presunção 8% × 15%')}
-      ${kpi('CSLL', money(t.tributos.csll), 'presunção 12% × 9%')}
-    </div></div>
+    ${blocos || '<div class="panel"><div class="empty">Nenhuma empresa/pedido para estimar.</div></div>'}
     <div class="card" style="margin-top:16px;background:#fbf7e8;border-color:#efe2b8">
       <div style="font-size:12.5px;color:#7a6a2e">⚠️ ${esc(t.observacao)}</div>
     </div>`;
@@ -1956,9 +1968,9 @@ async function viewNotas(c){
 }
 function nfAcoes(n){
   const b=[];
-  if(n.provedor==='focusnfe' && (n.status==='pendente'||n.status==='autorizada')) b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`);
+  if(n.provedor==='focusnfe' && n.status==='pendente') b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`);
   if(n.provedor==='focusnfe' && (n.status==='autorizada'||n.status==='cancelada')){
-    b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 DANFE</button>`);
+    b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 Imprimir</button>`);
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'xml')">XML</button>`);
   }
   if(n.status==='autorizada'){
@@ -2299,6 +2311,13 @@ function formFilial(id){
     <div class="grid3">${field('fl_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('fl_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('fl_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
     <div class="grid3">${field('fl_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('fl_codmun','Cód. IBGE','value="'+esc(f.codMunicipio||'')+'"')}${field('fl_uf','UF','value="'+esc(f.uf||'')+'" maxlength="2"')}</div>
     <div class="grid2">${field('fl_cep','CEP','value="'+esc(f.cep||'')+'"')}${field('fl_token','Token Focus NFe (opcional)','value="'+esc(f.focusToken||'')+'" placeholder="usa o global se vazio"')}</div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">REGIME TRIBUTÁRIO (impostos da NF-e por empresa)</b></div>
+    <div class="grid2"><div class="mrow"><label class="fl">Regime</label><select id="fl_regime" class="inp">
+        ${[['lucro_presumido','Lucro Presumido'],['lucro_real','Lucro Real'],['simples','Simples Nacional']].map(([v,t])=>`<option value="${v}" ${((f.regimeTributario||'lucro_presumido')===v)?'selected':''}>${t}</option>`).join('')}
+      </select></div>${field('fl_icmsint','ICMS interno (%)','type="number" step="0.01" value="'+(f.icmsInterno??18)+'"')}</div>
+    <div class="grid3">${field('fl_pis','PIS (%)','type="number" step="0.0001" value="'+(f.pisAliquota??'')+'" placeholder="0,65 ou 1,65"')}${field('fl_cofins','COFINS (%)','type="number" step="0.0001" value="'+(f.cofinsAliquota??'')+'" placeholder="3 ou 7,6"')}${field('fl_pccst','CST PIS/COFINS','value="'+esc(f.pisCofinsCst||'01')+'" placeholder="01 (normal) / 49 (Simples)"')}</div>
+    <div class="grid2">${field('fl_icmscst','CST ICMS padrão','value="'+esc(f.icmsCstPadrao||'00')+'"')}${field('fl_csosn','CSOSN (só Simples)','value="'+esc(f.csosn||'')+'" placeholder="ex.: 102"')}</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">Presumido: PIS 0,65 · COFINS 3 · CST 01. Lucro Real: PIS 1,65 · COFINS 7,6 · CST 01. Simples: CSOSN + CST 49.</div>
     <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">NUMERAÇÃO DA NF-e (independente por CNPJ)</b></div>
     <div class="grid2">${field('fl_serie','Série','value="'+esc(f.nfeSerie||'1')+'"')}${field('fl_prox','Próximo número','type="number" min="1" value="'+(f.nfeProximoNumero||1)+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -2308,9 +2327,12 @@ async function saveFilial(id){
   const body = { nome:val('fl_nome'), matriz:$('fl_matriz').checked, ativa:$('fl_ativa').checked,
     cnpj:val('fl_cnpj'), inscricaoEstadual:val('fl_ie'), crt:Number(val('fl_crt')), nomeFantasia:val('fl_fant'), telefone:val('fl_tel'),
     logradouro:val('fl_log'), numeroEndereco:val('fl_num'), bairro:val('fl_bairro'), municipio:val('fl_mun'), codMunicipio:val('fl_codmun'),
-    uf:(val('fl_uf')||'').toUpperCase(), cep:val('fl_cep'), focusToken:val('fl_token'), nfeSerie:val('fl_serie')||'1', nfeProximoNumero:Number(val('fl_prox')||1) };
+    uf:(val('fl_uf')||'').toUpperCase(), cep:val('fl_cep'), focusToken:val('fl_token'), nfeSerie:val('fl_serie')||'1', nfeProximoNumero:Number(val('fl_prox')||1),
+    regimeTributario:val('fl_regime')||'lucro_presumido', icmsCstPadrao:val('fl_icmscst')||undefined, pisCofinsCst:val('fl_pccst')||undefined, csosn:val('fl_csosn')||undefined };
+  const _n=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
+  body.icmsInterno=_n('fl_icmsint'); body.pisAliquota=_n('fl_pis'); body.cofinsAliquota=_n('fl_cofins');
   if(!body.nome){ toast('Informe o nome da filial.','err'); return; }
-  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  Object.keys(body).forEach(k=>{ if(body[k]===''||body[k]===undefined) delete body[k]; });
   try{ await api(id?('/filiais/'+id):'/filiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Filial salva.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
