@@ -2012,7 +2012,11 @@ async function cancelarNfe(id,numero){
   const just=prompt('Justificativa do cancelamento (mín. 15 caracteres) — NF '+numero+':');
   if(just===null) return;
   if(just.trim().length<15){ toast('A justificativa precisa de ao menos 15 caracteres.','err'); return; }
-  try{ await api('/nfe/'+id+'/cancelar',{method:'POST',body:{justificativa:just.trim()}}); toast('NF '+numero+' cancelada na SEFAZ.','ok'); loadRoute(); }
+  try{ const r=await api('/nfe/'+id+'/cancelar',{method:'POST',body:{justificativa:just.trim()}});
+    const c=r.cascata||{}; let extra='';
+    if(c.titulosReceberCancelados) extra+=' · '+c.titulosReceberCancelados+' título(s) a receber cancelado(s)';
+    if(c.pedidoRevertido) extra+=' · pedido '+c.pedidoRevertido+' revertido p/ orçamento';
+    toast('NF '+numero+' cancelada na SEFAZ.'+extra,'ok'); loadRoute(); }
   catch(e){ toast('Falha ao cancelar: '+(e.message||e),'err'); }
 }
 async function cartaCorrecaoNfe(id){

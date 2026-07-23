@@ -123,11 +123,11 @@ export class NfeService {
         data: { nfeProximoNumero: numeroSeq + 1 },
       });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
-      // Financeiro: lança a conta a receber da venda (saída).
+      // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       const vencimento = new Date();
       vencimento.setHours(0, 0, 0, 0);
       await tx.contaReceber.create({
-        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, valor, vencimento, status: 'a_vencer' },
+        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento, status: 'a_vencer' },
       });
       return criada;
     });
@@ -250,9 +250,9 @@ export class NfeService {
         },
       });
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
-      // Financeiro: lança a conta a receber da venda (saída).
+      // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       await tx.contaReceber.create({
-        data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
+        data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
       });
       // Setores: se veio de um pedido em orçamento, avança para aprovado (faturado).
       if (pedidoVinc && pedidoVinc.etapa === 'orcamento') {
@@ -320,7 +320,9 @@ export class NfeService {
     const { nota, token } = await this.notaComToken(id, empresaId);
     if (nota.status === 'cancelada') throw new ConflictException('Nota já está cancelada.');
     if (nota.provedor === 'simulado') {
-      return this.prisma.notaFiscal.update({ where: { id }, data: { status: 'cancelada', motivo: `Cancelada (simulada) por ${usuario}: ${justificativa}` } });
+      const upd = await this.prisma.notaFiscal.update({ where: { id }, data: { status: 'cancelada', motivo: `Cancelada (simulada) por ${usuario}: ${justificativa}` } });
+      const casc = await this.cascataCancelamento(nota);
+      return { ...upd, cascata: casc };
     }
     if (nota.status !== 'autorizada') {
       throw new ConflictException('Só é possível cancelar na SEFAZ uma nota AUTORIZADA. Para nota rejeitada/pendente, use Excluir.');
@@ -328,9 +330,33 @@ export class NfeService {
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
     const r = await this.cancelarFocus(token, this.refDaNota(nota), justificativa);
     if (!r.ok) throw new BadRequestException(`Falha ao cancelar na SEFAZ: ${r.motivo}`);
-    return this.prisma.notaFiscal.update({
+    const upd = await this.prisma.notaFiscal.update({
       where: { id },
       data: { status: 'cancelada', motivo: `Cancelada por ${usuario}: ${justificativa}` },
+    });
+    const casc = await this.cascataCancelamento(nota);
+    return { ...upd, cascata: casc };
+  }
+
+  /**
+   * Cascata do cancelamento da NF: cancela o lançamento financeiro (conta a
+   * receber não paga) e reverte o pedido de venda vinculado (se ainda não
+   * entrou em produção). Mantém os setores interligados.
+   */
+  private async cascataCancelamento(nota: NotaFiscal) {
+    return this.prisma.$transaction(async (tx) => {
+      // 1) Remove contas a receber NÃO pagas originadas nesta NF.
+      const rec = await tx.contaReceber.deleteMany({ where: { notaFiscalId: nota.id, pago: 0 } });
+      // 2) Reverte o pedido de venda ligado (só se não gerou OP).
+      let pedidoRevertido: string | null = null;
+      if (nota.pedidoId) {
+        const ped = await tx.pedido.findUnique({ where: { id: nota.pedidoId }, include: { ops: true } });
+        if (ped && ped.ops.length === 0 && ['aprovado', 'piloto'].includes(ped.etapa)) {
+          await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'orcamento', status: 'Orçamento (NF cancelada)' } });
+          pedidoRevertido = ped.numero;
+        }
+      }
+      return { titulosReceberCancelados: rec.count, pedidoRevertido };
     });
   }
 

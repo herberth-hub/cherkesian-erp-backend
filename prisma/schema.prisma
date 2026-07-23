@@ -462,14 +462,15 @@ model Expedicao {
 
 // ===== Financeiro & sistema =====
 model ContaReceber {
-  id         Int          @id @default(autoincrement())
-  empresaId  Int
-  pedidoId   Int?
-  clienteId  Int
-  vencimento DateTime
-  valor      Decimal      @db.Decimal(12,2)
-  pago       Decimal      @default(0) @db.Decimal(12,2)
-  status     TituloStatus @default(a_vencer)
+  id            Int          @id @default(autoincrement())
+  empresaId     Int
+  pedidoId      Int?
+  notaFiscalId  Int?         // NF que originou o título (cancelamento em cascata)
+  clienteId     Int
+  vencimento    DateTime
+  valor         Decimal      @db.Decimal(12,2)
+  pago          Decimal      @default(0) @db.Decimal(12,2)
+  status        TituloStatus @default(a_vencer)
 }
 
 model ContaPagar {
