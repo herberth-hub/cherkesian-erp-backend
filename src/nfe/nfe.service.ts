@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Cliente, Filial, NFeStatus, NotaFiscal, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
 /** Só dígitos (CNPJ/CPF/CEP/telefone). */
 const digitos = (v?: string | null) => (v ?? '').replace(/\D/g, '');
@@ -30,6 +31,7 @@ export class NfeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
   ) {}
 
   listar(empresaId: number): Promise<NotaFiscal[]> {
@@ -254,8 +256,7 @@ export class NfeService {
     const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
 
-    const numeroSeq = Number(String(nota.numero).split('/').pop());
-    const ref = `NFE-${nota.filialId ?? 0}-${nota.serie}-${numeroSeq}`;
+    const ref = this.refDaNota(nota);
     const r = await this.consultarFocus(token, ref);
 
     const mapa: Record<string, NFeStatus> = {
@@ -276,6 +277,180 @@ export class NfeService {
         motivo: r.motivo ?? nota.motivo,
       },
     });
+  }
+
+  /** Nota + token do provedor (valida empresa). Uso interno de cancelar/CC-e. */
+  private async notaComToken(id: number, empresaId: number) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+    const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
+    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    return { nota, token };
+  }
+
+  /**
+   * CANCELAMENTO na SEFAZ (só notas AUTORIZADAS). Exige justificativa (15+
+   * caracteres) e respeita o prazo legal da SEFAZ (24h sem multa em SP).
+   */
+  async cancelar(id: number, empresaId: number, justificativa: string, usuario: string) {
+    const { nota, token } = await this.notaComToken(id, empresaId);
+    if (nota.status === 'cancelada') throw new ConflictException('Nota já está cancelada.');
+    if (nota.provedor === 'simulado') {
+      return this.prisma.notaFiscal.update({ where: { id }, data: { status: 'cancelada', motivo: `Cancelada (simulada) por ${usuario}: ${justificativa}` } });
+    }
+    if (nota.status !== 'autorizada') {
+      throw new ConflictException('Só é possível cancelar na SEFAZ uma nota AUTORIZADA. Para nota rejeitada/pendente, use Excluir.');
+    }
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+    const r = await this.cancelarFocus(token, this.refDaNota(nota), justificativa);
+    if (!r.ok) throw new BadRequestException(`Falha ao cancelar na SEFAZ: ${r.motivo}`);
+    return this.prisma.notaFiscal.update({
+      where: { id },
+      data: { status: 'cancelada', motivo: `Cancelada por ${usuario}: ${justificativa}` },
+    });
+  }
+
+  /**
+   * CARTA DE CORREÇÃO (CC-e) — corrige dados que NÃO alteram valores/impostos,
+   * destinatário ou datas. Só para notas autorizadas. Justificativa 15+ chars.
+   */
+  async cartaCorrecao(id: number, empresaId: number, correcao: string, usuario: string) {
+    const { nota, token } = await this.notaComToken(id, empresaId);
+    if (nota.status !== 'autorizada') throw new ConflictException('A carta de correção só vale para nota AUTORIZADA.');
+    if (nota.provedor === 'simulado') {
+      return { ok: true, mensagem: 'CC-e registrada (simulada).', correcao };
+    }
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+    const r = await this.cartaCorrecaoFocus(token, this.refDaNota(nota), correcao);
+    if (!r.ok) throw new BadRequestException(`Falha na carta de correção: ${r.motivo}`);
+    await this.prisma.notaFiscal.update({
+      where: { id },
+      data: { motivo: `${nota.motivo ?? ''} | CC-e por ${usuario}: ${correcao}`.slice(0, 900) },
+    });
+    return { ok: true, mensagem: 'Carta de correção enviada à SEFAZ.', correcao };
+  }
+
+  /**
+   * EXCLUI o registro local de uma nota NÃO autorizada (rejeitada/cancelada/
+   * pendente-com-erro/simulada) e, se for o último número emitido, DEVOLVE o
+   * sequencial para reutilização. Nota autorizada precisa ser cancelada antes.
+   */
+  async excluir(id: number, empresaId: number) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+    if (nota.status === 'autorizada') {
+      throw new ConflictException('Nota AUTORIZADA não pode ser excluída — cancele na SEFAZ primeiro.');
+    }
+    const numeroSeq = Number(String(nota.numero).split('/').pop());
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      await tx.notaFiscal.delete({ where: { id } });
+      let numeroReutilizado: number | null = null;
+      if (nota.filialId) {
+        const filial = await tx.filial.findUnique({ where: { id: nota.filialId } });
+        // Só devolve o número se ele for o ÚLTIMO consumido (senão abriria buraco).
+        if (filial && numeroSeq === filial.nfeProximoNumero - 1) {
+          await tx.filial.update({ where: { id: nota.filialId }, data: { nfeProximoNumero: numeroSeq } });
+          numeroReutilizado = numeroSeq;
+        }
+      }
+      return { numeroReutilizado };
+    });
+    return { excluido: true, id, numero: nota.numero, numeroReutilizado: resultado.numeroReutilizado };
+  }
+
+  /**
+   * Envia a NF (DANFE em PDF + XML) por e-mail ao cliente. Baixa os arquivos
+   * na Focus quando a nota está autorizada. Aceita e-mail informado; senão
+   * tenta o e-mail do cliente do pedido vinculado.
+   */
+  async enviarPorEmail(id: number, empresaId: number, emailInformado?: string) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+
+    // Destino: e-mail informado ou o do cliente do pedido vinculado.
+    let destino = emailInformado?.trim();
+    let nomeCliente = '';
+    if (nota.pedidoId) {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: nota.pedidoId }, include: { cliente: true } });
+      nomeCliente = ped?.cliente?.nome ?? '';
+      if (!destino) destino = ped?.cliente?.email ?? undefined;
+    }
+    if (!destino) throw new BadRequestException('Informe o e-mail de destino (a nota não tem cliente vinculado com e-mail).');
+
+    const anexos: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
+    if (nota.provedor === 'focusnfe' && nota.status === 'autorizada') {
+      const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
+      const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+      if (token) {
+        const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota));
+        const nome = String(nota.numero).replace('/', '-');
+        if (arq.pdf) anexos.push({ filename: `NFe-${nome}.pdf`, content: arq.pdf, contentType: 'application/pdf' });
+        if (arq.xml) anexos.push({ filename: `NFe-${nome}.xml`, content: arq.xml, contentType: 'application/xml' });
+      }
+    }
+
+    const r = await this.email.enviar({
+      para: destino,
+      assunto: `NF-e ${nota.numero} — GRUPO CHERKESIAN`,
+      texto: `Olá${nomeCliente ? ' ' + nomeCliente : ''},\n\nSegue em anexo a nota fiscal eletrônica nº ${nota.numero}` +
+        (nota.chave ? ` (chave ${nota.chave})` : '') + `.\n\nAtenciosamente,\nGRUPO CHERKESIAN`,
+      anexos: anexos.length ? anexos : undefined,
+    });
+    return { enviado: r.enviado, simulado: r.simulado, para: destino, anexos: anexos.length, detalhe: r.detalhe };
+  }
+
+  /** Baixa DANFE (PDF) e XML da nota na Focus. */
+  private async baixarArquivosFocus(token: string, ref: string) {
+    const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
+    const host = this.focusHost();
+    const det = (await (await fetch(`https://${host}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
+    const baixar = async (caminho?: unknown): Promise<Buffer | null> => {
+      if (!caminho || typeof caminho !== 'string') return null;
+      try {
+        const res = await fetch(`https://${host}${caminho}`, { headers: { Authorization: auth } });
+        if (!res.ok) return null;
+        return Buffer.from(await res.arrayBuffer());
+      } catch {
+        return null;
+      }
+    };
+    return {
+      pdf: await baixar(det?.['caminho_danfe']),
+      xml: await baixar(det?.['caminho_xml_nota_fiscal']),
+    };
+  }
+
+  private async cancelarFocus(token: string, ref: string, justificativa: string) {
+    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}`;
+    try {
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { Authorization: 'Basic ' + Buffer.from(token + ':').toString('base64'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ justificativa }),
+      });
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const status = String(body['status'] ?? '');
+      if (res.ok || status === 'cancelado') return { ok: true as const, motivo: 'Cancelada.' };
+      return { ok: false as const, motivo: (body['mensagem_sefaz'] as string) || JSON.stringify(body).slice(0, 300) };
+    } catch (err) {
+      return { ok: false as const, motivo: String(err) };
+    }
+  }
+
+  private async cartaCorrecaoFocus(token: string, ref: string, correcao: string) {
+    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}/carta_correcao`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: 'Basic ' + Buffer.from(token + ':').toString('base64'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ correcao }),
+      });
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (res.ok || res.status === 202) return { ok: true as const, motivo: 'Enviada.' };
+      return { ok: false as const, motivo: (body['mensagem_sefaz'] as string) || JSON.stringify(body).slice(0, 300) };
+    } catch (err) {
+      return { ok: false as const, motivo: String(err) };
+    }
   }
 
   private async consultarFocus(token: string, ref: string) {
@@ -320,7 +495,19 @@ export class NfeService {
   /** CFOP conforme a operação: 5xxx dentro do estado, 6xxx interestadual. */
   private ajustarCfop(cfop: string, mesmaUf: boolean): string {
     const c = (cfop || '5101').replace(/\D/g, '').padStart(4, '0').slice(0, 4);
-    return (mesmaUf ? '5' : '6') + c.slice(1);
+    const alvo = (mesmaUf ? '5' : '6') + c.slice(1);
+    // Os CFOPs de "não contribuinte" (x107/x108) SÓ existem na versão
+    // interestadual (6107/6108). No mercado interno usa-se 5101/5102.
+    if (mesmaUf && alvo === '5107') return '5101';
+    if (mesmaUf && alvo === '5108') return '5102';
+    return alvo;
+  }
+
+  /** Referência da nota na Focus (avulsa usa prefixo NFEAV-, normal usa NFE-). */
+  private refDaNota(nota: NotaFiscal): string {
+    const numeroSeq = Number(String(nota.numero).split('/').pop());
+    const prefixo = nota.expedicaoId ? 'NFE' : 'NFEAV';
+    return `${prefixo}-${nota.filialId ?? 0}-${nota.serie}-${numeroSeq}`;
   }
 
   private async montarPayload(

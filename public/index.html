@@ -1894,8 +1894,47 @@ async function viewNotas(c){
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
       esc(n.provedor), n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
-      n.status==='pendente'?`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`:'<span class="muted">—</span>'
+      nfAcoes(n)
     ]), list.length?null:'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.');
+}
+function nfAcoes(n){
+  const b=[];
+  if(n.provedor==='focusnfe' && (n.status==='pendente'||n.status==='autorizada')) b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`);
+  if(n.status==='autorizada'){
+    b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id})">✉ E-mail</button>`);
+    b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
+    b.push(`<button class="btn-sm danger" onclick="APP.cancelarNfe(${n.id},'${esc(n.numero)}')">Cancelar</button>`);
+  } else {
+    b.push(`<button class="btn-sm danger" onclick="APP.excluirNfe(${n.id},'${esc(n.numero)}')">Excluir</button>`);
+  }
+  return b.length?b.join(' '):'<span class="muted">—</span>';
+}
+async function cancelarNfe(id,numero){
+  const just=prompt('Justificativa do cancelamento (mín. 15 caracteres) — NF '+numero+':');
+  if(just===null) return;
+  if(just.trim().length<15){ toast('A justificativa precisa de ao menos 15 caracteres.','err'); return; }
+  try{ await api('/nfe/'+id+'/cancelar',{method:'POST',body:{justificativa:just.trim()}}); toast('NF '+numero+' cancelada na SEFAZ.','ok'); loadRoute(); }
+  catch(e){ toast('Falha ao cancelar: '+(e.message||e),'err'); }
+}
+async function cartaCorrecaoNfe(id){
+  const corr=prompt('Texto da correção (CC-e, mín. 15 caracteres). NÃO pode alterar valores, destinatário, impostos ou datas:');
+  if(corr===null) return;
+  if(corr.trim().length<15){ toast('A correção precisa de ao menos 15 caracteres.','err'); return; }
+  try{ const r=await api('/nfe/'+id+'/carta-correcao',{method:'POST',body:{correcao:corr.trim()}}); toast(r.mensagem||'Carta de correção enviada.','ok'); }
+  catch(e){ toast('Falha na CC-e: '+(e.message||e),'err'); }
+}
+async function enviarNfeEmail(id){
+  const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (deixe em branco p/ usar o e-mail do cliente do pedido)');
+  if(email===null) return;
+  try{ const r=await api('/nfe/'+id+'/email',{method:'POST',body: email.trim()?{email:email.trim()}:{}});
+    toast((r.simulado?'[SIMULADO] ':'')+'NF enviada para '+r.para+' ('+r.anexos+' anexo(s)).', r.simulado?'err':'ok'); }
+  catch(e){ toast('Falha ao enviar: '+(e.message||e),'err'); }
+}
+async function excluirNfe(id,numero){
+  if(!confirm('Excluir o registro da NF '+numero+'? (só notas não autorizadas; se for o último número, ele volta a ficar disponível)')) return;
+  try{ const r=await api('/nfe/'+id,{method:'DELETE'});
+    toast('NF '+numero+' excluída.'+(r.numeroReutilizado?' Número '+r.numeroReutilizado+' liberado para reuso.':''),'ok'); loadRoute(); }
+  catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
 }
 // ----- NF-e avulsa (cliente + itens, sem expedição) -----
 let NFITENS = [];
@@ -2251,6 +2290,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, saveNfeAvulsa, consultarNfe,
+  cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
   fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
