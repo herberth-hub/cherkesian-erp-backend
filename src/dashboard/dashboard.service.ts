@@ -88,11 +88,40 @@ export class DashboardService {
       else faixasPed.ate15++;
     }
 
+    // ===== Comparativo por empresa/CNPJ (matriz e filiais) — fechamento do mês =====
+    const inicioMes = new Date();
+    inicioMes.setDate(1);
+    inicioMes.setHours(0, 0, 0, 0);
+    const [filiaisLista, pedidosFil, notasFil] = await Promise.all([
+      this.prisma.filial.findMany({ where: { empresaId }, select: { id: true, nome: true, cnpj: true, matriz: true } }),
+      this.prisma.pedido.findMany({ where: { empresaId }, select: { filialId: true, valorTotal: true, data: true } }),
+      this.prisma.notaFiscal.findMany({ where: { empresaId, status: { in: ['autorizada', 'simulada', 'pendente'] } }, select: { filialId: true, valor: true, emitidaEm: true } }),
+    ]);
+    const soma = (arr: { valorTotal?: unknown; valor?: unknown }[], campo: 'valorTotal' | 'valor') =>
+      Number(arr.reduce((s, x) => s + Number(x[campo] ?? 0), 0).toFixed(2));
+    const porEmpresa = filiaisLista.map((f) => {
+      const peds = pedidosFil.filter((p) => p.filialId === f.id);
+      const pedsMes = peds.filter((p) => p.data >= inicioMes);
+      const nts = notasFil.filter((n) => n.filialId === f.id);
+      const ntsMes = nts.filter((n) => n.emitidaEm >= inicioMes);
+      return {
+        id: f.id, nome: f.nome, cnpj: f.cnpj, matriz: f.matriz,
+        pedidos: peds.length,
+        valorPedidos: soma(peds, 'valorTotal'),
+        pedidosMes: pedsMes.length,
+        valorPedidosMes: soma(pedsMes, 'valorTotal'),
+        notas: nts.length,
+        faturamentoNfe: soma(nts, 'valor'),
+        faturamentoNfeMes: soma(ntsMes, 'valor'),
+      };
+    }).sort((a, b) => b.faturamentoNfe - a.faturamentoNfe || b.valorPedidos - a.valorPedidos);
+
     return {
       pedidos: {
         total: pedidos.length,
         porEtapa: contar(pedidos, 'etapa'),
       },
+      porEmpresa,
       producao: {
         opsAtivas: opsAtivas.length,
         pecasEmProducao,

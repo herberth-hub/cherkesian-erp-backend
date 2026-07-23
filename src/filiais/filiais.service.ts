@@ -24,8 +24,8 @@ export class FiliaisService {
   }
 
   async create(dto: CreateFilialDto, empresaId: number): Promise<Filial> {
-    // Garante uma única matriz por empresa.
-    if (dto.matriz) await this.rebaixarMatriz(empresaId);
+    // Cada CNPJ do grupo pode ser marcado como matriz ou filial livremente
+    // (o grupo tem vários CNPJs independentes; "matriz" é só um rótulo).
     return this.prisma.filial.create({
       data: { empresaId, ...dto, ativa: dto.ativa ?? true },
     });
@@ -33,14 +33,14 @@ export class FiliaisService {
 
   async update(id: number, dto: UpdateFilialDto, empresaId: number): Promise<Filial> {
     await this.findOne(id, empresaId);
-    if (dto.matriz) await this.rebaixarMatriz(empresaId, id);
     return this.prisma.filial.update({ where: { id }, data: dto });
   }
 
   async remove(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
-    const filial = await this.findOne(id, empresaId);
-    if (filial.matriz) {
-      throw new ConflictException('Não é possível excluir a matriz. Defina outra filial como matriz antes.');
+    await this.findOne(id, empresaId);
+    const total = await this.prisma.filial.count({ where: { empresaId } });
+    if (total <= 1) {
+      throw new ConflictException('Não é possível excluir o único CNPJ cadastrado. Cadastre outro antes.');
     }
     const [pedidos, notas] = await Promise.all([
       this.prisma.pedido.count({ where: { filialId: id } }),
@@ -57,12 +57,5 @@ export class FiliaisService {
   /** Retorna a matriz da empresa (fallback quando o pedido não tem filial). */
   matriz(empresaId: number): Promise<Filial | null> {
     return this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
-  }
-
-  private async rebaixarMatriz(empresaId: number, exceto?: number): Promise<void> {
-    await this.prisma.filial.updateMany({
-      where: { empresaId, matriz: true, ...(exceto ? { id: { not: exceto } } : {}) },
-      data: { matriz: false },
-    });
   }
 }

@@ -456,6 +456,7 @@ async function viewDashboard(c){
     </div>
     ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
+    ${empresasSec(d.porEmpresa)}
     <div class="sect"><h3>Financeiro</h3>
       <div class="cards">
         ${kpi('A receber (aberto)', money(d.financeiro.aReceber), '')}
@@ -498,6 +499,34 @@ async function viewDashboard(c){
     </div>`;
 }
 function kpi(k,v,s){ return `<div class="card kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`; }
+function empresasSec(lista){
+  lista = lista||[];
+  if(lista.length<2) return '';
+  const mesNome = new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const linhas = lista.map(e=>{
+    const tag = e.matriz ? '<span class="emp-tag">MATRIZ</span>' : '<span class="emp-tag emp-tag-f">FILIAL</span>';
+    return `<tr>
+      <td><strong>${esc(e.nome)}</strong> ${tag}<div class="muted" style="font-size:11px">${esc(e.cnpj||'')}</div></td>
+      <td style="text-align:center">${e.pedidosMes} <span class="muted">/ ${e.pedidos}</span></td>
+      <td style="text-align:right">${money(e.valorPedidosMes)} <span class="muted">/ ${money(e.valorPedidos)}</span></td>
+      <td style="text-align:right"><strong>${money(e.faturamentoNfeMes)}</strong> <span class="muted">/ ${money(e.faturamentoNfe)}</span></td>
+    </tr>`;
+  }).join('');
+  return `<div class="sect"><h3>Comparativo por empresa (CNPJ)</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Valores do mês (${esc(mesNome)}) <span class="muted">/ acumulado total</span></div>
+    <div style="overflow-x:auto">
+    <table class="emp-tbl"><thead><tr>
+      <th>Empresa</th><th style="text-align:center">Pedidos</th><th style="text-align:right">Valor em pedidos</th><th style="text-align:right">Faturamento NF-e</th>
+    </tr></thead><tbody>${linhas}</tbody></table></div>
+    <style>
+      .emp-tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e7e3d8;border-radius:12px;overflow:hidden}
+      .emp-tbl th{background:#F4F2ED;text-align:left;font-size:12px;color:#4a473f;padding:10px 12px;font-weight:700}
+      .emp-tbl td{padding:11px 12px;border-top:1px solid #efece3;font-size:13px;vertical-align:top}
+      .emp-tag{background:#C9A227;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-left:6px}
+      .emp-tag-f{background:#8a8674}
+    </style>
+  </div>`;
+}
 function entregaBadge(dias){
   if(dias<0)  return {txt:'Atrasada '+(-dias)+'d', cor:'#c14a34'};
   if(dias===0)return {txt:'Entrega HOJE', cor:'#c14a34'};
