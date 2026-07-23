@@ -3,12 +3,16 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
   ParseIntPipe,
   Post,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { IsEmail, IsInt, IsOptional, IsPositive, IsString, MaxLength, MinLength } from 'class-validator';
 import { NfeService } from './nfe.service';
 import { CreateNfeAvulsaDto } from './dto/create-nfe-avulsa.dto';
@@ -88,6 +92,24 @@ export class NfeController {
   @HttpCode(HttpStatus.OK)
   enviarEmail(@Param('id', ParseIntPipe) id: number, @Body() dto: EnviarNfeEmailDto, @CurrentUser() user: AuthUser) {
     return this.nfeService.enviarPorEmail(id, user.empresaId, dto.email);
+  }
+
+  /** Baixa o DANFE (PDF) da nota para impressão/arquivo. */
+  @Get(':id/danfe')
+  @Areas('vendas', 'expedicao', 'receber')
+  async danfe(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
+    const a = await this.nfeService.baixarArquivo(id, user.empresaId, 'danfe');
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `inline; filename="${a.filename}"` });
+    return new StreamableFile(a.content);
+  }
+
+  /** Baixa o XML autorizado da nota. */
+  @Get(':id/xml')
+  @Areas('vendas', 'expedicao', 'receber')
+  async xml(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
+    const a = await this.nfeService.baixarArquivo(id, user.empresaId, 'xml');
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `attachment; filename="${a.filename}"` });
+    return new StreamableFile(a.content);
   }
 
   /** Exclui o registro de uma nota NÃO autorizada e devolve o número sequencial. */

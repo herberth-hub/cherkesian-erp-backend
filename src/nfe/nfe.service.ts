@@ -399,6 +399,30 @@ export class NfeService {
     return { enviado: r.enviado, simulado: r.simulado, para: destino, anexos: anexos.length, detalhe: r.detalhe };
   }
 
+  /**
+   * Baixa um arquivo da nota (DANFE em PDF ou XML) para download/impressão.
+   * Retorna o conteúdo + nome + content-type; erro claro se não disponível.
+   */
+  async baixarArquivo(id: number, empresaId: number, tipo: 'danfe' | 'xml') {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+    if (nota.provedor !== 'focusnfe') throw new BadRequestException('Nota simulada não possui DANFE/XML oficial.');
+    if (!['autorizada', 'cancelada'].includes(nota.status)) {
+      throw new BadRequestException('DANFE/XML só ficam disponíveis após a autorização da SEFAZ.');
+    }
+    const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
+    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+    const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota));
+    const nome = String(nota.numero).replace('/', '-');
+    if (tipo === 'danfe') {
+      if (!arq.pdf) throw new BadRequestException('DANFE ainda não disponível na Focus. Tente novamente em instantes.');
+      return { content: arq.pdf, filename: `DANFE-${nome}.pdf`, contentType: 'application/pdf' };
+    }
+    if (!arq.xml) throw new BadRequestException('XML ainda não disponível na Focus. Tente novamente em instantes.');
+    return { content: arq.xml, filename: `NFe-${nome}.xml`, contentType: 'application/xml' };
+  }
+
   /** Baixa DANFE (PDF) e XML da nota na Focus. */
   private async baixarArquivosFocus(token: string, ref: string) {
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');

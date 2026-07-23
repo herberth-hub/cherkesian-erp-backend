@@ -729,7 +729,7 @@ function toolbar(title, btn, action, extra){
 }
 function relBtn(tipo){ return `<button class="btn-sm" onclick="APP.relatorio('${tipo}')">📄 Relatório</button>`; }
 const REL_FILTROS = {
-  pedidos:{periodo:true, status:{label:'Etapa', opts:['orcamento','aprovado','piloto','material','compra','producao','estoque','expedicao']}},
+  pedidos:{periodo:true, status:{label:'Etapa', opts:['orcamento','aprovado']}},
   ops:{periodo:true, status:{label:'Status', opts:['aguardando_material','a_iniciar','em_corte','em_producao','em_faccao','concluido']}},
   nfs:{periodo:true, status:{label:'Status', opts:['pendente','autorizada','rejeitada','cancelada','simulada']}},
   clientes:{periodo:true},
@@ -1900,14 +1900,28 @@ async function viewNotas(c){
 function nfAcoes(n){
   const b=[];
   if(n.provedor==='focusnfe' && (n.status==='pendente'||n.status==='autorizada')) b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`);
+  if(n.provedor==='focusnfe' && (n.status==='autorizada'||n.status==='cancelada')){
+    b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 DANFE</button>`);
+    b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'xml')">XML</button>`);
+  }
   if(n.status==='autorizada'){
     b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id})">✉ E-mail</button>`);
     b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
     b.push(`<button class="btn-sm danger" onclick="APP.cancelarNfe(${n.id},'${esc(n.numero)}')">Cancelar</button>`);
-  } else {
+  } else if(n.status!=='cancelada'){
     b.push(`<button class="btn-sm danger" onclick="APP.excluirNfe(${n.id},'${esc(n.numero)}')">Excluir</button>`);
   }
   return b.length?b.join(' '):'<span class="muted">—</span>';
+}
+async function baixarNfeArquivo(id,tipo){
+  try{
+    const r = await fetch(API+'/nfe/'+id+'/'+tipo, { headers:{ Authorization:'Bearer '+S.access } });
+    if(!r.ok){ let m='Falha ao baixar '+(tipo==='danfe'?'DANFE':'XML')+' ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
+    const blob = await r.blob(); const url = URL.createObjectURL(blob);
+    if(tipo==='danfe'){ window.open(url,'_blank'); }
+    else { const a=document.createElement('a'); const cd=r.headers.get('Content-Disposition')||''; const mt=cd.match(/filename="([^"]+)"/); a.href=url; a.download=mt?mt[1]:('NFe-'+id+'.xml'); document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+  }catch(e){ toast(e.message,'err'); }
 }
 async function cancelarNfe(id,numero){
   const just=prompt('Justificativa do cancelamento (mín. 15 caracteres) — NF '+numero+':');
@@ -2290,7 +2304,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe,
+  cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
   fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
