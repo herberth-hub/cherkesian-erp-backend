@@ -146,14 +146,16 @@ export class NotasEntradaService {
 
   // ===== Rastreador SEFAZ (Focus — distribuição de NF-e) =====
 
-  private async tokenEmpresa(empresaId: number): Promise<{ token: string; ambiente: string; cnpj: string }> {
+  private async tokenEmpresa(empresaId: number): Promise<{ token: string; host: string; cnpj: string }> {
     const matriz = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
     const token = matriz?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
     if (!token) throw new BadRequestException('Provedor NF-e não configurado (FOCUS_NFE_TOKEN).');
     const cnpj = digitos(matriz?.cnpj);
     if (!cnpj) throw new BadRequestException('CNPJ da matriz não configurado.');
-    const ambiente = this.config.get<string>('NFE_AMBIENTE') === 'producao' ? '' : 'homologacao.';
-    return { token, ambiente, cnpj };
+    const host = this.config.get<string>('NFE_AMBIENTE') === 'producao'
+      ? 'api.focusnfe.com.br'
+      : 'homologacao.focusnfe.com.br';
+    return { token, host, cnpj };
   }
 
   private focusHeaders(token: string) {
@@ -162,8 +164,8 @@ export class NotasEntradaService {
 
   /** Lista as NF-e emitidas contra o CNPJ (as já importadas vêm marcadas). */
   async sefazListar(empresaId: number) {
-    const { token, ambiente, cnpj } = await this.tokenEmpresa(empresaId);
-    const url = `https://${ambiente}focusnfe.com.br/v2/nfes_recebidas?cnpj=${cnpj}`;
+    const { token, host, cnpj } = await this.tokenEmpresa(empresaId);
+    const url = `https://${host}/v2/nfes_recebidas?cnpj=${cnpj}`;
     let lista: any[] = [];
     try {
       const res = await fetch(url, { headers: this.focusHeaders(token) });
@@ -200,9 +202,9 @@ export class NotasEntradaService {
 
   /** Detalhe (JSON) de uma NF-e recebida pela chave — para pré-preencher a entrada. */
   async sefazDetalhe(empresaId: number, chave: string) {
-    const { token, ambiente } = await this.tokenEmpresa(empresaId);
+    const { token, host } = await this.tokenEmpresa(empresaId);
     const ch = digitos(chave);
-    const url = `https://${ambiente}focusnfe.com.br/v2/nfes_recebidas/${ch}/json`;
+    const url = `https://${host}/v2/nfes_recebidas/${ch}/json`;
     const res = await fetch(url, { headers: this.focusHeaders(token) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new BadRequestException(`Focus HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);

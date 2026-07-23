@@ -258,8 +258,7 @@ export class NfeService {
   }
 
   private async consultarFocus(token: string, ref: string) {
-    const ambiente = this.config.get<string>('NFE_AMBIENTE') === 'producao' ? '' : 'homologacao.';
-    const url = `https://${ambiente}focusnfe.com.br/v2/nfe/${encodeURIComponent(ref)}`;
+    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
         headers: { Authorization: 'Basic ' + Buffer.from(token + ':').toString('base64') },
@@ -378,10 +377,16 @@ export class NfeService {
     };
   }
 
+  /** Host da API Focus por ambiente (produção usa api.; homologação usa homologacao.). */
+  private focusHost(): string {
+    return this.config.get<string>('NFE_AMBIENTE') === 'producao'
+      ? 'api.focusnfe.com.br'
+      : 'homologacao.focusnfe.com.br';
+  }
+
   // ===== Provedores =====
   private async emitirFocusNfe(token: string, ref: string, payload: unknown) {
-    const ambiente = this.config.get<string>('NFE_AMBIENTE') === 'producao' ? '' : 'homologacao.';
-    const url = `https://${ambiente}focusnfe.com.br/v2/nfe?ref=${encodeURIComponent(ref)}`;
+    const url = `https://${this.focusHost()}/v2/nfe?ref=${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
         method: 'POST',
