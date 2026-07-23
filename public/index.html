@@ -872,6 +872,10 @@ async function formProduto(id){
     <div id="pmedbox"></div>
     ${secDivisor('FOTOS')}
     <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Modelagem (Audaces)')}</div>
+    ${secDivisor('DADOS FISCAIS (NF-e) · valide com a contabilidade')}
+    <div class="grid2">${field('f_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'" placeholder="ex.: 61099000"')}${field('f_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
+    <div class="grid3">${field('f_orig','Origem (0-8)','type="number" min="0" max="8" value="'+(p.origem??0)+'"')}${field('f_un','Unidade','value="'+esc(p.unidadeComercial||'UN')+'"')}${field('f_cest','CEST (se houver)','value="'+esc(p.cest||'')+'"')}</div>
+    <div class="grid3">${field('f_icst','ICMS CST/CSOSN','value="'+esc(p.icmsCst||'')+'" placeholder="00 ou 102"')}${field('f_ialq','ICMS alíq. (%)','type="number" step="0.01" value="'+(p.icmsAliquota??'')+'"')}${field('f_piscof','PIS/COFINS CST','value="'+esc(p.pisCst||'01')+'"')}</div>
     ${secDivisor('OBSERVAÇÕES')}
     ${taField('f_obs','Observações gerais da ficha','',3)}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -886,8 +890,12 @@ async function saveProduto(id){
   const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), grade:val('f_grade'),
     referencia:val('f_ref'), marca:val('f_marca'), linha:val('f_linha'), grupo:val('f_grupo'),
     modelagem:val('f_model'), tecido:val('f_tec'), composicao:val('f_comp'),
-    especificacoes:val('f_espec'), observacoes:val('f_obs') };
+    especificacoes:val('f_espec'), observacoes:val('f_obs'),
+    ncm:val('f_ncm'), cfop:val('f_cfop'), unidadeComercial:val('f_un'), cest:val('f_cest'),
+    icmsCst:val('f_icst'), pisCst:val('f_piscof'), cofinsCst:val('f_piscof') };
   const preco = val('f_preco'); if(preco) body.precoBase = Number(preco);
+  const orig = val('f_orig'); if(orig!=='') body.origem = Number(orig);
+  const ialq = val('f_ialq'); if(ialq) body.icmsAliquota = Number(ialq);
   if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   // fotos e medidas SEMPRE enviadas (string vazia limpa; medidas substituem a grade)
