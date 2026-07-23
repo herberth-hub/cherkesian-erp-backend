@@ -561,3 +561,76 @@ model Log {
   ip         String?
   timestamp  DateTime @default(now())
 }
+
+// ===== Rastreabilidade / Kits de Corte (PRD) =====
+// Lote de tecido recebido do fornecedor — origem da rastreabilidade.
+model LoteTecido {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  codigoLote      String   // LT240715-03
+  materialId      Int?     // tecido no estoque (opcional)
+  codigoTecido    String?
+  descricaoTecido String?
+  corTecido       String?
+  fornecedorId    Int?
+  fornecedorNome  String?
+  nfCompra        String?  // nº NF de compra do tecido
+  dataRecebimento DateTime?
+  criadoEm        DateTime @default(now())
+  criadoPor       String?
+  kits            Kit[]
+
+  @@unique([empresaId, codigoLote])
+}
+
+// KIT = conjunto completo de peças de UM tamanho (1 lote, 1 tamanho).
+model Kit {
+  id            Int       @id @default(autoincrement())
+  empresaId     Int
+  codigo        String    @unique // KIT-AAAAMMDD-NNNNNN
+  pedidoId      Int?
+  opId          Int?
+  loteTecidoId  Int?
+  lote          LoteTecido? @relation(fields: [loteTecidoId], references: [id])
+  clienteNome   String?
+  modelo        String?
+  variante      String?
+  cor           String?
+  tamanho       String
+  jogos         Int       @default(0)
+  pecasTotal    Int       @default(0)
+  ordemProducao String?
+  ordemCorte    String?
+  enfesto       String?
+  mesaCorte     String?
+  operadorCorte String?
+  dataCorte     DateTime?
+  faccaoId      Int?
+  faccaoNome    String?
+  caixa         String?
+  transportador String?
+  remessaNfId   Int?      // NF de remessa vinculada (não duplica movimentação)
+  status        String    @default("aguardando_expedicao") // criado|em_corte|aguardando_expedicao|em_faccao|retornado|em_conferencia|finalizado
+  expedidoEm    DateTime?
+  expedidoPor   String?
+  retornadoEm   DateTime?
+  retornadoPor  String?
+  qtdRetornada  Int?
+  obs           String?
+  criadoEm      DateTime  @default(now())
+  criadoPor     String?
+  eventos       KitEvento[]
+}
+
+// Histórico/auditoria de cada evento do KIT.
+model KitEvento {
+  id        Int      @id @default(autoincrement())
+  empresaId Int
+  kitId     Int
+  kit       Kit      @relation(fields: [kitId], references: [id])
+  evento    String   // criado|expedido|retornado|conferido|finalizado|lote_alterado
+  detalhe   String?
+  usuario   String?
+  ip        String?
+  criadoEm  DateTime @default(now())
+}
