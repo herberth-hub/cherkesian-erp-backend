@@ -33,6 +33,9 @@ export class CreateNfeAvulsaDto {
   /** CNPJ emissor (matriz/filial). Se omitido, usa a matriz. */
   @IsOptional() @IsInt() @IsPositive() filialId?: number;
 
+  /** Pedido de venda vinculado — ao emitir, avança o pedido para aprovado. */
+  @IsOptional() @IsInt() @IsPositive() pedidoId?: number;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'A nota precisa de ao menos um item.' })
   @ValidateNested({ each: true })

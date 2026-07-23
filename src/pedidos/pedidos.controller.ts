@@ -1,11 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import { PedidosService } from './pedidos.service';
@@ -34,6 +36,19 @@ export class PedidosController {
   @Post()
   create(@Body() dto: CreatePedidoDto, @CurrentUser() user: AuthUser) {
     return this.pedidosService.create(dto, user.empresaId, user.usuario);
+  }
+
+  @Areas('vendas')
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: CreatePedidoDto, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.update(id, dto, user.empresaId);
+  }
+
+  @Areas('vendas')
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.remove(id, user.empresaId);
   }
 
   @Areas('vendas')

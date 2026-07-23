@@ -123,6 +123,12 @@ export class NfeService {
         data: { nfeProximoNumero: numeroSeq + 1 },
       });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
+      // Financeiro: lança a conta a receber da venda (saída).
+      const vencimento = new Date();
+      vencimento.setHours(0, 0, 0, 0);
+      await tx.contaReceber.create({
+        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, valor, vencimento, status: 'a_vencer' },
+      });
       return criada;
     });
 
@@ -135,7 +141,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number },
+    dto: { clienteId: number; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number },
     empresaId: number,
     usuario: string,
   ) {
@@ -182,16 +188,25 @@ export class NfeService {
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
 
+    // Pedido vinculado (opcional): valida e usa para avançar a etapa depois.
+    let pedidoVinc: { id: number; etapa: string } | null = null;
+    if (dto.pedidoId) {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
+      if (!ped || ped.empresaId !== empresaId) throw new NotFoundException(`Pedido ${dto.pedidoId} não encontrado.`);
+      pedidoVinc = { id: ped.id, etapa: ped.etapa };
+    }
+
     // Cobrança: vencimento em N dias a partir do faturamento (fatura + 1 duplicata).
+    const diasV = dto.diasVencimento && dto.diasVencimento > 0 ? dto.diasVencimento : 0;
+    const vencimentoData = new Date();
+    vencimentoData.setHours(0, 0, 0, 0);
+    vencimentoData.setDate(vencimentoData.getDate() + diasV);
     let duplicatas: Array<{ numero: string; data_vencimento: string; valor: number }> | undefined;
     let venctoTxt: string | undefined;
-    if (dto.diasVencimento && dto.diasVencimento > 0) {
-      const vencto = new Date();
-      vencto.setHours(0, 0, 0, 0);
-      vencto.setDate(vencto.getDate() + dto.diasVencimento);
-      const iso = vencto.toISOString().slice(0, 10);
+    if (diasV > 0) {
+      const iso = vencimentoData.toISOString().slice(0, 10);
       duplicatas = [{ numero: '001', data_vencimento: iso, valor: Number(valor.toFixed(2)) }];
-      venctoTxt = `Vencimento: ${iso.split('-').reverse().join('/')} (${dto.diasVencimento} dias)`;
+      venctoTxt = `Vencimento: ${iso.split('-').reverse().join('/')} (${diasV} dias)`;
     }
     const infoAdic = [
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
@@ -221,6 +236,7 @@ export class NfeService {
         data: {
           empresaId,
           filialId: filial.id,
+          pedidoId: pedidoVinc?.id,
           numero: numeroNota,
           serie,
           chave: emissao.chave,
@@ -234,6 +250,14 @@ export class NfeService {
         },
       });
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      // Financeiro: lança a conta a receber da venda (saída).
+      await tx.contaReceber.create({
+        data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
+      });
+      // Setores: se veio de um pedido em orçamento, avança para aprovado (faturado).
+      if (pedidoVinc && pedidoVinc.etapa === 'orcamento') {
+        await tx.pedido.update({ where: { id: pedidoVinc.id }, data: { etapa: 'aprovado', status: 'Faturado' } });
+      }
       return criada;
     });
 
@@ -582,10 +606,28 @@ export class NfeService {
         pis_aliquota_porcentual: 0.65,
         cofins_aliquota_porcentual: 3,
       };
+      const baseItem = Number(bruto.toFixed(2));
       if (regimeNormal) {
-        // Grupo ICMS (Regime Normal, CST 00): a SEFAZ exige modBC antes de vBC.
+        // Grupo ICMS (Regime Normal). CSTs tributados (00,10,20,70,90) têm base
+        // e valor; isento/não tributado/ST (40,41,50,60) ficam zerados.
+        const cstIcms = (p?.icmsCst ?? '00');
+        const aliqIcms = p?.icmsAliquota ? Number(p.icmsAliquota) : 18; // % — CONFIRME COM A CONTABILIDADE
+        const tributado = ['00', '10', '20', '70', '90'].includes(cstIcms);
         item.icms_modalidade_base_calculo = 3; // 3 = valor da operação
-        item.icms_aliquota = p?.icmsAliquota ? Number(p.icmsAliquota) : 18; // % — CONFIRME COM A CONTABILIDADE
+        item.icms_aliquota = aliqIcms;
+        item.icms_base_calculo = tributado ? baseItem : 0;
+        item.icms_valor = tributado ? Number((baseItem * aliqIcms / 100).toFixed(2)) : 0;
+      }
+      // PIS/COFINS: base + valor quando tributável (CST 01/02).
+      const pisTrib = ['01', '02'].includes((p?.pisCst ?? '01'));
+      const cofinsTrib = ['01', '02'].includes((p?.cofinsCst ?? '01'));
+      if (pisTrib) {
+        item.pis_base_calculo = baseItem;
+        item.pis_valor = Number((baseItem * 0.65 / 100).toFixed(2));
+      }
+      if (cofinsTrib) {
+        item.cofins_base_calculo = baseItem;
+        item.cofins_valor = Number((baseItem * 3 / 100).toFixed(2));
       }
       return item;
     });

@@ -714,6 +714,8 @@ function pedidoAcoes(p){
   if(p.etapa==='orcamento'){
     b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
+    b+=`<button class="btn-sm" onclick="APP.formPedido(${p.id})">Editar</button> `;
+    b+=`<button class="btn-sm danger" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
@@ -980,14 +982,20 @@ async function delRec(path, id){
 
 // Pedido: cliente + itens dinâmicos
 let PITENS = [];
-async function formPedido(){
-  PITENS = [{}];
+async function formPedido(id){
   const [clientes, produtos, filiais] = await Promise.all([api('/clientes'), api('/produtos'), api('/filiais')]);
   window.__PROD = produtos;
+  let ped=null;
+  if(id){ try{ ped = await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  PITENS = ped && ped.itens && ped.itens.length
+    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit)}))
+    : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
-  const clientesOpts = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
-  const filialOpts = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
-  openModal(`<h3>Novo pedido</h3>
+  const selCli = ped?ped.clienteId:null;
+  const selFil = ped?ped.filialId:null;
+  const clientesOpts = clientes.map(c=>`<option value="${c.id}" ${selCli===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  const filialOpts = ativas.map(f=>`<option value="${f.id}" ${selFil?(selFil===f.id?'selected':''):(f.matriz?'selected':'')}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
+  openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):'Novo pedido'}</h3>
     <div class="grid2">
       <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${clientesOpts||'<option>—</option>'}</select></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="f_filial" class="inp">${filialOpts||'<option value="">— matriz —</option>'}</select></div>
@@ -995,22 +1003,23 @@ async function formPedido(){
     <label class="fl">Itens</label>
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
-    <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"')}${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"')}</div>
-    ${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"')}
+    <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"'+(ped&&ped.formaPagamento?' value="'+esc(ped.formaPagamento)+'"':''))}</div>
+    ${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.savePedido()">Criar pedido</button></div>`);
+      <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
   renderItens();
 }
 function renderItens(){
   const prods = window.__PROD||[];
-  const opts = prods.map(p=>`<option value="${p.id}" data-preco="${p.precoBase||''}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
-  $('pitens').innerHTML = PITENS.map((it,i)=>`
-    <div class="grid3" style="margin-bottom:8px;align-items:end">
+  $('pitens').innerHTML = PITENS.map((it,i)=>{
+    const opts = prods.map(p=>`<option value="${p.id}" data-preco="${p.precoBase||''}" ${it.produtoId===p.id?'selected':''}>${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+    return `<div class="grid3" style="margin-bottom:8px;align-items:end">
       <div><select class="inp" id="it_prod_${i}" onchange="APP.itemPreco(${i})"><option value="">— produto —</option>${opts}</select></div>
       <div><input class="inp" id="it_qtd_${i}" type="number" min="1" placeholder="qtd" value="${it.qtd||''}"></div>
       <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.val||''}">
         ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function addItem(){ PITENS.push({}); renderItens(); }
 function rmItem(i){ PITENS.splice(i,1); renderItens(); }
@@ -1029,8 +1038,16 @@ async function savePedido(){
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
-  try{ const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); loadRoute(); }
-  catch(e){ toast(e.message,'err'); }
+  try{
+    if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal(); toast('Pedido '+p.numero+' atualizado.','ok'); }
+    else { const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); }
+    loadRoute();
+  } catch(e){ toast(e.message,'err'); }
+}
+async function excluirPedido(id,numero){
+  if(!confirm('Excluir o pedido '+numero+'? (só é permitido enquanto não gerou OP nem NF)')) return;
+  try{ await api('/pedidos/'+id,{method:'DELETE'}); toast('Pedido '+numero+' excluído.','ok'); loadRoute(); }
+  catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
 }
 async function aprovarPedido(id){
   try{ const p=await api('/pedidos/'+id+'/aprovar',{method:'POST'}); toast('Pedido aprovado → etapa '+p.etapa+'.','ok'); loadRoute(); }
@@ -1953,14 +1970,17 @@ async function excluirNfe(id,numero){
 // ----- NF-e avulsa (cliente + itens, sem expedição) -----
 let NFITENS = [];
 async function formNfeAvulsa(){
-  const [clientes, filiais, produtos] = await Promise.all([api('/clientes'), api('/filiais'), api('/produtos')]);
+  const [clientes, filiais, produtos, pedidos] = await Promise.all([api('/clientes'), api('/filiais'), api('/produtos'), api('/pedidos').catch(()=>[])]);
   window.__NFPROD = produtos;
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   const co = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
   const fo = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
+  const pedAbertos = (pedidos||[]).filter(p=>['orcamento','aprovado','piloto','material','compra','producao','estoque','expedicao'].includes(p.etapa));
+  const po = ['<option value="">— nenhum —</option>'].concat(pedAbertos.map(p=>`<option value="${p.id}" data-cli="${p.clienteId}">${esc(p.numero)} · ${esc(p.cliente?p.cliente.nome:'')} · ${money(p.valorTotal)}</option>`)).join('');
   NFITENS=[{}];
   openModal(`<h3>Emitir NF-e avulsa</h3>
     <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Confira cliente, itens e impostos antes.</div>
+    <div class="mrow"><label class="fl">Pedido de venda vinculado (opcional — ao emitir, avança o pedido p/ aprovado)</label><select id="nf_ped" class="inp" onchange="APP.nfPedSel()">${po}</select></div>
     <div class="grid2">
       <div class="mrow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
@@ -1994,6 +2014,7 @@ function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)retu
 function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
 function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
 function nfProd(i){ const o=$('nf_prod_'+i).selectedOptions[0]; if(o&&o.value){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=o.getAttribute('data-desc')||''; const pr=o.getAttribute('data-preco'); if(pr&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=pr; } }
+function nfPedSel(){ const s=$('nf_ped'); const o=s&&s.selectedOptions[0]; if(o&&o.value){ const cli=o.getAttribute('data-cli'); if(cli&&$('nf_cli')){ $('nf_cli').value=cli; } } }
 async function saveNfeAvulsa(){
   nfSync();
   const itens = NFITENS.filter(it=>((it.descricao&&it.descricao.trim())||it.produtoId)&&Number(it.quantidade)>0&&Number(it.valorUnit)>0)
@@ -2005,6 +2026,7 @@ async function saveNfeAvulsa(){
   const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
   const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
   const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
+  const nfped=Number(val('nf_ped')); if(nfped>0) body.pedidoId=nfped;
   try{
     const n=await api('/nfe/avulsa',{method:'POST',body}); closeModal();
     if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
@@ -2291,7 +2313,7 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
+  formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, excluirPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
@@ -2303,7 +2325,7 @@ window.APP = {
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, formEmailDoc, sendEmailDoc,
-  formNfeAvulsa, nfAdd, nfDel, nfProd, saveNfeAvulsa, consultarNfe,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,

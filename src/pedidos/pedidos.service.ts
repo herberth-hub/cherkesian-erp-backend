@@ -107,6 +107,69 @@ export class PedidosService {
     return { ...pedido, exigePiloto: pedido.clienteNovo };
   }
 
+  /** Edita um pedido enquanto está em ORÇAMENTO (substitui itens e recalcula). */
+  async update(id: number, dto: CreatePedidoDto, empresaId: number) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
+    if (pedido.etapa !== 'orcamento') {
+      throw new ConflictException(`Só é possível editar enquanto está em orçamento (etapa atual: ${pedido.etapa}).`);
+    }
+
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+
+    // Recalcula itens e total (mesma validação da criação).
+    let valorTotal = new Prisma.Decimal(0);
+    const itensData: Prisma.PedidoItemCreateWithoutPedidoInput[] = [];
+    for (const item of dto.itens) {
+      let descricao = item.descricao;
+      if (item.produtoId) {
+        const produto = await this.prisma.produto.findUnique({ where: { id: item.produtoId } });
+        if (!produto || produto.empresaId !== empresaId) throw new NotFoundException(`Produto ${item.produtoId} não encontrado.`);
+        descricao = descricao ?? produto.descricao;
+      }
+      if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
+      const valorUnit = new Prisma.Decimal(item.valorUnit);
+      valorTotal = valorTotal.plus(valorUnit.mul(item.quantidade));
+      itensData.push({ produtoId: item.produtoId, descricao, quantidade: item.quantidade, valorUnit });
+    }
+
+    const filialId = await this.resolverFilial(empresaId, dto.filialId);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
+      return tx.pedido.update({
+        where: { id },
+        data: {
+          clienteId: dto.clienteId,
+          filialId,
+          valorTotal,
+          clienteNovo: cliente.clienteNovo,
+          prazoEntrega: dto.prazoEntrega ? new Date(dto.prazoEntrega) : null,
+          formaPagamento: dto.formaPagamento,
+          ordemCompraCliente: dto.ordemCompraCliente,
+          obs: dto.obs,
+          itens: { create: itensData },
+        },
+        include: { itens: true },
+      });
+    });
+  }
+
+  /** Exclui um pedido que ainda não gerou OP nem NF. */
+  async remove(id: number, empresaId: number) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
+    if (pedido.ops.length > 0) throw new ConflictException('Pedido já tem Ordem de Produção — não pode ser excluído.');
+    const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id } });
+    if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ${nf.numero} — não pode ser excluído.`);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contaReceber.deleteMany({ where: { pedidoId: id } });
+      await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
+      await tx.pedido.delete({ where: { id } });
+    });
+    return { removido: true, id, numero: pedido.numero };
+  }
+
   /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);
