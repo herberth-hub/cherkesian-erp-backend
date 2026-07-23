@@ -920,7 +920,7 @@ function pmedRender(){
 }
 function pmedAdd(){ pmedSync(); (window.__PMED=window.__PMED||[]).push({descricao:'',tolerancia:'',valores:{}}); pmedRender(); }
 function pmedDel(i){ pmedSync(); window.__PMED.splice(i,1); pmedRender(); }
-function pmedApplySizes(){ pmedSync(); const raw=val('f_tam'); window.__PMEDT = raw.split(/[,;/ ]+/).map(s=>s.trim()).filter(Boolean).slice(0,16); pmedRender(); }
+function pmedApplySizes(){ pmedSync(); const raw=val('f_tam'); window.__PMEDT = raw.split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16); const fg=$('f_grade'); if(fg && window.__PMEDT.length) fg.value=window.__PMEDT.join(', '); pmedRender(); }
 
 async function formProduto(id){
   let p={};
@@ -981,6 +981,11 @@ async function saveProduto(id){
   body.fotoModelo = fm.modelo||''; body.fotoModelagem = fm.modelagem||'';
   body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
     .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
+  // Tamanhos: sincroniza o campo "Tamanhos (colunas)" para a grade — persiste sempre,
+  // mesmo sem linhas de medida (corrige tamanhos que sumiam ao reabrir/na ficha).
+  const tams = val('f_tam').split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16);
+  const gradeStr = val('f_grade').trim() || tams.join(', ');
+  body.grade = gradeStr; // string vazia limpa a grade
   try{ await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
