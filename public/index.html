@@ -1046,12 +1046,15 @@ async function formPedido(id){
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
   renderItens();
 }
+function prodLabel(p){ return p.codigo+' · '+p.descricao; }
+function prodByLabel(list,v){ if(!v) return null; v=String(v).trim(); const code=(v.split('·')[0]||v).trim(); return (list||[]).find(x=>prodLabel(x)===v||x.codigo===code||x.descricao===v)||null; }
+function prodDatalist(id,list){ return `<datalist id="${id}">${(list||[]).map(p=>`<option value="${esc(prodLabel(p))}"></option>`).join('')}</datalist>`; }
 function renderItens(){
   const prods = window.__PROD||[];
-  $('pitens').innerHTML = PITENS.map((it,i)=>{
-    const opts = prods.map(p=>`<option value="${p.id}" data-preco="${p.precoBase||''}" ${it.produtoId===p.id?'selected':''}>${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+  $('pitens').innerHTML = prodDatalist('prodlist',prods) + PITENS.map((it,i)=>{
+    const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     return `<div class="grid3" style="margin-bottom:8px;align-items:end">
-      <div><select class="inp" id="it_prod_${i}" onchange="APP.itemPreco(${i})"><option value="">— produto —</option>${opts}</select></div>
+      <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar produto…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.itemPreco(${i})"></div>
       <div><input class="inp" id="it_qtd_${i}" type="number" min="1" placeholder="qtd" value="${it.qtd||''}"></div>
       <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.val||''}">
         ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
@@ -1060,14 +1063,14 @@ function renderItens(){
 }
 function addItem(){ PITENS.push({}); renderItens(); }
 function rmItem(i){ PITENS.splice(i,1); renderItens(); }
-function itemPreco(i){ const s=$('it_prod_'+i); const p=s.selectedOptions[0]?s.selectedOptions[0].getAttribute('data-preco'):''; if(p && !$('it_val_'+i).value) $('it_val_'+i).value=p; }
+function itemPreco(i){ const p=prodByLabel(window.__PROD,val('it_prod_'+i)); if(p && p.precoBase && !$('it_val_'+i).value) $('it_val_'+i).value=p.precoBase; }
 async function savePedido(){
   const clienteId = Number(val('f_cli'));
   const itens = [];
   for(let i=0;i<PITENS.length;i++){
-    const pid=val('it_prod_'+i), q=val('it_qtd_'+i), v=val('it_val_'+i);
-    if(!pid) continue;
-    itens.push({ produtoId:Number(pid), quantidade:Number(q), valorUnit:Number(v) });
+    const p=prodByLabel(window.__PROD,val('it_prod_'+i)), q=val('it_qtd_'+i), v=val('it_val_'+i);
+    if(!p) continue;
+    itens.push({ produtoId:p.id, quantidade:Number(q), valorUnit:Number(v) });
   }
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
@@ -2091,23 +2094,23 @@ async function formNfeAvulsa(){
 function nfRender(){
   const box=$('nfitens'); if(!box) return;
   const prods=window.__NFPROD||[];
-  const opts=['<option value="">— produto (opcional) —</option>'].concat(prods.map(p=>`<option value="${p.id}" data-desc="${esc(p.descricao)}" data-preco="${p.precoBase||''}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`)).join('');
-  box.innerHTML = NFITENS.map((it,i)=>`
-    <div class="grid2" style="margin-bottom:6px">
-      <select class="inp" id="nf_prod_${i}" onchange="APP.nfProd(${i})">${opts}</select>
+  box.innerHTML = prodDatalist('nfprodlist',prods) + NFITENS.map((it,i)=>{
+    const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
+    return `<div class="grid2" style="margin-bottom:6px">
+      <input class="inp" id="nf_prod_${i}" list="nfprodlist" placeholder="digite p/ buscar produto (opcional)…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.nfProd(${i})">
       <input class="inp" id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
     </div>
     <div class="grid3" style="margin-bottom:12px">
       <input class="inp" id="nf_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}">
       <input class="inp" id="nf_vu_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">
       <div style="display:flex;align-items:center;gap:6px">${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})">×</button>`:''}</div>
-    </div>`).join('');
-  NFITENS.forEach((it,i)=>{ if(it.produtoId){const s=$('nf_prod_'+i); if(s)s.value=it.produtoId;} });
+    </div>`;
+  }).join('');
 }
-function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const p=$('nf_prod_'+i); it.produtoId=(p&&p.value)?Number(p.value):undefined; }); }
+function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); it.produtoId=p?p.id:undefined; }); }
 function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
 function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
-function nfProd(i){ const o=$('nf_prod_'+i).selectedOptions[0]; if(o&&o.value){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=o.getAttribute('data-desc')||''; const pr=o.getAttribute('data-preco'); if(pr&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=pr; } }
+function nfProd(i){ const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); if(p){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=p.descricao||''; if(p.precoBase&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=p.precoBase; } }
 function nfPedSel(){ const s=$('nf_ped'); const o=s&&s.selectedOptions[0]; if(o&&o.value){ const cli=o.getAttribute('data-cli'); if(cli&&$('nf_cli')){ $('nf_cli').value=cli; } } }
 async function saveNfeAvulsa(){
   nfSync();
