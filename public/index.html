@@ -697,18 +697,30 @@ async function viewPedidos(c){
   const list = await api('/pedidos');
   const canCreate = canAccess('vendas');
   c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos')) + panelTable(
-    ['Número','Cliente','Empresa','Itens','Total','Etapa','Ações'],
+    ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>`,
       esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
-      (p.itens?p.itens.length:0)+' item(ns)',
       money(p.valorTotal),
       `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`,
+      pedNfCol(p.nfs),
+      pedProdCol(p.opsNumeros, p.ocsNumeros),
       pedidoAcoes(p)
     ]), list.length?null:'Nenhum pedido ainda.');
 }
 function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
+function pedNfCol(nfs){
+  if(!nfs||!nfs.length) return '<span class="muted">—</span>';
+  const cor={autorizada:'green',pendente:'blue',rejeitada:'red',cancelada:'gray',simulada:'gray'};
+  return nfs.map(n=>`<span class="pill ${cor[n.status]||'gray'}" title="${esc(n.status)}">${esc(n.numero)}</span>`).join(' ');
+}
+function pedProdCol(ops,ocs){
+  const parts=[];
+  (ops||[]).forEach(o=>parts.push(`<span class="mono" style="font-size:11px">${esc(o)}</span>`));
+  (ocs||[]).forEach(o=>parts.push(`<span class="mono" style="font-size:11px;color:#c14a34" title="Ordem de compra">${esc(o)}</span>`));
+  return parts.length?parts.join(' · '):'<span class="muted">—</span>';
+}
 function pedidoAcoes(p){
   // Proposta pertence à fase de orçamento; após a aprovação o documento é o Pedido.
   let b='';

@@ -17,16 +17,43 @@ export class PedidosService {
     private readonly credito: CreditoService,
   ) {}
 
-  findAll(empresaId: number) {
-    return this.prisma.pedido.findMany({
+  async findAll(empresaId: number) {
+    const pedidos = await this.prisma.pedido.findMany({
       where: { empresaId },
       include: {
         itens: true,
         cliente: { select: { id: true, nome: true } },
         filial: { select: { id: true, nome: true, matriz: true } },
+        ops: { select: { numero: true, status: true } },
       },
       orderBy: { id: 'desc' },
     });
+
+    // NF-e vinculadas ao pedido (nº + status) para exibir na lista.
+    const notas = await this.prisma.notaFiscal.findMany({
+      where: { empresaId, pedidoId: { not: null } },
+      select: { pedidoId: true, numero: true, status: true },
+      orderBy: { id: 'asc' },
+    });
+    const nfPorPedido = new Map<number, { numero: string; status: string }[]>();
+    for (const n of notas) {
+      const arr = nfPorPedido.get(n.pedidoId as number) ?? [];
+      arr.push({ numero: n.numero, status: n.status });
+      nfPorPedido.set(n.pedidoId as number, arr);
+    }
+
+    // Ordens de compra geradas pela automação (referência ao pedido no motivo).
+    const ocs = await this.prisma.ordemCompra.findMany({
+      where: { fornecedor: { empresaId } },
+      select: { numero: true, motivo: true },
+    });
+
+    return pedidos.map((p) => ({
+      ...p,
+      nfs: nfPorPedido.get(p.id) ?? [],
+      opsNumeros: p.ops.map((o) => o.numero),
+      ocsNumeros: ocs.filter((o) => (o.motivo ?? '').includes(p.numero)).map((o) => o.numero),
+    }));
   }
 
   async findOne(id: number, empresaId: number) {
