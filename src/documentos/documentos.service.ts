@@ -58,14 +58,24 @@ export class DocumentosService {
     // Garante que a referência existe (e pertence à empresa) antes de registrar.
     await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA');
 
-    const existentes = await this.prisma.documento.findMany({
-      where: { tipo },
-      select: { numero: true },
-    });
-    const numero = proximoSequencial(def.prefixo, existentes.map((d) => d.numero), {
-      pad: 4,
-      separador: '-',
-    });
+    // Rastreabilidade: reaproveita o documento já existente da MESMA referência
+    // (não cria número novo a cada geração de PDF).
+    const jaExiste = await this.prisma.documento.findFirst({ where: { tipo, referencia: String(referenciaId) }, orderBy: { id: 'asc' } });
+    if (jaExiste) {
+      const urlPdf = jaExiste.urlPdf ?? `/api/v1/documentos/${jaExiste.id}/pdf`;
+      return { id: jaExiste.id, tipo, numero: jaExiste.numero, referencia: referenciaId, urlPdf };
+    }
+
+    // Nº do documento: pedido/proposta usam o NÚMERO REAL do pedido (ex.: PV01)
+    // para manter a rastreabilidade; os demais tipos seguem sua numeração própria.
+    let numero: string;
+    if (tipo === 'pedido' || tipo === 'proposta') {
+      const pedido = await this.prisma.pedido.findUnique({ where: { id: referenciaId }, select: { numero: true } });
+      numero = pedido?.numero ?? String(referenciaId);
+    } else {
+      const existentes = await this.prisma.documento.findMany({ where: { tipo }, select: { numero: true } });
+      numero = proximoSequencial(def.prefixo, existentes.map((d) => d.numero), { pad: 4, separador: '-' });
+    }
 
     const documento = await this.prisma.documento.create({
       data: {

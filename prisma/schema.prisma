@@ -16,6 +16,7 @@ enum Acesso {
   chao
   expedicao
   financeiro
+  contabilidade
 }
 
 enum PedidoEtapa {

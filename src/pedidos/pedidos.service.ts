@@ -111,9 +111,12 @@ export class PedidosService {
   async update(id: number, dto: CreatePedidoDto, empresaId: number) {
     const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
-    if (pedido.etapa !== 'orcamento') {
-      throw new ConflictException(`Só é possível editar enquanto está em orçamento (etapa atual: ${pedido.etapa}).`);
+    // Pode editar até a produção começar (antes de gerar OP e sem NF ativa).
+    if (pedido.ops.length > 0 || ['material', 'compra', 'producao', 'estoque', 'expedicao'].includes(pedido.etapa)) {
+      throw new ConflictException(`Não é possível editar: o pedido já entrou em produção (etapa ${pedido.etapa}).`);
     }
+    const nfAtiva = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
+    if (nfAtiva) throw new ConflictException(`Não é possível editar: já existe a nota fiscal ${nfAtiva.numero} para este pedido.`);
 
     const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
@@ -160,8 +163,8 @@ export class PedidosService {
     const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
     if (pedido.ops.length > 0) throw new ConflictException('Pedido já tem Ordem de Produção — não pode ser excluído.');
-    const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id } });
-    if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ${nf.numero} — não pode ser excluído.`);
+    const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
+    if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de excluir.`);
     await this.prisma.$transaction(async (tx) => {
       await tx.contaReceber.deleteMany({ where: { pedidoId: id } });
       await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });

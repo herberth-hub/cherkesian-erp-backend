@@ -61,6 +61,21 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
   chao: ['tv', 'producao', 'piloto', 'estoque'],
   expedicao: ['dashboard', 'tv', 'estoque', 'expedicao'],
   financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes'],
+  // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e.
+  contabilidade: [
+    'dashboard',
+    'tv',
+    'receber',
+    'pagar',
+    'fluxo',
+    'impostos',
+    'comissoes',
+    'vendas',
+    'clientes',
+    'compras',
+    'estoque',
+    'expedicao',
+  ],
 };
 
 /** Retorna true se o perfil informado pode acessar a área. */

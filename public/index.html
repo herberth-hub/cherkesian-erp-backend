@@ -155,6 +155,7 @@ const ACCESS = {
   chao:['tv','producao','piloto','estoque'],
   expedicao:['dashboard','tv','estoque','expedicao','notas','agente'],
   financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas','agente'],
+  contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','clientes','notas','entrada','agente'],
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
@@ -714,11 +715,14 @@ function pedidoAcoes(p){
   if(p.etapa==='orcamento'){
     b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
-    b+=`<button class="btn-sm" onclick="APP.formPedido(${p.id})">Editar</button> `;
-    b+=`<button class="btn-sm danger" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+  }
+  // Editar/Excluir liberados até a produção começar (antes de gerar OP).
+  if(['orcamento','aprovado','piloto'].includes(p.etapa)){
+    b+=`<button class="btn-sm" onclick="APP.formPedido(${p.id})">Editar</button> `;
+    b+=`<button class="btn-sm danger" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
   }
   b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button>`;
   return b||'<span class="muted">—</span>';
@@ -1664,7 +1668,7 @@ async function saveExpedicao(){
 }
 
 // ---------- Bloco Administração ----------
-const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro'];
+const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro','contabilidade'];
 async function viewUsuarios(c){
   const list = await api('/usuarios');
   c.innerHTML = toolbar('Usuários & acessos', 'Novo usuário', 'APP.formUsuario()') + panelTable(
