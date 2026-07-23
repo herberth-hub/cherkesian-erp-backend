@@ -684,14 +684,24 @@ async function liberarCredito(clienteId, liberar){
 }
 async function viewProdutos(c){
   const list = await api('/produtos');
-  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', relBtn('produtos')) + panelTable(
-    ['Código','Descrição','Categoria','Cor','Preço base','NCM','Ações'],
+  window.__PRODLIST = list;
+  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', relBtn('produtos'))
+    + `<div style="margin:0 0 10px"><input id="prod_busca" class="inp" placeholder="🔍 Buscar por código, descrição, categoria, cor ou NCM…" oninput="APP.prodFiltrar()" style="max-width:520px"></div>`
+    + `<div id="prodwrap">${prodTabela(list)}</div>`;
+}
+function prodTabela(list){
+  return panelTable(['Código','Descrição','Categoria','Cor','Preço base','NCM','Ações'],
     list.map(p=>[
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao), esc(p.categoria),
       esc(p.cor||'—'), p.precoBase?money(p.precoBase):'—',
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">📋 Ficha</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum produto ainda.');
+}
+function prodFiltrar(){
+  const q=(val('prod_busca')||'').toLowerCase();
+  const list=(window.__PRODLIST||[]).filter(p=> !q || [p.codigo,p.descricao,p.categoria,p.cor,p.ncm].some(x=>String(x||'').toLowerCase().includes(q)));
+  const w=$('prodwrap'); if(w) w.innerHTML=prodTabela(list);
 }
 async function viewMateriais(c){
   const list = (await api('/materiais')).filter(m=>!m.codigo.startsWith('AVI-'));
@@ -1077,7 +1087,7 @@ function rmItem(i){ PITENS.splice(i,1); renderItens(); }
 function itemQty(i){ const g=parseGradeTxt(val('it_grade_'+i)); const lbl=$('it_qtdlbl_'+i); if(!lbl)return; const manual=Number(val('it_qtd_'+i))||0; lbl.textContent = g.soma>0?g.soma:manual; }
 function itemAddTam(i,t){ const el=$('it_grade_'+i); if(!el)return; if(new RegExp('(^|[,;\\s])'+t+'\\s*:','i').test(el.value)){toast(t+' já está na grade.','err');return;} el.value=el.value.trim()?(el.value.replace(/[,;\s]*$/,'')+', '+t+':'):(t+':'); el.focus(); itemQty(i); }
 function itemPreco(i){ const p=prodByLabel(window.__PROD,val('it_prod_'+i)); if(p && p.precoBase && !$('it_val_'+i).value) $('it_val_'+i).value=p.precoBase; }
-async function savePedido(){
+async function savePedido(id){
   const clienteId = Number(val('f_cli'));
   const itens = [];
   for(let i=0;i<PITENS.length;i++){
@@ -2663,7 +2673,7 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, excluirPedido, gerarOp,
+  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
