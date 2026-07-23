@@ -156,9 +156,10 @@ const ACCESS = {
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente'],
   financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas','agente'],
   contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','clientes','notas','entrada','agente'],
+  consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes'],
 };
 const NAVDEF = [
-  ['Visão geral', [['dashboard','Dashboard','grid'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
+  ['Visão geral', [['dashboard','Dashboard','grid'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
   ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
@@ -167,9 +168,10 @@ const NAVDEF = [
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais']);
+const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
+  bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
   clientes:['Clientes','Cadastro central de clientes'],
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
@@ -442,6 +444,7 @@ async function loadRoute(){
     if(S.route==='empresa') return await viewEmpresa(c);
     if(S.route==='filiais') return await viewFiliais(c);
     if(S.route==='kits') return await viewKits(c);
+    if(S.route==='bi') return await viewBi(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -1683,7 +1686,7 @@ async function saveExpedicao(){
 }
 
 // ---------- Bloco Administração ----------
-const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro','contabilidade'];
+const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro','contabilidade','consultoria'];
 async function viewUsuarios(c){
   const list = await api('/usuarios');
   c.innerHTML = toolbar('Usuários & acessos', 'Novo usuário', 'APP.formUsuario()') + panelTable(
@@ -2399,6 +2402,50 @@ function gradeAddTam(t){
   el.value = cur ? (cur.replace(/[,;\s]*$/,'')+', '+t+':') : (t+':');
   el.focus();
 }
+// ---------- BI de Produção ----------
+async function viewBi(c){
+  const d = await api('/bi/producao');
+  const g=d.geral, lt=d.leadTime;
+  const etapasTxt = Object.entries(d.porEtapaKits||{}).map(([k,v])=>k.replace(/_/g,' ')+': '+v).join(' · ')||'—';
+  const facRows = (d.porFaccao||[]).map(f=>[esc(f.faccao), f.emFaccao, f.retornados, f.tempoMedioHoras+'h']);
+  const modRows = (d.porModelo||[]).map(m=>[esc(m.modelo), m.kits, m.pecas]);
+  const meses = d.produtividadeMensal||[];
+  const tam = d.porTamanho||{};
+  const fatProd = d.faturamentoVsProducao||[];
+  c.innerHTML = `
+    <div class="cards">
+      ${kpi('OPs ativas', g.opsAtivas, g.opsConcluidas+' concluídas')}
+      ${kpi('Kits finalizados', g.kitsFinalizados, 'de '+g.kitsTotal+' kits')}
+      ${kpi('Peças produzidas', g.pecasProduzidas, 'kits finalizados')}
+      ${kpi('Atrasos', d.atrasos.opsAtrasadas+d.atrasos.pedidosAtrasados, d.atrasos.opsAtrasadas+' OPs · '+d.atrasos.pedidosAtrasados+' pedidos')}
+    </div>
+    <div class="sect"><h3>Lead time da cadeia (médias)</h3><div class="cards">
+      ${kpi('Corte → Expedição', lt.corteAExpedicaoH+'h', lt.amostraCorteExp+' kit(s)')}
+      ${kpi('Tempo em facção', lt.emFaccaoH+'h', lt.amostraFaccao+' kit(s) retornados')}
+    </div>
+    <div class="muted" style="font-size:11.5px">Kits por etapa (gargalos): ${esc(etapasTxt)}</div></div>
+    <div class="sect"><h3>Produtividade mensal</h3>
+      <div class="charts2">
+        <div><div class="muted" style="font-size:12px;margin-bottom:6px">Peças produzidas / mês</div>
+          ${barsH(meses.map(m=>({label:m.mes, value:m.pecas, fmt:String(m.pecas)})),'Sem produção registrada.')}</div>
+        <div><div class="muted" style="font-size:12px;margin-bottom:6px">Faturamento NF-e / mês</div>
+          ${barsH(meses.map(m=>({label:m.mes, value:m.faturamento, fmt:money(m.faturamento), color:'#3a8f4f'})),'Sem faturamento.')}</div>
+      </div>
+    </div>
+    <div class="sect"><h3>Produção por tamanho (peças)</h3>
+      ${barsH(Object.entries(tam).map(([t,v])=>({label:t, value:Number(v), fmt:String(v)})),'Sem kits ainda.')}
+    </div>
+    <div class="sect"><h3>Produtividade por facção</h3>
+      ${panelTable(['Facção','Em facção','Retornados','Tempo médio'], facRows, facRows.length?null:'Nenhum kit em facção ainda.')}
+    </div>
+    <div class="sect"><h3>Produção por modelo</h3>
+      ${panelTable(['Modelo','Kits','Peças'], modRows, modRows.length?null:'Sem kits.')}
+    </div>
+    <div class="sect"><h3>Faturamento por empresa (NF-e autorizada)</h3>
+      ${barsH(fatProd.map(f=>({label:f.empresa, value:f.faturamentoNfe, fmt:money(f.faturamentoNfe), color:'#C9A227'})),'Sem faturamento.')}
+    </div>
+    <div class="card" style="margin-top:12px;background:#fbf7e8;border-color:#efe2b8"><div style="font-size:12px;color:#7a6a2e">ℹ️ ${esc(d.observacao)}</div></div>`;
+}
 // ---------- Kits de Corte / Rastreabilidade ----------
 function kitPill(s){
   const m={aguardando_expedicao:['blue','aguardando exp.'],em_faccao:['red','em facção'],retornado:['green','retornado'],em_conferencia:['gold','conferência'],finalizado:['gray','finalizado'],criado:['gray','criado'],em_corte:['blue','em corte']};
@@ -2561,7 +2608,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, etiquetaOp, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
-  viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe,
+  viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

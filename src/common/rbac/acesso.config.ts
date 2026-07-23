@@ -76,6 +76,19 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'estoque',
     'expedicao',
   ],
+  // Consultoria: leitura ampla p/ BI de produtividade da cadeia produtiva.
+  consultoria: [
+    'dashboard',
+    'tv',
+    'pcp',
+    'producao',
+    'expedicao',
+    'estoque',
+    'compras',
+    'vendas',
+    'clientes',
+    'comissoes',
+  ],
 };
 
 /** Retorna true se o perfil informado pode acessar a área. */

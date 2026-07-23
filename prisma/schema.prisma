@@ -17,6 +17,7 @@ enum Acesso {
   expedicao
   financeiro
   contabilidade
+  consultoria
 }
 
 enum PedidoEtapa {
