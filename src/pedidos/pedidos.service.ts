@@ -7,11 +7,15 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
+import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
 @Injectable()
 export class PedidosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly credito: CreditoService,
+  ) {}
 
   findAll(empresaId: number) {
     return this.prisma.pedido.findMany({
@@ -47,6 +51,10 @@ export class PedidosService {
     if (!cliente || cliente.empresaId !== empresaId) {
       throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
     }
+
+    // Crédito: consulta na criação do pedido; restrição bloqueia (admin libera).
+    const credito = await this.credito.avaliarParaPedido(dto.clienteId, empresaId, criadoPor);
+    if (!credito.permitido) throw new ConflictException(credito.motivo);
 
     // Resolve itens (valida produto, herda descrição) e soma o total.
     let valorTotal = new Prisma.Decimal(0);

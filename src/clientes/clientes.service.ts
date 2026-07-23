@@ -8,10 +8,11 @@ import { UpdateClienteDto } from './dto/update-cliente.dto';
 export class ClientesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number): Promise<Cliente[]> {
+  findAll(empresaId: number) {
     return this.prisma.cliente.findMany({
       where: { empresaId },
       orderBy: { id: 'asc' },
+      include: { consultasCredito: { orderBy: { consultadoEm: 'desc' }, take: 1 } },
     });
   }
 

@@ -582,17 +582,54 @@ function barsH(entries, vazio){
     </div>`).join('') +`</div>`;
 }
 
+function creditoBadge(cl){
+  if(cl.creditoLiberado) return '<span class="pill blue" title="Liberado pelo administrador">liberado ✓</span>';
+  const co = cl.consultasCredito && cl.consultasCredito[0];
+  if(!co) return '<span class="muted" style="font-size:11px">não consultado</span>';
+  const t = esc(co.resumo||'');
+  if(co.situacao==='regular') return `<span class="pill green" title="${t}">regular${co.score?' · '+co.score:''}</span>`;
+  if(co.situacao==='restricao') return `<span class="pill red" title="${t}">restrição</span>`;
+  return `<span class="pill gray" title="${t}">${esc(co.situacao)}</span>`;
+}
 async function viewClientes(c){
   const list = await api('/clientes');
+  const admin = S.user.acesso==='total';
   c.innerHTML = toolbar('Clientes cadastrados', 'Novo cliente', 'APP.formCliente()', relBtn('clientes')) + panelTable(
-    ['Nome','Cidade/UF','Segmento','Contato','Novo?',''],
-    list.map(cl=>[
-      `<b>${esc(cl.nome)}</b>${cl.fantasia?'<div class="muted" style="font-size:11px">'+esc(cl.fantasia)+'</div>':''}`,
-      esc(cl.cidadeUf||'—'), esc(cl.segmento||'—'),
-      esc(cl.contato||cl.telefone||cl.email||'—'),
-      cl.clienteNovo?'<span class="pill gold">novo</span>':'<span class="pill gray">recorrente</span>',
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick='APP.formCliente(${cl.id})'>Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/clientes',${cl.id})">Excluir</button></div>`
-    ]), list.length?null:'Nenhum cliente ainda.');
+    ['Nome','Cidade/UF','Crédito','Novo?','Ações'],
+    list.map(cl=>{
+      const co = cl.consultasCredito && cl.consultasCredito[0];
+      const restr = co && co.situacao==='restricao' && !cl.creditoLiberado;
+      return [
+        `<b>${esc(cl.nome)}</b>${cl.fantasia?'<div class="muted" style="font-size:11px">'+esc(cl.fantasia)+'</div>':''}`,
+        esc(cl.cidadeUf||'—'),
+        creditoBadge(cl),
+        cl.clienteNovo?'<span class="pill gold">novo</span>':'<span class="pill gray">recorrente</span>',
+        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn-sm" onclick="APP.consultarCredito(${cl.id})">🔎 Crédito</button>
+          ${(restr&&admin)?`<button class="btn-sm" style="color:#1f8a4c" onclick="APP.liberarCredito(${cl.id})">Liberar</button>`:''}
+          ${(cl.creditoLiberado&&admin)?`<button class="btn-sm" style="color:#c14a34" onclick="APP.liberarCredito(${cl.id},false)">Revogar</button>`:''}
+          <button class="btn-sm" onclick='APP.formCliente(${cl.id})'>Editar</button>
+          <button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/clientes',${cl.id})">Excluir</button>
+        </div>`
+      ];
+    }), list.length?null:'Nenhum cliente ainda.');
+}
+async function consultarCredito(clienteId){
+  toast('Consultando crédito…','ok');
+  try{
+    const co = await api('/credito/consultar',{method:'POST',body:{clienteId}});
+    const tipo = co.situacao==='restricao'?'err':'ok';
+    toast('Crédito: '+esc(co.resumo||co.situacao)+(co.score?(' · score '+co.score):''),tipo);
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function liberarCredito(clienteId, liberar){
+  const lib = liberar!==false;
+  if(!confirm(lib?'Liberar este cliente para vender mesmo com restrição de crédito?':'Revogar a liberação de crédito deste cliente?')) return;
+  try{
+    await api('/credito/'+clienteId+'/liberar',{method:'PATCH',body:{liberar:lib}});
+    toast(lib?'Cliente liberado para venda.':'Liberação revogada.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function viewProdutos(c){
   const list = await api('/produtos');
@@ -2156,7 +2193,7 @@ window.APP = {
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
   go(r){ go(r); },
-  closeModal, formCliente, saveCliente, formProduto, saveProduto,
+  closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, addItem, rmItem, itemPreco, savePedido, aprovarPedido, gerarOp,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,

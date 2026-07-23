@@ -24,6 +24,7 @@ import { DocumentosModule } from './documentos/documentos.module';
 import { EmailModule } from './email/email.module';
 import { NfeModule } from './nfe/nfe.module';
 import { NotasEntradaModule } from './notas-entrada/notas-entrada.module';
+import { CreditoModule } from './credito/credito.module';
 import { EmpresaModule } from './empresa/empresa.module';
 import { FiliaisModule } from './filiais/filiais.module';
 import { AgenteModule } from './agente/agente.module';
@@ -70,6 +71,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     DocumentosModule,
     NfeModule,
     NotasEntradaModule,
+    CreditoModule,
     EmpresaModule,
     FiliaisModule,
     AgenteModule,

@@ -167,6 +167,12 @@ model Cliente {
   medidas    Medida[]
   criadoEm   DateTime @default(now())
 
+  // ===== Crédito (consulta na criação de pedido; restrição bloqueia) =====
+  creditoLiberado    Boolean  @default(false) // override do admin p/ vender mesmo com restrição
+  creditoLiberadoPor String?
+  creditoLiberadoEm  DateTime?
+  consultasCredito   ConsultaCredito[]
+
   // ===== Dados fiscais (destinatário da NF-e) =====
   inscricaoEstadual String?
   indicadorIE       Int?    // 1=Contribuinte, 2=Isento, 9=Não contribuinte
@@ -177,6 +183,23 @@ model Cliente {
   codMunicipio      String?
   uf                String?
   cep               String?
+}
+
+model ConsultaCredito { // Resultado de consulta de crédito/situação do cliente
+  id           Int      @id @default(autoincrement())
+  empresaId    Int
+  clienteId    Int
+  cliente      Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  documento    String?  // CNPJ/CPF consultado (só dígitos)
+  fonte        String   // brasilapi | simulado | externo
+  situacao     String   // regular | restricao | erro
+  score        Int?     // 0–1000 quando o provedor retorna
+  resumo       String   // texto amigável (ex.: "Situação cadastral: ATIVA")
+  detalhe      Json?    // payload bruto do provedor
+  consultadoPor String?
+  consultadoEm DateTime @default(now())
+
+  @@index([clienteId])
 }
 
 model Fornecedor {
