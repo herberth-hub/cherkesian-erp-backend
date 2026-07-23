@@ -190,6 +190,41 @@ model Fornecedor {
   cidadeUf  String?
   obs       String?
   ordensCompra OrdemCompra[]
+  notasEntrada NotaEntrada[]
+}
+
+model NotaEntrada { // NF de compra recebida do fornecedor (entrada de mercadoria)
+  id            Int      @id @default(autoincrement())
+  empresaId     Int
+  fornecedorId  Int?
+  fornecedor    Fornecedor? @relation(fields: [fornecedorId], references: [id])
+  numero        String
+  serie         String?
+  chave         String?  @unique // 44 dígitos (dedupe com a SEFAZ)
+  cnpjEmitente  String?
+  nomeEmitente  String?
+  emitidaEm     DateTime?
+  valor         Decimal  @db.Decimal(12,2)
+  status        String   @default("registrada") // registrada | manifestada | cancelada
+  origem        String   @default("manual")     // manual | sefaz | xml
+  lancadaEstoque Boolean @default(false)
+  contaPagarId  Int?     // título gerado no A Pagar (se houver)
+  obs           String?
+  itens         NotaEntradaItem[]
+  criadoEm      DateTime @default(now())
+  criadoPor     String?
+}
+
+model NotaEntradaItem {
+  id            Int         @id @default(autoincrement())
+  notaEntradaId Int
+  nota          NotaEntrada @relation(fields: [notaEntradaId], references: [id], onDelete: Cascade)
+  materialId    Int?        // vínculo opcional à matéria-prima do catálogo (p/ dar entrada no estoque)
+  descricao     String
+  ncm           String?
+  quantidade    Decimal     @db.Decimal(12,3)
+  unidade       String      @default("un")
+  valorUnit     Decimal     @db.Decimal(12,4)
 }
 
 model Produto {

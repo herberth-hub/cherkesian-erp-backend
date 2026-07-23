@@ -151,7 +151,7 @@ const S = {
 const ACCESS = {
   total:'*',
   comercial:['dashboard','tv','vendas','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
-  producao:['dashboard','tv','pcp','producao','piloto','compras','estoque','medidas','produtos','materia','aviamentos','regras','agente'],
+  producao:['dashboard','tv','pcp','producao','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
   chao:['tv','producao','piloto','estoque'],
   expedicao:['dashboard','tv','estoque','expedicao','notas','agente'],
   financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas','agente'],
@@ -160,13 +160,13 @@ const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
   ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
-  ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file']]],
+  ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','agente','filiais']);
+const READY = new Set(['dashboard','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
@@ -183,6 +183,7 @@ const TITLES = {
   producao:['Ordens de Produção','Quadro de OPs por etapa'],
   piloto:['Peças Piloto','Trava a produção até a aprovação da amostra'],
   compras:['Ordens de Compra','Geradas por déficit de material'],
+  entrada:['Notas de Entrada','NFs de compra · estoque e contas a pagar'],
   estoque:['Estoque — Produto Acabado','Saldo por item e rastreio por lote'],
   expedicao:['Expedição','Envios com rastreio, NF e lote consumido'],
   usuarios:['Usuários & Acessos','Gestão de logins e permissões · admin'],
@@ -424,6 +425,7 @@ async function loadRoute(){
     if(S.route==='producao') return await viewProducao(c);
     if(S.route==='piloto') return await viewPiloto(c);
     if(S.route==='compras') return await viewCompras(c);
+    if(S.route==='entrada') return await viewNotasEntrada(c);
     if(S.route==='estoque') return await viewEstoque(c);
     if(S.route==='expedicao') return await viewExpedicao(c);
     if(S.route==='notas') return await viewNotas(c);
@@ -1324,6 +1326,120 @@ async function cancelarCompra(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ---------- Notas de Entrada (NF de compra recebida) ----------
+let NEITENS = [];
+async function viewNotasEntrada(c){
+  const list = await api('/notas-entrada');
+  const extra = `<button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button>`;
+  c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra) + panelTable(
+    ['Número','Fornecedor / Emitente','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
+    list.map(n=>[
+      `<span class="mono gold">${esc(n.numero)}</span>${n.serie?'<span class="muted"> / '+esc(n.serie)+'</span>':''}`,
+      esc(n.fornecedor?n.fornecedor.nome:(n.nomeEmitente||'—')),
+      dfmt(n.emitidaEm), money(n.valor),
+      n.lancadaEstoque?'<span class="pill green">lançado</span>':'<span class="muted">—</span>',
+      n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
+      `<span class="pill gray">${esc(n.origem)}</span>`,
+      `<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button>`
+    ]), list.length?null:'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".');
+}
+async function formNotaEntrada(prefill){
+  if(!prefill) window.__NEPRE=null;
+  const [forn, mats] = await Promise.all([api('/fornecedores'), api('/materiais')]);
+  window.__MATS = mats;
+  const p = prefill||{};
+  const fo = ['<option value="">— selecione —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
+  NEITENS = (p.itens&&p.itens.length)?p.itens.map(x=>Object.assign({},x)):[{unidade:'un'}];
+  openModal(`<h3>Nova nota de entrada</h3>
+    ${p.nomeEmitente?`<div class="muted" style="font-size:12px;margin:-6px 0 8px">Emitente (SEFAZ): <b>${esc(p.nomeEmitente)}</b>${p.cnpjEmitente?' · CNPJ '+esc(p.cnpjEmitente):''}</div>`:''}
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Fornecedor</label><select id="ne_forn" class="inp">${fo}</select></div>
+      ${field('ne_num','Número da NF *','value="'+esc(p.numero||'')+'"')}
+    </div>
+    <div class="grid3">${field('ne_serie','Série','value="'+esc(p.serie||'')+'"')}${field('ne_data','Emissão','type="date"'+(p.data?(' value="'+esc(p.data)+'"'):''))}${field('ne_chave','Chave (44 díg.)','value="'+esc(p.chave||'')+'"')}</div>
+    <label class="fl" style="margin-top:6px">Itens</label>
+    <div id="neitens"></div>
+    <button class="btn-sm" onclick="APP.neAdd()" style="margin-top:6px">+ item</button>
+    <div style="border-top:1px solid var(--line);margin:12px 0 8px;padding-top:8px">
+      <label class="fl"><input type="checkbox" id="ne_est" checked> Dar entrada no estoque <span class="muted">(soma ao saldo do material vinculado)</span></label>
+      <label class="fl" style="margin-top:8px"><input type="checkbox" id="ne_cp" checked onchange="APP.neCpToggle()"> Gerar conta a pagar</label>
+    </div>
+    <div class="grid2" id="ne_cpbox">${field('ne_venc','Vencimento','type="date"')}${field('ne_cat','Categoria','value="Matéria-prima"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveNotaEntrada()">Salvar entrada</button></div>`);
+  if(p.fornecedorId){ const s=$('ne_forn'); if(s) s.value=p.fornecedorId; }
+  neRender();
+}
+function neRender(){
+  const box=$('neitens'); if(!box) return;
+  const mats=window.__MATS||[];
+  const mo = ['<option value="">— vincular material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-desc="${esc(m.descricao)}">${esc(m.codigo)} · ${esc(m.descricao)}</option>`)).join('');
+  box.innerHTML = NEITENS.map((it,i)=>`
+    <div class="grid2" style="margin-bottom:6px">
+      <select class="inp" id="ne_mat_${i}" onchange="APP.neMat(${i})">${mo}</select>
+      <input class="inp" id="ne_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
+    </div>
+    <div class="grid3" style="margin-bottom:12px">
+      <input class="inp" id="ne_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}">
+      <input class="inp" id="ne_un_${i}" placeholder="un" value="${esc(it.unidade||'un')}">
+      <div style="display:flex;gap:6px"><input class="inp" id="ne_vu_${i}" type="number" step="0.0001" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">${NEITENS.length>1?`<button class="btn-sm" onclick="APP.neDel(${i})">×</button>`:''}</div>
+    </div>`).join('');
+  NEITENS.forEach((it,i)=>{ if(it.materialId){ const s=$('ne_mat_'+i); if(s) s.value=it.materialId; } });
+}
+function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) return; it.descricao=d.value; it.quantidade=val('ne_qtd_'+i); it.unidade=val('ne_un_'+i)||'un'; it.valorUnit=val('ne_vu_'+i); const m=$('ne_mat_'+i); it.materialId=(m&&m.value)?Number(m.value):undefined; }); }
+function neAdd(){ neSync(); NEITENS.push({unidade:'un'}); neRender(); }
+function neDel(i){ neSync(); NEITENS.splice(i,1); neRender(); }
+function neMat(i){ const o=$('ne_mat_'+i).selectedOptions[0]; if(o&&o.value){ if(!$('ne_desc_'+i).value)$('ne_desc_'+i).value=o.getAttribute('data-desc')||''; $('ne_un_'+i).value=o.getAttribute('data-un')||'un'; } }
+function neCpToggle(){ $('ne_cpbox').style.display=$('ne_cp').checked?'':'none'; }
+async function saveNotaEntrada(){
+  neSync();
+  const itens = NEITENS.filter(it=>it.descricao&&it.descricao.trim()&&Number(it.quantidade)>0&&it.valorUnit!==''&&it.valorUnit!=null)
+    .map(it=>{ const o={ descricao:it.descricao.trim(), quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) }; if(it.materialId) o.materialId=it.materialId; return o; });
+  if(!val('ne_num')){ toast('Informe o número da NF.','err'); return; }
+  if(!itens.length){ toast('Adicione ao menos um item (descrição, quantidade e valor).','err'); return; }
+  const body = { numero:val('ne_num'), itens };
+  const fid=val('ne_forn'); if(fid) body.fornecedorId=Number(fid);
+  const serie=val('ne_serie'); if(serie) body.serie=serie;
+  const chave=(val('ne_chave')||'').replace(/\D/g,''); if(chave) body.chave=chave;
+  const data=val('ne_data'); if(data) body.emitidaEm=data;
+  body.lancarEstoque = $('ne_est').checked;
+  body.gerarContaPagar = $('ne_cp').checked;
+  if(body.gerarContaPagar){ const v=val('ne_venc'); if(v) body.vencimento=v; const cat=val('ne_cat'); if(cat) body.categoria=cat; }
+  const pre=window.__NEPRE; if(pre){ if(pre.cnpjEmitente) body.cnpjEmitente=pre.cnpjEmitente; if(pre.nomeEmitente) body.nomeEmitente=pre.nomeEmitente; }
+  try{
+    const n=await api('/notas-entrada',{method:'POST',body}); closeModal(); window.__NEPRE=null;
+    let msg='Entrada registrada (NF '+n.numero+').';
+    if(n.materiaisAtualizados&&n.materiaisAtualizados.length) msg+=' Estoque: '+n.materiaisAtualizados.join(', ')+'.';
+    if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
+    toast(msg,'ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function buscarSefaz(){
+  toast('Consultando a SEFAZ…','ok');
+  let r; try{ r = await api('/notas-entrada/sefaz'); }catch(e){ toast(e.message,'err'); return; }
+  if(!r.ok){ toast('SEFAZ: '+(r.motivo||'não foi possível consultar.'),'err'); return; }
+  const rows = r.notas||[]; window.__SEFAZ = rows;
+  openModal(`<h3>NF-e emitidas contra ${esc(r.cnpj||'seu CNPJ')}</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">${rows.length} nota(s) na distribuição da SEFAZ.</div>
+    ${rows.length?panelTable(['Emitente','Nº','Emissão','Valor','Situação',''], rows.map((n,i)=>[
+      esc(n.emitente||'—')+(n.cnpjEmitente?'<br><span class="muted mono" style="font-size:10.5px">'+esc(n.cnpjEmitente)+'</span>':''),
+      esc(n.numero), dfmt(n.data), money(n.valor), esc(n.situacao||'—'),
+      n.importada?'<span class="pill green">importada</span>':`<button class="btn-sm" onclick="APP.importarSefaz(${i})">Dar entrada</button>`
+    ])):'<div class="muted" style="padding:8px 0">Nenhuma NF-e recebida encontrada para este CNPJ.</div>'}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+async function importarSefaz(i){
+  const n=(window.__SEFAZ||[])[i]; if(!n) return;
+  const forn = await api('/fornecedores').catch(()=>[]);
+  const match = forn.find(f=>(f.cnpjCpf||'').replace(/\D/g,'')===(n.cnpjEmitente||''));
+  window.__NEPRE = { cnpjEmitente:n.cnpjEmitente, nomeEmitente:n.emitente };
+  formNotaEntrada({
+    numero:String(n.numero||''), chave:n.chave, data:(n.data?String(n.data).slice(0,10):''),
+    nomeEmitente:n.emitente, cnpjEmitente:n.cnpjEmitente, fornecedorId:match?match.id:undefined,
+    itens:[{ descricao:'Mercadoria conforme NF '+(n.numero||''), quantidade:1, unidade:'un', valorUnit:Number(n.valor||0) }]
+  });
+}
+
 async function viewEstoque(c){
   const list = await api('/estoque');
   c.innerHTML = toolbar('Estoque de produto acabado', 'Movimentar', 'APP.formMov()') + panelTable(
@@ -1980,6 +2096,7 @@ window.APP = {
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, formPiloto, savePiloto, aprovarPiloto,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
