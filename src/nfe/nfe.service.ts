@@ -79,11 +79,17 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const infoAdic = pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : undefined;
+    // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
+    const cobranca = this.duplicatasDePedido(pedido?.formaPagamento, Number(valor));
+    const infoAdic = [
+      pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
+      pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
+      cobranca.venctoTxt,
+    ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
     const itensNf = itens.map((it) => ({ ...it, descricao: this.descComGrade(it.descricao, (it as { grade?: Record<string, number> }).grade) }));
-    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic);
+    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas });
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload)
@@ -127,10 +133,9 @@ export class NfeService {
       });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
-      const vencimento = new Date();
-      vencimento.setHours(0, 0, 0, 0);
+      // Vencimento = mesmo prazo enviado na duplicata da NF (forma de pagamento do pedido).
       await tx.contaReceber.create({
-        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento, status: 'a_vencer' },
+        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
       });
       return criada;
     });
@@ -616,6 +621,32 @@ export class NfeService {
     const numeroSeq = Number(String(nota.numero).split('/').pop());
     const prefixo = nota.expedicaoId ? 'NFE' : 'NFEAV';
     return `${prefixo}-${nota.filialId ?? 0}-${nota.serie}-${numeroSeq}`;
+  }
+
+  /** Monta a cobrança (duplicatas) da NF a partir da forma de pagamento do pedido.
+   *  Aceita "30 dias", "30/60/90", "à vista" etc. Divide o valor em parcelas iguais
+   *  e retorna o 1º vencimento (usado também na conta a receber). */
+  private duplicatasDePedido(forma: string | null | undefined, valor: number): {
+    duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }>;
+    venctoTxt?: string;
+    primeiroVenc: Date;
+  } {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const dias = [...String(forma ?? '').matchAll(/(\d{1,3})/g)]
+      .map((m) => parseInt(m[1], 10))
+      .filter((d) => d > 0 && d <= 360)
+      .sort((a, b) => a - b);
+    if (!dias.length) return { primeiroVenc: hoje }; // à vista / sem prazo → vence hoje
+    const n = dias.length;
+    const parcela = Number((valor / n).toFixed(2));
+    const duplicatas = dias.map((d, i) => {
+      const dt = new Date(hoje); dt.setDate(dt.getDate() + d);
+      const v = i === n - 1 ? Number((valor - parcela * (n - 1)).toFixed(2)) : parcela;
+      return { numero: String(i + 1).padStart(3, '0'), data_vencimento: dt.toISOString().slice(0, 10), valor: v };
+    });
+    const primeiroVenc = new Date(hoje); primeiroVenc.setDate(primeiroVenc.getDate() + dias[0]);
+    const venctoTxt = `Vencimento: ${duplicatas.map((x) => x.data_vencimento.split('-').reverse().join('/')).join(', ')}`;
+    return { duplicatas, venctoTxt, primeiroVenc };
   }
 
   private async montarPayload(
