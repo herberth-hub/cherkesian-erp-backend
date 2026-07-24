@@ -23,6 +23,21 @@ export class ExpedicoesService {
     if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
     const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    // Venda de mercadoria: a etiqueta de expedição só é liberada com a NF-e emitida (autorizada).
+    const nfEmitida = await this.prisma.notaFiscal.findFirst({
+      where: { expedicaoId: id, status: { in: ['autorizada', 'simulada'] } },
+      orderBy: { id: 'desc' },
+      select: { numero: true, status: true },
+    });
+    if (!nfEmitida) {
+      const pend = await this.prisma.notaFiscal.findFirst({ where: { expedicaoId: id }, orderBy: { id: 'desc' }, select: { status: true } });
+      const motivo = pend?.status === 'pendente'
+        ? 'a NF-e ainda está pendente de autorização na SEFAZ. Aguarde/consulte a autorização.'
+        : pend?.status === 'rejeitada' ? 'a NF-e foi rejeitada — corrija e reemita.'
+        : pend?.status === 'cancelada' ? 'a NF-e desta expedição foi cancelada.'
+        : 'nenhuma NF-e de venda foi emitida para esta expedição.';
+      throw new BadRequestException(`Etiqueta bloqueada: ${motivo} Emita a NF-e de venda antes de gerar a etiqueta de expedição.`);
+    }
     const pedido = exp.pedidoId
       ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } })
       : null;
