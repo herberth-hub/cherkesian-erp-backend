@@ -2062,15 +2062,24 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
       body.m50 .codes{margin-bottom:.3mm} body.m50 .codes .qr{width:15mm;height:15mm}
       body.m50 .ci{font-size:7pt} body.m50 .bip{font-size:8.5pt} body.m50 .lbl{font-size:6pt}
       body.m50 .tot{font-size:8pt;padding-top:.4mm;margin-bottom:.4mm} body.m50 .bc img{height:8mm}
-      .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px}
+      /* Modo A4 (tamanho original / folha): tudo maior, ocupa a página */
+      body.ma4 .lab{width:265mm;border-width:2.5px}
+      body.ma4 .hd{padding:5mm 8mm} body.ma4 .hd .ttl{font-size:26pt} body.ma4 .hd .vol{font-size:24pt}
+      body.ma4 .pad{padding:6mm 8mm} body.ma4 .line{font-size:13pt;margin-bottom:3mm} body.ma4 .destnome{font-size:19pt}
+      body.ma4 .ender{font-size:11pt;margin-bottom:4mm} body.ma4 .lbl{font-size:9pt}
+      body.ma4 .codes{gap:8mm;margin-bottom:4mm} body.ma4 .codes .qr{width:45mm;height:45mm} body.ma4 .ci{font-size:12pt}
+      body.ma4 .bip{font-size:17pt} body.ma4 .resumo{font-size:11pt} body.ma4 .resumo th,body.ma4 .resumo td{padding:2.5mm}
+      body.ma4 .tot{font-size:15pt;padding-top:3mm;margin-bottom:3mm} body.ma4 .bc img{height:20mm} body.ma4 .foot{font-size:11pt;padding:4mm 8mm}
+      .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px}
       .bar button{padding:6px 10px;cursor:pointer} @media print{.bar{display:none}}
     </style></head><body class="m150">
     <div class="bar"><b style="align-self:center">Imprimir:</b>
       <button onclick="setSize('150')">100×150 mm</button>
       <button onclick="setSize('50')">100×50 mm</button>
+      <button onclick="setSize('a4')">Tamanho original (A4)</button>
       <span style="align-self:center;color:#666">${total} etiqueta(s)</span></div>
     ${labels}
-    <script>function setSize(s){document.body.className=(s==='50'?'m50':'m150');document.getElementById('psz').textContent=(s==='50'?'@page{size:100mm 50mm;margin:1.5mm}':'@page{size:100mm 150mm;margin:3mm}');setTimeout(function(){window.print()},150);}<\/script>
+    <script>function setSize(s){var cls={'50':'m50','a4':'ma4'}[s]||'m150';var pg={'50':'@page{size:100mm 50mm;margin:1.5mm}','a4':'@page{size:A4 landscape;margin:10mm}'}[s]||'@page{size:100mm 150mm;margin:3mm}';document.body.className=cls;document.getElementById('psz').textContent=pg;setTimeout(function(){window.print()},150);}<\/script>
     </body></html>`);
     w.document.close();
   }catch(e){ toast('Falha ao gerar etiqueta: '+(e.message||e),'err'); }
