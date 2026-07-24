@@ -33,7 +33,7 @@ export class ExpedicoesController {
   @HttpCode(HttpStatus.CREATED)
   criarParcial(
     @Param('pedidoId', ParseIntPipe) pedidoId: number,
-    @Body() dto: { itens: Array<{ pedidoItemId: number; quantidade: number }> },
+    @Body() dto: { itens: Array<{ pedidoItemId: number; quantidade?: number; grade?: Record<string, number> }> },
     @CurrentUser() user: AuthUser,
   ) {
     return this.expedicoesService.criarParcial(pedidoId, dto, user.empresaId);

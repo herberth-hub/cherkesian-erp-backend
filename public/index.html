@@ -775,33 +775,38 @@ function pedidoAcoes(p){
 async function formExpParcial(pedidoId){
   let ped; try{ ped=await api('/pedidos/'+pedidoId); }catch(e){ toast(e.message,'err'); return; }
   const itens = ped.itens||[];
-  const rows = itens.map(it=>{
-    const exp = it.quantidadeExpedida||0;
-    const res = it.quantidade - exp;
-    return `<tr>
-      <td style="padding:6px 8px;border-top:1px solid #eee">${esc(it.descricao)}</td>
-      <td style="text-align:center;border-top:1px solid #eee">${it.quantidade}</td>
-      <td style="text-align:center;border-top:1px solid #eee">${exp}</td>
-      <td style="text-align:center;border-top:1px solid #eee;font-weight:700;${res>0?'':'color:#aaa'}">${res}</td>
-      <td style="text-align:center;border-top:1px solid #eee"><input type="number" min="0" max="${res}" value="${res>0?res:0}" ${res>0?'':'disabled'} class="inp expq" data-item="${it.id}" style="width:72px;text-align:center;padding:4px"></td>
-    </tr>`;
+  const cards = itens.map(it=>{
+    const grade = it.grade && Object.keys(it.grade).length ? it.grade : null;
+    if(grade){
+      const jaG = it.gradeExpedida||{};
+      const sizes = Object.entries(grade).map(([t,q])=>{
+        const res = Number(q) - Number(jaG[t]||0);
+        return `<div style="display:inline-flex;flex-direction:column;align-items:center;margin:0 8px 6px 0">
+          <span style="font-size:9px;letter-spacing:.5px;color:#6b6b72;text-transform:uppercase">${esc(t)} · resid ${res}</span>
+          <input type="number" min="0" max="${res}" value="${res>0?res:0}" ${res>0?'':'disabled'} class="expg" data-item="${it.id}" data-tam="${esc(t)}" style="width:56px;text-align:center;padding:4px;margin-top:2px;${res>0?'':'background:#f2f2f2'}">
+        </div>`;
+      }).join('');
+      const totalRes = Object.entries(grade).reduce((s,[t,q])=>s+(Number(q)-Number(jaG[t]||0)),0);
+      return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff">
+        <div style="font-weight:700;font-size:13px">${esc(it.descricao)} <span class="muted" style="font-weight:400;font-size:11px">· residual ${totalRes}</span></div>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap">${sizes}</div></div>`;
+    }
+    const exp = it.quantidadeExpedida||0; const res = it.quantidade-exp;
+    return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff;display:flex;justify-content:space-between;align-items:center">
+      <div><div style="font-weight:700;font-size:13px">${esc(it.descricao)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade}</div></div>
+      <input type="number" min="0" max="${res}" value="${res>0?res:0}" ${res>0?'':'disabled'} class="expq" data-item="${it.id}" style="width:74px;text-align:center;padding:5px"></div>`;
   }).join('');
   openModal(`<h3>📦 Expedição parcial · <span class="mono gold">${esc(ped.numero)}</span></h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Informe quanto expedir agora de cada item. O que sobrar fica em <b>residual em aberto</b> aguardando finalizar — você não perde o controle do que falta enviar.</div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border:1px solid #e7e3d8;border-radius:8px;overflow:hidden">
-      <thead><tr>
-        <th style="text-align:left;padding:7px 8px;background:#22304a;color:#fff;font-size:11px">Item</th>
-        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Pedido</th>
-        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Já expedido</th>
-        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Residual</th>
-        <th style="padding:7px;background:#C9A227;color:#241c00;font-size:11px">Expedir agora</th>
-      </tr></thead><tbody>${rows||'<tr><td colspan=5 class="muted" style="padding:10px">Pedido sem itens.</td></tr>'}</tbody></table></div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Informe quanto expedir agora — <b>por tamanho</b> quando o item tem grade. O que sobrar fica em <b>residual em aberto</b> aguardando finalizar.</div>
+    <div style="max-height:52vh;overflow:auto">${cards||'<div class="muted">Pedido sem itens.</div>'}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveExpParcial(${pedidoId})">Gerar expedição parcial</button></div>`);
 }
 async function saveExpParcial(pedidoId){
-  const itens=[];
-  document.querySelectorAll('.expq').forEach(inp=>{ const q=Number(inp.value||0); if(q>0) itens.push({pedidoItemId:Number(inp.dataset.item), quantidade:q}); });
+  const byItem = {};
+  document.querySelectorAll('.expg').forEach(inp=>{ const q=Number(inp.value||0); if(q>0){ const id=inp.dataset.item; if(!byItem[id]) byItem[id]={grade:{}}; byItem[id].grade[inp.dataset.tam]=q; } });
+  document.querySelectorAll('.expq').forEach(inp=>{ const q=Number(inp.value||0); if(q>0){ byItem[inp.dataset.item]={quantidade:q}; } });
+  const itens = Object.entries(byItem).map(([id,v])=>({pedidoItemId:Number(id), ...v}));
   if(!itens.length){ toast('Informe ao menos uma quantidade para expedir.','err'); return; }
   try{ const e=await api('/expedicoes/parcial/'+pedidoId,{method:'POST',body:{itens}});
     closeModal(); toast('Expedição parcial '+e.numero+' criada. Emita a NF na tela de Expedição.','ok'); loadRoute();

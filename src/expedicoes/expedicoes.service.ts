@@ -13,6 +13,13 @@ import { proximoSequencial } from '../common/utils/codigo.util';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
 
+/** Item selecionado para uma expedição (parcial ou total), com grade opcional por tamanho. */
+type SelExped = {
+  item: { id: number; produtoId: number | null; descricao: string; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown; gradeExpedida: unknown };
+  qtd: number;
+  gradeShip?: Record<string, number>;
+};
+
 @Injectable()
 export class ExpedicoesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -147,28 +154,54 @@ export class ExpedicoesService {
     return pedido;
   }
 
-  /** Expedição TOTAL (do restante que ainda falta expedir). */
+  /** Expedição TOTAL (do restante que ainda falta expedir — por tamanho quando há grade). */
   async criarDoPedido(pedidoId: number, empresaId: number): Promise<Expedicao> {
     const pedido = await this.pedidoParaExpedir(pedidoId, empresaId);
-    const sel = pedido.itens
-      .map((it) => ({ item: it, qtd: it.quantidade - (it.quantidadeExpedida ?? 0) }))
-      .filter((x) => x.qtd > 0);
+    const sel: SelExped[] = [];
+    for (const it of pedido.itens) {
+      const grade = it.grade as Record<string, number> | null;
+      if (grade && Object.keys(grade).length) {
+        const jaG = (it.gradeExpedida as Record<string, number> | null) ?? {};
+        const resto: Record<string, number> = {};
+        for (const [t, q] of Object.entries(grade)) { const r = Number(q) - Number(jaG[t] ?? 0); if (r > 0) resto[t] = r; }
+        const qtd = Object.values(resto).reduce((s, q) => s + q, 0);
+        if (qtd > 0) sel.push({ item: it, qtd, gradeShip: resto });
+      } else {
+        const r = it.quantidade - (it.quantidadeExpedida ?? 0);
+        if (r > 0) sel.push({ item: it, qtd: r });
+      }
+    }
     if (!sel.length) throw new ConflictException('Pedido já foi totalmente expedido.');
     return this.criarExpedicao(pedido, sel, false);
   }
 
-  /** Expedição PARCIAL: expede só as quantidades escolhidas; o residual fica em aberto. */
-  async criarParcial(pedidoId: number, dto: { itens: Array<{ pedidoItemId: number; quantidade: number }> }, empresaId: number): Promise<Expedicao> {
+  /** Expedição PARCIAL: expede só o escolhido (por tamanho quando há grade); o residual fica em aberto. */
+  async criarParcial(pedidoId: number, dto: { itens: Array<{ pedidoItemId: number; quantidade?: number; grade?: Record<string, number> }> }, empresaId: number): Promise<Expedicao> {
     const pedido = await this.pedidoParaExpedir(pedidoId, empresaId);
     const mapItem = new Map(pedido.itens.map((i) => [i.id, i]));
-    const sel: Array<{ item: (typeof pedido.itens)[number]; qtd: number }> = [];
+    const sel: SelExped[] = [];
     for (const s of dto.itens ?? []) {
       const it = mapItem.get(s.pedidoItemId);
       if (!it) throw new BadRequestException(`Item ${s.pedidoItemId} não pertence ao pedido ${pedido.numero}.`);
-      const residual = it.quantidade - (it.quantidadeExpedida ?? 0);
-      const q = Math.floor(Number(s.quantidade) || 0);
-      if (q < 0 || q > residual) throw new BadRequestException(`Quantidade inválida para "${it.descricao}" (residual disponível: ${residual}).`);
-      if (q > 0) sel.push({ item: it, qtd: q });
+      const grade = it.grade as Record<string, number> | null;
+      if (grade && Object.keys(grade).length && s.grade) {
+        const jaG = (it.gradeExpedida as Record<string, number> | null) ?? {};
+        const gradeShip: Record<string, number> = {};
+        for (const [t, qRaw] of Object.entries(s.grade)) {
+          const q = Math.floor(Number(qRaw) || 0);
+          if (q <= 0) continue;
+          const resid = Number(grade[t] ?? 0) - Number(jaG[t] ?? 0);
+          if (q > resid) throw new BadRequestException(`"${it.descricao}" TAM ${t}: máximo ${resid} (residual).`);
+          gradeShip[t] = q;
+        }
+        const qtd = Object.values(gradeShip).reduce((a, b) => a + b, 0);
+        if (qtd > 0) sel.push({ item: it, qtd, gradeShip });
+      } else {
+        const residual = it.quantidade - (it.quantidadeExpedida ?? 0);
+        const q = Math.floor(Number(s.quantidade) || 0);
+        if (q < 0 || q > residual) throw new BadRequestException(`Quantidade inválida para "${it.descricao}" (residual: ${residual}).`);
+        if (q > 0) sel.push({ item: it, qtd: q });
+      }
     }
     if (!sel.length) throw new BadRequestException('Informe ao menos uma quantidade para expedir.');
     return this.criarExpedicao(pedido, sel, true);
@@ -176,17 +209,16 @@ export class ExpedicoesService {
 
   private async criarExpedicao(
     pedido: { id: number; numero: string; clienteId: number; cliente: { logradouro: string | null; cidadeUf: string | null; municipio: string | null; uf: string | null; cep: string | null } },
-    sel: Array<{ item: { id: number; produtoId: number | null; descricao: string; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown }; qtd: number }>,
+    sel: SelExped[],
     parcial: boolean,
   ): Promise<Expedicao> {
-    const itensSnap = sel.map(({ item, qtd }) => ({
+    const itensSnap = sel.map(({ item, qtd, gradeShip }) => ({
       pedidoItemId: item.id,
       produtoId: item.produtoId,
       descricao: item.descricao,
       quantidade: qtd,
       valorUnit: Number(item.valorUnit),
-      // grade só quando expede o item inteiro de uma vez (senão o tamanho fica indefinido)
-      grade: qtd === item.quantidade && (item.quantidadeExpedida ?? 0) === 0 ? (item.grade ?? null) : null,
+      grade: gradeShip ?? null, // grade DESTA remessa (por tamanho) → a NF quebra por tamanho
     }));
     const pecas = sel.reduce((s, x) => s + x.qtd, 0) || 1;
     const c = pedido.cliente;
@@ -201,8 +233,17 @@ export class ExpedicoesService {
           parcial, itens: itensSnap as unknown as Prisma.InputJsonValue,
         },
       });
-      for (const { item, qtd } of sel) {
-        await tx.pedidoItem.update({ where: { id: item.id }, data: { quantidadeExpedida: { increment: qtd } } });
+      for (const { item, qtd, gradeShip } of sel) {
+        let novaGrade: Record<string, number> | undefined;
+        if (gradeShip) {
+          const jaG = (item.gradeExpedida as Record<string, number> | null) ?? {};
+          novaGrade = { ...jaG };
+          for (const [t, q] of Object.entries(gradeShip)) novaGrade[t] = Number(novaGrade[t] ?? 0) + Number(q);
+        }
+        await tx.pedidoItem.update({
+          where: { id: item.id },
+          data: { quantidadeExpedida: { increment: qtd }, ...(novaGrade ? { gradeExpedida: novaGrade as unknown as Prisma.InputJsonValue } : {}) },
+        });
       }
       const atual = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true, quantidadeExpedida: true } });
       const totalmente = atual.every((i) => (i.quantidadeExpedida ?? 0) >= i.quantidade);

@@ -375,6 +375,7 @@ model PedidoItem {
   quantidadeExpedida Int     @default(0) // já expedido (faturamento parcial); residual = quantidade - expedida
   valorUnit          Decimal @db.Decimal(12,2)
   grade              Json?   // qtd por tamanho, ex.: {"PP":8,"M":2,"G":2}
+  gradeExpedida      Json?   // qtd já expedida por tamanho (parcial por tamanho), ex.: {"P":5}
 }
 
 model Piloto {
