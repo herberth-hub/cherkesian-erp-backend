@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -61,6 +62,46 @@ export class ExpedicoesService {
     }
 
     return this.prisma.expedicao.create({ data: await this.montarDados(dto, this.prisma) });
+  }
+
+  /**
+   * Gera a expedição DIRETO do pedido (revenda/faturamento sem produção): pula
+   * a OP, cria a expedição com as peças do pedido e avança a etapa p/ expedição.
+   * Depois é só emitir a NF a partir dessa expedição.
+   */
+  async criarDoPedido(pedidoId: number, empresaId: number): Promise<Expedicao> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: { itens: true, cliente: true },
+    });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    if (pedido.etapa === 'orcamento') throw new BadRequestException('Aprove o pedido antes de gerar a expedição.');
+    if (pedido.etapa === 'expedicao') throw new ConflictException('Pedido já está em expedição.');
+    const ja = await this.prisma.expedicao.findFirst({ where: { pedidoId } });
+    if (ja) throw new ConflictException(`Pedido já possui a expedição ${ja.numero}.`);
+
+    const pecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0) || 1;
+    const c = pedido.cliente;
+    const cidadeUf = c.cidadeUf ?? (c.municipio && c.uf ? `${c.municipio}/${c.uf}` : undefined);
+    return this.prisma.$transaction(async (tx) => {
+      const numero = await this.gerarNumero(tx);
+      const exp = await tx.expedicao.create({
+        data: {
+          numero,
+          pedidoId,
+          clienteId: pedido.clienteId,
+          pecas,
+          endereco: c.logradouro ?? undefined,
+          cidadeUf,
+          cep: c.cep ?? undefined,
+          volumes: 1,
+          rastreio: this.gerarRastreio(),
+          status: 'Separado',
+        },
+      });
+      await tx.pedido.update({ where: { id: pedidoId }, data: { etapa: 'expedicao', status: 'Expedição' } });
+      return exp;
+    });
   }
 
   private async montarDados(

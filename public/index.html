@@ -760,6 +760,7 @@ function pedidoAcoes(p){
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
+    if(p.etapa!=='expedicao') b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir (s/ OP)</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
   }
   // Editar/Excluir liberados até a produção começar (antes de gerar OP).
@@ -1121,6 +1122,11 @@ async function excluirPedido(id,numero){
   if(!confirm('Excluir o pedido '+numero+'? (só é permitido enquanto não gerou OP nem NF)')) return;
   try{ await api('/pedidos/'+id,{method:'DELETE'}); toast('Pedido '+numero+' excluído.','ok'); loadRoute(); }
   catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
+}
+async function pedidoExpedir(id){
+  if(!confirm('Gerar expedição direto deste pedido (sem passar pela produção/OP)? Depois é só emitir a NF na tela de Expedição.')) return;
+  try{ const e=await api('/expedicoes/do-pedido/'+id,{method:'POST'}); toast('Expedição '+e.numero+' gerada · '+e.pecas+' peças. Vá em Expedição para emitir a NF.','ok'); loadRoute(); }
+  catch(err){ toast('Falha: '+(err.message||err),'err'); }
 }
 async function aprovarPedido(id){
   try{ const p=await api('/pedidos/'+id+'/aprovar',{method:'POST'}); toast('Pedido aprovado → etapa '+p.etapa+'.','ok'); loadRoute(); }
@@ -2678,7 +2684,7 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, excluirPedido, gerarOp, prodFiltrar,
+  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,

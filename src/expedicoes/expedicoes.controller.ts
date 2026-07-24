@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ExpedicoesService } from './expedicoes.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -18,5 +18,13 @@ export class ExpedicoesController {
   @Post()
   create(@Body() dto: CreateExpedicaoDto, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.create(dto, user.empresaId);
+  }
+
+  /** Gera a expedição direto do pedido (sem OP) — revenda/faturamento. */
+  @Areas('vendas', 'expedicao')
+  @Post('do-pedido/:pedidoId')
+  @HttpCode(HttpStatus.CREATED)
+  criarDoPedido(@Param('pedidoId', ParseIntPipe) pedidoId: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.criarDoPedido(pedidoId, user.empresaId);
   }
 }
