@@ -292,7 +292,7 @@ function onAuthed(d){
   const allowed = ACCESS[S.user.acesso];
   S.route = (allowed==='*') ? 'dashboard' : (allowed.includes('dashboard')?'dashboard':firstReady(allowed));
   S.cache={};
-  renderShell(); loadRoute();
+  renderShell(); loadRoute(); checkDeepLink();
   toast('Bem-vindo, '+S.user.nome.split(' ')[0]+'!', 'ok');
 }
 function firstReady(allowed){ for(const r of allowed){ if(READY.has(r)) return r; } return allowed[0]; }
@@ -1472,6 +1472,7 @@ async function opConcluirEtiquetas(id){
   try{ const r = await api('/ops/'+id+'/etiqueta'); d = r.dados || r; }
   catch(e){ toast(e.message,'err'); return; }
   const descProd = (d.produto||'').split('·').slice(1).join('·').trim() || (d.produto||'').trim() || 'PRODUTO';
+  const refProd = (d.produto||'').split('·')[0].trim();
   // grade "P:10, M:20" -> [[P,10],[M,20]]; se não houver, usa a quantidade total.
   const pares = [];
   (d.grade||'').split(/[,;]+/).forEach(par=>{ const [t,q]=par.split(':').map(s=>(s||'').trim()); if(t&&q&&Number(q)>0) pares.push([t.toUpperCase(),Number(q)]); });
@@ -1485,9 +1486,9 @@ async function opConcluirEtiquetas(id){
         <option value="estoque">📦 Estocar (endereçar depois)</option>
         <option value="expedicao">🚚 Ir direto pra expedição (despachar pro cliente)</option>
       </select></div>
-    ${field('oc_desc','Descrição na etiqueta','value="'+esc(descProd)+'"')}
-    ${field('oc_cor','Cor','value="'+esc(d.cor&&d.cor!=='-'?d.cor:'')+'"')}
-    <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
+    <div class="grid2">${field('oc_ref','Ref (código do produto)','value="'+esc(refProd)+'"')}${field('oc_cor','Cor','value="'+esc(d.cor&&d.cor!=='-'?d.cor:'')+'"')}</div>
+    ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
+    <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'})'>Gerar etiquetas</button></div>`);
 }
@@ -1495,13 +1496,14 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
   const destino = val('oc_dest');
   const descricao = val('oc_desc').trim();
   const cor = val('oc_cor').trim();
+  const ref = val('oc_ref').trim();
   if(!descricao){ toast('Informe a descrição.','err'); return; }
   const lotes = (pares && pares.length) ? pares.map(([t,q])=>({tamanho:t, quantidade:q})) : [{tamanho:'', quantidade:qtdTotal}];
   try{
     toast('Gerando etiquetas…','ok');
     const todas = [];
     for(const l of lotes){
-      const body = { tipo:'produto', descricao, cor:cor||undefined, tamanho:l.tamanho||undefined,
+      const body = { tipo:'produto', descricao, ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
         quantidade:l.quantidade, origem:'producao', destino };
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
@@ -1728,7 +1730,7 @@ async function viewEstoque(c){
     (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>'
   ]);
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
     + `<div class="cards"><div class="card kpi"><div class="k">Unidades em estoque</div><div class="v">${emEstoque}</div><div class="s">${aguard} aguardando endereço</div></div></div>`
     + `<div class="sect"><h3>Produto acabado (agregado)</h3>${panelTable(['Produto','Tamanho','Saldo','Local',''],
         list.map(e=>[
@@ -1739,6 +1741,83 @@ async function viewEstoque(c){
     + `<div class="sect"><h3>Unidades endereçadas (${(unidades||[]).length})</h3>${panelTable(['Código','Item','Status','Endereço'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
 }
 function unidStatusPill(s){ const m={aguardando_endereco:['red','s/ endereço'],em_estoque:['green','em estoque'],reservado:['blue','reservado'],despachado:['gray','despachado']}; const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
+
+// ===== Caixas master: consulta do conteúdo + etiquetas p/ colar =====
+function consultarCaixa(){
+  openModal(`<h3>📦 Consultar caixa master</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe a etiqueta da caixa (leitor USB), digite o número, ou use a câmera. Abre o que está guardado dentro.</div>
+    <div style="display:flex;gap:8px;align-items:end">
+      <div style="flex:1"><input id="cx_bip" class="inp" placeholder="Nº da caixa (ex.: 1.000) ou bipe" onkeydown="if(event.key==='Enter')APP.verCaixa(document.getElementById('cx_bip').value)"></div>
+      <button class="btn-primary" onclick="APP.verCaixa(document.getElementById('cx_bip').value)">Abrir</button>
+      <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.verCaixa(code)})">📷 Câmera</button>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  setTimeout(()=>{const i=$('cx_bip'); if(i)i.focus();},50);
+}
+async function verCaixa(codigo){
+  if(!codigo || !String(codigo).trim()){ toast('Informe ou bipe a caixa.','err'); return; }
+  let d; try{ d=await api('/estoque/caixa/'+encodeURIComponent(String(codigo).trim())); }catch(e){ toast(e.message,'err'); return; }
+  const rows=(d.itens||[]).map(i=>`<tr><td style="padding:6px 8px;border-top:1px solid #eee">${esc(i.descricao)}</td><td style="padding:6px 8px;border-top:1px solid #eee">${esc(i.cor||'—')}</td><td style="padding:6px 8px;border-top:1px solid #eee;text-align:center">${esc(i.tamanho||'—')}</td><td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><b>${i.quantidade}</b></td></tr>`).join('');
+  openModal(`<h3>📦 Caixa Master ${esc(d.caixa)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">${d.endereco?esc(d.endereco)+' · ':''}<b>${d.totalPecas}</b> peça(s) guardada(s)</div>
+    ${d.totalPecas? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
+      <thead><tr><th style="text-align:left;padding:8px;background:#F4F2ED;font-size:11px;color:#4a473f">Item</th><th style="text-align:left;padding:8px;background:#F4F2ED;font-size:11px;color:#4a473f">Cor</th><th style="padding:8px;background:#F4F2ED;font-size:11px;color:#4a473f">Tam</th><th style="text-align:right;padding:8px;background:#F4F2ED;font-size:11px;color:#4a473f">Qt</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">Caixa vazia — nenhuma peça endereçada nela.</div>`}
+    <div class="mactions"><button class="btn-sm" onclick="APP.consultarCaixa()">↩ Outra caixa</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+async function etiquetasCaixasMaster(){
+  const escolha = prompt('Quais caixas imprimir? Deixe em branco para TODAS (1.000 a 10.000), ou informe separadas por vírgula (ex.: 1.000, 3.000):','');
+  if(escolha===null) return;
+  let url='/estoque/caixas/etiquetas?base='+encodeURIComponent(location.origin);
+  if(escolha.trim()) url+='&nums='+encodeURIComponent(escolha.trim());
+  let d; try{ d=await api(url); }catch(e){ toast(e.message,'err'); return; }
+  const n=(d.etiquetas||[]).length;
+  const pages=(d.etiquetas||[]).map(e=>`<div class="page"><div class="cx">
+      <div class="cxh">CAIXA MASTER · GRUPO CHERKESIAN</div>
+      <div class="cxrow"><div class="cxn">${esc(e.numero)}</div><img class="cxqr" src="${e.qr}"></div>
+      <img class="cxbc" src="${e.barcode}"><div class="cxc">${esc(e.codigo)}</div></div></div>`).join('');
+  const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
+  w.document.write(`<html><head><title>Etiquetas de caixas master</title><meta charset="utf-8">
+    <style id="cxsz">@page{size:100mm 50mm;margin:0}</style>
+    <style>
+    *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial,Helvetica,sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .cx{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+    .cxh{font-size:8pt;font-weight:800;letter-spacing:.5px;color:#333}
+    .cxrow{display:flex;align-items:center;gap:4mm;justify-content:center}
+    .cxn{font-size:30pt;font-weight:900;line-height:1} .cxqr{width:18mm;height:18mm}
+    .cxbc{height:9mm;max-width:90%} .cxc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+    /* Zebra 100x50: 1 por etiqueta */
+    body.z50mode .wrap{display:block} body.z50mode{background:#eee}
+    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:1.5mm 6mm}
+    body.z50mode .page:last-child{page-break-after:auto}
+    /* A4 grade */
+    body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
+    body.a4mode .page{border:1px solid #000;border-radius:6px;padding:4mm;break-inside:avoid;min-height:45mm;display:flex}
+    @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
+    .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
+    .bar button{padding:6px 10px;cursor:pointer}
+    </style></head><body class="z50mode">
+    <div class="bar"><b style="align-self:center">Imprimir:</b>
+      <button onclick="setCX('z50')">🏷 Zebra 100×50 (1 por etiqueta)</button>
+      <button onclick="setCX('a4')">📄 Folha A4 (grade)</button>
+      <span style="align-self:center;color:#666">${n} caixa(s)</span></div>
+    <div class="wrap">${pages}</div>
+    <script>function setCX(s){var z=s!=='a4';document.body.className=z?'z50mode':'a4mode';document.getElementById('cxsz').textContent=z?'@page{size:100mm 50mm;margin:0}':'@page{size:A4;margin:8mm}';setTimeout(function(){window.print()},150);}<\/script>
+    </body></html>`);
+  w.document.close();
+}
+// Deep-link: QR da caixa (?caixa=1000) abre direto o conteúdo após login.
+function checkDeepLink(){
+  try{
+    const cx=new URLSearchParams(location.search).get('caixa');
+    if(cx && S.user){
+      history.replaceState(null,'',location.pathname);
+      if(canAccess('estoque')) go('estoque');
+      setTimeout(()=>verCaixa(cx), 350);
+    }
+  }catch(e){}
+}
 const CAIXAS_MASTER=['1.000','2.000','3.000','4.000','5.000','6.000','7.000','8.000','9.000','10.000'];
 async function formEntradaEstoque(){
   const [prods, mats] = await Promise.all([api('/produtos').catch(()=>[]), api('/materiais').catch(()=>[])]);
@@ -1778,8 +1857,9 @@ function imprimirEtqUnidades(pecas, meta){
   meta = meta||{};
   const n = (pecas||[]).length;
   const pages=(pecas||[]).map(p=>`<div class="page"><div class="ul">
+      ${p.ref?`<div class="ulref">REF ${esc(p.ref)}</div>`:''}
       <div class="ulp">${esc(p.descricao)}</div>
-      <div class="uld">${esc(p.cor||'')} ${p.tamanho?('· TAM '+esc(p.tamanho)):''}</div>
+      <div class="uld">${p.cor?esc(p.cor):''}${p.tamanho?((p.cor?' · ':'')+'TAM '+esc(p.tamanho)):''}</div>
       <img src="${p.barcode}">
       <div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
   const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir as etiquetas.','err'); return; }
@@ -1787,18 +1867,18 @@ function imprimirEtqUnidades(pecas, meta){
     <style id="upsz">@page{size:A4;margin:8mm}</style>
     <style>
     *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.6mm}
-    .ulp{font-size:10pt;font-weight:800;line-height:1.05} .uld{font-size:8pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
+    .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
+    .ulref{font-size:8pt;font-weight:700;color:#333} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
     /* Folha A4: grade de várias por página */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
     body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
-    body.a4mode .uld{height:2.2em} body.a4mode .ul img{height:11mm}
-    /* Zebra 100x50: 1 etiqueta por folha, centralizada */
+    body.a4mode .ul img{height:11mm}
+    /* Zebra 100x50: 1 etiqueta por folha; zona de silêncio horizontal p/ não cortar */
     body.z50mode .wrap{display:block}
     body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm}
     body.z50mode .page:last-child{page-break-after:auto}
-    body.z50mode .ul{width:100%;height:100%;padding:2mm}
-    body.z50mode .ulp{font-size:12pt} body.z50mode .uld{font-size:9pt} body.z50mode .ul img{height:16mm} body.z50mode .ulc{font-size:13pt;margin-top:.8mm}
+    body.z50mode .ul{width:100%;height:100%;padding:1.5mm 7mm}
+    body.z50mode .ulref{font-size:8.5pt} body.z50mode .ulp{font-size:11pt} body.z50mode .uld{font-size:9pt} body.z50mode .ul img{height:14mm} body.z50mode .ulc{font-size:12pt;margin-top:.5mm}
     @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
     body.z50mode{background:#eee}
     .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
@@ -2818,7 +2898,7 @@ function boot(){
   if(S.access && S.user){
     const allowed = ACCESS[S.user.acesso];
     S.route = (allowed==='*'||allowed.includes('dashboard'))?'dashboard':firstReady(allowed);
-    renderShell(); loadRoute();
+    renderShell(); loadRoute(); checkDeepLink();
   } else { renderLogin(); }
 }
 
@@ -3131,7 +3211,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip,
+  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

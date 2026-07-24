@@ -5,6 +5,7 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsInt() @IsPositive() produtoId?: number;
   @IsOptional() @IsInt() @IsPositive() materialId?: number;
   @IsOptional() @IsString() @MaxLength(160) descricao?: string;
+  @IsOptional() @IsString() @MaxLength(40) ref?: string;
   @IsOptional() @IsString() @MaxLength(40) cor?: string;
   @IsOptional() @IsString() @MaxLength(10) tamanho?: string;
   @IsInt() @Min(1) @Max(500) quantidade!: number;

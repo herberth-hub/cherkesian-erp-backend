@@ -21,7 +21,7 @@ export class EstoqueService {
    * direto à expedição. Retorna as unidades com código de barras p/ impressão.
    */
   async entrada(dto: {
-    tipo: string; produtoId?: number; materialId?: number; descricao?: string; cor?: string; tamanho?: string;
+    tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: number; caixaMaster?: string;
     pedidoId?: number; origem?: string;
   }, empresaId: number, usuario: string) {
@@ -29,16 +29,19 @@ export class EstoqueService {
     if (!qtd || qtd < 1) throw new BadRequestException('Informe a quantidade (>= 1).');
     if (qtd > 500) throw new BadRequestException('Máximo de 500 unidades por entrada.');
 
-    // Descrição: do produto/material se houver, senão a informada.
+    // Descrição + REF (código do produto/material) — vão na etiqueta.
     let descricao = dto.descricao;
+    let ref = dto.ref ?? '';
     if (dto.produtoId) {
       const p = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
       if (!p || p.empresaId !== empresaId) throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
       descricao = descricao ?? p.descricao;
+      ref = ref || p.codigo;
     } else if (dto.materialId) {
       const m = await this.prisma.material.findUnique({ where: { id: dto.materialId } });
       if (!m || m.empresaId !== empresaId) throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
       descricao = descricao ?? m.descricao;
+      ref = ref || m.codigo;
     }
     if (!descricao) throw new BadRequestException('Informe a descrição do item (ou selecione um produto/material).');
 
@@ -66,7 +69,7 @@ export class EstoqueService {
     const pecas = [];
     for (const c of criadas) {
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: c.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
-      pecas.push({ codigo: c.codigo, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+      pecas.push({ codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
     }
     return { loteEntrada, total: qtd, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
   }
@@ -107,6 +110,73 @@ export class EstoqueService {
       orderBy: { id: 'desc' },
       take: 500,
     });
+  }
+
+  // ===================== CAIXAS MASTER (etiqueta + conteúdo) =====================
+  /** Extrai só os dígitos do identificador da caixa (aceita "1.000", "CX-1000", URL "?caixa=1000"). */
+  private digitosCaixa(raw: string): string {
+    const s = String(raw ?? '');
+    const m = /caixa=([0-9.]+)/i.exec(s);
+    return (m ? m[1] : s).replace(/\D/g, '');
+  }
+
+  /** Formata os dígitos de volta para o padrão de exibição (1000 -> "1.000"). */
+  private fmtCaixa(digitos: string): string {
+    const n = Number(digitos || 0);
+    return n ? n.toLocaleString('pt-BR') : digitos;
+  }
+
+  /** Conteúdo de uma caixa master: unidades guardadas nela (não despachadas). */
+  async conteudoCaixa(codigoRaw: string, empresaId: number) {
+    const dig = this.digitosCaixa(codigoRaw);
+    if (!dig) throw new BadRequestException('Informe o número/QR da caixa master.');
+    const unidades = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, status: { not: 'despachado' }, caixaMaster: { not: null } },
+      orderBy: [{ descricao: 'asc' }, { tamanho: 'asc' }],
+      take: 1000,
+    });
+    const dentro = unidades.filter((u) => (u.caixaMaster ?? '').replace(/\D/g, '') === dig);
+    // Agrupa por item (descrição+cor+tamanho) para leitura rápida do que tem dentro.
+    const grupos = new Map<string, { descricao: string; cor: string; tamanho: string; quantidade: number; coluna?: string | null; andar?: number | null }>();
+    for (const u of dentro) {
+      const chave = `${u.descricao}|${u.cor ?? ''}|${u.tamanho ?? ''}`;
+      const g = grupos.get(chave) ?? { descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', quantidade: 0, coluna: u.coluna, andar: u.andar };
+      g.quantidade += 1;
+      grupos.set(chave, g);
+    }
+    const primeira = dentro[0];
+    return {
+      caixa: this.fmtCaixa(dig),
+      digitos: dig,
+      endereco: primeira ? `Coluna ${primeira.coluna ?? '—'} · Andar ${primeira.andar ?? '—'}` : null,
+      totalPecas: dentro.length,
+      itens: [...grupos.values()].sort((a, b) => b.quantidade - a.quantidade),
+      unidades: dentro.map((u) => ({ codigo: u.codigo, descricao: u.descricao, cor: u.cor, tamanho: u.tamanho, status: u.status })),
+    };
+  }
+
+  /** Gera as etiquetas das caixas master (número + QR + código de barras) p/ colar nas caixas. */
+  async etiquetasCaixas(empresaId: number, numsCsv?: string, base?: string) {
+    const padrao = ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000', '7.000', '8.000', '9.000', '10.000'];
+    const nums = (numsCsv ? numsCsv.split(',').map((s) => s.trim()).filter(Boolean) : padrao);
+    const baseUrl = (base ?? '').replace(/\/+$/, '');
+    const etiquetas = [];
+    for (const numero of nums) {
+      const dig = this.digitosCaixa(numero);
+      if (!dig) continue;
+      const codigo = `CX-${dig}`;
+      const urlQR = baseUrl ? `${baseUrl}/?caixa=${dig}` : codigo;
+      const [qr, barcode] = await Promise.all([
+        bwipjs.toBuffer({ bcid: 'qrcode', text: urlQR, scale: 4, padding: 0 }),
+        bwipjs.toBuffer({ bcid: 'code128', text: codigo, scale: 2, height: 12, includetext: false, padding: 0 }),
+      ]);
+      etiquetas.push({
+        numero: this.fmtCaixa(dig), digitos: dig, codigo,
+        qr: 'data:image/png;base64,' + qr.toString('base64'),
+        barcode: 'data:image/png;base64,' + barcode.toString('base64'),
+      });
+    }
+    return { total: etiquetas.length, etiquetas };
   }
 
   /** Baixa uma unidade do estoque (bipada na saída/expedição). Idempotente. */

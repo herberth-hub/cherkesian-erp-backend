@@ -46,6 +46,19 @@ export class EstoqueController {
     return this.estoqueService.enderecar(dto, user.empresaId, user.usuario);
   }
 
+  // ===== Caixas master (etiqueta p/ colar + leitura do conteúdo) =====
+  @Areas('estoque', 'producao')
+  @Get('caixas/etiquetas')
+  etiquetasCaixas(@Query('nums') nums: string, @Query('base') base: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.etiquetasCaixas(user.empresaId, nums, base);
+  }
+
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('caixa/:codigo')
+  conteudoCaixa(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.conteudoCaixa(codigo, user.empresaId);
+  }
+
   @Get(':codigo/lotes')
   lotes(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
     return this.estoqueService.lotesPorCodigo(codigo, user.empresaId);
