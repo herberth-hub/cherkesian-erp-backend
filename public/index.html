@@ -2117,6 +2117,7 @@ function nfAcoes(n){
   if(n.status==='autorizada'){
     b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id})">✉ E-mail</button>`);
     b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
+    b.push(`<button class="btn-sm" onclick="APP.baixarCartaCorrecao(${n.id})">🖨 CC-e</button>`);
     b.push(`<button class="btn-sm danger" onclick="APP.cancelarNfe(${n.id},'${esc(n.numero)}')">Cancelar</button>`);
   } else if(n.status!=='cancelada'){
     b.push(`<button class="btn-sm danger" onclick="APP.excluirNfe(${n.id},'${esc(n.numero)}')">Excluir</button>`);
@@ -2148,8 +2149,17 @@ async function cartaCorrecaoNfe(id){
   const corr=prompt('Texto da correção (CC-e, mín. 15 caracteres). NÃO pode alterar valores, destinatário, impostos ou datas:');
   if(corr===null) return;
   if(corr.trim().length<15){ toast('A correção precisa de ao menos 15 caracteres.','err'); return; }
-  try{ const r=await api('/nfe/'+id+'/carta-correcao',{method:'POST',body:{correcao:corr.trim()}}); toast(r.mensagem||'Carta de correção enviada.','ok'); }
-  catch(e){ toast('Falha na CC-e: '+(e.message||e),'err'); }
+  try{ const r=await api('/nfe/'+id+'/carta-correcao',{method:'POST',body:{correcao:corr.trim()}});
+    toast((r.mensagem||'Carta de correção enviada.')+' Gerando a impressão…','ok');
+    setTimeout(()=>baixarCartaCorrecao(id, true), 6000);
+  }catch(e){ toast('Falha na CC-e: '+(e.message||e),'err'); }
+}
+async function baixarCartaCorrecao(id, auto){
+  try{
+    const r=await fetch(API+'/nfe/'+id+'/carta-correcao/pdf',{headers:{Authorization:'Bearer '+S.access}});
+    if(!r.ok){ let m='A CC-e ainda está processando na SEFAZ. Aguarde alguns segundos e clique em "🖨 CC-e".'; try{const j=await r.json();m=j.message||m;}catch(e){} toast(m,'err'); return; }
+    const blob=await r.blob(); const url=URL.createObjectURL(blob); window.open(url,'_blank'); setTimeout(()=>URL.revokeObjectURL(url),30000);
+  }catch(e){ toast('Falha ao abrir a carta de correção: '+(e.message||e),'err'); }
 }
 async function enviarNfeEmail(id){
   const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (deixe em branco p/ usar o e-mail do cliente do pedido)');
@@ -2759,7 +2769,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, etiquetaExpedicao, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
   fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,

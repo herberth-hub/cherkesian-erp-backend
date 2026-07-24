@@ -103,6 +103,14 @@ export class NfeController {
     return new StreamableFile(a.content);
   }
 
+  /** Baixa/imprime o PDF da Carta de Correção (CC-e). */
+  @Get(':id/carta-correcao/pdf')
+  async cartaCorrecaoPdf(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
+    const a = await this.nfeService.cartaCorrecaoPdf(id, user.empresaId);
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `inline; filename="${a.filename}"` });
+    return new StreamableFile(a.content);
+  }
+
   /** Baixa o XML autorizado da nota. */
   @Get(':id/xml')
   @Areas('vendas', 'expedicao', 'receber')

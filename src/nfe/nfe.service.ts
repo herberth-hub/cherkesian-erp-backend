@@ -390,6 +390,23 @@ export class NfeService {
     return { ok: true, mensagem: 'Carta de correção enviada à SEFAZ.', correcao };
   }
 
+  /** Baixa o PDF da Carta de Correção (CC-e) processada na Focus. */
+  async cartaCorrecaoPdf(id: number, empresaId: number) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+    const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
+    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+    const host = this.focusHost();
+    const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
+    const det = (await (await fetch(`https://${host}/v2/nfe/${encodeURIComponent(this.refDaNota(nota))}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
+    const caminho = (det?.['caminho_pdf_carta_correcao'] ?? det?.['caminho_carta_correcao']) as string | undefined;
+    if (!caminho) throw new BadRequestException('Carta de correção ainda não disponível (a SEFAZ pode levar alguns segundos). Tente novamente.');
+    const res = await fetch(`https://${host}${caminho}`, { headers: { Authorization: auth } });
+    if (!res.ok) throw new BadRequestException('Falha ao baixar a carta de correção.');
+    return { content: Buffer.from(await res.arrayBuffer()), filename: `CCe-${String(nota.numero).replace('/', '-')}.pdf`, contentType: 'application/pdf' };
+  }
+
   /**
    * EXCLUI o registro local de uma nota NÃO autorizada (rejeitada/cancelada/
    * pendente-com-erro/simulada) e, se for o último número emitido, DEVOLVE o
