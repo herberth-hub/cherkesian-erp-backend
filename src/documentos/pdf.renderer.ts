@@ -78,30 +78,41 @@ export function secao(doc: Pdf, titulo: string): void {
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
-/** Par rótulo/valor em linha. */
+/** Par rótulo/valor em linha (rótulo em cima, valor embaixo — largura total). */
 export function campo(doc: Pdf, rotulo: string, valor: string): void {
-  const x = doc.x;
-  doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text(rotulo.toUpperCase(), x, doc.y, { continued: false });
-  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10.5).text(valor || '—');
+  const x = 50;
+  const w = doc.page.width - 100;
+  doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text(rotulo.toUpperCase(), x, doc.y, { width: w });
+  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10.5).text(valor || '—', x, doc.y + 1, { width: w });
+  doc.x = x;
   doc.moveDown(0.35);
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
-/** Grade de campos em 2 colunas. */
+/**
+ * Grade de campos em 2 colunas. Cada coluna tem largura FIXA e o texto quebra
+ * dentro dela; a linha avança pela altura do maior dos dois campos — assim
+ * rótulo e valor (ou as duas colunas) NUNCA se sobrepõem, seja qual for o tamanho.
+ */
 export function camposDuplos(doc: Pdf, pares: Array<[string, string]>): void {
   const xEsq = 50;
-  const xDir = doc.page.width / 2 + 10;
+  const gap = 22;
+  const colW = (doc.page.width - 100 - gap) / 2;
+  const xDir = xEsq + colW + gap;
+  const desenhar = (rotulo: string, valor: string, x: number, y: number): number => {
+    doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text((rotulo || '').toUpperCase(), x, y, { width: colW });
+    const yValor = doc.y + 1;
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10.5).text(valor || '—', x, yValor, { width: colW });
+    return doc.y; // fundo do campo
+  };
   for (let i = 0; i < pares.length; i += 2) {
-    const y = doc.y;
-    doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text(pares[i][0].toUpperCase(), xEsq, y);
-    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10.5).text(pares[i][1] || '—', xEsq, doc.y);
-    const yFim1 = doc.y;
-    if (pares[i + 1]) {
-      doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text(pares[i + 1][0].toUpperCase(), xDir, y);
-      doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10.5).text(pares[i + 1][1] || '—', xDir, doc.y);
-    }
+    const y0 = doc.y;
+    const yEsq = desenhar(pares[i][0], pares[i][1], xEsq, y0);
+    const yDir = pares[i + 1] ? desenhar(pares[i + 1][0], pares[i + 1][1], xDir, y0) : y0;
     doc.x = xEsq;
-    doc.y = Math.max(yFim1, doc.y) + 7;
+    doc.y = Math.max(yEsq, yDir) + 8;
   }
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
 /** Tabela simples com cabeçalho dourado. */
