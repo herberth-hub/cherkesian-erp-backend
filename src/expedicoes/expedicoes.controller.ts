@@ -33,4 +33,22 @@ export class ExpedicoesController {
   etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.etiqueta(id, user.empresaId);
   }
+
+  // ===== Dupla conferência + despacho =====
+  @Get(':id/conferencia')
+  conferencia(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.conferencia(id, user.empresaId);
+  }
+
+  @Post(':id/conferir')
+  @HttpCode(HttpStatus.OK)
+  conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario);
+  }
+
+  @Post(':id/despachar')
+  @HttpCode(HttpStatus.OK)
+  despachar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.despachar(id, user.empresaId, user.usuario);
+  }
 }

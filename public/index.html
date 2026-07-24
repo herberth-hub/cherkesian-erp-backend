@@ -1710,15 +1710,17 @@ async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
   c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()', relBtn('expedicoes')) + panelTable(
-    ['Número','Cliente','Peças','Transportadora','Rastreio','NF-e','Status','Data','Doc'],
+    ['Número','Cliente','Peças','NF-e','Conferência','Saída','Ações'],
     list.map(e=>[
-      `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
-      esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`,
+      `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)),
+      `${e.pecasConferidas||0}/${e.pecas}`,
       e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
-      `<span class="pill blue">${esc(e.status)}</span>`, dfmtL(e.data),
-      `<button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
+      confPill(e.conferenciaStatus),
+      e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
 }
+function confPill(s){ const m={pendente:['gray','pendente'],conferindo:['blue','conferindo'],conferida:['gold','conferida'],despachado:['green','despachado']}; const x=m[s]||['gray',s||'pendente']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 async function formExpedicao(){
   const [clientes, pedidos] = await Promise.all([api('/clientes'), api('/pedidos')]);
   const co = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
@@ -2088,6 +2090,56 @@ function etiquetaExpedicaoPrompt(expedicaoId){
   const n=prompt('Quantos volumes/caixas para gerar as etiquetas sequenciais (1/N, 2/N...)?','1');
   if(n===null) return;
   etiquetaExpedicao(expedicaoId, Math.max(1, Number(n)||1));
+}
+// ---------- Scanner por câmera (QR + código de barras via BarcodeDetector) ----------
+let _scan={stream:null,raf:null};
+async function abrirScanner(onCode){
+  if(!('BarcodeDetector' in window)){ toast('Seu navegador não suporta leitura por câmera. Use Chrome/Edge atualizado (PC ou Android) — ou um leitor USB.','err'); return; }
+  let ov=document.getElementById('scanov'); if(!ov){ ov=document.createElement('div'); ov.id='scanov'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px';
+  ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Aponte a câmera para o QR ou código de barras</div><video id="scanv" playsinline style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video><div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
+  document.getElementById('scanx').onclick=fecharScanner;
+  try{
+    const det=new window.BarcodeDetector({formats:['qr_code','code_128','ean_13','ean_8','code_39','upc_a','upc_e','itf','codabar']});
+    _scan.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const v=document.getElementById('scanv'); v.srcObject=_scan.stream; await v.play();
+    const loop=async()=>{ if(!_scan.stream) return; try{ const cs=await det.detect(v); if(cs&&cs.length){ const raw=cs[0].rawValue; fecharScanner(); if(onCode) onCode(raw); return; } }catch(e){} _scan.raf=requestAnimationFrame(loop); };
+    loop();
+  }catch(e){ const m=document.getElementById('scanm'); if(m) m.textContent='Não foi possível acessar a câmera: '+(e.message||e); }
+}
+function fecharScanner(){ try{ if(_scan.raf)cancelAnimationFrame(_scan.raf); if(_scan.stream)_scan.stream.getTracks().forEach(t=>t.stop()); }catch(e){} _scan={stream:null,raf:null}; const ov=document.getElementById('scanov'); if(ov) ov.remove(); }
+// ---------- Dupla conferência + despacho ----------
+async function formConferencia(id){
+  let c; try{ c=await api('/expedicoes/'+id+'/conferencia'); }catch(e){ toast(e.message,'err'); return; }
+  const pct=c.esperadas?Math.min(100,Math.round((c.conferidas/c.esperadas)*100)):0;
+  const conferida=c.status==='conferida'||c.status==='despachado';
+  const despachado=c.status==='despachado';
+  openModal(`<h3>Conferência · Expedição ${esc(c.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe cada peça (ou kit) do pedido. O despacho só libera após conferir tudo.</div>
+    <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
+    <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
+    ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
+      :`<div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+        <div style="flex:1"><input id="conf_bip" class="inp" placeholder="Bipe a peça/kit (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
+        <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
+        <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
+      </div>`}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>
+      ${conferida&&!despachado?`<button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Etiqueta master</button> <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar (registrar saída)</button>`:''}
+    </div>`);
+  const inp=$('conf_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+}
+async function conferirBip(id, codigo){
+  const cod=codigo||val('conf_bip'); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
+  try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod}});
+    toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
+    formConferencia(id);
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+async function despacharExp(id){
+  if(!confirm('Despachar a mercadoria?\n\nRegistra a DATA DE SAÍDA ao cliente e finaliza a expedição.')) return;
+  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST'}); toast(r.mensagem,'ok'); closeModal(); loadRoute(); }
+  catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){
   let emailSugerido = '';
@@ -2639,7 +2691,8 @@ async function viewKits(c){
     <div class="sect"><h3>Bipar kit (QR / código de barras)</h3>
       <div class="muted" style="font-size:12px;margin:-4px 0 8px">Escaneie o QR (ou digite o código) e escolha a ação. Operações são idempotentes.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-        <div style="flex:1;min-width:240px"><input id="kit_bip" class="inp" placeholder="Bipe o QR ou digite KIT-..." onkeydown="if(event.key==='Enter')APP.kitBipar('expedir')"></div>
+        <div style="flex:1;min-width:220px"><input id="kit_bip" class="inp" placeholder="Bipe o QR ou digite KIT-..." onkeydown="if(event.key==='Enter')APP.kitBipar('expedir')"></div>
+        <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('kit_bip').value=code;})">📷 Câmera</button>
         <button class="btn-primary" onclick="APP.kitBipar('expedir')">Expedir p/ facção</button>
         <button class="btn-sm" onclick="APP.kitBipar('retornar')">Retorno da facção</button>
         <button class="btn-sm" onclick="APP.kitBipar('conferir')">Conferir</button>
@@ -2803,7 +2856,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, formEmailDoc, sendEmailDoc,
+  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,

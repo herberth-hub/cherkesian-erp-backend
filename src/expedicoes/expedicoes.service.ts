@@ -155,6 +155,72 @@ export class ExpedicoesService {
     });
   }
 
+  // ===================== DUPLA CONFERÊNCIA + DESPACHO =====================
+  private async getExp(id: number, empresaId: number) {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id } });
+    if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    return exp;
+  }
+
+  private extrairCodigo(input: string): string {
+    const t = (input ?? '').trim();
+    if (t.startsWith('{')) { try { return String(JSON.parse(t).kit ?? '').trim() || t; } catch { return t; } }
+    return t;
+  }
+
+  async conferencia(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    return {
+      numero: exp.numero, esperadas: exp.pecas, conferidas: exp.pecasConferidas,
+      status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
+    };
+  }
+
+  /** Bipa uma peça unitária (ou um kit) na conferência de expedição. Idempotente para kits. */
+  async conferir(id: number, empresaId: number, codigoRaw: string, usuario: string) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível conferir.');
+    const codigo = this.extrairCodigo(codigoRaw);
+    if (!codigo) throw new BadRequestException('Bipe um código válido.');
+    const esperadas = exp.pecas;
+    const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
+    let add = 1;
+    let detalhe = codigo;
+    if (/^KIT-/i.test(codigo)) {
+      if (conferidos.includes(codigo)) {
+        return { ja: true, mensagem: `Kit ${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
+      }
+      const kit = await this.prisma.kit.findUnique({ where: { codigo } });
+      if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
+      add = kit.jogos || 1; conferidos.push(codigo); detalhe = `${codigo} (${add} pç)`;
+    } else {
+      conferidos.push(`${codigo}#${exp.pecasConferidas + 1}`);
+    }
+    const novas = Math.min(esperadas, exp.pecasConferidas + add);
+    const completou = novas >= esperadas;
+    await this.prisma.expedicao.update({
+      where: { id },
+      data: { pecasConferidas: novas, conferidos, conferenciaStatus: completou ? 'conferida' : 'conferindo', conferidoPor: usuario, ...(completou ? { conferidoEm: new Date() } : {}) },
+    });
+    return {
+      ja: false,
+      mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
+      conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
+    };
+  }
+
+  /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente. */
+  async despachar(id: number, empresaId: number, usuario: string) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') return { ja: true, mensagem: 'Expedição já despachada.', dataSaida: exp.dataSaida };
+    if (exp.conferenciaStatus !== 'conferida') throw new ConflictException(`Conclua a conferência (${exp.pecasConferidas}/${exp.pecas}) antes de despachar.`);
+    const now = new Date();
+    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
+    return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
+  }
+
   private async montarDados(
     dto: CreateExpedicaoDto,
     client: Prisma.TransactionClient | PrismaService,

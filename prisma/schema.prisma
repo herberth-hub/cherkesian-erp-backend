@@ -459,6 +459,14 @@ model Expedicao {
   pecas          Int
   loteId         Int?
   status         String   @default("Separado")
+  // ===== Dupla conferência + despacho =====
+  pecasConferidas   Int      @default(0)
+  conferenciaStatus String   @default("pendente") // pendente | conferindo | conferida | despachado
+  conferidos        Json?    // códigos já contados (idempotência da conferência)
+  conferidoPor      String?
+  conferidoEm       DateTime?
+  despachadoPor     String?
+  dataSaida         DateTime? // data de saída/despacho ao cliente
   data           DateTime @default(now())
 }
 
