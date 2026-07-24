@@ -1794,7 +1794,7 @@ async function etiquetasCaixasMaster(){
     /* A4 grade */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
     body.a4mode .page{border:1px solid #000;border-radius:6px;padding:4mm;break-inside:avoid;min-height:45mm;display:flex}
-    @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
+    @media print{ body{background:#fff} .bar{display:none!important} body.z50mode .page{margin:0} }
     .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
     .bar button{padding:6px 10px;cursor:pointer}
     </style></head><body class="z50mode">
@@ -1879,7 +1879,7 @@ function imprimirEtqUnidades(pecas, meta){
     body.z50mode .page:last-child{page-break-after:auto}
     body.z50mode .ul{width:100%;height:100%;padding:1.5mm 7mm}
     body.z50mode .ulref{font-size:8.5pt} body.z50mode .ulp{font-size:11pt} body.z50mode .uld{font-size:9pt} body.z50mode .ul img{height:14mm} body.z50mode .ulc{font-size:12pt;margin-top:.5mm}
-    @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
+    @media print{ body{background:#fff} .bar{display:none!important} body.z50mode .page{margin:0} }
     body.z50mode{background:#eee}
     .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
     .bar button{padding:6px 10px;cursor:pointer}
@@ -2377,7 +2377,7 @@ async function etiquetasUnitariasExp(id){
       body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
       body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
       body.a4mode .ul img{height:11mm} body.a4mode .uld{height:2.6em;overflow:hidden}
-      @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
+      @media print{ body{background:#fff} .bar{display:none!important} body.z50mode .page{margin:0} }
       .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
       .bar button{padding:6px 10px;cursor:pointer}
       </style></head><body class="z50mode">
