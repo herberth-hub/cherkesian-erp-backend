@@ -41,10 +41,15 @@ export class ExpedicoesService {
     const pedido = exp.pedidoId
       ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } })
       : null;
-    const prodIds = (pedido?.itens ?? []).map((i) => i.produtoId).filter((x): x is number => !!x);
+    // Expedição parcial: usa o snapshot (exp.itens); senão, os itens do pedido.
+    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; grade?: Record<string, number> | null }> | null;
+    const baseItens: Array<{ produtoId: number | null; descricao: string; quantidade: number; grade: unknown }> =
+      (snap && snap.length) ? snap.map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, quantidade: s.quantidade, grade: s.grade ?? null }))
+        : (pedido?.itens ?? []).map((i) => ({ produtoId: i.produtoId, descricao: i.descricao, quantidade: i.quantidade, grade: i.grade }));
+    const prodIds = baseItens.map((i) => i.produtoId).filter((x): x is number => !!x);
     const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : [];
     const codMap = new Map(produtos.map((p) => [p.id, p.codigo]));
-    const itens = (pedido?.itens ?? []).map((i) => {
+    const itens = baseItens.map((i) => {
       const g = i.grade as Record<string, number> | null;
       const grade = g && Object.keys(g).length ? Object.entries(g).map(([t, q]) => `${t}: ${q}`).join('   ') : '—';
       return { codigo: i.produtoId ? codMap.get(i.produtoId) ?? '—' : '—', descricao: i.descricao, grade, quantidade: i.quantidade };
@@ -135,37 +140,76 @@ export class ExpedicoesService {
    * a OP, cria a expedição com as peças do pedido e avança a etapa p/ expedição.
    * Depois é só emitir a NF a partir dessa expedição.
    */
-  async criarDoPedido(pedidoId: number, empresaId: number): Promise<Expedicao> {
-    const pedido = await this.prisma.pedido.findUnique({
-      where: { id: pedidoId },
-      include: { itens: true, cliente: true },
-    });
+  private async pedidoParaExpedir(pedidoId: number, empresaId: number) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { itens: true, cliente: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
     if (pedido.etapa === 'orcamento') throw new BadRequestException('Aprove o pedido antes de gerar a expedição.');
-    if (pedido.etapa === 'expedicao') throw new ConflictException('Pedido já está em expedição.');
-    const ja = await this.prisma.expedicao.findFirst({ where: { pedidoId } });
-    if (ja) throw new ConflictException(`Pedido já possui a expedição ${ja.numero}.`);
+    return pedido;
+  }
 
-    const pecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0) || 1;
+  /** Expedição TOTAL (do restante que ainda falta expedir). */
+  async criarDoPedido(pedidoId: number, empresaId: number): Promise<Expedicao> {
+    const pedido = await this.pedidoParaExpedir(pedidoId, empresaId);
+    const sel = pedido.itens
+      .map((it) => ({ item: it, qtd: it.quantidade - (it.quantidadeExpedida ?? 0) }))
+      .filter((x) => x.qtd > 0);
+    if (!sel.length) throw new ConflictException('Pedido já foi totalmente expedido.');
+    return this.criarExpedicao(pedido, sel, false);
+  }
+
+  /** Expedição PARCIAL: expede só as quantidades escolhidas; o residual fica em aberto. */
+  async criarParcial(pedidoId: number, dto: { itens: Array<{ pedidoItemId: number; quantidade: number }> }, empresaId: number): Promise<Expedicao> {
+    const pedido = await this.pedidoParaExpedir(pedidoId, empresaId);
+    const mapItem = new Map(pedido.itens.map((i) => [i.id, i]));
+    const sel: Array<{ item: (typeof pedido.itens)[number]; qtd: number }> = [];
+    for (const s of dto.itens ?? []) {
+      const it = mapItem.get(s.pedidoItemId);
+      if (!it) throw new BadRequestException(`Item ${s.pedidoItemId} não pertence ao pedido ${pedido.numero}.`);
+      const residual = it.quantidade - (it.quantidadeExpedida ?? 0);
+      const q = Math.floor(Number(s.quantidade) || 0);
+      if (q < 0 || q > residual) throw new BadRequestException(`Quantidade inválida para "${it.descricao}" (residual disponível: ${residual}).`);
+      if (q > 0) sel.push({ item: it, qtd: q });
+    }
+    if (!sel.length) throw new BadRequestException('Informe ao menos uma quantidade para expedir.');
+    return this.criarExpedicao(pedido, sel, true);
+  }
+
+  private async criarExpedicao(
+    pedido: { id: number; numero: string; clienteId: number; cliente: { logradouro: string | null; cidadeUf: string | null; municipio: string | null; uf: string | null; cep: string | null } },
+    sel: Array<{ item: { id: number; produtoId: number | null; descricao: string; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown }; qtd: number }>,
+    parcial: boolean,
+  ): Promise<Expedicao> {
+    const itensSnap = sel.map(({ item, qtd }) => ({
+      pedidoItemId: item.id,
+      produtoId: item.produtoId,
+      descricao: item.descricao,
+      quantidade: qtd,
+      valorUnit: Number(item.valorUnit),
+      // grade só quando expede o item inteiro de uma vez (senão o tamanho fica indefinido)
+      grade: qtd === item.quantidade && (item.quantidadeExpedida ?? 0) === 0 ? (item.grade ?? null) : null,
+    }));
+    const pecas = sel.reduce((s, x) => s + x.qtd, 0) || 1;
     const c = pedido.cliente;
     const cidadeUf = c.cidadeUf ?? (c.municipio && c.uf ? `${c.municipio}/${c.uf}` : undefined);
     return this.prisma.$transaction(async (tx) => {
       const numero = await this.gerarNumero(tx);
       const exp = await tx.expedicao.create({
         data: {
-          numero,
-          pedidoId,
-          clienteId: pedido.clienteId,
-          pecas,
-          endereco: c.logradouro ?? undefined,
-          cidadeUf,
-          cep: c.cep ?? undefined,
-          volumes: 1,
-          rastreio: this.gerarRastreio(),
-          status: 'Separado',
+          numero, pedidoId: pedido.id, clienteId: pedido.clienteId, pecas,
+          endereco: c.logradouro ?? undefined, cidadeUf, cep: c.cep ?? undefined,
+          volumes: 1, rastreio: this.gerarRastreio(), status: 'Separado',
+          parcial, itens: itensSnap as unknown as Prisma.InputJsonValue,
         },
       });
-      await tx.pedido.update({ where: { id: pedidoId }, data: { etapa: 'expedicao', status: 'Expedição' } });
+      for (const { item, qtd } of sel) {
+        await tx.pedidoItem.update({ where: { id: item.id }, data: { quantidadeExpedida: { increment: qtd } } });
+      }
+      const atual = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true, quantidadeExpedida: true } });
+      const totalmente = atual.every((i) => (i.quantidadeExpedida ?? 0) >= i.quantidade);
+      await tx.pedido.update({
+        where: { id: pedido.id },
+        data: totalmente ? { etapa: 'expedicao', status: 'Expedição' } : { status: 'Expedição parcial' },
+      });
       return exp;
     });
   }

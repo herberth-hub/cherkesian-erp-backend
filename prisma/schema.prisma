@@ -126,6 +126,7 @@ model Filial {
   ibsMunAliquota    Decimal? @db.Decimal(6,4)      // ex.: 0.0000 (IBS municipal, 2026)
   ibsCbsCst         String?  @default("000")        // CST do IBS/CBS
   ibsCbsClassTrib   String?  @default("000001")     // cClassTrib (classificação tributária)
+  pesoMedioPeca     Decimal? @db.Decimal(8,3)       // kg por peça (estimativa p/ peso bruto/líquido na NF)
   nomeFantasia      String?
   logradouro        String?
   numeroEndereco    String?
@@ -365,14 +366,15 @@ model Pedido {
 }
 
 model PedidoItem {
-  id         Int     @id @default(autoincrement())
-  pedidoId   Int
-  pedido     Pedido  @relation(fields: [pedidoId], references: [id])
-  produtoId  Int?
-  descricao  String
-  quantidade Int
-  valorUnit  Decimal @db.Decimal(12,2)
-  grade      Json?   // qtd por tamanho, ex.: {"PP":8,"M":2,"G":2}
+  id                 Int     @id @default(autoincrement())
+  pedidoId           Int
+  pedido             Pedido  @relation(fields: [pedidoId], references: [id])
+  produtoId          Int?
+  descricao          String
+  quantidade         Int
+  quantidadeExpedida Int     @default(0) // já expedido (faturamento parcial); residual = quantidade - expedida
+  valorUnit          Decimal @db.Decimal(12,2)
+  grade              Json?   // qtd por tamanho, ex.: {"PP":8,"M":2,"G":2}
 }
 
 model Piloto {
@@ -465,6 +467,8 @@ model Expedicao {
   volumes        Int      @default(1)
   pecas          Int
   loteId         Int?
+  parcial        Boolean  @default(false) // expedição/faturamento parcial do pedido
+  itens          Json?    // snapshot dos itens desta expedição (parcial): [{produtoId,descricao,quantidade,valorUnit,grade?}]
   status         String   @default("Separado")
   // ===== Dupla conferência + despacho =====
   pecasConferidas   Int      @default(0)

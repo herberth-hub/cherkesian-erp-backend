@@ -28,6 +28,17 @@ export class ExpedicoesController {
     return this.expedicoesService.criarDoPedido(pedidoId, user.empresaId);
   }
 
+  @Areas('vendas', 'expedicao')
+  @Post('parcial/:pedidoId')
+  @HttpCode(HttpStatus.CREATED)
+  criarParcial(
+    @Param('pedidoId', ParseIntPipe) pedidoId: number,
+    @Body() dto: { itens: Array<{ pedidoItemId: number; quantidade: number }> },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.expedicoesService.criarParcial(pedidoId, dto, user.empresaId);
+  }
+
   /** Etiqueta de expedição (QR + código de barras) preenchida do pedido. */
   @Get(':id/etiqueta')
   etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

@@ -41,4 +41,5 @@ export class UpdateFilialDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) ibsMunAliquota?: number;
   @IsOptional() @IsString() @MaxLength(4) ibsCbsCst?: string;
   @IsOptional() @IsString() @MaxLength(10) ibsCbsClassTrib?: string;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) pesoMedioPeca?: number;
 }

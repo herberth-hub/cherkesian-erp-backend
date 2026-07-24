@@ -53,8 +53,17 @@ export class NfeService {
     const pedido = exp.pedidoId
       ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } })
       : null;
-    const itens = pedido?.itens ?? [];
-    const valor = pedido?.valorTotal ?? new Prisma.Decimal(0);
+    // Expedição PARCIAL: a NF reflete só o que foi expedido (snapshot em exp.itens).
+    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
+    let itens: Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: Prisma.Decimal; grade?: Record<string, number> | null }>;
+    let valor: Prisma.Decimal;
+    if (snap && snap.length) {
+      itens = snap.map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
+      valor = itens.reduce((acc, it) => acc.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
+    } else {
+      itens = (pedido?.itens ?? []) as typeof itens;
+      valor = pedido?.valorTotal ?? new Prisma.Decimal(0);
+    }
 
     // Emitente = filial do pedido; se não houver, a matriz da empresa.
     let filial = pedido?.filialId
@@ -785,6 +794,11 @@ export class NfeService {
       return item;
     });
 
+    // Peso bruto/líquido estimado: total de peças × peso médio por peça (config. por empresa).
+    const pesoMedio = emitente.pesoMedioPeca != null ? Number(emitente.pesoMedioPeca) : 0.3;
+    const totalPecasNf = itens.reduce((s, it) => s + Number(it.quantidade), 0);
+    const pesoBrutoNf = Number((totalPecasNf * pesoMedio).toFixed(3));
+
     return {
       natureza_operacao: 'Venda de mercadoria',
       data_emissao: new Date().toISOString(),
@@ -808,7 +822,11 @@ export class NfeService {
       uf_destinatario: cliente.uf,
       cep_destinatario: digitos(cliente.cep),
       valor_total: Number(valorTotal.toFixed(2)),
+      // Volume e peso (importante p/ o cliente conferir no recebimento).
       volumes_quantidade: extra?.volumes ?? exp.pecas,
+      volumes_especie: 'Caixa',
+      volumes_peso_liquido: pesoBrutoNf,
+      volumes_peso_bruto: pesoBrutoNf,
       ...(extra?.duplicatas && extra.duplicatas.length
         ? {
             // Grupo de cobrança (fatura + duplicatas) — leva o vencimento p/ o cliente.

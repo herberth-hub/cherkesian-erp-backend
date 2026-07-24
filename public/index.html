@@ -760,7 +760,7 @@ function pedidoAcoes(p){
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
-    if(p.etapa!=='expedicao') b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir (s/ OP)</button> `;
+    if(p.etapa!=='expedicao'){ b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir tudo</button> <button class="btn-sm" onclick="APP.formExpParcial(${p.id})">📦 Expedição parcial</button> `; }
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
   }
   // Editar/Excluir liberados até a produção começar (antes de gerar OP).
@@ -772,6 +772,41 @@ function pedidoAcoes(p){
   return b||'<span class="muted">—</span>';
 }
 
+async function formExpParcial(pedidoId){
+  let ped; try{ ped=await api('/pedidos/'+pedidoId); }catch(e){ toast(e.message,'err'); return; }
+  const itens = ped.itens||[];
+  const rows = itens.map(it=>{
+    const exp = it.quantidadeExpedida||0;
+    const res = it.quantidade - exp;
+    return `<tr>
+      <td style="padding:6px 8px;border-top:1px solid #eee">${esc(it.descricao)}</td>
+      <td style="text-align:center;border-top:1px solid #eee">${it.quantidade}</td>
+      <td style="text-align:center;border-top:1px solid #eee">${exp}</td>
+      <td style="text-align:center;border-top:1px solid #eee;font-weight:700;${res>0?'':'color:#aaa'}">${res}</td>
+      <td style="text-align:center;border-top:1px solid #eee"><input type="number" min="0" max="${res}" value="${res>0?res:0}" ${res>0?'':'disabled'} class="inp expq" data-item="${it.id}" style="width:72px;text-align:center;padding:4px"></td>
+    </tr>`;
+  }).join('');
+  openModal(`<h3>📦 Expedição parcial · <span class="mono gold">${esc(ped.numero)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Informe quanto expedir agora de cada item. O que sobrar fica em <b>residual em aberto</b> aguardando finalizar — você não perde o controle do que falta enviar.</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;border:1px solid #e7e3d8;border-radius:8px;overflow:hidden">
+      <thead><tr>
+        <th style="text-align:left;padding:7px 8px;background:#22304a;color:#fff;font-size:11px">Item</th>
+        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Pedido</th>
+        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Já expedido</th>
+        <th style="padding:7px;background:#22304a;color:#fff;font-size:11px">Residual</th>
+        <th style="padding:7px;background:#C9A227;color:#241c00;font-size:11px">Expedir agora</th>
+      </tr></thead><tbody>${rows||'<tr><td colspan=5 class="muted" style="padding:10px">Pedido sem itens.</td></tr>'}</tbody></table></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveExpParcial(${pedidoId})">Gerar expedição parcial</button></div>`);
+}
+async function saveExpParcial(pedidoId){
+  const itens=[];
+  document.querySelectorAll('.expq').forEach(inp=>{ const q=Number(inp.value||0); if(q>0) itens.push({pedidoItemId:Number(inp.dataset.item), quantidade:q}); });
+  if(!itens.length){ toast('Informe ao menos uma quantidade para expedir.','err'); return; }
+  try{ const e=await api('/expedicoes/parcial/'+pedidoId,{method:'POST',body:{itens}});
+    closeModal(); toast('Expedição parcial '+e.numero+' criada. Emita a NF na tela de Expedição.','ok'); loadRoute();
+  }catch(err){ toast(err.message,'err'); }
+}
 function toolbar(title, btn, action, extra){
   const primary = btn?`<button class="btn-primary" onclick="${action}">+ ${esc(btn)}</button>`:'';
   const right = (extra||'')+primary;
@@ -2630,11 +2665,11 @@ async function viewNotas(c){
   const list = await api('/nfe');
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
   c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', relBtn('nfs')) + panelTable(
-    ['Número','Série','Status','Valor','Chave de acesso','Provedor','Emitida em','Ações'],
+    ['Número','Série','Status','Valor','Chave de acesso','Emitida em','Ações'],
     list.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
-      esc(n.provedor), n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
+      n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
       nfAcoes(n)
     ]), list.length?null:'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.');
 }
@@ -3018,6 +3053,7 @@ function formFilial(id){
     <div class="grid2"><div class="mrow"><label class="fl">Regime</label><select id="fl_regime" class="inp">
         ${[['lucro_presumido','Lucro Presumido'],['lucro_real','Lucro Real'],['simples','Simples Nacional']].map(([v,t])=>`<option value="${v}" ${((f.regimeTributario||'lucro_presumido')===v)?'selected':''}>${t}</option>`).join('')}
       </select></div>${field('fl_icmsint','ICMS interno (%)','type="number" step="0.01" value="'+(f.icmsInterno??18)+'"')}</div>
+    <div class="grid2">${field('fl_peso','Peso médio por peça (kg) — p/ peso na NF','type="number" step="0.001" value="'+(f.pesoMedioPeca??'0.300')+'" placeholder="ex.: 0,300"')}<div></div></div>
     <div class="grid3">${field('fl_pis','PIS (%)','type="number" step="0.0001" value="'+(f.pisAliquota??'')+'" placeholder="0,65 ou 1,65"')}${field('fl_cofins','COFINS (%)','type="number" step="0.0001" value="'+(f.cofinsAliquota??'')+'" placeholder="3 ou 7,6"')}${field('fl_pccst','CST PIS/COFINS','value="'+esc(f.pisCofinsCst||'01')+'" placeholder="01 (normal) / 49 (Simples)"')}</div>
     <div class="grid2">${field('fl_icmscst','CST ICMS padrão','value="'+esc(f.icmsCstPadrao||'00')+'"')}${field('fl_csosn','CSOSN (só Simples)','value="'+esc(f.csosn||'')+'" placeholder="ex.: 102"')}</div>
     <div class="muted" style="font-size:11px;margin-bottom:8px">Presumido: PIS 0,65 · COFINS 3 · CST 01. Lucro Real: PIS 1,65 · COFINS 7,6 · CST 01. Simples: CSOSN + CST 49. O ICMS é excluído da base do PIS/COFINS (tese do século).</div>
@@ -3039,6 +3075,7 @@ async function saveFilial(id){
     regimeTributario:val('fl_regime')||'lucro_presumido', icmsCstPadrao:val('fl_icmscst')||undefined, pisCofinsCst:val('fl_pccst')||undefined, csosn:val('fl_csosn')||undefined };
   const _n=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
   body.icmsInterno=_n('fl_icmsint'); body.pisAliquota=_n('fl_pis'); body.cofinsAliquota=_n('fl_cofins');
+  body.pesoMedioPeca=_n('fl_peso');
   // Reforma Tributária (IBS/CBS)
   body.reformaAtiva=$('fl_reforma').checked;
   body.cbsAliquota=_n('fl_cbs'); body.ibsUfAliquota=_n('fl_ibsuf'); body.ibsMunAliquota=_n('fl_ibsmun');
@@ -3381,7 +3418,7 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, excluirPedido, gerarOp, prodFiltrar,
+  formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
