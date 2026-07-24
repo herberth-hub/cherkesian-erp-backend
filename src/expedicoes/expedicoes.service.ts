@@ -31,7 +31,7 @@ export class ExpedicoesService {
     const codMap = new Map(produtos.map((p) => [p.id, p.codigo]));
     const itens = (pedido?.itens ?? []).map((i) => {
       const g = i.grade as Record<string, number> | null;
-      const grade = g && Object.keys(g).length ? Object.keys(g).join(' – ') : '—';
+      const grade = g && Object.keys(g).length ? Object.entries(g).map(([t, q]) => `${t}: ${q}`).join('   ') : '—';
       return { codigo: i.produtoId ? codMap.get(i.produtoId) ?? '—' : '—', descricao: i.descricao, grade, quantidade: i.quantidade };
     });
     const totalPecas = itens.reduce((s, i) => s + i.quantidade, 0) || exp.pecas;
