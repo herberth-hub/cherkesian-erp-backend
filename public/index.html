@@ -1195,11 +1195,23 @@ async function formPedido(id){
     <label class="fl">Itens</label>
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
-    <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}${field('f_pag','Forma de pagamento','placeholder="ex.: 50% sinal + 50% 28DDL"'+(ped&&ped.formaPagamento?' value="'+esc(ped.formaPagamento)+'"':''))}</div>
+    <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     ${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
   renderItens();
+  calcVenc();
+}
+// Calcula o vencimento estimado a partir da forma de pagamento (ex.: "20 DDL", "30/60/90").
+function calcVenc(){
+  const el=$('f_pag_venc'); if(!el) return;
+  const forma=val('f_pag');
+  const dias=[...(forma||'').matchAll(/(\d{1,3})/g)].map(m=>parseInt(m[1],10)).filter(d=>d>0&&d<=360).sort((a,b)=>a-b);
+  if(!dias.length){ el.innerHTML = forma?'<span style="color:#3a8f4f">À vista / sem prazo</span>':''; return; }
+  const hoje=new Date();
+  const fmt=d=>{ const x=new Date(hoje); x.setDate(x.getDate()+d); return x.toLocaleDateString('pt-BR'); };
+  const txt = dias.map(d=>'<b>'+fmt(d)+'</b> ('+d+'d)').join(' · ');
+  el.innerHTML = '📅 Vencimento: '+txt+' <span style="color:#8a8674">— a partir do faturamento</span>';
 }
 function prodLabel(p){ return p.codigo+' · '+p.descricao; }
 function prodByLabel(list,v){ if(!v) return null; v=String(v).trim(); const code=(v.split('·')[0]||v).trim(); return (list||[]).find(x=>prodLabel(x)===v||x.codigo===code||x.descricao===v)||null; }
@@ -3359,7 +3371,7 @@ window.APP = {
   go(r){ go(r); },
   closeModal, formCliente, saveCliente, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, excluirPedido, gerarOp, prodFiltrar,
+  formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,

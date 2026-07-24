@@ -234,11 +234,20 @@ export class DocumentosService {
       ['Cidade/UF', pedido.cliente.cidadeUf ?? '—'],
     ]);
 
+    // Vencimento calculado a partir da forma de pagamento (ex.: "20 DDL", "30/60/90").
+    const diasPg = [...String(pedido.formaPagamento ?? '').matchAll(/(\d{1,3})/g)]
+      .map((m) => parseInt(m[1], 10)).filter((d) => d > 0 && d <= 360).sort((a, b) => a - b);
+    const baseVenc = pedido.data ? new Date(pedido.data) : new Date();
+    const vencimentoTxt = diasPg.length
+      ? diasPg.map((d) => { const x = new Date(baseVenc); x.setDate(x.getDate() + d); return dataBR(x); }).join(', ')
+      : 'à vista';
+
     secao(doc, 'Dados do pedido');
     camposDuplos(doc, [
       ['Número do pedido', pedido.numero],
       ['Data', dataBR(pedido.data)],
       ['Forma de pagamento', pedido.formaPagamento ?? 'a combinar'],
+      ['Vencimento', vencimentoTxt],
       ['Etapa atual', pedido.etapa],
     ]);
 
@@ -253,9 +262,13 @@ export class DocumentosService {
       ],
       pedido.itens.map((i) => {
         const g = i.grade as Record<string, number> | null;
-        const gradeTxt = g && Object.keys(g).length
-          ? '\nGrade: ' + Object.entries(g).map(([t, q]) => `${t}: ${q}`).join('   ')
-          : '';
+        // Grade enxuta: só tamanhos com peça + total (estilo minimalista).
+        let gradeTxt = '';
+        if (g && Object.keys(g).length) {
+          const ent = Object.entries(g).filter(([, q]) => Number(q) > 0);
+          const total = ent.reduce((s, [, q]) => s + Number(q), 0);
+          if (ent.length) gradeTxt = '\nGrade:  ' + ent.map(([t, q]) => `${t} ${q}`).join('   ') + `    |    Total ${total}`;
+        }
         return [
           i.descricao + gradeTxt,
           String(i.quantidade),
