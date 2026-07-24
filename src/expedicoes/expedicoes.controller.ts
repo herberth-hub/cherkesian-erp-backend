@@ -27,4 +27,10 @@ export class ExpedicoesController {
   criarDoPedido(@Param('pedidoId', ParseIntPipe) pedidoId: number, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.criarDoPedido(pedidoId, user.empresaId);
   }
+
+  /** Etiqueta de expedição (QR + código de barras) preenchida do pedido. */
+  @Get(':id/etiqueta')
+  etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.etiqueta(id, user.empresaId);
+  }
 }

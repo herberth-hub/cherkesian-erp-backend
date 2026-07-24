@@ -1716,7 +1716,7 @@ async function viewExpedicao(c){
       esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`,
       e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
       `<span class="pill blue">${esc(e.status)}</span>`, dfmtL(e.data),
-      `<button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
+      `<button class="btn-sm" onclick="APP.etiquetaExpedicao(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
 }
 async function formExpedicao(){
@@ -2002,11 +2002,70 @@ async function emitirNfe(expedicaoId){
   try{
     const n = await api('/nfe/emitir',{method:'POST',body:{expedicaoId}});
     if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
-    else if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
+    else if(n.status==='rejeitada'){ toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err'); loadRoute(); return; }
     else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — aguardando autorização.','ok');
     else toast('NF '+n.numero+' — '+n.status+'.','ok');
+    // Abre automaticamente a etiqueta de expedição (preenchida do pedido).
+    await etiquetaExpedicao(expedicaoId);
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
+}
+async function etiquetaExpedicao(expedicaoId){
+  try{
+    const d = await api('/expedicoes/'+expedicaoId+'/etiqueta');
+    const rows = (d.itens||[]).map(i=>`<tr><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td style="text-align:center">${esc(i.grade)}</td><td style="text-align:right;font-weight:700">${i.quantidade}</td></tr>`).join('');
+    const dataBR = new Date(d.data).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
+    const w = window.open('','_blank','width=1000,height=760'); if(!w){ toast('Libere o pop-up para a etiqueta de expedição.','err'); return; }
+    w.document.write(`<html><head><title>Etiqueta expedição ${esc(d.numero)}</title><meta charset="utf-8"><style>
+      @page{size:A4 landscape;margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#0a0a0a}
+      .lab{border:2px solid #0a0a0a;border-radius:8px;overflow:hidden;max-width:1000px;margin:0 auto}
+      .hd{background:#0a0a0a;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 18px}
+      .hd h1{margin:0;font-size:24px;letter-spacing:1px} .hd .emp{font-size:16px;font-weight:700}
+      .body{display:grid;grid-template-columns:1fr 1fr;gap:0}
+      .col{padding:12px 16px} .col.l{border-right:1px solid #0a0a0a}
+      .lbl{font-size:10px;color:#555;letter-spacing:.5px;text-transform:uppercase} .val{font-size:18px;font-weight:800;margin-bottom:8px}
+      .row2{display:flex;gap:24px} .qrbox{display:flex;gap:14px;align-items:center;margin-top:6px}
+      .qrbox img.qr{width:150px;height:150px} .meta div{margin-bottom:6px}
+      .barcode-code{font-family:'Courier New',monospace;font-weight:800;font-size:16px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px} th{background:#0a0a0a;color:#fff;text-align:left;padding:5px 6px;font-size:10px}
+      td{padding:5px 6px;border-bottom:1px solid #ddd} .tot{display:flex;justify-content:space-between;font-weight:800;font-size:16px;padding:6px 6px;border-top:2px solid #0a0a0a}
+      .foot{background:#0a0a0a;color:#fff;display:flex;justify-content:space-between;padding:8px 18px;font-size:12px;font-weight:700}
+      .obs{border-top:1px solid #0a0a0a;padding:10px 16px} .linha{border-bottom:1px solid #999;height:16px;margin:6px 0}
+      .bcbig{display:flex;flex-direction:column;align-items:flex-start} .bcbig img{height:60px}
+      .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
+    </style></head><body>
+    <div class="bar"><button onclick="window.print()">Imprimir</button></div>
+    <div class="lab">
+      <div class="hd"><h1>EXPEDIÇÃO</h1><div class="emp">📦 ${esc(d.empresa?d.empresa.nome:'')}</div></div>
+      <div class="body">
+        <div class="col l">
+          <div class="row2"><div><div class="lbl">Pedido</div><div class="val">${esc(d.pedido)}</div></div>
+            <div><div class="lbl">Data de expedição</div><div class="val">${esc(dataBR)}</div></div></div>
+          <div class="lbl">Código de expedição</div>
+          <div class="qrbox"><img class="qr" src="${d.qr}">
+            <div class="meta">
+              <div><div class="lbl">Código (BIP)</div><div class="barcode-code">${esc(d.codBip)}</div></div>
+              <div><div class="lbl">Lote do tecido</div><div style="font-weight:700">${esc(d.lote||'—')}</div></div>
+              <div><div class="lbl">Total de caixas</div><div style="font-weight:700">${d.volumes||1}</div></div>
+              <div><div class="lbl">Peso total</div><div style="font-weight:700">______ kg</div></div>
+            </div></div>
+        </div>
+        <div class="col">
+          <div class="lbl">Destino</div>
+          <div class="val" style="margin-bottom:2px">${esc(d.destino.nome)}</div>
+          <div style="font-size:12px;line-height:1.5">${esc(d.destino.endereco)}<br>${esc(d.destino.cidadeUf)} · CEP ${esc(d.destino.cep)}<br>CNPJ: ${esc(d.destino.cnpj)}</div>
+          <div class="lbl" style="margin-top:10px">Resumo da expedição</div>
+          <table><thead><tr><th>Peça</th><th>Descrição</th><th style="text-align:center">Grade</th><th style="text-align:right">Qtde</th></tr></thead><tbody>${rows||'<tr><td colspan=4>—</td></tr>'}</tbody></table>
+          <div class="tot"><span>TOTAL DE PEÇAS:</span><span>${d.totalPecas}</span></div>
+        </div>
+      </div>
+      <div class="obs"><div class="lbl">Código de barras (BIP)</div><div class="bcbig"><img src="${d.barcode}"><div class="barcode-code">${esc(d.codBip)}</div></div>
+        <div class="lbl" style="margin-top:8px">Observações</div><div class="linha"></div><div class="linha"></div></div>
+      <div class="foot"><span>🚚 CONFERIR MERCADORIA NO ATO DO RECEBIMENTO</span><span>⚠️ QUALQUER DIVERGÊNCIA, INFORMAR IMEDIATAMENTE</span></div>
+    </div></body></html>`);
+    w.document.close();
+    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
+  }catch(e){ toast('Falha ao gerar etiqueta: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){
   let emailSugerido = '';
@@ -2698,7 +2757,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, formEmailDoc, sendEmailDoc,
+  emitirNfe, etiquetaExpedicao, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,

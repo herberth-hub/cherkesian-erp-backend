@@ -9,9 +9,59 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
+// bwip-js gera QR Code e código de barras (Code128) como PNG.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
+
 @Injectable()
 export class ExpedicoesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Dados da etiqueta de expedição (preenchida do pedido) + QR e código de barras. */
+  async etiqueta(id: number, empresaId: number) {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id } });
+    if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    const pedido = exp.pedidoId
+      ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } })
+      : null;
+    const prodIds = (pedido?.itens ?? []).map((i) => i.produtoId).filter((x): x is number => !!x);
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : [];
+    const codMap = new Map(produtos.map((p) => [p.id, p.codigo]));
+    const itens = (pedido?.itens ?? []).map((i) => {
+      const g = i.grade as Record<string, number> | null;
+      const grade = g && Object.keys(g).length ? Object.keys(g).join(' – ') : '—';
+      return { codigo: i.produtoId ? codMap.get(i.produtoId) ?? '—' : '—', descricao: i.descricao, grade, quantidade: i.quantidade };
+    });
+    const totalPecas = itens.reduce((s, i) => s + i.quantidade, 0) || exp.pecas;
+    const codBip = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const emp = pedido?.filial;
+    const [qr, barcode] = await Promise.all([
+      bwipjs.toBuffer({ bcid: 'qrcode', text: codBip, scale: 4, padding: 0 }),
+      bwipjs.toBuffer({ bcid: 'code128', text: codBip, scale: 2, height: 14, includetext: false, padding: 0 }),
+    ]);
+    return {
+      empresa: emp ? { nome: emp.nome, cnpj: emp.cnpj } : { nome: 'GRUPO CHERKESIAN', cnpj: null },
+      numero: exp.numero,
+      pedido: pedido?.numero ?? '—',
+      data: new Date().toISOString(),
+      codBip,
+      destino: {
+        nome: cliente.nome,
+        endereco: cliente.logradouro ?? '—',
+        cidadeUf: cliente.cidadeUf ?? (cliente.municipio && cliente.uf ? `${cliente.municipio}/${cliente.uf}` : '—'),
+        cep: cliente.cep ?? '—',
+        cnpj: cliente.cnpjCpf ?? '—',
+      },
+      lote: exp.loteId ? String(exp.loteId) : null,
+      volumes: exp.volumes,
+      itens,
+      totalPecas,
+      qr: 'data:image/png;base64,' + qr.toString('base64'),
+      barcode: 'data:image/png;base64,' + barcode.toString('base64'),
+    };
+  }
 
   async findAll(empresaId: number): Promise<Expedicao[]> {
     const clienteIds = await this.clienteIdsDaEmpresa(empresaId);
