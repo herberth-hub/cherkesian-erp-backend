@@ -942,6 +942,30 @@ function uiAlert(o){ return uiDialog(Object.assign({tipo:'info',cancel:false},o)
 function field(id,label,attrs){ return `<div class="mrow"><label class="fl">${esc(label)}</label><input id="${id}" class="inp" ${attrs||''}></div>`; }
 function val(id){ const e=$(id); return e?e.value.trim():''; }
 
+// ===== Busca automática de CNPJ (Receita) e CEP (endereço) =====
+async function lookupCnpj(cnpjId, map){
+  const dig=(val(cnpjId)||'').replace(/\D/g,'');
+  if(dig.length!==14){ toast('Digite o CNPJ completo (14 dígitos) para buscar.','err'); return; }
+  toast('Buscando dados do CNPJ…','ok');
+  try{
+    const d=await api('/lookup/cnpj/'+dig);
+    for(const k in map){ if(k==='_cidadeUf') continue; const el=$(map[k]); if(el && d[k]!=null && d[k]!=='') el.value=d[k]; }
+    if(map._cidadeUf){ const el=$(map._cidadeUf); if(el && (d.municipio||d.uf)) el.value=(d.municipio||'')+(d.uf?'/'+d.uf:''); }
+    toast('Dados preenchidos'+(d.situacao?(' · '+d.situacao):'')+'.','ok');
+  }catch(e){ toast(e.message||'CNPJ não encontrado.','err'); }
+}
+async function lookupCep(cepId, map){
+  const dig=(val(cepId)||'').replace(/\D/g,'');
+  if(dig.length!==8) return;
+  try{
+    const d=await api('/lookup/cep/'+dig);
+    for(const k in map){ if(k==='_cidadeUf') continue; const el=$(map[k]); if(el && d[k]!=null && d[k]!=='') el.value=d[k]; }
+    if(map._cidadeUf){ const el=$(map._cidadeUf); if(el && (d.municipio||d.uf)) el.value=(d.municipio||'')+(d.uf?'/'+d.uf:''); }
+  }catch(e){}
+}
+function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
+function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
+function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
 async function formCliente(id){
   let cl = {};
   if(id){ try{ cl = await api('/clientes/'+id); }catch(e){ toast(e.message,'err'); return; } }
@@ -952,8 +976,8 @@ async function formCliente(id){
     ${field('f_email','E-mail','value="'+esc(cl.email||'')+'" type="email"')}
     <div class="mrow"><label class="fl"><input type="checkbox" id="f_novo" ${cl.clienteNovo!==false?'checked':''}> Cliente novo (exige peça-piloto)</label></div>
     <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (destinatário da NF-e)</b></div>
-    <div class="grid2">${field('f_cnpj','CNPJ/CPF','value="'+esc(cl.cnpjCpf||'')+'"')}${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
-    <div class="grid2"><div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${cl.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${cl.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${cl.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>${field('f_cep','CEP','value="'+esc(cl.cep||'')+'"')}</div>
+    <div class="grid2"><div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(cl.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjCliente()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
+    <div class="grid2"><div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${cl.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${cl.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${cl.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>${field('f_cep','CEP (preenche endereço)','value="'+esc(cl.cep||'')+'" onblur="APP.buscarCepCliente()"')}</div>
     <div class="grid3">${field('f_log','Logradouro','value="'+esc(cl.logradouro||'')+'"')}${field('f_numend','Número','value="'+esc(cl.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(cl.bairro||'')+'"')}</div>
     <div class="grid3">${field('f_mun','Município','value="'+esc(cl.municipio||'')+'"')}${field('f_codmun','Cód. IBGE','value="'+esc(cl.codMunicipio||'')+'"')}${field('f_uf','UF','value="'+esc(cl.uf||'')+'" maxlength="2"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -1128,6 +1152,7 @@ async function formFornecedor(id){
   let f={};
   if(id){ try{ f = await api('/fornecedores/'+id); }catch(e){ toast(e.message,'err'); return; } }
   openModal(`<h3>${id?'Editar':'Novo'} fornecedor</h3>
+    <div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(f.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjForn()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>
     ${field('f_nome','Nome *','value="'+esc(f.nome||'')+'"')}
     <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
     <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
@@ -1135,7 +1160,7 @@ async function formFornecedor(id){
       <button class="btn-primary" onclick="APP.saveFornecedor(${id||0})">Salvar</button></div>`);
 }
 async function saveFornecedor(id){
-  const body = { nome:val('f_nome'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
+  const body = { nome:val('f_nome'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/fornecedores/'+id):'/fornecedores',{method:id?'PATCH':'POST',body}); closeModal(); toast('Fornecedor salvo.','ok'); loadRoute(); }
@@ -3332,7 +3357,7 @@ window.APP = {
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
   go(r){ go(r); },
-  closeModal, formCliente, saveCliente, consultarCredito, liberarCredito, formProduto, saveProduto,
+  closeModal, formCliente, saveCliente, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
