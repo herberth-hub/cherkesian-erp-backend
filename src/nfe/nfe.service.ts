@@ -79,7 +79,19 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const infoAdic = pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : undefined;
+    // Grade de tamanhos por item → sai nas Informações Complementares do DANFE
+    // (o cliente confere as quantidades por tamanho no recebimento).
+    const gradeInfo = itens
+      .map((it) => {
+        const g = (it as { grade?: Record<string, number> }).grade;
+        return g && Object.keys(g).length ? `${it.descricao}: ${Object.entries(g).map(([t, q]) => `${t}=${q}`).join(' ')}` : null;
+      })
+      .filter(Boolean)
+      .join(' | ');
+    const infoAdic = [
+      pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
+      gradeInfo ? `Grade de tamanhos - ${gradeInfo}` : null,
+    ].filter(Boolean).join(' | ') || undefined;
     const payload = await this.montarPayload(filial, cliente, exp, itens, serie, numeroSeq, valor, infoAdic);
 
     const emissao = token
@@ -188,12 +200,16 @@ export class NfeService {
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
 
-    // Pedido vinculado (opcional): valida e usa para avançar a etapa depois.
+    // Pedido vinculado (opcional): valida e usa para avançar a etapa + grade.
     let pedidoVinc: { id: number; etapa: string } | null = null;
+    let gradeInfo = '';
     if (dto.pedidoId) {
-      const ped = await this.prisma.pedido.findUnique({ where: { id: dto.pedidoId } });
+      const ped = await this.prisma.pedido.findUnique({ where: { id: dto.pedidoId }, include: { itens: true } });
       if (!ped || ped.empresaId !== empresaId) throw new NotFoundException(`Pedido ${dto.pedidoId} não encontrado.`);
       pedidoVinc = { id: ped.id, etapa: ped.etapa };
+      gradeInfo = ped.itens
+        .map((it) => { const g = it.grade as Record<string, number> | null; return g && Object.keys(g).length ? `${it.descricao}: ${Object.entries(g).map(([t, q]) => `${t}=${q}`).join(' ')}` : null; })
+        .filter(Boolean).join(' | ');
     }
 
     // Cobrança: vencimento em N dias a partir do faturamento (fatura + 1 duplicata).
@@ -210,6 +226,7 @@ export class NfeService {
     }
     const infoAdic = [
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
+      gradeInfo ? `Grade de tamanhos - ${gradeInfo}` : null,
       venctoTxt,
     ].filter(Boolean).join(' | ') || undefined;
 
