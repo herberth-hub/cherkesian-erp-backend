@@ -1461,7 +1461,57 @@ function formOp(o){
     <div style="margin:-4px 0 6px;display:flex;gap:4px;flex-wrap:wrap">${['PP','P','M','G','GG','G1','G2','G3'].map(t=>`<button class="btn-sm" type="button" onclick="APP.gradeAddTam('${t}')">+${t}</button>`).join('')}</div>
     <div class="muted" style="font-size:11px;margin-bottom:8px">Clique nos tamanhos para adicionar à grade. Aparece em caixinhas no PDF da OP e vira 1 kit por tamanho.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" onclick="APP.opConcluirEtiquetas(${o.id})" title="Gerar etiqueta por peça ao finalizar a fabricação">🏭 Concluir → Etiquetas</button>
       <button class="btn-primary" onclick="APP.saveOp(${o.id})">Salvar</button></div>`);
+}
+
+// Ao finalizar a fabricação: gera etiqueta unitária por peça (uma por tamanho da grade)
+// e o operador escolhe se vai ESTOCAR ou ir DIRETO PRA EXPEDIÇÃO despachar pro cliente.
+async function opConcluirEtiquetas(id){
+  let d;
+  try{ const r = await api('/ops/'+id+'/etiqueta'); d = r.dados || r; }
+  catch(e){ toast(e.message,'err'); return; }
+  const descProd = (d.produto||'').split('·').slice(1).join('·').trim() || (d.produto||'').trim() || 'PRODUTO';
+  // grade "P:10, M:20" -> [[P,10],[M,20]]; se não houver, usa a quantidade total.
+  const pares = [];
+  (d.grade||'').split(/[,;]+/).forEach(par=>{ const [t,q]=par.split(':').map(s=>(s||'').trim()); if(t&&q&&Number(q)>0) pares.push([t.toUpperCase(),Number(q)]); });
+  const totalGrade = pares.reduce((s,p)=>s+p[1],0);
+  const linhas = pares.length ? pares.map(([t,q])=>`${t}: <b>${q}</b>`).join(' &nbsp;·&nbsp; ') : `<b>${d.quantidade}</b> peças (sem grade)`;
+  openModal(`<h3>Finalizar OP ${esc(d.op)} · Etiquetas</h3>
+    <div class="r" style="margin-bottom:6px"><b>Produto:</b> ${esc(descProd)}${d.cor&&d.cor!=='-'?' · Cor '+esc(d.cor):''}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">Grade: ${linhas}${pares.length&&totalGrade!==d.quantidade?` <span style="color:#c0392b">(soma ${totalGrade} ≠ qtd ${d.quantidade})</span>`:''}</div>
+    <div class="mrow"><label class="fl">Destino das peças *</label>
+      <select id="oc_dest" class="inp">
+        <option value="estoque">📦 Estocar (endereçar depois)</option>
+        <option value="expedicao">🚚 Ir direto pra expedição (despachar pro cliente)</option>
+      </select></div>
+    ${field('oc_desc','Descrição na etiqueta','value="'+esc(descProd)+'"')}
+    ${field('oc_cor','Cor','value="'+esc(d.cor&&d.cor!=='-'?d.cor:'')+'"')}
+    <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'})'>Gerar etiquetas</button></div>`);
+}
+async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
+  const destino = val('oc_dest');
+  const descricao = val('oc_desc').trim();
+  const cor = val('oc_cor').trim();
+  if(!descricao){ toast('Informe a descrição.','err'); return; }
+  const lotes = (pares && pares.length) ? pares.map(([t,q])=>({tamanho:t, quantidade:q})) : [{tamanho:'', quantidade:qtdTotal}];
+  try{
+    toast('Gerando etiquetas…','ok');
+    const todas = [];
+    for(const l of lotes){
+      const body = { tipo:'produto', descricao, cor:cor||undefined, tamanho:l.tamanho||undefined,
+        quantidade:l.quantidade, origem:'producao', destino };
+      if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
+      const r = await api('/estoque/entrada',{method:'POST',body});
+      (r.pecas||[]).forEach(p=>todas.push(p));
+    }
+    closeModal();
+    toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+').','ok');
+    imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function saveOp(id){
   try{
@@ -2952,7 +3002,7 @@ window.APP = {
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
-  formOp, saveOp, etiquetaOp, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
