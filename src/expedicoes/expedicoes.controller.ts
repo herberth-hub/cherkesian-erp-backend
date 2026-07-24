@@ -34,6 +34,12 @@ export class ExpedicoesController {
     return this.expedicoesService.etiqueta(id, user.empresaId);
   }
 
+  /** Etiquetas unitárias (1 por peça) para bipagem 1-a-1 na conferência. */
+  @Get(':id/etiquetas-unitarias')
+  etiquetasUnitarias(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.etiquetasUnitarias(id, user.empresaId);
+  }
+
   // ===== Dupla conferência + despacho =====
   @Get(':id/conferencia')
   conferencia(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

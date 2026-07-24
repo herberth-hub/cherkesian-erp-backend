@@ -186,18 +186,18 @@ export class ExpedicoesService {
     if (!codigo) throw new BadRequestException('Bipe um código válido.');
     const esperadas = exp.pecas;
     const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
+    // Idempotência: cada código único (etiqueta unitária ou kit) conta uma vez.
+    if (conferidos.includes(codigo)) {
+      return { ja: true, mensagem: `${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
+    }
     let add = 1;
     let detalhe = codigo;
     if (/^KIT-/i.test(codigo)) {
-      if (conferidos.includes(codigo)) {
-        return { ja: true, mensagem: `Kit ${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
-      }
       const kit = await this.prisma.kit.findUnique({ where: { codigo } });
       if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
-      add = kit.jogos || 1; conferidos.push(codigo); detalhe = `${codigo} (${add} pç)`;
-    } else {
-      conferidos.push(`${codigo}#${exp.pecasConferidas + 1}`);
+      add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
     }
+    conferidos.push(codigo);
     const novas = Math.min(esperadas, exp.pecasConferidas + add);
     const completou = novas >= esperadas;
     await this.prisma.expedicao.update({
@@ -219,6 +219,45 @@ export class ExpedicoesService {
     const now = new Date();
     await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
     return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
+  }
+
+  /** Gera uma etiqueta UNITÁRIA por peça (código único + código de barras) p/ bipagem 1-a-1. */
+  async etiquetasUnitarias(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    const pedido = exp.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } }) : null;
+    const prodIds = (pedido?.itens ?? []).map((i) => i.produtoId).filter((x): x is number => !!x);
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : [];
+    const codMap = new Map(produtos.map((p) => [p.id, p.codigo]));
+    const codBip = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+    const pecas: Array<{ produto: string; descricao: string; tamanho: string }> = [];
+    for (const it of pedido?.itens ?? []) {
+      const g = it.grade as Record<string, number> | null;
+      const prod = it.produtoId ? codMap.get(it.produtoId) ?? '—' : '—';
+      if (g && Object.keys(g).length) {
+        for (const [tam, q] of Object.entries(g)) for (let k = 0; k < Number(q); k++) pecas.push({ produto: prod, descricao: it.descricao, tamanho: tam.toUpperCase() });
+      } else {
+        for (let k = 0; k < it.quantidade; k++) pecas.push({ produto: prod, descricao: it.descricao, tamanho: '—' });
+      }
+    }
+    if (!pecas.length) throw new BadRequestException('Sem itens no pedido para gerar etiquetas unitárias.');
+    if (pecas.length > 500) throw new BadRequestException(`${pecas.length} peças — muitas etiquetas unitárias (máx. 500). Use a conferência por kit.`);
+
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    const out: Array<{ produto: string; descricao: string; tamanho: string; codigo: string; barcode: string }> = [];
+    let seq = 0;
+    for (const p of pecas) {
+      seq++;
+      const codigo = `${codBip}-${String(seq).padStart(3, '0')}`;
+      const bc = await bwipjs.toBuffer({ bcid: 'code128', text: codigo, scale: 2, height: 12, includetext: false, padding: 0 });
+      out.push({ ...p, codigo, barcode: 'data:image/png;base64,' + bc.toString('base64') });
+    }
+    const emp = pedido?.filial;
+    return {
+      empresa: emp ? { nome: emp.nome } : { nome: 'GRUPO CHERKESIAN' },
+      numero: exp.numero, nf: exp.nf, pedido: pedido?.numero ?? '—',
+      destino: cliente?.nome ?? '—', total: out.length, pecas: out,
+    };
   }
 
   private async montarDados(

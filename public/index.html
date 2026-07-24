@@ -2108,6 +2108,28 @@ async function abrirScanner(onCode){
   }catch(e){ const m=document.getElementById('scanm'); if(m) m.textContent='Não foi possível acessar a câmera: '+(e.message||e); }
 }
 function fecharScanner(){ try{ if(_scan.raf)cancelAnimationFrame(_scan.raf); if(_scan.stream)_scan.stream.getTracks().forEach(t=>t.stop()); }catch(e){} _scan={stream:null,raf:null}; const ov=document.getElementById('scanov'); if(ov) ov.remove(); }
+async function etiquetasUnitariasExp(id){
+  try{
+    const d=await api('/expedicoes/'+id+'/etiquetas-unitarias');
+    const cards=(d.pecas||[]).map(p=>`<div class="ul">
+      <div class="ulh">${esc(d.pedido)} · NF ${esc(d.nf||'—')}</div>
+      <div class="ulp">${esc(p.produto)} · <b>TAM ${esc(p.tamanho)}</b></div>
+      <div class="uld">${esc(p.descricao)}</div>
+      <img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div>
+    </div>`).join('');
+    const w=window.open('','_blank','width=820,height=820'); if(!w){ toast('Libere o pop-up.','err'); return; }
+    w.document.write(`<html><head><title>Etiquetas unitárias ${esc(d.numero)}</title><meta charset="utf-8"><style>
+      @page{size:A4;margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
+      .ul{border:1px solid #000;border-radius:4px;padding:2mm;text-align:center;break-inside:avoid}
+      .ulh{font-size:7.5pt;color:#666} .ulp{font-size:11pt;font-weight:800;margin:1mm 0} .uld{font-size:7.5pt;color:#333;height:2.6em;overflow:hidden}
+      .ul img{height:11mm;max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10.5pt}
+      .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
+    </style></head><body><div class="bar"><button onclick="window.print()">Imprimir ${d.total} etiqueta(s)</button></div>
+    <div class="grid">${cards}</div></body></html>`);
+    w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 600);
+  }catch(e){ toast('Falha ao gerar etiquetas unitárias: '+(e.message||e),'err'); }
+}
 // ---------- Dupla conferência + despacho ----------
 async function formConferencia(id){
   let c; try{ c=await api('/expedicoes/'+id+'/conferencia'); }catch(e){ toast(e.message,'err'); return; }
@@ -2119,7 +2141,8 @@ async function formConferencia(id){
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
-      :`<div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+      :`<div style="margin-bottom:8px"><button class="btn-sm" onclick="APP.etiquetasUnitariasExp(${id})">🏷 Gerar etiquetas unitárias (1 por peça)</button></div>
+      <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
         <div style="flex:1"><input id="conf_bip" class="inp" placeholder="Bipe a peça/kit (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
         <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
@@ -2856,7 +2879,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
