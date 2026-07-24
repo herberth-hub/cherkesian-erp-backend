@@ -2150,16 +2150,30 @@ async function cartaCorrecaoNfe(id){
   if(corr===null) return;
   if(corr.trim().length<15){ toast('A correção precisa de ao menos 15 caracteres.','err'); return; }
   try{ const r=await api('/nfe/'+id+'/carta-correcao',{method:'POST',body:{correcao:corr.trim()}});
-    toast((r.mensagem||'Carta de correção enviada.')+' Gerando a impressão…','ok');
-    setTimeout(()=>baixarCartaCorrecao(id, true), 6000);
+    toast(r.mensagem||'Carta de correção enviada.','ok');
+    // Abre a janela AGORA (gesto do usuário) e carrega a carta com retry (CC-e é assíncrona).
+    if(confirm('Carta de correção enviada!\n\nGerar/imprimir a carta agora? (a SEFAZ leva alguns segundos)')){
+      const w=window.open('','_blank');
+      if(w){ w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Gerando a carta de correção da NF… aguarde alguns segundos.</div>'); cartaPdfNaJanela(id,w,12); }
+      else toast('Libere o pop-up e use o botão "🖨 CC-e" para imprimir.','err');
+    }
   }catch(e){ toast('Falha na CC-e: '+(e.message||e),'err'); }
 }
-async function baixarCartaCorrecao(id, auto){
+// Botão de reimpressão: abre a janela no clique e carrega a carta.
+function baixarCartaCorrecao(id){
+  const w=window.open('','_blank');
+  if(!w){ toast('Libere o pop-up para imprimir a carta.','err'); return; }
+  w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Buscando a carta de correção…</div>');
+  cartaPdfNaJanela(id,w,8);
+}
+async function cartaPdfNaJanela(id, w, tentativas){
   try{
     const r=await fetch(API+'/nfe/'+id+'/carta-correcao/pdf',{headers:{Authorization:'Bearer '+S.access}});
-    if(!r.ok){ let m='A CC-e ainda está processando na SEFAZ. Aguarde alguns segundos e clique em "🖨 CC-e".'; try{const j=await r.json();m=j.message||m;}catch(e){} toast(m,'err'); return; }
-    const blob=await r.blob(); const url=URL.createObjectURL(blob); window.open(url,'_blank'); setTimeout(()=>URL.revokeObjectURL(url),30000);
-  }catch(e){ toast('Falha ao abrir a carta de correção: '+(e.message||e),'err'); }
+    if(r.ok){ const blob=await r.blob(); const url=URL.createObjectURL(blob); w.location=url; setTimeout(()=>{try{w.print()}catch(e){}},800); return; }
+    if(tentativas>0){ setTimeout(()=>cartaPdfNaJanela(id,w,tentativas-1), 3000); return; }
+    let m='A CC-e ainda está processando na SEFAZ. Feche e clique em "🖨 CC-e" em alguns segundos.'; try{const j=await r.json();m=j.message||m;}catch(e){}
+    w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">'+esc(m)+'</div>';
+  }catch(e){ try{ w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">Falha: '+esc(e.message||e)+'</div>'; }catch(_){} }
 }
 async function enviarNfeEmail(id){
   const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (deixe em branco p/ usar o e-mail do cliente do pedido)');
@@ -2769,7 +2783,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, etiquetaExpedicao, formEmailDoc, sendEmailDoc,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
   fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
