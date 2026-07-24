@@ -33,4 +33,12 @@ export class UpdateFilialDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) cofinsAliquota?: number;
   @IsOptional() @IsString() @MaxLength(3) pisCofinsCst?: string;
   @IsOptional() @IsString() @MaxLength(3) csosn?: string;
+
+  // ===== Reforma Tributária (IBS/CBS) =====
+  @IsOptional() @IsBoolean() reformaAtiva?: boolean;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) cbsAliquota?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) ibsUfAliquota?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) ibsMunAliquota?: number;
+  @IsOptional() @IsString() @MaxLength(4) ibsCbsCst?: string;
+  @IsOptional() @IsString() @MaxLength(10) ibsCbsClassTrib?: string;
 }

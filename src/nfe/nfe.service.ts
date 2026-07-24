@@ -649,6 +649,14 @@ export class NfeService {
     const ufDest = (cliente.uf ?? '').toUpperCase();
     const aliqIcmsOperacao = mesmaUf ? icmsInternoEmp : (['MG', 'RJ', 'PR', 'SC', 'RS'].includes(ufDest) ? 12 : 7);
 
+    // ===== Reforma Tributária (IBS/CBS) — período de transição 2026 =====
+    const reformaAtiva = emitente.reformaAtiva !== false;
+    const cbsAliq = emitente.cbsAliquota != null ? Number(emitente.cbsAliquota) : 0.9;
+    const ibsUfAliq = emitente.ibsUfAliquota != null ? Number(emitente.ibsUfAliquota) : 0.1;
+    const ibsMunAliq = emitente.ibsMunAliquota != null ? Number(emitente.ibsMunAliquota) : 0;
+    const ibsCbsCst = emitente.ibsCbsCst ?? '000';
+    const ibsCbsClassTrib = emitente.ibsCbsClassTrib ?? '000001';
+
     const items = itens.map((it, idx) => {
       const p = it.produtoId ? mapa.get(it.produtoId) : undefined;
       const bruto = it.valorUnit.mul(it.quantidade);
@@ -689,14 +697,35 @@ export class NfeService {
         item.cofins_situacao_tributaria = p?.cofinsCst ?? pisCofinsCstEmp;
         item.pis_aliquota_porcentual = pisAliqEmp;
         item.cofins_aliquota_porcentual = cofinsAliqEmp;
+        // Exclusão do ICMS da base do PIS/COFINS (STF, "tese do século", Tema 69).
+        // A base passa a ser o valor da operação MENOS o ICMS destacado.
+        const baseSemIcms = Number((baseItem - (Number(item.icms_valor) || 0)).toFixed(2));
         if (['01', '02'].includes(String(item.pis_situacao_tributaria))) {
-          item.pis_base_calculo = baseItem;
-          item.pis_valor = Number((baseItem * pisAliqEmp / 100).toFixed(2));
+          item.pis_base_calculo = baseSemIcms;
+          item.pis_valor = Number((baseSemIcms * pisAliqEmp / 100).toFixed(2));
         }
         if (['01', '02'].includes(String(item.cofins_situacao_tributaria))) {
-          item.cofins_base_calculo = baseItem;
-          item.cofins_valor = Number((baseItem * cofinsAliqEmp / 100).toFixed(2));
+          item.cofins_base_calculo = baseSemIcms;
+          item.cofins_valor = Number((baseSemIcms * cofinsAliqEmp / 100).toFixed(2));
         }
+      }
+
+      // ===== Grupo IBS/CBS (Reforma Tributária) — transição 2026: CBS 0,9% e IBS 0,1% =====
+      if (reformaAtiva) {
+        const bcIbsCbs = baseItem;
+        const vCbs = Number((bcIbsCbs * cbsAliq / 100).toFixed(2));
+        const vIbsUf = Number((bcIbsCbs * ibsUfAliq / 100).toFixed(2));
+        const vIbsMun = Number((bcIbsCbs * ibsMunAliq / 100).toFixed(2));
+        item.ibs_cbs_situacao_tributaria = ibsCbsCst;
+        item.ibs_cbs_classificacao_tributaria = ibsCbsClassTrib;
+        item.ibs_cbs_base_calculo = bcIbsCbs;
+        item.cbs_aliquota = cbsAliq;
+        item.cbs_valor = vCbs;
+        item.ibs_uf_aliquota = ibsUfAliq;
+        item.ibs_uf_valor = vIbsUf;
+        item.ibs_mun_aliquota = ibsMunAliq;
+        item.ibs_mun_valor = vIbsMun;
+        item.ibs_valor_total = Number((vIbsUf + vIbsMun).toFixed(2));
       }
       return item;
     });

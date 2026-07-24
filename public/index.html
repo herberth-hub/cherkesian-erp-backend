@@ -2850,7 +2850,12 @@ function formFilial(id){
       </select></div>${field('fl_icmsint','ICMS interno (%)','type="number" step="0.01" value="'+(f.icmsInterno??18)+'"')}</div>
     <div class="grid3">${field('fl_pis','PIS (%)','type="number" step="0.0001" value="'+(f.pisAliquota??'')+'" placeholder="0,65 ou 1,65"')}${field('fl_cofins','COFINS (%)','type="number" step="0.0001" value="'+(f.cofinsAliquota??'')+'" placeholder="3 ou 7,6"')}${field('fl_pccst','CST PIS/COFINS','value="'+esc(f.pisCofinsCst||'01')+'" placeholder="01 (normal) / 49 (Simples)"')}</div>
     <div class="grid2">${field('fl_icmscst','CST ICMS padrão','value="'+esc(f.icmsCstPadrao||'00')+'"')}${field('fl_csosn','CSOSN (só Simples)','value="'+esc(f.csosn||'')+'" placeholder="ex.: 102"')}</div>
-    <div class="muted" style="font-size:11px;margin-bottom:8px">Presumido: PIS 0,65 · COFINS 3 · CST 01. Lucro Real: PIS 1,65 · COFINS 7,6 · CST 01. Simples: CSOSN + CST 49.</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">Presumido: PIS 0,65 · COFINS 3 · CST 01. Lucro Real: PIS 1,65 · COFINS 7,6 · CST 01. Simples: CSOSN + CST 49. O ICMS é excluído da base do PIS/COFINS (tese do século).</div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">REFORMA TRIBUTÁRIA — IBS/CBS (transição 2026)</b></div>
+    <div class="mrow"><label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="fl_reforma" ${f.reformaAtiva!==false?'checked':''}> Incluir grupo IBS/CBS na NF-e</label></div>
+    <div class="grid3">${field('fl_cbs','CBS (%)','type="number" step="0.0001" value="'+(f.cbsAliquota??'0.9')+'"')}${field('fl_ibsuf','IBS UF (%)','type="number" step="0.0001" value="'+(f.ibsUfAliquota??'0.1')+'"')}${field('fl_ibsmun','IBS Município (%)','type="number" step="0.0001" value="'+(f.ibsMunAliquota??'0')+'"')}</div>
+    <div class="grid2">${field('fl_ibscst','CST IBS/CBS','value="'+esc(f.ibsCbsCst||'000')+'"')}${field('fl_ibsclass','cClassTrib','value="'+esc(f.ibsCbsClassTrib||'000001')+'"')}</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">Transição 2026: CBS 0,9% e IBS 0,1%. ⚠️ Teste em homologação antes de emitir em produção.</div>
     <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">NUMERAÇÃO DA NF-e (independente por CNPJ)</b></div>
     <div class="grid2">${field('fl_serie','Série','value="'+esc(f.nfeSerie||'1')+'"')}${field('fl_prox','Próximo número','type="number" min="1" value="'+(f.nfeProximoNumero||1)+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -2864,6 +2869,10 @@ async function saveFilial(id){
     regimeTributario:val('fl_regime')||'lucro_presumido', icmsCstPadrao:val('fl_icmscst')||undefined, pisCofinsCst:val('fl_pccst')||undefined, csosn:val('fl_csosn')||undefined };
   const _n=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
   body.icmsInterno=_n('fl_icmsint'); body.pisAliquota=_n('fl_pis'); body.cofinsAliquota=_n('fl_cofins');
+  // Reforma Tributária (IBS/CBS)
+  body.reformaAtiva=$('fl_reforma').checked;
+  body.cbsAliquota=_n('fl_cbs'); body.ibsUfAliquota=_n('fl_ibsuf'); body.ibsMunAliquota=_n('fl_ibsmun');
+  body.ibsCbsCst=val('fl_ibscst')||undefined; body.ibsCbsClassTrib=val('fl_ibsclass')||undefined;
   if(!body.nome){ toast('Informe o nome da filial.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]===''||body[k]===undefined) delete body[k]; });
   try{ await api(id?('/filiais/'+id):'/filiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Filial salva.','ok'); loadRoute(); }

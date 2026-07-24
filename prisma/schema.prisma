@@ -119,6 +119,13 @@ model Filial {
   cofinsAliquota    Decimal? @db.Decimal(6,4)   // ex.: 3.0000 (presumido) / 7.6000 (real)
   pisCofinsCst      String?  @default("01")      // CST PIS/COFINS (49 no Simples)
   csosn             String?                       // CSOSN padrão (Simples Nacional, ex.: 102)
+  // ===== Reforma Tributária (IBS/CBS) — período de transição =====
+  reformaAtiva      Boolean  @default(true)        // inclui grupo IBS/CBS na NF-e
+  cbsAliquota       Decimal? @db.Decimal(6,4)      // ex.: 0.9000 (2026)
+  ibsUfAliquota     Decimal? @db.Decimal(6,4)      // ex.: 0.1000 (IBS estadual/UF, 2026)
+  ibsMunAliquota    Decimal? @db.Decimal(6,4)      // ex.: 0.0000 (IBS municipal, 2026)
+  ibsCbsCst         String?  @default("000")        // CST do IBS/CBS
+  ibsCbsClassTrib   String?  @default("000001")     // cClassTrib (classificação tributária)
   nomeFantasia      String?
   logradouro        String?
   numeroEndereco    String?
