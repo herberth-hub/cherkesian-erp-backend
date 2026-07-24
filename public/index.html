@@ -676,7 +676,7 @@ async function consultarCredito(clienteId){
 }
 async function liberarCredito(clienteId, liberar){
   const lib = liberar!==false;
-  if(!confirm(lib?'Liberar este cliente para vender mesmo com restrição de crédito?':'Revogar a liberação de crédito deste cliente?')) return;
+  if(!(await uiConfirm({tipo:'warn', titulo:lib?'Liberar crédito?':'Revogar liberação?', msg:lib?'Permitir vender para este cliente mesmo com restrição de crédito?':'Revogar a liberação de crédito deste cliente?', ok:lib?'Liberar':'Revogar'}))) return;
   try{
     await api('/credito/'+clienteId+'/liberar',{method:'PATCH',body:{liberar:lib}});
     toast(lib?'Cliente liberado para venda.':'Liberação revogada.','ok'); loadRoute();
@@ -825,6 +825,69 @@ function panelTable(cols, rows, emptyMsg){
 // ---------- Modais / Formulários ----------
 function openModal(html){ $('modal-box').innerHTML=html; $('modal').classList.add('on'); }
 function closeModal(){ $('modal').classList.remove('on'); }
+
+// ===== Pop-up padrão do sistema (substitui alert/confirm do navegador) =====
+function _uiCss(){
+  if(document.getElementById('uidlg-css')) return;
+  const s=document.createElement('style'); s.id='uidlg-css'; s.textContent=`
+  .uidlg-ov{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;
+    background:rgba(12,14,20,.55);backdrop-filter:blur(2px);opacity:0;transition:opacity .16s}
+  .uidlg-ov.on{opacity:1}
+  .uidlg{width:100%;max-width:400px;background:#FCFBF8;border-radius:14px;overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.45);transform:translateY(8px) scale(.98);transition:transform .18s;font-family:'Inter',Arial,sans-serif}
+  .uidlg-ov.on .uidlg{transform:none}
+  .uidlg .uiacc{height:4px;background:var(--navy,#1E2C48)}
+  .uidlg.ok .uiacc{background:#2E7D50} .uidlg.warn .uiacc{background:#B67C12} .uidlg.err .uiacc{background:#B23A3A} .uidlg.info .uiacc{background:#1E2C48}
+  .uidlg .uiin{padding:18px 20px 16px}
+  .uidlg .uibrand{margin-bottom:12px}
+  .uidlg .uigc{font-size:8.5px;letter-spacing:3px;font-weight:800;color:#9a7d1e}
+  .uidlg .uigc b{color:#1E2C48}
+  .uidlg .uitop{display:flex;gap:13px;align-items:flex-start}
+  .uidlg .uiic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center}
+  .uidlg .uiic svg{width:20px;height:20px}
+  .uidlg.ok .uiic{background:#E7F1EA;color:#2E7D50} .uidlg.info .uiic{background:#E8ECF3;color:#1E2C48}
+  .uidlg.warn .uiic{background:#F6EEDC;color:#B67C12} .uidlg.err .uiic{background:#F5E5E4;color:#B23A3A}
+  .uidlg h3{margin:0 0 4px;font-size:15px;font-weight:800;color:#181A1F;letter-spacing:.2px}
+  .uidlg p{margin:0;font-size:12.7px;color:#6E6F76;line-height:1.5}
+  .uidlg .uiact{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}
+  .uibtn{border:0;cursor:pointer;font-size:12.5px;font-weight:700;padding:9px 16px;border-radius:8px;letter-spacing:.2px}
+  .uibtn.ghost{background:transparent;color:#6E6F76;border:1px solid #E8E4DA}
+  .uibtn.ghost:hover{border-color:#c9c3b4}
+  .uibtn.info{background:#1E2C48;color:#fff} .uibtn.ok{background:#2E7D50;color:#fff}
+  .uibtn.warn{background:#B67C12;color:#fff} .uibtn.err{background:#B23A3A;color:#fff}
+  .uibtn:focus-visible{outline:2px solid var(--gold,#C9A227);outline-offset:2px}`;
+  document.head.appendChild(s);
+}
+function _uiIcon(t){
+  const p={ok:'<path d="M20 6L9 17l-5-5"/>',info:'<path d="M5 12h14M13 6l6 6-6 6"/>',
+    warn:'<path d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    err:'<path d="M18 6L6 18M6 6l12 12"/>'}[t]||'';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
+}
+function uiDialog(o){
+  _uiCss();
+  return new Promise(resolve=>{
+    const tipo=o.tipo||'info';
+    const ov=document.createElement('div'); ov.className='uidlg-ov';
+    const cancelBtn = o.cancel!==false ? `<button class="uibtn ghost" data-r="0">${esc(o.cancel||'Cancelar')}</button>` : '';
+    const msg = esc(o.msg||'').replace(/\n/g,'<br>');
+    ov.innerHTML=`<div class="uidlg ${tipo}"><div class="uiacc"></div><div class="uiin">
+      <div class="uibrand"><span class="uigc"><b>GRUPO</b> CHERKESIAN</span></div>
+      <div class="uitop"><div class="uiic">${_uiIcon(tipo)}</div>
+        <div><h3>${esc(o.titulo||'')}</h3>${msg?`<p>${msg}</p>`:''}</div></div>
+      <div class="uiact">${cancelBtn}<button class="uibtn ${tipo}" data-r="1">${esc(o.ok||'OK')}</button></div>
+    </div></div>`;
+    document.body.appendChild(ov);
+    requestAnimationFrame(()=>ov.classList.add('on'));
+    function done(v){ ov.classList.remove('on'); document.removeEventListener('keydown',onKey); setTimeout(()=>ov.remove(),170); resolve(v); }
+    function onKey(e){ if(e.key==='Escape') done(false); if(e.key==='Enter') done(true); }
+    ov.addEventListener('click',e=>{ if(e.target===ov){ if(o.cancel!==false) done(false); return; } const b=e.target.closest('[data-r]'); if(b) done(b.dataset.r==='1'); });
+    document.addEventListener('keydown',onKey);
+    setTimeout(()=>{ const b=ov.querySelector('[data-r="1"]'); if(b) b.focus(); },60);
+  });
+}
+function uiConfirm(o){ return uiDialog(Object.assign({tipo:'info',ok:'Confirmar'},o)); }
+function uiAlert(o){ return uiDialog(Object.assign({tipo:'info',cancel:false},o)); }
 function field(id,label,attrs){ return `<div class="mrow"><label class="fl">${esc(label)}</label><input id="${id}" class="inp" ${attrs||''}></div>`; }
 function val(id){ const e=$(id); return e?e.value.trim():''; }
 
@@ -1028,7 +1091,7 @@ async function saveFornecedor(id){
   catch(e){ toast(e.message,'err'); }
 }
 async function delRec(path, id){
-  if(!confirm('Excluir este registro? Esta ação não pode ser desfeita.')) return;
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir registro?', msg:'Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
   try{ await api(path+'/'+id,{method:'DELETE'}); toast('Registro excluído.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -1119,12 +1182,12 @@ async function savePedido(id){
   } catch(e){ toast(e.message,'err'); }
 }
 async function excluirPedido(id,numero){
-  if(!confirm('Excluir o pedido '+numero+'? (só é permitido enquanto não gerou OP nem NF)')) return;
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir pedido '+numero+'?', msg:'Só é permitido enquanto não gerou OP nem NF. Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
   try{ await api('/pedidos/'+id,{method:'DELETE'}); toast('Pedido '+numero+' excluído.','ok'); loadRoute(); }
   catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
 }
 async function pedidoExpedir(id){
-  if(!confirm('Gerar expedição direto deste pedido (sem passar pela produção/OP)? Depois é só emitir a NF na tela de Expedição.')) return;
+  if(!(await uiConfirm({tipo:'info', titulo:'Gerar expedição direta?', msg:'Gera a expedição direto deste pedido, sem passar pela produção/OP. Depois é só emitir a NF na tela de Expedição.', ok:'Gerar expedição'}))) return;
   try{ const e=await api('/expedicoes/do-pedido/'+id,{method:'POST'}); toast('Expedição '+e.numero+' gerada · '+e.pecas+' peças. Vá em Expedição para emitir a NF.','ok'); loadRoute(); }
   catch(err){ toast('Falha: '+(err.message||err),'err'); }
 }
@@ -1368,7 +1431,7 @@ async function pagarComissao(id){
   catch(e){ toast(e.message,'err'); }
 }
 async function excluirComissao(id){
-  if(!confirm('Excluir esta comissão? Esta ação não pode ser desfeita.')) return;
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir comissão?', msg:'Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
   try{ await api('/financeiro/comissoes/'+id,{method:'DELETE'}); toast('Comissão excluída.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -2027,7 +2090,7 @@ async function removeUsuario(id){
   catch(e){ toast(e.message,'err'); }
 }
 async function desbloquearUsuario(id){
-  if(!confirm('Desbloquear esta conta? O usuário poderá tentar entrar novamente.')) return;
+  if(!(await uiConfirm({tipo:'warn', titulo:'Desbloquear conta?', msg:'O usuário poderá tentar entrar novamente.', ok:'Desbloquear'}))) return;
   try{ await api('/usuarios/'+id+'/desbloquear',{method:'PATCH'}); toast('Conta desbloqueada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -2516,7 +2579,7 @@ async function cartaCorrecaoNfe(id){
   try{ const r=await api('/nfe/'+id+'/carta-correcao',{method:'POST',body:{correcao:corr.trim()}});
     toast(r.mensagem||'Carta de correção enviada.','ok');
     // Abre a janela AGORA (gesto do usuário) e carrega a carta com retry (CC-e é assíncrona).
-    if(confirm('Carta de correção enviada!\n\nGerar/imprimir a carta agora? (a SEFAZ leva alguns segundos)')){
+    if(await uiConfirm({tipo:'ok', titulo:'Carta de correção enviada', msg:'Gerar/imprimir a carta agora? A SEFAZ leva alguns segundos para processar.', ok:'Imprimir carta', cancel:'Agora não'})){
       const w=window.open('','_blank');
       if(w){ w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Gerando a carta de correção da NF… aguarde alguns segundos.</div>'); cartaPdfNaJanela(id,w,12); }
       else toast('Libere o pop-up e use o botão "🖨 CC-e" para imprimir.','err');
@@ -2547,7 +2610,7 @@ async function enviarNfeEmail(id){
   catch(e){ toast('Falha ao enviar: '+(e.message||e),'err'); }
 }
 async function excluirNfe(id,numero){
-  if(!confirm('Excluir o registro da NF '+numero+'? (só notas não autorizadas; se for o último número, ele volta a ficar disponível)')) return;
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir registro da NF '+numero+'?', msg:'Só notas não autorizadas. Se for o último número, ele volta a ficar disponível.', ok:'Excluir'}))) return;
   try{ const r=await api('/nfe/'+id,{method:'DELETE'});
     toast('NF '+numero+' excluída.'+(r.numeroReutilizado?' Número '+r.numeroReutilizado+' liberado para reuso.':''),'ok'); loadRoute(); }
   catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
@@ -2625,7 +2688,7 @@ async function consultarNfe(id){
   try{ const n=await api('/nfe/'+id+'/consultar',{method:'POST'});
     if(n.status==='autorizada'){
       toast('NF '+n.numero+' AUTORIZADA! Chave capturada.','ok');
-      if(confirm('NF '+n.numero+' autorizada!\n\nAbrir o DANFE (PDF) para download/impressão agora?')) baixarNfeArquivo(id,'danfe');
+      if(await uiConfirm({tipo:'ok', titulo:'NF '+n.numero+' autorizada', msg:'A nota foi autorizada pela SEFAZ. Abrir o DANFE (PDF) para download/impressão agora?', ok:'Abrir DANFE', cancel:'Agora não'})) baixarNfeArquivo(id,'danfe');
     }
     else if(n.status==='rejeitada') toast('NF '+n.numero+' rejeitada: '+(n.motivo||''),'err');
     else toast('NF '+n.numero+' — '+n.status+' ('+(n.motivo||'aguardando')+').','ok');
@@ -3131,7 +3194,7 @@ async function saveKitsDaOp(){
   if(!body.opId||!body.loteTecidoId){ toast('Selecione a OP e o lote.','err'); return; }
   try{ const r=await api('/kits/gerar-da-op',{method:'POST',body}); closeModal();
     toast(r.total+' kit(s) gerados da OP '+r.op+' (lote '+r.lote+').','ok');
-    if(confirm(r.total+' kits criados. Imprimir todas as etiquetas agora?')){ for(const k of r.kits){ await APP.kitEtiqueta(k.id, true); } }
+    if(await uiConfirm({tipo:'ok', titulo:r.total+' kits criados', msg:'Imprimir todas as etiquetas dos kits agora?', ok:'Imprimir etiquetas', cancel:'Agora não'})){ for(const k of r.kits){ await APP.kitEtiqueta(k.id, true); } }
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
