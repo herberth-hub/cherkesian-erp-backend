@@ -54,7 +54,7 @@ export class ExpedicoesController {
 
   @Post(':id/despachar')
   @HttpCode(HttpStatus.OK)
-  despachar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.expedicoesService.despachar(id, user.empresaId, user.usuario);
+  despachar(@Param('id', ParseIntPipe) id: number, @Body('codigoMaster') codigoMaster: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster);
   }
 }

@@ -2275,23 +2275,40 @@ function fecharScanner(){ try{ if(_scan.raf)cancelAnimationFrame(_scan.raf); if(
 async function etiquetasUnitariasExp(id){
   try{
     const d=await api('/expedicoes/'+id+'/etiquetas-unitarias');
-    const cards=(d.pecas||[]).map(p=>`<div class="ul">
+    const n=(d.pecas||[]).length;
+    const pages=(d.pecas||[]).map(p=>`<div class="page"><div class="ul">
       <div class="ulh">${esc(d.pedido)} · NF ${esc(d.nf||'—')}</div>
       <div class="ulp">${esc(p.produto)} · <b>TAM ${esc(p.tamanho)}</b></div>
       <div class="uld">${esc(p.descricao)}</div>
-      <img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div>
-    </div>`).join('');
-    const w=window.open('','_blank','width=820,height=820'); if(!w){ toast('Libere o pop-up.','err'); return; }
-    w.document.write(`<html><head><title>Etiquetas unitárias ${esc(d.numero)}</title><meta charset="utf-8"><style>
-      @page{size:A4;margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
-      .ul{border:1px solid #000;border-radius:4px;padding:2mm;text-align:center;break-inside:avoid}
-      .ulh{font-size:7.5pt;color:#666} .ulp{font-size:11pt;font-weight:800;margin:1mm 0} .uld{font-size:7.5pt;color:#333;height:2.6em;overflow:hidden}
-      .ul img{height:11mm;max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10.5pt}
-      .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
-    </style></head><body><div class="bar"><button onclick="window.print()">Imprimir ${d.total} etiqueta(s)</button></div>
-    <div class="grid">${cards}</div></body></html>`);
-    w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 600);
+      <img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
+    const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up.','err'); return; }
+    w.document.write(`<html><head><title>Etiquetas unitárias ${esc(d.numero)}</title><meta charset="utf-8">
+      <style id="upsz">@page{size:100mm 50mm;margin:0}</style>
+      <style>
+      *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial,Helvetica,sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
+      .ulh{font-size:7.5pt;color:#666} .ulp{font-size:11pt;font-weight:800} .uld{font-size:7.5pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+      /* Zebra 100x50: 1 etiqueta por folha (padrão) */
+      body.z50mode .wrap{display:block} body.z50mode{background:#eee}
+      body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm}
+      body.z50mode .page:last-child{page-break-after:auto}
+      body.z50mode .ul{width:100%;height:100%;padding:2mm} body.z50mode .ul img{height:15mm} body.z50mode .uld{max-height:2.4em;overflow:hidden}
+      /* Folha A4 em grade (opcional) */
+      body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
+      body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
+      body.a4mode .ul img{height:11mm} body.a4mode .uld{height:2.6em;overflow:hidden}
+      @media print{ body{background:#fff} .bar{display:none} body.z50mode .page{margin:0} }
+      .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
+      .bar button{padding:6px 10px;cursor:pointer}
+      </style></head><body class="z50mode">
+      <div class="bar"><b style="align-self:center">Imprimir:</b>
+        <button onclick="setUL('z50')">🏷 Zebra 100×50 (1 por etiqueta)</button>
+        <button onclick="setUL('a4')">📄 Folha A4 (grade)</button>
+        <span style="align-self:center;color:#666">${n} etiqueta(s)</span></div>
+      <div class="wrap">${pages}</div>
+      <script>function setUL(s){var z=s!=='a4';document.body.className=z?'z50mode':'a4mode';document.getElementById('upsz').textContent=z?'@page{size:100mm 50mm;margin:0}':'@page{size:A4;margin:8mm}';setTimeout(function(){window.print()},150);}<\/script>
+      </body></html>`);
+    w.document.close();
   }catch(e){ toast('Falha ao gerar etiquetas unitárias: '+(e.message||e),'err'); }
 }
 // ---------- Dupla conferência + despacho ----------
@@ -2305,16 +2322,21 @@ async function formConferencia(id){
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
-      :`<div style="margin-bottom:8px"><button class="btn-sm" onclick="APP.etiquetasUnitariasExp(${id})">🏷 Gerar etiquetas unitárias (1 por peça)</button></div>
-      <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
-        <div style="flex:1"><input id="conf_bip" class="inp" placeholder="Bipe a peça/kit (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
+      : conferida?`
+      <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
+      <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
+        <div style="flex:1"><label class="fl">Bipe a etiqueta MASTER (caixa)</label><input id="master_bip" class="inp" placeholder="Etiqueta master ${esc(c.codBip||c.numero)}" onkeydown="if(event.key==='Enter')APP.despacharExp(${id})"></div>
+        <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar</button>
+        <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('master_bip').value=code;APP.despacharExp(${id})})">📷</button>
+      </div>
+      <div style="margin-bottom:2px"><button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Reimprimir etiqueta master</button></div>`
+      :`<div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+        <div style="flex:1"><label class="fl">Bipe a etiqueta de PEÇA única</label><input id="conf_bip" class="inp" placeholder="Bipe a peça (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
         <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>`}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>
-      ${conferida&&!despachado?`<button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Etiqueta master</button> <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar (registrar saída)</button>`:''}
-    </div>`);
-  const inp=$('conf_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
 }
 async function conferirBip(id, codigo){
   const cod=codigo||val('conf_bip'); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
@@ -2324,8 +2346,9 @@ async function conferirBip(id, codigo){
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function despacharExp(id){
-  if(!confirm('Despachar a mercadoria?\n\nRegistra a DATA DE SAÍDA ao cliente e finaliza a expedição.')) return;
-  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST'}); toast(r.mensagem,'ok'); closeModal(); loadRoute(); }
+  const cod=(document.getElementById('master_bip')||{}).value||'';
+  if(!cod){ toast('Bipe a etiqueta MASTER da caixa para despachar.','err'); return; }
+  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod}}); toast(r.mensagem,'ok'); closeModal(); loadRoute(); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){

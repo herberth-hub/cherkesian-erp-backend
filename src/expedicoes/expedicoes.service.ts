@@ -173,7 +173,9 @@ export class ExpedicoesService {
   async conferencia(id: number, empresaId: number) {
     const exp = await this.getExp(id, empresaId);
     return {
-      numero: exp.numero, esperadas: exp.pecas, conferidas: exp.pecasConferidas,
+      numero: exp.numero,
+      codBip: String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase(), // código da etiqueta MASTER
+      esperadas: exp.pecas, conferidas: exp.pecasConferidas,
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
     };
   }
@@ -218,11 +220,19 @@ export class ExpedicoesService {
     };
   }
 
-  /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente. */
-  async despachar(id: number, empresaId: number, usuario: string) {
+  /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.
+   *  A saída é liberada bipando a ETIQUETA MASTER da caixa (codigoMaster) — 2ª leitura da dupla conferência. */
+  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string) {
     const exp = await this.getExp(id, empresaId);
     if (exp.conferenciaStatus === 'despachado') return { ja: true, mensagem: 'Expedição já despachada.', dataSaida: exp.dataSaida };
     if (exp.conferenciaStatus !== 'conferida') throw new ConflictException(`Conclua a conferência (${exp.pecasConferidas}/${exp.pecas}) antes de despachar.`);
+    // 2ª leitura: exige a etiqueta MASTER correta desta expedição.
+    if (codigoMaster != null) {
+      const master = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const bip = this.extrairCodigo(codigoMaster).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      if (!bip) throw new BadRequestException('Bipe a etiqueta MASTER da caixa para despachar.');
+      if (bip !== master) throw new BadRequestException(`Etiqueta master incorreta (${bip}). Bipe a etiqueta master desta expedição (${exp.numero}).`);
+    }
     const now = new Date();
     await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
     return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
