@@ -26,4 +26,19 @@ export class RelatoriosController {
     doc.pipe(res);
     doc.end();
   }
+
+  @Get(':tipo/xlsx')
+  async xlsx(
+    @Param('tipo') tipo: string,
+    @Query('de') de: string | undefined,
+    @Query('ate') ate: string | undefined,
+    @Query('status') status: string | undefined,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const { buffer, nome } = await this.relatoriosService.xlsx(tipo, user, { de, ate, status });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}.xlsx"`);
+    res.send(buffer);
+  }
 }

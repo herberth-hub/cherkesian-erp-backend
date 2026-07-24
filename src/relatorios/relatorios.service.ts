@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { novoDocumento, tabela, totalDestaque, money, dataBR, Pdf } from '../documentos/pdf.renderer';
+import { Workbook } from 'exceljs';
 
 type Coluna = { titulo: string; largura: number; alinhamento?: 'left' | 'right' };
 export interface Filtros {
@@ -38,30 +39,87 @@ function statusEq(campo: string, f: Filtros): Record<string, unknown> {
 export class RelatoriosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async gerar(tipo: string, user: AuthUser, filtros: Filtros = {}): Promise<{ doc: Pdf; nome: string }> {
+  /** Dados estruturados do relatório (reaproveitados por PDF e Excel). */
+  private async dados(tipo: string, user: AuthUser, filtros: Filtros) {
     const rel = this.relatorios()[tipo];
     if (!rel) throw new NotFoundException('Relatório desconhecido.');
     if (!perfilPodeAcessar(user.acesso, rel.area)) {
       throw new ForbiddenException('Seu perfil não pode gerar este relatório.');
     }
     const { colunas, linhas, total } = await rel.build(user.empresaId, filtros);
-
-    const doc = novoDocumento(rel.titulo, `${linhas.length} registro(s)`);
     const descFiltro = [
       filtros.de || filtros.ate ? `Período: ${filtros.de ? dataBR(filtros.de) : '…'} a ${filtros.ate ? dataBR(filtros.ate) : '…'}` : '',
       filtros.status ? `Status: ${filtros.status}` : '',
     ].filter(Boolean).join('   ·   ');
-    if (descFiltro) {
-      doc.moveDown(0.3).fillColor('#807d72').font('Helvetica').fontSize(9).text('Filtros aplicados — ' + descFiltro);
+    return { titulo: rel.titulo, colunas, linhas, total, descFiltro };
+  }
+
+  async gerar(tipo: string, user: AuthUser, filtros: Filtros = {}): Promise<{ doc: Pdf; nome: string }> {
+    const d = await this.dados(tipo, user, filtros);
+    const doc = novoDocumento(d.titulo, `${d.linhas.length} registro(s)`);
+    if (d.descFiltro) {
+      doc.moveDown(0.3).fillColor('#807d72').font('Helvetica').fontSize(9).text('Filtros aplicados — ' + d.descFiltro);
       doc.moveDown(0.2).fillColor('#242a26');
     }
-    if (linhas.length) {
-      tabela(doc, colunas, linhas);
-      if (total) totalDestaque(doc, total.rotulo, total.valor);
+    if (d.linhas.length) {
+      tabela(doc, d.colunas, d.linhas);
+      if (d.total) totalDestaque(doc, d.total.rotulo, d.total.valor);
     } else {
       doc.moveDown(1).fillColor('#807d72').font('Helvetica').fontSize(11).text('Nenhum registro para este relatório.');
     }
     return { doc, nome: `relatorio-${tipo}` };
+  }
+
+  /** Mesmo relatório em Excel (.xlsx), com os tons da marca no cabeçalho. */
+  async xlsx(tipo: string, user: AuthUser, filtros: Filtros = {}): Promise<{ buffer: Buffer; nome: string }> {
+    const d = await this.dados(tipo, user, filtros);
+    const wb = new Workbook();
+    wb.creator = 'Grupo Cherkesian · ERP';
+    const ws = wb.addWorksheet('Relatório');
+    const nCols = Math.max(1, d.colunas.length);
+
+    ws.mergeCells(1, 1, 1, nCols);
+    const tCell = ws.getCell(1, 1);
+    tCell.value = d.titulo;
+    tCell.font = { bold: true, size: 14, color: { argb: 'FF1E2C48' } };
+
+    let headerRow = 3;
+    if (d.descFiltro) {
+      ws.mergeCells(2, 1, 2, nCols);
+      const fCell = ws.getCell(2, 1);
+      fCell.value = 'Filtros: ' + d.descFiltro;
+      fCell.font = { size: 9, color: { argb: 'FF807D72' } };
+      headerRow = 4;
+    }
+
+    const hr = ws.getRow(headerRow);
+    d.colunas.forEach((c, i) => {
+      const cell = hr.getCell(i + 1);
+      cell.value = c.titulo;
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E2C48' } };
+      cell.alignment = { horizontal: c.alinhamento === 'right' ? 'right' : 'left' };
+    });
+    hr.commit();
+
+    d.linhas.forEach((l) => {
+      const r = ws.addRow(l);
+      d.colunas.forEach((c, i) => { if (c.alinhamento === 'right') r.getCell(i + 1).alignment = { horizontal: 'right' }; });
+    });
+    if (d.total) {
+      const tr = ws.addRow([]);
+      tr.getCell(1).value = d.total.rotulo;
+      tr.getCell(Math.max(1, nCols)).value = d.total.valor;
+      tr.font = { bold: true };
+    }
+
+    d.colunas.forEach((c, i) => {
+      const maxLen = Math.max(c.titulo.length, ...d.linhas.map((l) => String(l[i] ?? '').length), 8);
+      ws.getColumn(i + 1).width = Math.min(52, maxLen + 3);
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    return { buffer: Buffer.from(buf), nome: `relatorio-${tipo}` };
   }
 
   private relatorios(): Record<string, Relatorio> {
