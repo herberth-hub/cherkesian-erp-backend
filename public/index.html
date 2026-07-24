@@ -1668,14 +1668,95 @@ async function importarSefaz(i){
 }
 
 async function viewEstoque(c){
-  const list = await api('/estoque');
-  c.innerHTML = toolbar('Estoque de produto acabado', 'Movimentar', 'APP.formMov()') + panelTable(
-    ['Produto','Tamanho','Entradas','Saídas','Saldo','Local',''],
-    list.map(e=>[
-      `<span class="mono gold">${esc(e.produto.codigo)}</span> <span class="muted" style="font-size:11px">${esc(e.produto.descricao)}</span>`,
-      esc(e.tamanho), e.entradas, e.saidas, `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
-      `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
-    ]), list.length?null:'Estoque vazio. Faça uma entrada de produção.');
+  const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
+  const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque').length;
+  const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
+  const uRows=(unidades||[]).slice(0,300).map(u=>[
+    `<span class="mono gold">${esc(u.codigo)}</span>`,
+    esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
+    unidStatusPill(u.status),
+    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>'
+  ]);
+  c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+    + `<div class="cards"><div class="card kpi"><div class="k">Unidades em estoque</div><div class="v">${emEstoque}</div><div class="s">${aguard} aguardando endereço</div></div></div>`
+    + `<div class="sect"><h3>Produto acabado (agregado)</h3>${panelTable(['Produto','Tamanho','Saldo','Local',''],
+        list.map(e=>[
+          `<span class="mono gold">${esc(e.produto.codigo)}</span> <span class="muted" style="font-size:11px">${esc(e.produto.descricao)}</span>`,
+          esc(e.tamanho), `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
+          `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
+        ]), list.length?null:'Sem produto acabado agregado.')}</div>`
+    + `<div class="sect"><h3>Unidades endereçadas (${(unidades||[]).length})</h3>${panelTable(['Código','Item','Status','Endereço'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
+}
+function unidStatusPill(s){ const m={aguardando_endereco:['red','s/ endereço'],em_estoque:['green','em estoque'],reservado:['blue','reservado'],despachado:['gray','despachado']}; const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
+const CAIXAS_MASTER=['1.000','2.000','3.000','4.000','5.000','6.000','7.000','8.000','9.000','10.000'];
+async function formEntradaEstoque(){
+  const [prods, mats] = await Promise.all([api('/produtos').catch(()=>[]), api('/materiais').catch(()=>[])]);
+  window.__ESTPROD=prods; window.__ESTMAT=mats;
+  openModal(`<h3>Entrada de estoque (gera etiqueta por unidade)</h3>
+    <div class="grid2"><div class="mrow"><label class="fl">Tipo *</label><select id="en_tipo" class="inp" onchange="APP.enTipo()">
+        <option value="produto">Produto pronto</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
+      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar"><datalist id="enitemlist"></datalist></div></div>
+    <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
+    <div class="grid2">${field('en_qtd','Quantidade *','type="number" min="1" max="500" placeholder="ex.: 70"')}
+      <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
+    <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
+      <div class="grid3"><div class="mrow"><label class="fl">Coluna</label><select id="en_col" class="inp"><option value="">—</option><option>A</option><option>B</option></select></div>
+        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp"><option value="">—</option>${[0,1,2,3,4].map(a=>'<option>'+a+'</option>').join('')}</select></div>
+        <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option>${CAIXAS_MASTER.map(x=>'<option>'+x+'</option>').join('')}</select></div></div></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
+  enTipo();
+}
+function enTipo(){ const t=val('en_tipo'); const dl=$('enitemlist'); if(!dl)return; const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]); dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join(''); }
+function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
+async function saveEntradaEstoque(){
+  const tipo=val('en_tipo'); const itemTxt=val('en_item'); const list=tipo==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
+  const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
+  const body={ tipo, quantidade:Number(val('en_qtd')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
+  if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
+  if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=Number(val('en_and')); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
+  if(!body.quantidade||body.quantidade<1){ toast('Informe a quantidade.','err'); return; }
+  if(!body.descricao){ toast('Informe a descrição (ou selecione um item).','err'); return; }
+  try{ const r=await api('/estoque/entrada',{method:'POST',body}); closeModal();
+    toast('Entrada '+r.loteEntrada+' · '+r.total+' unidade(s) · '+(r.endereco||'sem endereço'),'ok');
+    imprimirEtqUnidades(r.pecas, r);
+    loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+function imprimirEtqUnidades(pecas, meta){
+  const cards=(pecas||[]).map(p=>`<div class="ul"><div class="ulp">${esc(p.descricao)}</div><div class="uld">${esc(p.cor||'')} ${p.tamanho?('· TAM '+esc(p.tamanho)):''}</div><img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div></div>`).join('');
+  const w=window.open('','_blank','width=820,height=820'); if(!w){ toast('Libere o pop-up p/ imprimir as etiquetas.','err'); return; }
+  w.document.write(`<html><head><title>Etiquetas ${esc(meta.loteEntrada||'')}</title><meta charset=utf-8><style>
+    @page{size:A4;margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
+    .ul{border:1px solid #000;border-radius:4px;padding:2mm;text-align:center;break-inside:avoid}
+    .ulp{font-size:10pt;font-weight:800} .uld{font-size:8pt;color:#333;height:2.2em} .ul img{height:11mm;max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
+    .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}</style></head><body>
+    <div class="bar"><button onclick="window.print()">Imprimir ${meta.total||''} etiqueta(s)</button></div><div class="grid">${cards}</div></body></html>`);
+  w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 600);
+}
+async function formEnderecar(){
+  openModal(`<h3>🏷 Endereçar unidades (bipar)</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Defina o endereço e bipe as etiquetas — cada peça vai para essa posição. Ex.: Coluna A · Andar 4 · Caixa 3.000.</div>
+    <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp"><option>A</option><option>B</option></select></div>
+      <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp">${[0,1,2,3,4].map(a=>'<option>'+a+'</option>').join('')}</select></div>
+      <div class="mrow"><label class="fl">Caixa Master *</label><select id="ed_cx" class="inp">${CAIXAS_MASTER.map(x=>'<option>'+x+'</option>').join('')}</select></div></div>
+    <div style="display:flex;gap:8px;align-items:end;margin-top:6px">
+      <div style="flex:1"><label class="fl">Bipe a etiqueta da peça</label><input id="ed_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.enderecarBip()"></div>
+      <button class="btn-primary" onclick="APP.enderecarBip()">Endereçar</button>
+      <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('ed_bip').value=code;APP.enderecarBip();})">📷</button></div>
+    <div id="ed_log" style="margin-top:8px;font-size:12px;max-height:30vh;overflow:auto"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Fechar</button></div>`);
+  setTimeout(()=>{const i=$('ed_bip'); if(i)i.focus();},50);
+}
+async function enderecarBip(){
+  const codigo=val('ed_bip'); if(!codigo){ return; }
+  const body={ codigo, coluna:val('ed_col'), andar:Number(val('ed_and')), caixaMaster:val('ed_cx') };
+  try{ const r=await api('/estoque/enderecar',{method:'POST',body});
+    const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee">✅ ${esc(r.codigo)} · ${esc(r.descricao)} ${r.tamanho?('· '+esc(r.tamanho)):''} → ${esc(r.endereco)}</div>`+log.innerHTML;
+    $('ed_bip').value=''; $('ed_bip').focus();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); $('ed_bip').select(); }
 }
 async function formMov(){
   const prods = await api('/produtos');
@@ -2876,6 +2957,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
+  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

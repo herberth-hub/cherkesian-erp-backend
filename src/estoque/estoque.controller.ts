@@ -7,8 +7,10 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
+import { Query } from '@nestjs/common';
 import { EstoqueService } from './estoque.service';
 import { MovimentarEstoqueDto } from './dto/movimentar.dto';
+import { EntradaEstoqueDto, EnderecarDto } from './dto/unidade.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -21,6 +23,27 @@ export class EstoqueController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.estoqueService.findAll(user.empresaId);
+  }
+
+  // ===== Estoque unitário (etiqueta por peça + endereçamento) =====
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('unidades')
+  unidades(@Query('status') status: string, @Query('q') q: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.listarUnidades(user.empresaId, status, q);
+  }
+
+  @Areas('estoque', 'producao', 'compras')
+  @Post('entrada')
+  @HttpCode(HttpStatus.CREATED)
+  entrada(@Body() dto: EntradaEstoqueDto, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.entrada(dto, user.empresaId, user.usuario);
+  }
+
+  @Areas('estoque', 'producao')
+  @Post('enderecar')
+  @HttpCode(HttpStatus.OK)
+  enderecar(@Body() dto: EnderecarDto, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.enderecar(dto, user.empresaId, user.usuario);
   }
 
   @Get(':codigo/lotes')

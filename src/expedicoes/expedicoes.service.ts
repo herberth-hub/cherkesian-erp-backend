@@ -196,6 +196,13 @@ export class ExpedicoesService {
       const kit = await this.prisma.kit.findUnique({ where: { codigo } });
       if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
       add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
+    } else {
+      // Baixa automática: se o código for uma unidade de estoque, marca como despachada.
+      const un = await this.prisma.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
+      if (un && un.status !== 'despachado') {
+        await this.prisma.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
+        detalhe = `${codigo} (baixa estoque)`;
+      }
     }
     conferidos.push(codigo);
     const novas = Math.min(esperadas, exp.pecasConferidas + add);

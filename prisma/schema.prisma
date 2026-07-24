@@ -646,3 +646,31 @@ model KitEvento {
   ip        String?
   criadoEm  DateTime @default(now())
 }
+
+// ===== Estoque unitário (etiqueta única por peça + endereçamento) =====
+model UnidadeEstoque {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  codigo      String   @unique // UN-AAAAMMDD-NNNNNN (etiqueta da peça)
+  tipo        String   // materia | aviamento | produto
+  produtoId   Int?
+  materialId  Int?
+  descricao   String
+  cor         String?
+  tamanho     String?
+  origem      String   @default("entrada") // entrada | producao
+  // Endereçamento no armazém
+  coluna      String?  // A | B
+  andar       Int?     // 0..4
+  caixaMaster String?  // 1.000 .. 10.000
+  status      String   @default("aguardando_endereco") // aguardando_endereco | em_estoque | reservado | despachado
+  pedidoId    Int?
+  expedicaoId Int?
+  loteEntrada String?  // agrupador da entrada (mesma remessa)
+  criadoEm    DateTime @default(now())
+  criadoPor   String?
+  saidaEm     DateTime?
+
+  @@index([empresaId, status])
+  @@index([codigo])
+}
