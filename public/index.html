@@ -855,9 +855,60 @@ function _uiCss(){
   .uibtn.ghost:hover{border-color:#c9c3b4}
   .uibtn.info{background:#1E2C48;color:#fff} .uibtn.ok{background:#2E7D50;color:#fff}
   .uibtn.warn{background:#B67C12;color:#fff} .uibtn.err{background:#B23A3A;color:#fff}
-  .uibtn:focus-visible{outline:2px solid var(--gold,#C9A227);outline-offset:2px}`;
+  .uibtn:focus-visible{outline:2px solid var(--gold,#C9A227);outline-offset:2px}
+  /* Spinner de processamento (emissão de NF-e) */
+  .spin-ov{position:fixed;inset:0;z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(10,12,20,.64);backdrop-filter:blur(3px);opacity:0;transition:opacity .18s}
+  .spin-ov.on{opacity:1}
+  .spin-card{width:100%;max-width:360px;text-align:center;color:#fff;background:rgba(18,22,34,.42);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:32px 28px 24px;box-shadow:0 30px 70px rgba(0,0,0,.5)}
+  .spin-card .sgc{font-size:9px;letter-spacing:5px;font-weight:800;color:#C9A227;margin-bottom:20px}
+  .spin-card .sgc b{color:#fff}
+  .spin-ring{position:relative;width:92px;height:92px;margin:0 auto 20px}
+  .spin-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+  .spin-ring .tk{fill:none;stroke:rgba(255,255,255,.12);stroke-width:6}
+  .spin-ring .ar{fill:none;stroke:#C9A227;stroke-width:6;stroke-linecap:round;stroke-dasharray:64 190;transform-origin:50% 50%;animation:spin360 1.05s linear infinite}
+  .spin-ring .ar2{fill:none;stroke:#E4C76B;stroke-width:2.5;stroke-linecap:round;opacity:.55;stroke-dasharray:20 130;transform-origin:50% 50%;animation:spin360 1.6s linear infinite reverse}
+  .spin-pin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:800;color:#fff;letter-spacing:1px;animation:spinpulse 1.6s ease-in-out infinite}
+  @keyframes spin360{to{transform:rotate(360deg)}}
+  @keyframes spinpulse{0%,100%{opacity:.6}50%{opacity:1}}
+  .spin-st{font-size:16px;font-weight:800;min-height:22px}
+  .spin-sub{font-size:12.5px;color:#b9bcc6;margin-top:6px}
+  .spin-nf{margin-top:14px;font-size:11px;color:#9aa0ad}
+  .spin-nf b{color:#fff}
+  .spin-steps{display:flex;justify-content:center;gap:8px;margin-top:16px}
+  .spin-steps .sd{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.22);transition:.3s}
+  .spin-steps .sd.on{background:#C9A227;box-shadow:0 0 0 4px rgba(201,162,39,.15)}
+  .spin-hint{margin-top:16px;font-size:10.5px;color:#7d828f}
+  @media (prefers-reduced-motion:reduce){.spin-ring .ar,.spin-ring .ar2,.spin-pin{animation:none}}`;
   document.head.appendChild(s);
 }
+let _spinTimer=null;
+function uiSpinnerOpen(o){
+  o=o||{}; _uiCss(); uiSpinnerClose();
+  const passos=o.passos||[
+    {st:'Gerando a NF-e…', sub:'Preparando os dados fiscais'},
+    {st:'Enviando à SEFAZ…', sub:'Transmitindo a nota para autorização'},
+    {st:'Aguardando autorização…', sub:'A SEFAZ está processando o documento'}
+  ];
+  const ov=document.createElement('div'); ov.className='spin-ov'; ov.id='spin-ov';
+  ov.innerHTML=`<div class="spin-card">
+    <div class="sgc"><b>GRUPO</b> CHERKESIAN</div>
+    <div class="spin-ring"><svg viewBox="0 0 100 100"><circle class="tk" cx="50" cy="50" r="42"></circle><circle class="ar" cx="50" cy="50" r="42"></circle><circle class="ar2" cx="50" cy="50" r="34"></circle></svg><div class="spin-pin">${esc(o.pin||'NF')}</div></div>
+    <div class="spin-st" id="spin-st">${esc(passos[0].st)}</div>
+    <div class="spin-sub" id="spin-sub">${esc(passos[0].sub)}</div>
+    ${o.nota?`<div class="spin-nf">${esc(o.nota)}</div>`:''}
+    <div class="spin-steps">${passos.map((p,i)=>`<span class="sd${i===0?' on':''}" id="sd${i}"></span>`).join('')}</div>
+    <div class="spin-hint">Comunicando com a SEFAZ · não feche esta janela</div>
+  </div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('on'));
+  let i=0;
+  _spinTimer=setInterval(()=>{ i=(i+1)%passos.length;
+    const st=document.getElementById('spin-st'), sub=document.getElementById('spin-sub'); if(!st) return;
+    st.textContent=passos[i].st; sub.textContent=passos[i].sub;
+    passos.forEach((_,k)=>{ const d=document.getElementById('sd'+k); if(d) d.classList.toggle('on',k===i); });
+  }, 1700);
+}
+function uiSpinnerClose(){ if(_spinTimer){clearInterval(_spinTimer);_spinTimer=null;} const ov=document.getElementById('spin-ov'); if(ov){ ov.classList.remove('on'); setTimeout(()=>ov.remove(),180); } }
 function _uiIcon(t){
   const p={ok:'<path d="M20 6L9 17l-5-5"/>',info:'<path d="M5 12h14M13 6l6 6-6 6"/>',
     warn:'<path d="M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
@@ -2302,16 +2353,22 @@ async function gerarDoc(tipo, refId){
 
 // ---------- Integrações (Fase 4): NF-e e e-mail ----------
 async function emitirNfe(expedicaoId){
+  uiSpinnerOpen({nota:'NF-e de venda · expedição'});
   try{
     const n = await api('/nfe/emitir',{method:'POST',body:{expedicaoId}});
-    if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
-    else if(n.status==='rejeitada'){ toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err'); loadRoute(); return; }
-    else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — aguardando autorização.','ok');
-    else toast('NF '+n.numero+' — '+n.status+'.','ok');
-    // Abre automaticamente a etiqueta de expedição (preenchida do pedido).
-    await etiquetaExpedicao(expedicaoId);
+    uiSpinnerClose();
+    if(n.status==='rejeitada'){ await uiAlert({tipo:'err', titulo:'NF-e rejeitada', msg:'Motivo: '+(n.motivo||'ver detalhe')+'. Corrija e reemita.'}); loadRoute(); return; }
+    if(n.status==='autorizada' || n.status==='simulada'){
+      // NF já emitida → abre automaticamente a etiqueta de expedição (preenchida do pedido).
+      if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
+      else toast('NF '+n.numero+' AUTORIZADA.','ok');
+      await etiquetaExpedicao(expedicaoId);
+    } else {
+      // Pendente/assíncrona: a etiqueta só libera após autorizar. Oriente a consultar.
+      await uiAlert({tipo:'info', titulo:'NF '+n.numero+' enviada à SEFAZ', msg:'A nota está em processamento (assíncrona). Clique em "Emitir NF-e" na lista de notas para consultar a autorização — a etiqueta libera assim que autorizar.', ok:'Entendi'});
+    }
     loadRoute();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
 function labExpHTML(d, rows, dataBR, vol, total){
   return `<div class="page"><div class="lab">
@@ -2675,25 +2732,28 @@ async function saveNfeAvulsa(){
   const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
   const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
   const nfped=Number(val('nf_ped')); if(nfped>0) body.pedidoId=nfped;
+  uiSpinnerOpen({nota:'NF-e avulsa'});
   try{
-    const n=await api('/nfe/avulsa',{method:'POST',body}); closeModal();
-    if(n.status==='rejeitada') toast('NF-e rejeitada: '+(n.motivo||'ver detalhe'),'err');
+    const n=await api('/nfe/avulsa',{method:'POST',body}); uiSpinnerClose(); closeModal();
+    if(n.status==='rejeitada') await uiAlert({tipo:'err', titulo:'NF-e rejeitada', msg:(n.motivo||'Rejeitada pela SEFAZ.')+' Corrija e reemita.'});
     else if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
-    else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — clique em "Consultar" para o resultado.','ok');
-    else toast('NF '+n.numero+' — '+n.status+'.','ok');
+    else if(n.status==='pendente') toast('NF '+n.numero+' enviada à SEFAZ — clique em "Emitir NF-e" para consultar o resultado.','ok');
+    else toast('NF '+n.numero+' AUTORIZADA.','ok');
     loadRoute();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
 async function consultarNfe(id){
+  uiSpinnerOpen({nota:'Consultando autorização na SEFAZ'});
   try{ const n=await api('/nfe/'+id+'/consultar',{method:'POST'});
+    uiSpinnerClose();
     if(n.status==='autorizada'){
       toast('NF '+n.numero+' AUTORIZADA! Chave capturada.','ok');
       if(await uiConfirm({tipo:'ok', titulo:'NF '+n.numero+' autorizada', msg:'A nota foi autorizada pela SEFAZ. Abrir o DANFE (PDF) para download/impressão agora?', ok:'Abrir DANFE', cancel:'Agora não'})) baixarNfeArquivo(id,'danfe');
     }
-    else if(n.status==='rejeitada') toast('NF '+n.numero+' rejeitada: '+(n.motivo||''),'err');
+    else if(n.status==='rejeitada') await uiAlert({tipo:'err', titulo:'NF '+n.numero+' rejeitada', msg:(n.motivo||'Rejeitada pela SEFAZ.')+' Corrija e reemita.'});
     else toast('NF '+n.numero+' — '+n.status+' ('+(n.motivo||'aguardando')+').','ok');
     loadRoute();
-  }catch(e){ toast(e.message,'err'); }
+  }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
 
 // ---------- Assistente IA (Fase 5) ----------
