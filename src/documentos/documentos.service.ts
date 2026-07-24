@@ -251,12 +251,18 @@ export class DocumentosService {
         { titulo: 'Valor unit.', largura: 85, alinhamento: 'right' },
         { titulo: 'Subtotal', largura: 85, alinhamento: 'right' },
       ],
-      pedido.itens.map((i) => [
-        i.descricao,
-        String(i.quantidade),
-        money(i.valorUnit),
-        money(i.valorUnit.mul(i.quantidade)),
-      ]),
+      pedido.itens.map((i) => {
+        const g = i.grade as Record<string, number> | null;
+        const gradeTxt = g && Object.keys(g).length
+          ? '\nGrade: ' + Object.entries(g).map(([t, q]) => `${t}: ${q}`).join('   ')
+          : '';
+        return [
+          i.descricao + gradeTxt,
+          String(i.quantidade),
+          money(i.valorUnit),
+          money(i.valorUnit.mul(i.quantidade)),
+        ];
+      }),
     );
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
 
