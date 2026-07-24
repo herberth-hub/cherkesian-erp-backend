@@ -88,7 +88,7 @@ export class NfeService {
     ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
-    const itensNf = itens.map((it) => ({ ...it, descricao: this.descComGrade(it.descricao, (it as { grade?: Record<string, number> }).grade) }));
+    const itensNf = this.explodirPorTamanho(itens.map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, grade: (it as { grade?: Record<string, number> | null }).grade })));
     const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas });
 
     const emissao = token
@@ -227,7 +227,7 @@ export class NfeService {
     ].filter(Boolean).join(' | ') || undefined;
 
     // Grade na descrição do item (por produto do pedido vinculado).
-    const itensNf = itens.map((it) => ({ ...it, descricao: this.descComGrade(it.descricao, it.produtoId ? gradePorProduto.get(it.produtoId) : undefined) }));
+    const itensNf = this.explodirPorTamanho(itens.map((it) => ({ ...it, grade: it.produtoId ? gradePorProduto.get(it.produtoId) : undefined })));
     const volumes = dto.volumes && dto.volumes > 0 ? Math.round(dto.volumes) : Math.max(1, Math.round(totalQtd));
     const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas });
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
@@ -602,6 +602,30 @@ export class NfeService {
     if (!grade || !Object.keys(grade).length) return descricao;
     const g = Object.entries(grade).map(([t, q]) => `${t}=${q}`).join(' ');
     return `${descricao} | Grade: ${g}`.slice(0, 120);
+  }
+
+  /**
+   * Cada TAMANHO vira uma LINHA/ITEM próprio da NF (ex.: "CAMISETA - TAM P" 12 un).
+   * Só explode quando a grade fecha com a quantidade do item (senão o total da NF
+   * não bateria e a SEFAZ rejeitaria); nesse caso mantém 1 linha com a grade na descrição.
+   */
+  private explodirPorTamanho(
+    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; grade?: Record<string, number> | null }>,
+  ): Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> {
+    const out: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> = [];
+    for (const it of itens) {
+      const g = it.grade;
+      const ent = g ? Object.entries(g).filter(([, q]) => Number(q) > 0) : [];
+      const soma = ent.reduce((s, [, q]) => s + Number(q), 0);
+      if (ent.length && soma === Number(it.quantidade)) {
+        for (const [tam, qtd] of ent) {
+          out.push({ descricao: `${it.descricao} - TAM ${tam}`.slice(0, 120), quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
+        }
+      } else {
+        out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId });
+      }
+    }
+    return out;
   }
 
   // ===== Montagem do payload (formato Focus NFe) =====
