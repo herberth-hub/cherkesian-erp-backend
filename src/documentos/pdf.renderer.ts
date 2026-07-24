@@ -8,6 +8,7 @@ import PDFDocument from 'pdfkit';
 
 const OURO = '#C9A227';
 const OURO_ESCURO = '#9a7d1e';
+const NAVY = '#1E2C48';
 const ONIX = '#0A0A0A';
 const MARFIM = '#F4F2ED';
 const TINTA = '#242a26';
@@ -277,6 +278,77 @@ export function assinaturas(doc: Pdf, esquerda: string, direita: string): void {
   doc.fillColor(CINZA).fontSize(8.5);
   doc.text(esquerda, 50, y + 5, { width: w, align: 'center' });
   doc.text(direita, 50 + w + 40, y + 5, { width: w, align: 'center' });
+}
+
+/** Chips da grade de tamanhos (só os com peça + TOTAL em navy/dourado). Estilo minimalista. */
+export function gradeChips(doc: Pdf, grade: Record<string, number> | null | undefined): void {
+  const ent = Object.entries(grade ?? {}).filter(([, q]) => Number(q) > 0);
+  if (!ent.length) return;
+  const total = ent.reduce((s, [, q]) => s + Number(q), 0);
+  const chips = ent.map(([t, q]) => ({ txt: `${t}  ${q}`, tot: false }));
+  chips.push({ txt: `TOTAL  ${total}`, tot: true });
+  const h = 17, gap = 5, padX = 9;
+  const x0 = 50, maxX = doc.page.width - 50;
+  let x = x0, y = doc.y + 2;
+  for (const c of chips) {
+    doc.font('Helvetica-Bold').fontSize(8.5);
+    const cw = doc.widthOfString(c.txt) + padX * 2;
+    if (x + cw > maxX) { x = x0; y += h + gap; }
+    if (c.tot) {
+      doc.roundedRect(x, y, cw, h, 4).fill(NAVY);
+      doc.fillColor(OURO).text(c.txt, x, y + 4.5, { width: cw, align: 'center' });
+    } else {
+      doc.roundedRect(x, y, cw, h, 4).lineWidth(0.8).strokeColor('#DED9CB').stroke();
+      doc.fillColor(TINTA).text(c.txt, x, y + 4.5, { width: cw, align: 'center' });
+    }
+    x += cw + gap;
+  }
+  doc.x = x0;
+  doc.y = y + h + 8;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
+/** Um item do pedido no estilo minimalista: nº + descrição, valor à direita e chips da grade. */
+export function itemPedido(
+  doc: Pdf,
+  o: { num: string; descricao: string; grade: Record<string, number> | null; unit: string; subtotal: string },
+): void {
+  if (doc.y > doc.page.height - 170) doc.addPage();
+  const x0 = 50;
+  const wDir = 150;
+  const xDir = doc.page.width - 50 - wDir;
+  const yTop = doc.y;
+  // nº
+  doc.roundedRect(x0, yTop, 22, 15, 3).fill(NAVY);
+  doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(8).text(o.num, x0, yTop + 4, { width: 22, align: 'center' });
+  // descrição
+  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11.5).text(o.descricao, x0 + 30, yTop + 1, { width: xDir - (x0 + 30) - 8 });
+  const yDesc = doc.y;
+  // valor unit + subtotal à direita
+  doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text('Valor unit. ' + o.unit, xDir, yTop + 1, { width: wDir, align: 'right' });
+  doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(12.5).text(o.subtotal, xDir, yTop + 13, { width: wDir, align: 'right' });
+  doc.x = x0;
+  doc.y = Math.max(yDesc, yTop + 30);
+  // chips da grade
+  gradeChips(doc, o.grade);
+  // separador fino
+  doc.moveTo(x0, doc.y).lineTo(doc.page.width - 50, doc.y).lineWidth(0.5).strokeColor(LINHA).stroke();
+  doc.moveDown(0.5);
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
+/** Rodapé com as empresas do Grupo Cherkesian (faixa fina). */
+export function rodapeGrupo(doc: Pdf): void {
+  if (doc.y > doc.page.height - 120) doc.addPage();
+  const y = doc.y + 8;
+  doc.moveTo(50, y).lineTo(doc.page.width - 50, y).lineWidth(0.9).strokeColor(TINTA).stroke();
+  doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(7.5)
+    .text('UMA EMPRESA DO GRUPO CHERKESIAN', 50, y + 7, { width: doc.page.width - 100, align: 'center', characterSpacing: 1 });
+  doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(8.5)
+    .text('YEREVAN CONFECÇÕES     ·     HC QUALITY CORPORATE     ·     SANITEX     ·     HTM CONCEPT', 50, y + 18, { width: doc.page.width - 100, align: 'center' });
+  doc.x = 50;
+  doc.y = y + 34;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
 /** Etiqueta compacta (A6 paisagem) — usada para identificar lote/volume. */

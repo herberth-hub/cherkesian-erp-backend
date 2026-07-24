@@ -17,9 +17,11 @@ import {
   dataBR,
   gradeCaixinhas,
   imagem,
+  itemPedido,
   money,
   novaEtiqueta,
   novoDocumento,
+  rodapeGrupo,
   secao,
   tabela,
   tabelaMedidas,
@@ -251,41 +253,26 @@ export class DocumentosService {
       ['Etapa atual', pedido.etapa],
     ]);
 
-    secao(doc, 'Itens');
-    tabela(
-      doc,
-      [
-        { titulo: 'Descrição', largura: 265 },
-        { titulo: 'Qtd', largura: 60, alinhamento: 'right' },
-        { titulo: 'Valor unit.', largura: 85, alinhamento: 'right' },
-        { titulo: 'Subtotal', largura: 85, alinhamento: 'right' },
-      ],
-      pedido.itens.map((i) => {
-        const g = i.grade as Record<string, number> | null;
-        // Grade enxuta: só tamanhos com peça + total (estilo minimalista).
-        let gradeTxt = '';
-        if (g && Object.keys(g).length) {
-          const ent = Object.entries(g).filter(([, q]) => Number(q) > 0);
-          const total = ent.reduce((s, [, q]) => s + Number(q), 0);
-          if (ent.length) gradeTxt = '\nGrade:  ' + ent.map(([t, q]) => `${t} ${q}`).join('   ') + `    |    Total ${total}`;
-        }
-        return [
-          i.descricao + gradeTxt,
-          String(i.quantidade),
-          money(i.valorUnit),
-          money(i.valorUnit.mul(i.quantidade)),
-        ];
-      }),
-    );
+    secao(doc, 'Itens · grade de tamanhos');
+    pedido.itens.forEach((i, idx) => {
+      itemPedido(doc, {
+        num: String(idx + 1).padStart(2, '0'),
+        descricao: i.descricao,
+        grade: (i.grade as Record<string, number> | null),
+        unit: money(i.valorUnit),
+        subtotal: money(i.valorUnit.mul(i.quantidade)),
+      });
+    });
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
 
     if (tipo === 'proposta') {
       secao(doc, 'Condições');
-      doc.text('Proposta válida por 15 dias. Cliente novo: produção liberada após aprovação da peça-piloto.');
+      textoBloco(doc, 'Proposta válida por 15 dias. Cliente novo: produção liberada após aprovação da peça-piloto.');
       assinaturas(doc, 'GRUPO CHERKESIAN', pedido.cliente.nome);
     } else {
       assinaturas(doc, 'GRUPO CHERKESIAN', `${pedido.cliente.nome} — De acordo`);
     }
+    rodapeGrupo(doc);
     return doc;
   }
 
