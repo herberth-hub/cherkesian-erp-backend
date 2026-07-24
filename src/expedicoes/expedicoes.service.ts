@@ -44,6 +44,7 @@ export class ExpedicoesService {
     return {
       empresa: emp ? { nome: emp.nome, cnpj: emp.cnpj } : { nome: 'GRUPO CHERKESIAN', cnpj: null },
       numero: exp.numero,
+      nf: exp.nf ?? null,
       pedido: pedido?.numero ?? '—',
       data: new Date().toISOString(),
       codBip,
