@@ -79,20 +79,11 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    // Grade de tamanhos por item → sai nas Informações Complementares do DANFE
-    // (o cliente confere as quantidades por tamanho no recebimento).
-    const gradeInfo = itens
-      .map((it) => {
-        const g = (it as { grade?: Record<string, number> }).grade;
-        return g && Object.keys(g).length ? `${it.descricao}: ${Object.entries(g).map(([t, q]) => `${t}=${q}`).join(' ')}` : null;
-      })
-      .filter(Boolean)
-      .join(' | ');
-    const infoAdic = [
-      pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
-      gradeInfo ? `Grade de tamanhos - ${gradeInfo}` : null,
-    ].filter(Boolean).join(' | ') || undefined;
-    const payload = await this.montarPayload(filial, cliente, exp, itens, serie, numeroSeq, valor, infoAdic);
+    const infoAdic = pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : undefined;
+    // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
+    // produtos do DANFE, p/ conferência no recebimento).
+    const itensNf = itens.map((it) => ({ ...it, descricao: this.descComGrade(it.descricao, (it as { grade?: Record<string, number> }).grade) }));
+    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic);
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload)
@@ -200,16 +191,17 @@ export class NfeService {
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
 
-    // Pedido vinculado (opcional): valida e usa para avançar a etapa + grade.
+    // Pedido vinculado (opcional): valida, avança a etapa e traz a grade por produto.
     let pedidoVinc: { id: number; etapa: string } | null = null;
-    let gradeInfo = '';
+    const gradePorProduto = new Map<number, Record<string, number>>();
     if (dto.pedidoId) {
       const ped = await this.prisma.pedido.findUnique({ where: { id: dto.pedidoId }, include: { itens: true } });
       if (!ped || ped.empresaId !== empresaId) throw new NotFoundException(`Pedido ${dto.pedidoId} não encontrado.`);
       pedidoVinc = { id: ped.id, etapa: ped.etapa };
-      gradeInfo = ped.itens
-        .map((it) => { const g = it.grade as Record<string, number> | null; return g && Object.keys(g).length ? `${it.descricao}: ${Object.entries(g).map(([t, q]) => `${t}=${q}`).join(' ')}` : null; })
-        .filter(Boolean).join(' | ');
+      for (const it of ped.itens) {
+        const g = it.grade as Record<string, number> | null;
+        if (it.produtoId && g && Object.keys(g).length) gradePorProduto.set(it.produtoId, g);
+      }
     }
 
     // Cobrança: vencimento em N dias a partir do faturamento (fatura + 1 duplicata).
@@ -226,12 +218,13 @@ export class NfeService {
     }
     const infoAdic = [
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
-      gradeInfo ? `Grade de tamanhos - ${gradeInfo}` : null,
       venctoTxt,
     ].filter(Boolean).join(' | ') || undefined;
 
+    // Grade na descrição do item (por produto do pedido vinculado).
+    const itensNf = itens.map((it) => ({ ...it, descricao: this.descComGrade(it.descricao, it.produtoId ? gradePorProduto.get(it.produtoId) : undefined) }));
     const volumes = dto.volumes && dto.volumes > 0 ? Math.round(dto.volumes) : Math.max(1, Math.round(totalQtd));
-    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itens, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas });
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas });
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
@@ -580,6 +573,13 @@ export class NfeService {
     if (!cliente.municipio || !cliente.uf || !cliente.cep) f.push('Endereço fiscal do cliente');
     if (qtdItens === 0) f.push('itens no pedido');
     return f;
+  }
+
+  /** Acrescenta a grade de tamanhos à descrição do item (limite xProd 120). */
+  private descComGrade(descricao: string, grade?: Record<string, number> | null): string {
+    if (!grade || !Object.keys(grade).length) return descricao;
+    const g = Object.entries(grade).map(([t, q]) => `${t}=${q}`).join(' ');
+    return `${descricao} | Grade: ${g}`.slice(0, 120);
   }
 
   // ===== Montagem do payload (formato Focus NFe) =====
