@@ -1,6 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Kit } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { proximoSequencial } from '../common/utils/codigo.util';
 import {
   AlterarLoteKitDto,
   AtribuirCaixaDto,
@@ -210,15 +212,73 @@ export class KitsService {
     if (kit.status !== 'em_faccao') {
       throw new ConflictException(`Retorno sem saída: o kit ${kit.codigo} não está em facção (status: ${kit.status}).`);
     }
+
+    // ===== Conferência de faltas / anomalia =====
+    const faltas = Math.max(0, Math.floor(Number(dto.qtdFaltas ?? 0)));
+    const qtdRetornada = dto.qtd ?? kit.jogos;
+    let ocReposicao: { numero: string; quantidade: number } | null = null;
+    let autorizacaoPcp: string | null = null;
+
+    if (faltas > 0) {
+      const repor = dto.repor === true;
+      if (repor) {
+        // Gera OC de reposição para a facção (fornecedor). Facção do kit é o default.
+        const fornecedorId = dto.fornecedorId ?? kit.faccaoId ?? undefined;
+        if (!fornecedorId) {
+          throw new BadRequestException('Reposição: informe o fornecedor/facção para gerar a OC (o kit não tem facção vinculada como fornecedor).');
+        }
+        const forn = await this.prisma.fornecedor.findUnique({ where: { id: fornecedorId } });
+        if (!forn || forn.empresaId !== empresaId) throw new NotFoundException(`Fornecedor ${fornecedorId} não encontrado.`);
+        const numero = await this.gerarNumeroOc();
+        const descItem = [kit.modelo, kit.cor, kit.tamanho].filter(Boolean).join(' ') || kit.codigo;
+        const valorUnit = Number(dto.valorUnit ?? 0);
+        const oc = await this.prisma.ordemCompra.create({
+          data: {
+            numero, fornecedorId, descricao: `Reposição facção — ${descItem} (Kit ${kit.codigo})`,
+            quantidade: faltas, unidade: 'PC', valor: Number((valorUnit * faltas).toFixed(2)), status: 'aguardando',
+            motivo: `Faltas/anomalia no retorno da facção (kit ${kit.codigo}) · ${faltas} peça(s)`,
+          },
+        });
+        ocReposicao = { numero: oc.numero, quantidade: faltas };
+      } else {
+        // NÃO repor: exige senha do PCP (perfil producao ou total).
+        const senha = (dto.senhaPcp ?? '').trim();
+        if (!senha) throw new BadRequestException('Há faltas e a reposição foi recusada: informe a senha do PCP para autorizar.');
+        const pcpUsers = await this.prisma.usuario.findMany({
+          where: { empresaId, ativo: true, acesso: { in: ['producao', 'total'] } },
+          select: { usuario: true, senhaHash: true },
+        });
+        let ok = false;
+        for (const u of pcpUsers) { if (await bcrypt.compare(senha, u.senhaHash)) { ok = true; autorizacaoPcp = u.usuario; break; } }
+        if (!ok) throw new UnauthorizedException('Senha do PCP inválida. A dispensa de reposição precisa da autorização do PCP.');
+      }
+    }
+
+    const detFaltas = faltas > 0
+      ? ` · FALTAS: ${faltas}${ocReposicao ? ' · Reposição OC ' + ocReposicao.numero : autorizacaoPcp ? ' · Reposição DISPENSADA (PCP: ' + autorizacaoPcp + ')' : ''}`
+      : ' · conferência OK (sem faltas)';
+
     const atualizado = await this.prisma.$transaction(async (tx) => {
       const k = await tx.kit.update({
         where: { id: kit.id },
-        data: { status: 'retornado', retornadoEm: new Date(), retornadoPor: usuario, qtdRetornada: dto.qtd ?? kit.jogos, retornoNfNumero: dto.retornoNf, obs: dto.obs ?? kit.obs },
+        data: { status: 'retornado', retornadoEm: new Date(), retornadoPor: usuario, qtdRetornada, retornoNfNumero: dto.retornoNf, obs: dto.obs ?? kit.obs },
       });
-      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `NF retorno: ${dto.retornoNf} · Qtd: ${dto.qtd ?? kit.jogos}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
+      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `NF retorno: ${dto.retornoNf} · Qtd: ${qtdRetornada}${detFaltas}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
       return k;
     });
-    return { ja: false, mensagem: `Kit ${kit.codigo} retornado da facção.`, kit: atualizado };
+
+    const msg = faltas > 0
+      ? (ocReposicao
+        ? `Kit ${kit.codigo} retornado com ${faltas} falta(s). OC de reposição ${ocReposicao.numero} gerada.`
+        : `Kit ${kit.codigo} retornado com ${faltas} falta(s). Reposição dispensada (autorizada pelo PCP: ${autorizacaoPcp}).`)
+      : `Kit ${kit.codigo} retornado da facção — conferência OK.`;
+    return { ja: false, mensagem: msg, kit: atualizado, faltas, ocReposicao, autorizacaoPcp };
+  }
+
+  /** Próximo número de OC (mesmo padrão do módulo de compras: OC-0001). */
+  private async gerarNumeroOc(): Promise<string> {
+    const existentes = await this.prisma.ordemCompra.findMany({ select: { numero: true } });
+    return proximoSequencial('OC', existentes.map((o) => o.numero), { pad: 4, separador: '-' });
   }
 
   /** Avança para conferência ou finaliza (bipagem). */

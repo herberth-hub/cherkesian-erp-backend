@@ -464,14 +464,14 @@ async function viewDashboard(c){
     ${entregasSec(d.entregas)}
     ${empresasSec(d.porEmpresa)}
     ${abcSec(d.curvaABC)}
-    <div class="sect"><h3>Financeiro</h3>
+    ${d.financeiro ? `<div class="sect"><h3>Financeiro</h3>
       <div class="cards">
         ${kpi('A receber (aberto)', money(d.financeiro.aReceber), '')}
         ${kpi('A pagar (aberto)', money(d.financeiro.aPagar), '')}
         ${kpi('Saldo realizado', money(d.financeiro.saldoRealizado), 'recebido − pago')}
         ${kpi('Saldo projetado', money(d.financeiro.saldoProjetado), 'realizado + aberto')}
       </div>
-    </div>
+    </div>` : ''}
     <div class="sect"><h3>Cadastros</h3>
       <div class="cards">
         ${kpi('Clientes', d.cadastros.clientes, '')}
@@ -497,11 +497,11 @@ async function viewDashboard(c){
       <div class="charts2">
         <div><div class="muted" style="font-size:12px;margin-bottom:6px">Pedidos por etapa</div>
           ${barsH(Object.entries(et).map(([k,v])=>({label:k, value:Number(v), fmt:String(v)})), 'Sem pedidos ainda.')}</div>
-        <div><div class="muted" style="font-size:12px;margin-bottom:6px">Financeiro em aberto</div>
+        ${d.financeiro ? `<div><div class="muted" style="font-size:12px;margin-bottom:6px">Financeiro em aberto</div>
           ${barsH([
             {label:'A receber', value:Number(d.financeiro.aReceber)||0, fmt:money(d.financeiro.aReceber), color:'#3a8f4f'},
             {label:'A pagar', value:Number(d.financeiro.aPagar)||0, fmt:money(d.financeiro.aPagar), color:'#c14a34'},
-          ], '')}</div>
+          ], '')}</div>` : ''}
       </div>
     </div>`;
 }
@@ -574,7 +574,7 @@ function pedidosSec(e){
     return `<div class="ent-row" style="border-left:4px solid ${b.cor}">
       <div class="ent-main">
         <div><span class="mono gold">${esc(o.numero)}</span>${o.cliente?' · '+esc(o.cliente):''}</div>
-        <div class="muted" style="font-size:12px">${esc(o.etapa)} · ${money(o.valor)}</div>
+        <div class="muted" style="font-size:12px">${esc(o.etapa)}${o.valor!=null?' · '+money(o.valor):''}</div>
       </div>
       <div class="ent-side">
         <div class="ent-date">${esc(o.prazo.split('-').reverse().join('/'))}</div>
@@ -2865,13 +2865,81 @@ async function kitBipar(acao){
     const t=prompt('Transportador (opcional):',''); if(t) body.transportador=t;
   }
   if(acao==='retornar'){
-    const nf=prompt('Nº da NF de RETORNO da facção (obrigatório p/ dar entrada):','');
-    if(nf===null) return;
-    if(!nf.trim()){ toast('Informe a NF de retorno da facção — o kit fica travado até isso.','err'); return; }
-    body.retornoNf=nf.trim();
-    const q=prompt('Quantidade retornada (deixe em branco = total):',''); if(q!==null && q!=='') body.qtd=Number(q);
+    // Retorno da facção abre a janela OBRIGATÓRIA de conferência (faltas + reposição).
+    return APP.formRetornoFaccao(codigo);
   }
   try{ const r=await api('/kits/'+acao,{method:'POST',body});
+    toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
+    $('kit_bip').value=''; loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+
+// ===== Retorno da facção: conferência obrigatória de faltas + reposição (OC) / senha PCP =====
+async function formRetornoFaccao(codigo){
+  let forns=[];
+  try{ forns = await api('/fornecedores'); }catch(e){ forns=[]; }
+  const optForn = '<option value="">— usar a facção do kit —</option>'+(forns||[]).map(f=>`<option value="${f.id}">${esc(f.nome||f.razaoSocial||('Forn '+f.id))}</option>`).join('');
+  openModal(`<h3>Retorno da facção · <span class="mono gold">${esc(codigo)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Confira o que voltou. A NF de retorno é obrigatória para dar entrada.</div>
+    <div class="grid2">${field('rf_nf','NF de retorno *','placeholder="nº da NF da facção"')}${field('rf_qtd','Qtd retornada','type="number" min="0" placeholder="branco = total"')}</div>
+    <div class="mrow"><label class="fl">As peças voltaram corretas ou com falta/anomalia? *</label>
+      <select id="rf_conf" class="inp" onchange="APP.retornoFaltasToggle()">
+        <option value="ok">✅ Tudo certo — sem faltas</option>
+        <option value="falta">⚠️ Há peças faltando / com anomalia</option>
+      </select></div>
+    <div id="rf_bloco_faltas" style="display:none">
+      ${field('rf_qfaltas','Quantas peças faltando/anomalia? *','type="number" min="1" placeholder="ex.: 3"')}
+      <div class="mrow"><label class="fl">Repor as peças faltantes? *</label>
+        <select id="rf_repor" class="inp" onchange="APP.retornoReporToggle()">
+          <option value="sim">✅ Sim — gerar OC de reposição automática</option>
+          <option value="nao">🚫 Não repor (exige autorização do PCP)</option>
+        </select></div>
+      <div id="rf_bloco_repor">
+        <div class="grid2">
+          <div class="mrow"><label class="fl">Fornecedor da reposição</label><select id="rf_forn" class="inp">${optForn}</select></div>
+          ${field('rf_vunit','Valor unit. estimado (R$)','type="number" min="0" step="0.01" placeholder="opcional"')}
+        </div>
+        <div class="muted" style="font-size:11px;margin:-2px 0 6px">Gera uma OC (Ordem de Compra) de reposição para a facção, status "aguardando".</div>
+      </div>
+      <div id="rf_bloco_pcp" style="display:none">
+        ${field('rf_senha','Senha do PCP *','type="password" placeholder="autorização para NÃO repor"')}
+        <div class="muted" style="font-size:11px;margin:-2px 0 6px">Sem reposição, o PCP precisa autorizar com senha (perfil produção/admin).</div>
+      </div>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.retornoFaccaoSubmit('${esc(codigo)}')">Dar entrada</button></div>`);
+}
+function retornoFaltasToggle(){
+  const tem = val('rf_conf')==='falta';
+  $('rf_bloco_faltas').style.display = tem?'block':'none';
+}
+function retornoReporToggle(){
+  const repor = val('rf_repor')==='sim';
+  $('rf_bloco_repor').style.display = repor?'block':'none';
+  $('rf_bloco_pcp').style.display = repor?'none':'block';
+}
+async function retornoFaccaoSubmit(codigo){
+  const nf = val('rf_nf').trim();
+  if(!nf){ toast('Informe a NF de retorno da facção — o kit fica travado até isso.','err'); return; }
+  const body = { codigo, retornoNf:nf };
+  const q = val('rf_qtd'); if(q!=='') body.qtd = Number(q);
+  if(val('rf_conf')==='falta'){
+    const qf = Number(val('rf_qfaltas'));
+    if(!qf || qf<1){ toast('Informe quantas peças estão faltando/anomalia.','err'); return; }
+    body.qtdFaltas = qf;
+    if(val('rf_repor')==='sim'){
+      body.repor = true;
+      const fid = val('rf_forn'); if(fid) body.fornecedorId = Number(fid);
+      const vu = val('rf_vunit'); if(vu!=='') body.valorUnit = Number(vu);
+    }else{
+      body.repor = false;
+      const s = val('rf_senha'); if(!s){ toast('Informe a senha do PCP para dispensar a reposição.','err'); return; }
+      body.senhaPcp = s;
+    }
+  }
+  try{
+    const r = await api('/kits/retornar',{method:'POST',body});
+    closeModal();
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     $('kit_bip').value=''; loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
@@ -3003,7 +3071,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
-  viewKits, kitBipar, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

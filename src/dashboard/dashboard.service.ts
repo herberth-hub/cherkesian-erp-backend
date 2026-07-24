@@ -19,8 +19,11 @@ export class DashboardService {
     private readonly financeiro: FinanceiroService,
   ) {}
 
-  /** KPIs consolidados para o painel inicial (SPEC §4). */
-  async kpis(empresaId: number) {
+  /** KPIs consolidados para o painel inicial (SPEC §4).
+   *  `acesso` controla a visibilidade de dados financeiros: curva ABC e comparativo
+   *  de faturamento são exclusivos do admin (`total`); o bloco financeiro (a receber/
+   *  a pagar/saldos) é visível a quem lida com dinheiro (admin/financeiro/contabilidade). */
+  async kpis(empresaId: number, acesso?: string) {
     const [pedidos, ops, ocsAguardando, materiais, clientes, produtos, fluxo] = await Promise.all([
       this.prisma.pedido.findMany({ where: { empresaId }, select: { etapa: true, valorTotal: true } }),
       this.prisma.oP.findMany({ where: { pedido: { empresaId } }, select: { status: true, quantidade: true } }),
@@ -150,13 +153,15 @@ export class DashboardService {
       });
     };
 
-    return {
+    // ===== Visibilidade financeira por perfil =====
+    const admin = acesso === 'total';
+    const verFinanceiro = admin || acesso === 'financeiro' || acesso === 'contabilidade';
+
+    const resposta: Record<string, unknown> = {
       pedidos: {
         total: pedidos.length,
         porEtapa: contar(pedidos, 'etapa'),
       },
-      porEmpresa,
-      curvaABC: { produtos: classificar(prodMap), clientes: classificar(cliMap) },
       producao: {
         opsAtivas: opsAtivas.length,
         pecasEmProducao,
@@ -168,14 +173,29 @@ export class DashboardService {
         materiaisAbaixoMinimo,
       },
       cadastros: { clientes, produtos },
-      financeiro: {
+      entregas: { janela: JANELA, faixas, lista: listaEntrega },
+      // Sem visão financeira, o valor R$ dos pedidos é omitido (mantém o anti-atraso).
+      pedidosEntrega: {
+        janela: JANELA,
+        faixas: faixasPed,
+        lista: verFinanceiro ? listaPedidos : listaPedidos.map(({ valor: _v, ...resto }) => ({ ...resto, valor: null })),
+      },
+    };
+
+    // Curva ABC (Pareto) e comparativo de faturamento por empresa: SOMENTE admin.
+    if (admin) {
+      resposta.porEmpresa = porEmpresa;
+      resposta.curvaABC = { produtos: classificar(prodMap), clientes: classificar(cliMap) };
+    }
+    // Bloco financeiro consolidado: apenas perfis que lidam com dinheiro.
+    if (verFinanceiro) {
+      resposta.financeiro = {
         aReceber: fluxo.aberto.aReceber,
         aPagar: fluxo.aberto.aPagar,
         saldoRealizado: fluxo.realizado.saldo,
         saldoProjetado: fluxo.saldoProjetado,
-      },
-      entregas: { janela: JANELA, faixas, lista: listaEntrega },
-      pedidosEntrega: { janela: JANELA, faixas: faixasPed, lista: listaPedidos },
-    };
+      };
+    }
+    return resposta;
   }
 }

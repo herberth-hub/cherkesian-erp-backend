@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
 
 /** Cadastro do lote de tecido recebido do fornecedor. */
 export class CreateLoteDto {
@@ -47,6 +47,17 @@ export class RetornarKitDto {
   @IsString() @IsNotEmpty({ message: 'Informe a NF de retorno da facção para dar entrada no kit.' }) @MaxLength(40) retornoNf!: string;
   @IsOptional() @IsInt() @Min(0) qtd?: number;
   @IsOptional() @IsString() @MaxLength(300) obs?: string;
+  // ===== Conferência de faltas / anomalia no retorno =====
+  /** Quantidade de peças faltando ou com anomalia (0 = veio tudo certo). */
+  @IsOptional() @IsInt() @Min(0) qtdFaltas?: number;
+  /** true = gerar OC de reposição automática; false = NÃO repor (exige senha do PCP). */
+  @IsOptional() @IsBoolean() repor?: boolean;
+  /** Fornecedor/facção da OC de reposição (default: facção do kit). */
+  @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
+  /** Valor unitário estimado da peça (para a OC de reposição). */
+  @IsOptional() @IsNumber() @Min(0) valorUnit?: number;
+  /** Senha do PCP — obrigatória quando há faltas e o responsável opta por NÃO repor. */
+  @IsOptional() @IsString() senhaPcp?: string;
 }
 
 /** Atribui uma caixa de armazenamento a um conjunto de kits. */

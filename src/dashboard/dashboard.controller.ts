@@ -11,6 +11,6 @@ export class DashboardController {
 
   @Get()
   kpis(@CurrentUser() user: AuthUser) {
-    return this.dashboardService.kpis(user.empresaId);
+    return this.dashboardService.kpis(user.empresaId, user.acesso);
   }
 }
