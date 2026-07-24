@@ -1144,6 +1144,8 @@ async function gerarOp(id){
 
 // ---------- Bloco Financeiro ----------
 const dfmt = iso => { if(!iso) return '—'; try{ return new Date(iso).toLocaleDateString('pt-BR',{timeZone:'UTC'}); }catch(e){ return iso; } };
+// Para timestamps de criação (agora/now): exibe no fuso de Brasília.
+const dfmtL = iso => { if(!iso) return '—'; try{ return new Date(iso).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}); }catch(e){ return iso; } };
 function tituloPill(st){
   const map = { a_vencer:['blue','a vencer'], vencendo:['gold','vencendo'], vencida:['red','vencida'], pago:['green','pago'] };
   const m = map[st]||['gray',st]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
@@ -1699,7 +1701,7 @@ async function verLotes(codigo){
   try{
     const lotes = await api('/estoque/'+encodeURIComponent(codigo)+'/lotes');
     openModal(`<h3>Lotes · ${esc(codigo)}</h3>`+ (lotes.length? panelTable(['Lote','Tamanho','Qtd','Data','Etiqueta'],
-      lotes.map(l=>[`<span class="mono">${esc(l.codigoLote)}</span>`, esc(l.estoque?l.estoque.tamanho:'—'), l.quantidade, dfmt(l.data), `<button class="btn-sm" onclick="APP.gerarDoc('etiqueta',${l.id})">🖨</button>`])) :
+      lotes.map(l=>[`<span class="mono">${esc(l.codigoLote)}</span>`, esc(l.estoque?l.estoque.tamanho:'—'), l.quantidade, dfmtL(l.data), `<button class="btn-sm" onclick="APP.gerarDoc('etiqueta',${l.id})">🖨</button>`])) :
       '<div class="empty">Sem lotes.</div>') + `<div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1713,7 +1715,7 @@ async function viewExpedicao(c){
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)), e.pecas,
       esc(e.transportadora||'—'), `<span class="mono">${esc(e.rastreio||'—')}</span>`,
       e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
-      `<span class="pill blue">${esc(e.status)}</span>`, dfmt(e.data),
+      `<span class="pill blue">${esc(e.status)}</span>`, dfmtL(e.data),
       `<button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
 }
@@ -2048,7 +2050,7 @@ async function viewNotas(c){
 }
 function nfAcoes(n){
   const b=[];
-  if(n.provedor==='focusnfe' && n.status==='pendente') b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Consultar</button>`);
+  if(n.provedor==='focusnfe' && n.status==='pendente') b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Emitir NF-e</button>`);
   if(n.provedor==='focusnfe' && (n.status==='autorizada'||n.status==='cancelada')){
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 Imprimir</button>`);
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'xml')">XML</button>`);
