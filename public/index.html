@@ -2011,35 +2011,21 @@ async function emitirNfe(expedicaoId){
   }catch(e){ toast(e.message,'err'); }
 }
 function labExpHTML(d, rows, dataBR, vol, total){
-  return `<div class="lab">
-      <div class="hd"><h1>EXPEDIÇÃO</h1><div class="hdr"><div class="emp">📦 ${esc(d.empresa?d.empresa.nome:'')}</div><div class="volbig">VOLUME ${vol} / ${total}</div></div></div>
-      <div class="body">
-        <div class="col l">
-          <div class="row2"><div><div class="lbl">Pedido</div><div class="val">${esc(d.pedido)}</div></div>
-            <div><div class="lbl">NF-e</div><div class="val" style="color:#9a7d1e">${esc(d.nf||'—')}</div></div>
-            <div><div class="lbl">Data</div><div class="val">${esc(dataBR)}</div></div></div>
-          <div class="lbl">Código de expedição</div>
-          <div class="qrbox"><img class="qr" src="${d.qr}">
-            <div class="meta">
-              <div><div class="lbl">Código (BIP)</div><div class="barcode-code">${esc(d.codBip)}</div></div>
-              <div><div class="lbl">Volume</div><div style="font-weight:800;font-size:18px">${vol} / ${total}</div></div>
-              <div><div class="lbl">Lote do tecido</div><div style="font-weight:700">${esc(d.lote||'—')}</div></div>
-              <div><div class="lbl">Peso do volume</div><div style="font-weight:700">______ kg</div></div>
-            </div></div>
-        </div>
-        <div class="col">
-          <div class="lbl">Destino</div>
-          <div class="val" style="margin-bottom:2px">${esc(d.destino.nome)}</div>
-          <div style="font-size:12px;line-height:1.5">${esc(d.destino.endereco)}<br>${esc(d.destino.cidadeUf)} · CEP ${esc(d.destino.cep)}<br>CNPJ: ${esc(d.destino.cnpj)}</div>
-          <div class="lbl" style="margin-top:10px">Resumo da expedição (total do pedido)</div>
-          <table><thead><tr><th>Peça</th><th>Descrição</th><th style="text-align:center">Grade</th><th style="text-align:right">Qtde</th></tr></thead><tbody>${rows||'<tr><td colspan=4>—</td></tr>'}</tbody></table>
-          <div class="tot"><span>TOTAL DE PEÇAS:</span><span>${d.totalPecas}</span></div>
-        </div>
-      </div>
-      <div class="obs"><div class="lbl">Código de barras (BIP)</div><div class="bcbig"><img src="${d.barcode}"><div class="barcode-code">${esc(d.codBip)} &nbsp; NF ${esc(d.nf||'—')} &nbsp; VOL ${vol}/${total}</div></div>
-        <div class="lbl" style="margin-top:8px">Observações</div><div class="linha"></div></div>
-      <div class="foot"><span>🚚 CONFERIR MERCADORIA NO ATO DO RECEBIMENTO</span><span>⚠️ QUALQUER DIVERGÊNCIA, INFORMAR IMEDIATAMENTE</span></div>
-    </div>`;
+  return `<div class="page"><div class="lab">
+    <div class="hd"><span class="ttl">EXPEDIÇÃO</span><span class="vol">VOL ${vol}/${total}</span></div>
+    <div class="pad">
+      <div class="line nf"><b>NF ${esc(d.nf||'—')}</b> &nbsp;·&nbsp; Pedido ${esc(d.pedido)} &nbsp;·&nbsp; ${esc(dataBR)}</div>
+      <div class="line destnome"><b>${esc(d.destino.nome)}</b></div>
+      <div class="ender">${esc(d.destino.endereco)} · ${esc(d.destino.cidadeUf)} · CEP ${esc(d.destino.cep)} · CNPJ ${esc(d.destino.cnpj)}</div>
+      <div class="codes"><img class="qr" src="${d.qr}">
+        <div class="ci"><span class="lbl">Código (BIP)</span><div class="bip">${esc(d.codBip)}</div>
+          <span class="lbl">Lote tecido</span><div>${esc(d.lote||'—')}</div><span class="lbl">Peso</span><div>______ kg</div></div></div>
+      <table class="resumo"><thead><tr><th>Peça</th><th>Descrição</th><th style="text-align:center">Grade</th><th style="text-align:right">Qt</th></tr></thead><tbody>${rows||'<tr><td colspan=4>—</td></tr>'}</tbody></table>
+      <div class="tot"><span>TOTAL DE PEÇAS</span><span>${d.totalPecas}</span></div>
+      <div class="bc"><img src="${d.barcode}"><div class="bip">${esc(d.codBip)} · NF ${esc(d.nf||'—')} · VOL ${vol}/${total}</div></div>
+    </div>
+    <div class="foot">CONFERIR NO ATO DO RECEBIMENTO · INFORMAR DIVERGÊNCIAS</div>
+  </div></div>`;
 }
 async function etiquetaExpedicao(expedicaoId, volumesOverride){
   try{
@@ -2047,31 +2033,46 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
     const total = Math.max(1, Number(volumesOverride)||Number(d.volumes)||1);
     const rows = (d.itens||[]).map(i=>`<tr><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td style="text-align:center">${esc(i.grade)}</td><td style="text-align:right;font-weight:700">${i.quantidade}</td></tr>`).join('');
     const dataBR = new Date(d.data).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
-    let labels=''; for(let v=1; v<=total; v++){ labels += `<div class="page">${labExpHTML(d,rows,dataBR,v,total)}</div>`; }
-    const w = window.open('','_blank','width=1000,height=760'); if(!w){ toast('Libere o pop-up para a etiqueta de expedição.','err'); return; }
-    w.document.write(`<html><head><title>Etiqueta expedição ${esc(d.numero)}${d.nf?(' · NF '+esc(d.nf)):''}</title><meta charset="utf-8"><style>
-      @page{size:A4 landscape;margin:8mm} *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#0a0a0a}
+    let labels=''; for(let v=1; v<=total; v++){ labels += labExpHTML(d,rows,dataBR,v,total); }
+    const w = window.open('','_blank','width=520,height=780'); if(!w){ toast('Libere o pop-up para a etiqueta de expedição.','err'); return; }
+    w.document.write(`<html><head><title>Etiqueta expedição ${esc(d.numero)}${d.nf?(' · NF '+esc(d.nf)):''}</title><meta charset="utf-8">
+    <style id="psz">@page{size:100mm 150mm;margin:3mm}</style>
+    <style>
+      *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000;background:#eee}
       .page{page-break-after:always} .page:last-child{page-break-after:auto}
-      .lab{border:2px solid #0a0a0a;border-radius:8px;overflow:hidden;max-width:1000px;margin:0 auto 6mm}
-      .hd{background:#0a0a0a;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 18px}
-      .hd h1{margin:0;font-size:24px;letter-spacing:1px} .hdr{text-align:right} .hd .emp{font-size:15px;font-weight:700} .volbig{font-size:20px;font-weight:800}
-      .body{display:grid;grid-template-columns:1fr 1fr;gap:0}
-      .col{padding:12px 16px} .col.l{border-right:1px solid #0a0a0a}
-      .lbl{font-size:10px;color:#555;letter-spacing:.5px;text-transform:uppercase} .val{font-size:18px;font-weight:800;margin-bottom:8px}
-      .row2{display:flex;gap:20px} .qrbox{display:flex;gap:14px;align-items:center;margin-top:6px}
-      .qrbox img.qr{width:150px;height:150px} .meta div{margin-bottom:6px}
-      .barcode-code{font-family:'Courier New',monospace;font-weight:800;font-size:15px}
-      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px} th{background:#0a0a0a;color:#fff;text-align:left;padding:5px 6px;font-size:10px}
-      td{padding:5px 6px;border-bottom:1px solid #ddd} .tot{display:flex;justify-content:space-between;font-weight:800;font-size:16px;padding:6px 6px;border-top:2px solid #0a0a0a}
-      .foot{background:#0a0a0a;color:#fff;display:flex;justify-content:space-between;padding:8px 18px;font-size:12px;font-weight:700}
-      .obs{border-top:1px solid #0a0a0a;padding:10px 16px} .linha{border-bottom:1px solid #999;height:16px;margin:6px 0}
-      .bcbig{display:flex;flex-direction:column;align-items:flex-start} .bcbig img{height:60px}
-      .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
-    </style></head><body>
-    <div class="bar"><button onclick="window.print()">Imprimir ${total} etiqueta(s)</button></div>
-    ${labels}</body></html>`);
+      .lab{width:100mm;border:1.5px solid #000;margin:4mm auto;background:#fff;overflow:hidden}
+      .hd{background:#000;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:2mm 3mm}
+      .hd .ttl{font-weight:800;font-size:13pt;letter-spacing:1px} .hd .vol{font-weight:800;font-size:13pt}
+      .pad{padding:2mm 3mm}
+      .line{font-size:9pt;margin-bottom:1mm} .destnome{font-size:11pt}
+      .ender{font-size:8pt;color:#333;margin-bottom:1.5mm}
+      .lbl{font-size:7pt;color:#666;text-transform:uppercase;letter-spacing:.3px}
+      .codes{display:flex;gap:3mm;align-items:center;margin-bottom:1.5mm}
+      .codes .qr{width:26mm;height:26mm}
+      .ci{font-size:8pt;line-height:1.35} .bip{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+      .resumo{width:100%;border-collapse:collapse;font-size:7.5pt;margin-bottom:1mm}
+      .resumo th{background:#000;color:#fff;text-align:left;padding:1mm} .resumo td{border-bottom:.2mm solid #ccc;padding:1mm}
+      .tot{display:flex;justify-content:space-between;font-weight:800;font-size:10pt;border-top:.5mm solid #000;padding-top:1mm;margin-bottom:1mm}
+      .bc img{height:12mm;width:auto}
+      .foot{background:#000;color:#fff;font-size:7pt;padding:1.5mm 3mm;text-align:center;font-weight:700}
+      /* Modo 100x50mm (compacto): só o essencial */
+      body.m50 .ender, body.m50 .resumo, body.m50 .foot{display:none}
+      body.m50 .hd{padding:1mm 2mm} body.m50 .hd .ttl,body.m50 .hd .vol{font-size:10pt}
+      body.m50 .pad{padding:1mm 2mm} body.m50 .line{font-size:7.5pt;margin-bottom:.3mm} body.m50 .destnome{font-size:9pt}
+      body.m50 .codes{margin-bottom:.3mm} body.m50 .codes .qr{width:15mm;height:15mm}
+      body.m50 .ci{font-size:7pt} body.m50 .bip{font-size:8.5pt} body.m50 .lbl{font-size:6pt}
+      body.m50 .tot{font-size:8pt;padding-top:.4mm;margin-bottom:.4mm} body.m50 .bc img{height:8mm}
+      .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px}
+      .bar button{padding:6px 10px;cursor:pointer} @media print{.bar{display:none}}
+    </style></head><body class="m150">
+    <div class="bar"><b style="align-self:center">Imprimir:</b>
+      <button onclick="setSize('150')">100×150 mm</button>
+      <button onclick="setSize('50')">100×50 mm</button>
+      <span style="align-self:center;color:#666">${total} etiqueta(s)</span></div>
+    ${labels}
+    <script>function setSize(s){document.body.className=(s==='50'?'m50':'m150');document.getElementById('psz').textContent=(s==='50'?'@page{size:100mm 50mm;margin:1.5mm}':'@page{size:100mm 150mm;margin:3mm}');setTimeout(function(){window.print()},150);}<\/script>
+    </body></html>`);
     w.document.close();
-    setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 500);
   }catch(e){ toast('Falha ao gerar etiqueta: '+(e.message||e),'err'); }
 }
 function etiquetaExpedicaoPrompt(expedicaoId){
