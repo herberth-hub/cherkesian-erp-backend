@@ -1810,7 +1810,7 @@ async function cancelarCompra(id){
 let NEITENS = [];
 async function viewNotasEntrada(c){
   const list = await api('/notas-entrada');
-  const extra = `<button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button>`;
+  const extra = `<button class="btn-sm" onclick="APP.lerNfEntrada()">📷 Bipar NF (ler chave)</button> <button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button>`;
   c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra) + panelTable(
     ['Número','Fornecedor / Emitente','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
     list.map(n=>[
@@ -1921,6 +1921,17 @@ async function importarSefaz(i){
     numero:String(n.numero||''), chave:n.chave, data:(n.data?String(n.data).slice(0,10):''),
     nomeEmitente:n.emitente, cnpjEmitente:n.cnpjEmitente, fornecedorId:match?match.id:undefined,
     itens:[{ descricao:'Mercadoria conforme NF '+(n.numero||''), quantidade:1, unidade:'un', valorUnit:Number(n.valor||0) }]
+  });
+}
+// Entrada direto da tela: bipa a DANFE (câmera), abre a entrada e já puxa da SEFAZ.
+function lerNfEntrada(){
+  abrirScanner(async function(code){
+    const m=String(code||'').match(/\d{44}/);
+    const ch=m?m[0]:String(code||'').replace(/\D/g,'').slice(0,44);
+    if(ch.length!==44){ toast('Não achei uma chave de 44 dígitos no código. Tente de novo ou digite.','err'); await formNotaEntrada({}); return; }
+    toast('Chave lida ✔ …'+ch.slice(-6)+' — puxando da SEFAZ…','ok');
+    await formNotaEntrada({chave:ch});
+    puxarSefazChave();
   });
 }
 // Bipar a chave da DANFE (câmera): extrai os 44 dígitos do QR/código de barras.
@@ -3471,7 +3482,7 @@ window.APP = {
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, biparChaveEntrada, puxarSefazChave,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
