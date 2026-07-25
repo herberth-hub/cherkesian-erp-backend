@@ -1965,7 +1965,7 @@ async function puxarSefazChave(){
   const chave=(val('ne_chave')||'').replace(/\D/g,'');
   if(chave.length!==44){ toast('Bipe ou digite a chave de 44 dígitos.','err'); return; }
   toast('Puxando a NF da SEFAZ…','ok');
-  let d; try{ d=await api('/notas-entrada/sefaz/'+chave); }catch(e){ toast('SEFAZ: '+(e.message||'não foi possível puxar (o serviço de NF-e recebidas precisa estar habilitado na Focus).'),'err'); return; }
+  let d; try{ d=await api('/notas-entrada/sefaz/'+chave); }catch(e){ toast('Nota ainda não disponível na SEFAZ (pode levar algumas horas após a autorização, ou foi emitida antes da data de início). Preencha os itens manualmente e salve.','err'); return; }
   const g=(o,ks)=>{ for(const k of ks){ if(o&&o[k]!=null&&o[k]!=='') return o[k]; } return undefined; };
   const itensRaw = d.itens || d.produtos || d.det || [];
   const itens = (Array.isArray(itensRaw)?itensRaw:[]).map(it=>{

@@ -232,7 +232,7 @@ export class NotasEntradaService {
   async sefazDetalhe(empresaId: number, chave: string) {
     const { token, host } = await this.tokenEmpresa(empresaId);
     const ch = digitos(chave);
-    const url = `https://${host}/v2/nfes_recebidas/${ch}/json`;
+    const url = `https://${host}/v2/nfes_recebidas/${ch}.json?completa=1`;
     const res = await fetch(url, { headers: this.focusHeaders(token) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new BadRequestException(`Focus HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
