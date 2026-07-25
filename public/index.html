@@ -1833,8 +1833,13 @@ async function formNotaEntrada(prefill){
   openModal(`<h3>Nova nota de entrada</h3>
     ${p.nomeEmitente?`<div class="muted" style="font-size:12px;margin:-6px 0 8px">Emitente (SEFAZ): <b>${esc(p.nomeEmitente)}</b>${p.cnpjEmitente?' · CNPJ '+esc(p.cnpjEmitente):''}</div>`:''}
     <div class="grid2">
-      <div class="mrow"><label class="fl">Fornecedor</label><select id="ne_forn" class="inp">${fo}</select></div>
+      <div class="mrow"><label class="fl">Fornecedor (se já cadastrado)</label><select id="ne_forn" class="inp">${fo}</select></div>
       ${field('ne_num','Número da NF *','value="'+esc(p.numero||'')+'"')}
+    </div>
+    <div class="muted" style="font-size:11px;margin:-2px 0 4px">Ou informe o CNPJ + nome abaixo — se não estiver cadastrado, o fornecedor é criado automaticamente ao salvar.</div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">CNPJ do fornecedor (emitente)</label><div style="display:flex;gap:5px"><input id="ne_cnpj" class="inp" style="flex:1" value="${esc(p.cnpjEmitente||'')}" placeholder="só dígitos"><button type="button" class="btn-sm" onclick="APP.buscarCnpjEntrada()" title="Buscar na Receita">🔍</button></div></div>
+      ${field('ne_nome','Nome / razão social do fornecedor','value="'+esc(p.nomeEmitente||'')+'"')}
     </div>
     <div class="grid2">${field('ne_serie','Série','value="'+esc(p.serie||'')+'"')}${field('ne_data','Emissão','type="date"'+(p.data?(' value="'+esc(p.data)+'"'):''))}</div>
     <div class="mrow"><label class="fl">Chave da NF-e (44 díg.) — bipe a DANFE (leitor ou 📷)</label>
@@ -1889,7 +1894,8 @@ async function saveNotaEntrada(){
   body.lancarEstoque = $('ne_est').checked;
   body.gerarContaPagar = $('ne_cp').checked;
   if(body.gerarContaPagar){ const v=val('ne_venc'); if(v) body.vencimento=v; const cat=val('ne_cat'); if(cat) body.categoria=cat; }
-  const pre=window.__NEPRE; if(pre){ if(pre.cnpjEmitente) body.cnpjEmitente=pre.cnpjEmitente; if(pre.nomeEmitente) body.nomeEmitente=pre.nomeEmitente; }
+  const cnpjE=(val('ne_cnpj')||'').replace(/\D/g,''); if(cnpjE) body.cnpjEmitente=cnpjE;
+  const nomeE=val('ne_nome'); if(nomeE) body.nomeEmitente=nomeE;
   try{
     const n=await api('/notas-entrada',{method:'POST',body}); closeModal(); window.__NEPRE=null;
     let msg='Entrada registrada (NF '+n.numero+').';
@@ -1923,6 +1929,8 @@ async function importarSefaz(i){
     itens:[{ descricao:'Mercadoria conforme NF '+(n.numero||''), quantidade:1, unidade:'un', valorUnit:Number(n.valor||0) }]
   });
 }
+// Busca o CNPJ do fornecedor na Receita e preenche o nome (na entrada de NF).
+function buscarCnpjEntrada(){ return lookupCnpj('ne_cnpj', {razaoSocial:'ne_nome'}); }
 // Arquivo de CT-es (fretes) emitidos contra os CNPJs — puxados da SEFAZ via Focus.
 async function viewCtes(){
   toast('Consultando CT-es na SEFAZ…','ok');
@@ -3498,7 +3506,7 @@ window.APP = {
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, viewCtes,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

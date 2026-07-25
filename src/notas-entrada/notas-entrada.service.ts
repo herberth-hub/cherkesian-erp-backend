@@ -53,6 +53,18 @@ export class NotasEntradaService {
       if (existe) throw new BadRequestException(`Esta NF (chave ...${digitos(dto.chave).slice(-6)}) já foi registrada.`);
     }
 
+    // Fornecedor: usa o informado; senão acha pelo CNPJ do emitente; senão CADASTRA na hora.
+    let fornecedorId = dto.fornecedorId;
+    if (!fornecedorId && dto.cnpjEmitente) {
+      const cnpj = digitos(dto.cnpjEmitente);
+      if (cnpj) {
+        const existente = await this.prisma.fornecedor.findFirst({ where: { empresaId, cnpjCpf: cnpj } });
+        fornecedorId = existente
+          ? existente.id
+          : (await this.prisma.fornecedor.create({ data: { empresaId, nome: dto.nomeEmitente || `Fornecedor ${cnpj}`, cnpjCpf: cnpj } })).id;
+      }
+    }
+
     const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
 
     return this.prisma.$transaction(async (tx) => {
@@ -62,7 +74,7 @@ export class NotasEntradaService {
         const cp = await tx.contaPagar.create({
           data: {
             empresaId,
-            fornecedorId: dto.fornecedorId,
+            fornecedorId,
             categoria: dto.categoria || 'Matéria-prima',
             referencia: `NF entrada ${dto.numero}`,
             vencimento: dto.vencimento ? new Date(dto.vencimento) : new Date(),
@@ -75,7 +87,7 @@ export class NotasEntradaService {
       const nota = await tx.notaEntrada.create({
         data: {
           empresaId,
-          fornecedorId: dto.fornecedorId,
+          fornecedorId,
           numero: dto.numero,
           serie: dto.serie,
           chave: dto.chave ? digitos(dto.chave) : undefined,
