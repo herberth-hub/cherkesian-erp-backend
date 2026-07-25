@@ -203,7 +203,7 @@ export class NotasEntradaService {
   /** Lista os CT-e (fretes) emitidos contra o CNPJ — arquivo dos conhecimentos de transporte. */
   async ctesListar(empresaId: number) {
     const { token, host, cnpj } = await this.tokenEmpresa(empresaId);
-    const url = `https://${host}/v2/ctes_recebidos?cnpj=${cnpj}`;
+    const url = `https://${host}/v2/ctes_recebidas?cnpj=${cnpj}`;
     let lista: any[] = [];
     try {
       const res = await fetch(url, { headers: this.focusHeaders(token) });
