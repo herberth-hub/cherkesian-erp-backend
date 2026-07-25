@@ -1915,7 +1915,7 @@ async function buscarSefaz(){
       esc(n.emitente||'—')+(n.cnpjEmitente?'<br><span class="muted mono" style="font-size:10.5px">'+esc(n.cnpjEmitente)+'</span>':''),
       esc(n.numero), dfmt(n.data), money(n.valor), esc(n.situacao||'—'),
       n.importada?'<span class="pill green">importada</span>':`<button class="btn-sm" onclick="APP.importarSefaz(${i})">Dar entrada</button>`
-    ])):'<div class="muted" style="padding:8px 0">Nenhuma NF-e recebida encontrada para este CNPJ.</div>'}
+    ])):'<div class="muted" style="padding:8px 0;line-height:1.5">Nenhuma NF-e recebida ainda. <b>Não é erro:</b> a Focus baixa as notas em ciclos (pode levar algumas horas após habilitar) e só captura notas emitidas a partir da <b>data de início</b> configurada na Focus. Se precisar de notas mais antigas, diminua essa data no painel da Focus. Enquanto isso, use "Nova entrada" (manual).</div>'}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
 }
 async function importarSefaz(i){
@@ -1973,7 +1973,10 @@ async function puxarSefazChave(){
   const chave=(val('ne_chave')||'').replace(/\D/g,'');
   if(chave.length!==44){ toast('Bipe ou digite a chave de 44 dígitos.','err'); return; }
   toast('Puxando a NF da SEFAZ…','ok');
-  let d; try{ d=await api('/notas-entrada/sefaz/'+chave); }catch(e){ toast('Nota ainda não disponível na SEFAZ (pode levar algumas horas após a autorização, ou foi emitida antes da data de início). Preencha os itens manualmente e salve.','err'); return; }
+  let d; try{ d=await api('/notas-entrada/sefaz/'+chave); }catch(e){
+    await uiAlert({tipo:'warn', titulo:'Nota ainda não baixada da SEFAZ', ok:'Preencher manual', msg:'A distribuição da SEFAZ ainda não tem esta nota — isso é normal e não é erro do sistema:\n\n• A Focus baixa as notas em CICLOS (pode levar algumas horas depois de habilitar o "Recebimento de NFes").\n• Só captura notas emitidas A PARTIR da data de início configurada na Focus.\n\nPode preencher os itens abaixo manualmente e salvar — o fornecedor é cadastrado sozinho pelo CNPJ.'});
+    return;
+  }
   const g=(o,ks)=>{ for(const k of ks){ if(o&&o[k]!=null&&o[k]!=='') return o[k]; } return undefined; };
   const itensRaw = d.itens || d.produtos || d.det || [];
   const itens = (Array.isArray(itensRaw)?itensRaw:[]).map(it=>{
