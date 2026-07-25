@@ -1836,7 +1836,11 @@ async function formNotaEntrada(prefill){
       <div class="mrow"><label class="fl">Fornecedor</label><select id="ne_forn" class="inp">${fo}</select></div>
       ${field('ne_num','Número da NF *','value="'+esc(p.numero||'')+'"')}
     </div>
-    <div class="grid3">${field('ne_serie','Série','value="'+esc(p.serie||'')+'"')}${field('ne_data','Emissão','type="date"'+(p.data?(' value="'+esc(p.data)+'"'):''))}${field('ne_chave','Chave (44 díg.)','value="'+esc(p.chave||'')+'"')}</div>
+    <div class="grid2">${field('ne_serie','Série','value="'+esc(p.serie||'')+'"')}${field('ne_data','Emissão','type="date"'+(p.data?(' value="'+esc(p.data)+'"'):''))}</div>
+    <div class="mrow"><label class="fl">Chave da NF-e (44 díg.) — bipe a DANFE (leitor ou 📷)</label>
+      <div style="display:flex;gap:5px"><input id="ne_chave" class="inp" style="flex:1" placeholder="bipe o código de barras da DANFE ou digite" value="${esc(p.chave||'')}" onkeydown="if(event.key==='Enter')APP.puxarSefazChave()">
+        <button type="button" class="btn-sm" onclick="APP.biparChaveEntrada()" title="Ler pela câmera">📷</button>
+        <button type="button" class="btn-primary" onclick="APP.puxarSefazChave()" title="Puxar a NF da SEFAZ pela chave">🔎 Puxar SEFAZ</button></div></div>
     <label class="fl" style="margin-top:6px">Itens</label>
     <div id="neitens"></div>
     <button class="btn-sm" onclick="APP.neAdd()" style="margin-top:6px">+ item</button>
@@ -1918,6 +1922,43 @@ async function importarSefaz(i){
     nomeEmitente:n.emitente, cnpjEmitente:n.cnpjEmitente, fornecedorId:match?match.id:undefined,
     itens:[{ descricao:'Mercadoria conforme NF '+(n.numero||''), quantidade:1, unidade:'un', valorUnit:Number(n.valor||0) }]
   });
+}
+// Bipar a chave da DANFE (câmera): extrai os 44 dígitos do QR/código de barras.
+function biparChaveEntrada(){
+  abrirScanner(function(code){
+    const m=String(code||'').match(/\d{44}/);
+    const ch=m?m[0]:String(code||'').replace(/\D/g,'').slice(0,44);
+    const el=document.getElementById('ne_chave'); if(el) el.value=ch;
+    if(ch.length===44){ toast('Chave lida ✔ …'+ch.slice(-6),'ok'); APP.puxarSefazChave(); }
+    else toast('Não achei uma chave de 44 dígitos no código.','err');
+  });
+}
+// Puxa a NF da SEFAZ pela chave (Focus nfes_recebidas) e pré-preenche a entrada.
+async function puxarSefazChave(){
+  const chave=(val('ne_chave')||'').replace(/\D/g,'');
+  if(chave.length!==44){ toast('Bipe ou digite a chave de 44 dígitos.','err'); return; }
+  toast('Puxando a NF da SEFAZ…','ok');
+  let d; try{ d=await api('/notas-entrada/sefaz/'+chave); }catch(e){ toast('SEFAZ: '+(e.message||'não foi possível puxar (o serviço de NF-e recebidas precisa estar habilitado na Focus).'),'err'); return; }
+  const g=(o,ks)=>{ for(const k of ks){ if(o&&o[k]!=null&&o[k]!=='') return o[k]; } return undefined; };
+  const itensRaw = d.itens || d.produtos || d.det || [];
+  const itens = (Array.isArray(itensRaw)?itensRaw:[]).map(it=>{
+    const p = it.produto || it.prod || it;
+    return { descricao: g(p,['descricao','descricao_produto','xProd'])||'Item',
+      quantidade: Number(g(p,['quantidade_comercial','quantidade','qCom'])||1),
+      unidade: g(p,['unidade_comercial','unidade','uCom'])||'un',
+      valorUnit: Number(g(p,['valor_unitario_comercial','valor_unitario','vUnCom'])||0) };
+  });
+  const cnpjE=String(g(d,['cnpj_emitente','cnpj'])||'').replace(/\D/g,'');
+  const nomeE=g(d,['nome_emitente','razao_social_emitente','xNome','nome'])||'';
+  window.__NEPRE={ cnpjEmitente:cnpjE, nomeEmitente:nomeE };
+  closeModal();
+  formNotaEntrada({
+    numero:String(g(d,['numero','nnf','numero_nf'])||''), serie:String(g(d,['serie'])||''), chave,
+    data:String(g(d,['data_emissao','dhEmi','data'])||'').slice(0,10),
+    nomeEmitente:nomeE, cnpjEmitente:cnpjE,
+    itens: itens.length?itens:[{descricao:'Mercadoria conforme NF', quantidade:1, unidade:'un', valorUnit:Number(g(d,['valor_total','valor_liquido','valor'])||0)}]
+  });
+  toast('NF puxada da SEFAZ — confira os itens e salve.','ok');
 }
 
 async function viewEstoque(c){
@@ -3430,7 +3471,7 @@ window.APP = {
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, biparChaveEntrada, puxarSefazChave,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
