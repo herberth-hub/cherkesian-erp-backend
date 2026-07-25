@@ -1810,7 +1810,7 @@ async function cancelarCompra(id){
 let NEITENS = [];
 async function viewNotasEntrada(c){
   const list = await api('/notas-entrada');
-  const extra = `<button class="btn-sm" onclick="APP.lerNfEntrada()">📷 Bipar NF (ler chave)</button> <button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button>`;
+  const extra = `<button class="btn-sm" onclick="APP.lerNfEntrada()">📷 Bipar NF (ler chave)</button> <button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button> <button class="btn-sm" onclick="APP.viewCtes()">🚚 CT-es (fretes)</button>`;
   c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra) + panelTable(
     ['Número','Fornecedor / Emitente','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
     list.map(n=>[
@@ -1922,6 +1922,22 @@ async function importarSefaz(i){
     nomeEmitente:n.emitente, cnpjEmitente:n.cnpjEmitente, fornecedorId:match?match.id:undefined,
     itens:[{ descricao:'Mercadoria conforme NF '+(n.numero||''), quantidade:1, unidade:'un', valorUnit:Number(n.valor||0) }]
   });
+}
+// Arquivo de CT-es (fretes) emitidos contra os CNPJs — puxados da SEFAZ via Focus.
+async function viewCtes(){
+  toast('Consultando CT-es na SEFAZ…','ok');
+  let r; try{ r = await api('/notas-entrada/ctes'); }catch(e){ toast(e.message,'err'); return; }
+  if(!r.ok){ toast('CT-es: '+(r.motivo||'não foi possível consultar. Confirme se o "Recebimento de CTes" está ligado na Focus.'),'err'); return; }
+  const rows = r.ctes||[];
+  const total = rows.reduce((s,c)=>s+Number(c.valor||0),0);
+  openModal(`<h3>🚚 CT-es / Fretes · ${esc(r.cnpj||'seu CNPJ')}</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">${rows.length} conhecimento(s) de transporte na distribuição da SEFAZ${rows.length?(' · total '+money(total)):''}.</div>
+    ${rows.length?panelTable(['Transportadora','Nº','Emissão','Valor','Situação','Chave'], rows.map(c=>[
+      esc(c.transportadora||'—')+(c.cnpjEmitente?'<br><span class="muted mono" style="font-size:10.5px">'+esc(c.cnpjEmitente)+'</span>':''),
+      esc(c.numero), dfmt(c.data), money(c.valor), esc(c.situacao||'—'),
+      '<span class="mono" style="font-size:10px">'+esc((c.chave||'').slice(-12))+'</span>'
+    ])):'<div class="muted" style="padding:8px 0">Nenhum CT-e recebido para este CNPJ ainda. Fretes emitidos a partir da data de início configurada na Focus vão aparecer aqui.</div>'}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
 }
 // Entrada direto da tela: bipa a DANFE (câmera), abre a entrada e já puxa da SEFAZ.
 function lerNfEntrada(){
@@ -3482,7 +3498,7 @@ window.APP = {
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

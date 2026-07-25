@@ -200,6 +200,34 @@ export class NotasEntradaService {
     return { ok: true, cnpj, quantidade: notas.length, notas };
   }
 
+  /** Lista os CT-e (fretes) emitidos contra o CNPJ — arquivo dos conhecimentos de transporte. */
+  async ctesListar(empresaId: number) {
+    const { token, host, cnpj } = await this.tokenEmpresa(empresaId);
+    const url = `https://${host}/v2/ctes_recebidos?cnpj=${cnpj}`;
+    let lista: any[] = [];
+    try {
+      const res = await fetch(url, { headers: this.focusHeaders(token) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, motivo: `Focus HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`, ctes: [] };
+      lista = Array.isArray(body) ? body : ((body as { ctes?: any[] }).ctes ?? []);
+    } catch (err) {
+      this.logger.error(`Falha ao consultar CT-e recebidos: ${String(err)}`);
+      return { ok: false, motivo: 'Erro de comunicação com o provedor.', ctes: [] };
+    }
+    const ctes = lista.map((c) => ({
+      chave: digitos(c.chave_cte || c.chave),
+      numero: c.numero ?? c.cte ?? '—',
+      transportadora: c.nome_emitente ?? c.emitente ?? c.razao_social_emitente ?? '—',
+      cnpjEmitente: digitos(c.cnpj_emitente || c.cnpj),
+      valor: Number(c.valor_total ?? c.valor ?? c.valor_frete ?? 0),
+      data: c.data_emissao ?? c.data ?? null,
+      situacao: c.situacao ?? c.status ?? '—',
+      caminho_xml: c.caminho_xml || c.caminho_xml_cte || null,
+      caminho_pdf: c.caminho_dacte || c.caminho_pdf || null,
+    }));
+    return { ok: true, cnpj, quantidade: ctes.length, ctes };
+  }
+
   /** Detalhe (JSON) de uma NF-e recebida pela chave — para pré-preencher a entrada. */
   async sefazDetalhe(empresaId: number, chave: string) {
     const { token, host } = await this.tokenEmpresa(empresaId);

@@ -35,6 +35,12 @@ export class NotasEntradaController {
     return this.service.sefazDetalhe(user.empresaId, chave);
   }
 
+  /** Rastreador de CT-es (fretes) emitidos contra o CNPJ. */
+  @Get('ctes')
+  ctes(@CurrentUser() user: AuthUser) {
+    return this.service.ctesListar(user.empresaId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.service.findOne(id, user.empresaId);
