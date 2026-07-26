@@ -2192,8 +2192,17 @@ async function formEnderecar(){
 async function enderecarBip(){
   const codigo=val('ed_bip'); if(!codigo){ return; }
   const body={ codigo, coluna:val('ed_col'), andar:Number(val('ed_and')), caixaMaster:val('ed_cx') };
-  try{ const r=await api('/estoque/enderecar',{method:'POST',body});
-    const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee">✅ ${esc(r.codigo)} · ${esc(r.descricao)} ${r.tamanho?('· '+esc(r.tamanho)):''} → ${esc(r.endereco)}</div>`+log.innerHTML;
+  try{
+    let r=await api('/estoque/enderecar',{method:'POST',body});
+    // Já endereçado em outro lugar → confirma antes de mover (evita troca sem querer).
+    if(r && r.precisaConfirmar){
+      const ok = await uiConfirm({tipo:'warn', titulo:'Item já está endereçado',
+        ok:'Mover para o novo local', cancel:'Manter onde está',
+        msg:`${r.codigo} · ${r.descricao}${r.tamanho?(' · TAM '+r.tamanho):''}\n\nJÁ está guardado em:\n📍 ${r.atual}\n\nDeseja realmente MOVER para:\n➡️ ${r.novo} ?`});
+      if(!ok){ const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee;color:#8a6d3b">↩️ ${esc(r.codigo)} mantido em ${esc(r.atual)}</div>`+log.innerHTML; $('ed_bip').value=''; $('ed_bip').focus(); return; }
+      r=await api('/estoque/enderecar',{method:'POST',body:Object.assign({},body,{confirmar:true})});
+    }
+    const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee">${r.movido?'🔀':'✅'} ${esc(r.codigo)} · ${esc(r.descricao)} ${r.tamanho?('· '+esc(r.tamanho)):''} → ${esc(r.endereco)}${r.movido?' <span style="color:#8a6d3b">(movido)</span>':''}</div>`+log.innerHTML;
     $('ed_bip').value=''; $('ed_bip').focus();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); $('ed_bip').select(); }
 }

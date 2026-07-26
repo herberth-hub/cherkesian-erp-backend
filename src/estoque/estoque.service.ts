@@ -79,17 +79,32 @@ export class EstoqueService {
     return `Coluna ${d.coluna ?? '—'} · Andar ${d.andar ?? '—'} · Caixa ${d.caixaMaster ?? '—'}`;
   }
 
-  /** Endereça uma unidade (bipada) no armazém. */
-  async enderecar(dto: { codigo: string; coluna: string; andar: number; caixaMaster: string }, empresaId: number, usuario: string) {
+  /** Endereça uma unidade (bipada) no armazém. Se já estiver endereçada em OUTRO
+   *  lugar, NÃO troca sem confirmar: devolve `precisaConfirmar` com o endereço atual. */
+  async enderecar(dto: { codigo: string; coluna: string; andar: number; caixaMaster: string; confirmar?: boolean }, empresaId: number, usuario: string) {
     const codigo = (dto.codigo ?? '').trim();
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Unidade ${codigo} não encontrada.`);
     if (un.status === 'despachado') throw new BadRequestException('Unidade já despachada.');
+
+    const fmt = (c?: string | null, a?: number | null, x?: string | null) => `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
+    const jaEnderecado = un.status === 'em_estoque' && (un.coluna != null || un.andar != null || un.caixaMaster != null);
+    const mudou = un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
+    // Já está guardado em outro endereço e o operador escolheu um diferente → confirma antes.
+    if (jaEnderecado && mudou && !dto.confirmar) {
+      return {
+        precisaConfirmar: true,
+        codigo, descricao: un.descricao, tamanho: un.tamanho,
+        atual: fmt(un.coluna, un.andar, un.caixaMaster),
+        novo: fmt(dto.coluna, dto.andar, dto.caixaMaster),
+      };
+    }
+
     const upd = await this.prisma.unidadeEstoque.update({
       where: { codigo },
       data: { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status: 'em_estoque' },
     });
-    return { codigo, descricao: upd.descricao, tamanho: upd.tamanho, endereco: `Coluna ${dto.coluna} · Andar ${dto.andar} · Caixa ${dto.caixaMaster}` };
+    return { codigo, descricao: upd.descricao, tamanho: upd.tamanho, endereco: fmt(dto.coluna, dto.andar, dto.caixaMaster), movido: jaEnderecado && mudou };
   }
 
   /** Lista as unidades em estoque (com filtros simples). */

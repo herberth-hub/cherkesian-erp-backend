@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class EntradaEstoqueDto {
   @IsIn(['materia', 'aviamento', 'produto']) tipo!: string;
@@ -22,4 +22,5 @@ export class EnderecarDto {
   @IsIn(['A', 'B']) coluna!: string;
   @IsInt() @Min(0) @Max(4) andar!: number;
   @IsString() @IsNotEmpty() @MaxLength(10) caixaMaster!: string;
+  @IsOptional() @IsBoolean() confirmar?: boolean;
 }
