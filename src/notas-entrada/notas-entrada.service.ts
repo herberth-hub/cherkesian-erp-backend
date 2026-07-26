@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateNotaEntradaDto } from './dto/create-nota-entrada.dto';
+import { proximoCodigo } from '../common/utils/codigo.util';
 
 const digitos = (v?: string | null) => (v ?? '').replace(/\D/g, '');
 
@@ -68,6 +69,23 @@ export class NotasEntradaService {
     const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
 
     return this.prisma.$transaction(async (tx) => {
+      // Auto-cadastro de materiais: cada item SEM vínculo acha (por descrição) ou CADASTRA
+      // um material seguindo a regra de código MP-CAT-0000. Toda entrada fica no cadastro.
+      const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
+      for (const it of dto.itens) {
+        if (it.materialId) continue;
+        const desc = (it.descricao || '').trim();
+        if (!desc) continue;
+        const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
+        if (existente) { it.materialId = existente.id; continue; }
+        const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
+        codigosMP.push(codigo);
+        const novo = await tx.material.create({
+          data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) },
+        });
+        it.materialId = novo.id;
+      }
+
       // Título a pagar (opcional)
       let contaPagarId: number | undefined;
       if (dto.gerarContaPagar) {
@@ -244,8 +262,15 @@ export class NotasEntradaService {
   async sefazDetalhe(empresaId: number, chave: string) {
     const { token, host } = await this.tokenEmpresa(empresaId);
     const ch = digitos(chave);
-    const url = `https://${host}/v2/nfes_recebidas/${ch}.json?completa=1`;
-    const res = await fetch(url, { headers: this.focusHeaders(token) });
+    const headers = this.focusHeaders(token);
+    // Ciência da operação: sem manifestar, a SEFAZ só devolve o RESUMO (sem número/itens).
+    // A ciência libera o XML completo. Ignora erro (ex.: já manifestada).
+    await fetch(`https://${host}/v2/nfes_recebidas/${ch}/manifesto`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'ciencia' }),
+    }).catch(() => null);
+    const res = await fetch(`https://${host}/v2/nfes_recebidas/${ch}.json?completa=1`, { headers });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new BadRequestException(`Focus HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
     return body;

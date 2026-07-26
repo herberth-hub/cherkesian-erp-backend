@@ -1885,6 +1885,8 @@ async function saveNotaEntrada(){
   const itens = NEITENS.filter(it=>it.descricao&&it.descricao.trim()&&Number(it.quantidade)>0&&it.valorUnit!==''&&it.valorUnit!=null)
     .map(it=>{ const o={ descricao:it.descricao.trim(), quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) }; if(it.materialId) o.materialId=it.materialId; return o; });
   if(!val('ne_num')){ toast('Informe o número da NF.','err'); return; }
+  const temForn = val('ne_forn') || (val('ne_cnpj')||'').replace(/\D/g,'') || val('ne_nome');
+  if(!temForn){ toast('Informe o fornecedor: selecione um cadastrado, ou preencha o CNPJ/nome (ele será cadastrado automaticamente).','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item (descrição, quantidade e valor).','err'); return; }
   const body = { numero:val('ne_num'), itens };
   const fid=val('ne_forn'); if(fid) body.fornecedorId=Number(fid);
@@ -1986,7 +1988,7 @@ async function puxarSefazChave(){
       unidade: g(p,['unidade_comercial','unidade','uCom'])||'un',
       valorUnit: Number(g(p,['valor_unitario_comercial','valor_unitario','vUnCom'])||0) };
   });
-  const cnpjE=String(g(d,['cnpj_emitente','cnpj'])||'').replace(/\D/g,'');
+  const cnpjE=String(g(d,['cnpj_emitente','documento_emitente','cnpj','cpf_cnpj_emitente'])||'').replace(/\D/g,'');
   const nomeE=g(d,['nome_emitente','razao_social_emitente','xNome','nome'])||'';
   window.__NEPRE={ cnpjEmitente:cnpjE, nomeEmitente:nomeE };
   closeModal();
