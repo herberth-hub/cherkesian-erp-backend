@@ -1853,10 +1853,15 @@ async function formNotaEntrada(prefill){
       <label class="fl"><input type="checkbox" id="ne_est" checked> Dar entrada no estoque <span class="muted">(soma ao saldo do material vinculado)</span></label>
       <label class="fl" style="margin-top:8px"><input type="checkbox" id="ne_cp" checked onchange="APP.neCpToggle()"> Gerar conta a pagar</label>
     </div>
-    <div class="grid2" id="ne_cpbox">${field('ne_venc','Vencimento','type="date"')}${field('ne_cat','Categoria','value="Matéria-prima"')}</div>
+    <div class="grid2" id="ne_cpbox">${field('ne_venc','Vencimento','type="date"'+(p.vencimento?(' value="'+esc(p.vencimento)+'"'):''))}${field('ne_cat','Categoria','value="Matéria-prima"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveNotaEntrada()">Salvar entrada</button></div>`);
   if(p.fornecedorId){ const s=$('ne_forn'); if(s) s.value=p.fornecedorId; }
+  else if(p.cnpjEmitente){ // seleciona o fornecedor no dropdown pelo CNPJ, se já cadastrado
+    const cnpjP=(p.cnpjEmitente||'').replace(/\D/g,'');
+    const match=(forn||[]).find(f=>(f.cnpjCpf||'').replace(/\D/g,'')===cnpjP);
+    if(match){ const s=$('ne_forn'); if(s) s.value=match.id; }
+  }
   neRender();
 }
 function neRender(){
@@ -1990,15 +1995,22 @@ async function puxarSefazChave(){
   });
   const cnpjE=String(g(d,['cnpj_emitente','documento_emitente','cnpj','cpf_cnpj_emitente'])||'').replace(/\D/g,'');
   const nomeE=g(d,['nome_emitente','razao_social_emitente','xNome','nome'])||'';
+  // Vencimento: primeira duplicata/fatura da cobrança da NF.
+  let venc='';
+  const dups = d.duplicatas || d.faturas || (d.cobranca&&d.cobranca.duplicatas) || (d.fatura&&d.fatura.duplicatas) || [];
+  if(Array.isArray(dups)&&dups.length) venc=String(g(dups[0],['data_vencimento','vencimento','dVenc'])||'').slice(0,10);
+  if(!venc) venc=String(g(d,['data_vencimento','vencimento'])||'').slice(0,10);
   window.__NEPRE={ cnpjEmitente:cnpjE, nomeEmitente:nomeE };
   closeModal();
-  formNotaEntrada({
+  await formNotaEntrada({
     numero:String(g(d,['numero','nnf','numero_nf'])||''), serie:String(g(d,['serie'])||''), chave,
     data:String(g(d,['data_emissao','dhEmi','data'])||'').slice(0,10),
+    vencimento:venc,
     nomeEmitente:nomeE, cnpjEmitente:cnpjE,
     itens: itens.length?itens:[{descricao:'Mercadoria conforme NF', quantidade:1, unidade:'un', valorUnit:Number(g(d,['valor_total','valor_liquido','valor'])||0)}]
   });
-  toast('NF puxada da SEFAZ — confira os itens e salve.','ok');
+  if(itens.length) toast('NF puxada da SEFAZ ('+itens.length+' item(ns)) — confira e salve.','ok');
+  else await uiAlert({tipo:'info', titulo:'Itens ainda sendo baixados', ok:'Entendi', msg:'Número, fornecedor e vencimento foram puxados ✔\n\nOs ITENS da nota ainda estão sendo baixados pela SEFAZ (isso acontece logo após a ciência da operação). \n\n• Clique em "🔎 Puxar SEFAZ" de novo em alguns minutos para trazer os produtos automaticamente,\n• ou adicione os itens manualmente agora e salve.'});
 }
 
 async function viewEstoque(c){
