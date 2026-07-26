@@ -90,6 +90,10 @@ export class EstoqueService {
     const fmt = (c?: string | null, a?: number | null, x?: string | null) => `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
     const jaEnderecado = un.status === 'em_estoque' && (un.coluna != null || un.andar != null || un.caixaMaster != null);
     const mudou = un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
+    // Já está EXATAMENTE neste endereço → não duplica, só avisa.
+    if (jaEnderecado && !mudou) {
+      return { jaAqui: true, codigo, descricao: un.descricao, tamanho: un.tamanho, endereco: fmt(un.coluna, un.andar, un.caixaMaster) };
+    }
     // Já está guardado em outro endereço e o operador escolheu um diferente → confirma antes.
     if (jaEnderecado && mudou && !dto.confirmar) {
       return {

@@ -2194,6 +2194,11 @@ async function enderecarBip(){
   const body={ codigo, coluna:val('ed_col'), andar:Number(val('ed_and')), caixaMaster:val('ed_cx') };
   try{
     let r=await api('/estoque/enderecar',{method:'POST',body});
+    // Já está exatamente neste endereço → avisa e NÃO duplica.
+    if(r && r.jaAqui){
+      const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee;color:#8a6d3b">⚠️ ${esc(r.codigo)} já está endereçado aqui (${esc(r.endereco)}) — entrada ignorada.</div>`+log.innerHTML;
+      toast('Esta peça já está neste endereço.','err'); $('ed_bip').value=''; $('ed_bip').focus(); return;
+    }
     // Já endereçado em outro lugar → confirma antes de mover (evita troca sem querer).
     if(r && r.precisaConfirmar){
       const ok = await uiConfirm({tipo:'warn', titulo:'Item já está endereçado',
