@@ -379,8 +379,9 @@ export function itemPedido(
   doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(12.5).text(o.subtotal, xDir, yTop + 13, { width: wDir, align: 'right' });
   doc.x = x0;
   doc.y = Math.max(yDesc, yTop + 30);
-  // chips da grade
-  gradeChips(doc, o.grade);
+  // grade em tabela (tamanhos + Total)
+  const gent = Object.entries(o.grade ?? {}).filter(([, q]) => Number(q) > 0).map(([t, q]) => [t, String(q)] as [string, string]);
+  if (gent.length) gradeTabela(doc, gent);
   // separador fino
   doc.moveTo(x0, doc.y).lineTo(doc.page.width - 50, doc.y).lineWidth(0.5).strokeColor(LINHA).stroke();
   doc.moveDown(0.5);
