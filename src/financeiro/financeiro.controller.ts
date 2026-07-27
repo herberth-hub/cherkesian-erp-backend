@@ -24,6 +24,7 @@ import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { UpdateContaReceberDto } from './dto/update-conta-receber.dto';
 import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { BaixarDto } from './dto/baixar.dto';
+import { ParcelarDto } from './dto/parcelar.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -98,6 +99,17 @@ export class FinanceiroController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.pagar.baixar(id, user.empresaId, dto.valor);
+  }
+
+  @Areas('pagar')
+  @Post('pagar/:id/parcelar')
+  @HttpCode(HttpStatus.OK)
+  parcelarPagar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ParcelarDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pagar.parcelar(id, user.empresaId, dto.parcelas);
   }
 
   @Areas('pagar')

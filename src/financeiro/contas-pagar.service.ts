@@ -132,6 +132,38 @@ export class ContasPagarService {
     return { removido: true, id };
   }
 
+  /** Divide um título em várias parcelas (uma conta por parcela). Só se ainda não houve baixa. */
+  async parcelar(id: number, empresaId: number, parcelas: { vencimento: string; valor: number }[]): Promise<{ criadas: number }> {
+    const t = await this.prisma.contaPagar.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
+    if (t.pago.greaterThan(0)) throw new BadRequestException('Este título já tem baixa; não é possível parcelar.');
+    if (!parcelas || parcelas.length < 2) throw new BadRequestException('Informe ao menos 2 parcelas.');
+    const n = parcelas.length;
+    const baseRef = (t.referencia || 'Título').replace(/\s*\(\d+\/\d+\)\s*$/, '');
+    await this.prisma.$transaction(async (tx) => {
+      // A 1ª parcela reaproveita o título original; as demais são criadas.
+      for (let i = 0; i < n; i++) {
+        const pc = parcelas[i];
+        const venc = new Date(pc.vencimento);
+        const valor = new Prisma.Decimal(Number(pc.valor).toFixed(2));
+        const dados = {
+          empresaId,
+          filialId: t.filialId,
+          fornecedorId: t.fornecedorId,
+          categoria: t.categoria,
+          referencia: `${baseRef} (${i + 1}/${n})`,
+          vencimento: venc,
+          valor,
+          pago: new Prisma.Decimal(0),
+          status: calcularStatusTitulo(valor, new Prisma.Decimal(0), venc),
+        };
+        if (i === 0) await tx.contaPagar.update({ where: { id }, data: dados });
+        else await tx.contaPagar.create({ data: dados });
+      }
+    });
+    return { criadas: n };
+  }
+
   private comStatus(t: ContaPagar & { filial?: FilialResumo | null }): ContaPagarView {
     return {
       ...t,

@@ -1627,8 +1627,52 @@ async function formPagarEdit(id){
     ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
     <div class="grid2">${field('f_venc','Vencimento','type="date" value="'+String(t.vencimento).slice(0,10)+'"')}${field('f_valor','Valor','type="number" step="0.01" value="'+Number(t.valor)+'"')}</div>
     <p class="muted" style="font-size:12px">Já pago: ${money(t.pago)} — o valor não pode ser menor.</p>
+    ${Number(t.pago)>0?'':`<div style="border-top:1px solid var(--line);margin:10px 0 6px;padding-top:10px">
+      <label class="fl" style="font-weight:700">Parcelar este título (opcional)</label>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Divide em várias parcelas — informe os dias (ex.: <b>30/60/91</b>) ou o nº de parcelas. Substitui este título pelas parcelas.</div>
+      <div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap">
+        <div class="mrow" style="flex:1;min-width:130px"><label class="fl">Dias (ex.: 30/60/91)</label><input id="pg_dias" class="inp" placeholder="30/60/91"></div>
+        <div class="mrow" style="flex:0 0 90px"><label class="fl">ou nº parc.</label><input id="pg_np" class="inp" type="number" min="2" placeholder="3"></div>
+        <button type="button" class="btn-sm" onclick="APP.pgParcGerar(${Number(t.valor)})">Gerar</button>
+      </div>
+      <div id="pg_parclist" style="margin-top:6px"></div>
+      <button type="button" class="btn-primary" id="pg_parcbtn" style="display:none;margin-top:8px" onclick="APP.parcelarPagar(${id})">Salvar parcelamento</button>
+    </div>`}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePagarEdit(${id})">Salvar</button></div>`);
+  PGPARC=[];
+}
+let PGPARC=[];
+function pgParcGerar(total){
+  const diasStr=(val('pg_dias')||'').trim();
+  let offs=diasStr?diasStr.split(/[\/,;\s]+/).map(x=>parseInt(x)).filter(x=>!isNaN(x)):[];
+  let n;
+  if(offs.length){ n=offs.length; }
+  else { n=Math.max(2,parseInt(val('pg_np')||'0')||0); if(!n||n<2){ toast('Informe os dias (30/60/91) ou o nº de parcelas.','err'); return; } offs=Array.from({length:n},(_,i)=>30*(i+1)); }
+  const base=new Date(); base.setHours(12,0,0,0);
+  const cent=Math.round(Number(total)*100), part=Math.floor(cent/n);
+  PGPARC=[]; for(let i=0;i<n;i++){ const dt=new Date(base); dt.setDate(dt.getDate()+(offs[i]||0)); const c=(i===n-1)?(cent-part*(n-1)):part; PGPARC.push({vencimento:dt.toISOString().slice(0,10), valor:c/100}); }
+  pgParcRender(total);
+}
+function pgParcRender(total){
+  const box=$('pg_parclist'), btn=$('pg_parcbtn'); if(!box) return;
+  if(!PGPARC.length){ box.innerHTML=''; if(btn)btn.style.display='none'; return; }
+  const soma=PGPARC.reduce((s,p)=>s+Number(p.valor||0),0), dif=Math.abs(soma-Number(total))>0.005;
+  box.innerHTML=PGPARC.map((p,i)=>`<div class="grid2" style="margin-bottom:4px">
+      <input class="inp" type="date" id="pg_pv_${i}" value="${esc(p.vencimento)}" onchange="APP.pgParcSync()">
+      <div style="display:flex;gap:6px"><input class="inp" type="number" step="0.01" id="pg_pval_${i}" value="${p.valor}" onchange="APP.pgParcSync()"><button type="button" class="btn-sm" onclick="APP.pgParcDel(${i},${total})">×</button></div>
+    </div>`).join('')+`<div class="muted" style="font-size:11px">${PGPARC.length}x · soma <b style="color:${dif?'#c14a34':'inherit'}">${money(soma)}</b> · valor do título ${money(total)}${dif?' ⚠️ diferente':''}</div>`;
+  if(btn)btn.style.display='';
+}
+function pgParcSync(){ PGPARC.forEach((p,i)=>{ const v=$('pg_pv_'+i),a=$('pg_pval_'+i); if(v)p.vencimento=v.value; if(a)p.valor=Number(a.value); }); }
+function pgParcDel(i,total){ pgParcSync(); PGPARC.splice(i,1); pgParcRender(total); }
+async function parcelarPagar(id){
+  pgParcSync();
+  const parc=PGPARC.filter(p=>p.vencimento&&Number(p.valor)>0);
+  if(parc.length<2){ toast('Gere ao menos 2 parcelas.','err'); return; }
+  try{ await api('/financeiro/pagar/'+id+'/parcelar',{method:'POST',body:{parcelas:parc.map(p=>({vencimento:p.vencimento,valor:Number(Number(p.valor).toFixed(2))}))}});
+    closeModal(); toast('Título parcelado em '+parc.length+'x.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function savePagarEdit(id){
   const body={ categoria:val('f_cat'), referencia:val('f_ref') };
@@ -3783,7 +3827,7 @@ window.APP = {
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
-  formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
+  formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
