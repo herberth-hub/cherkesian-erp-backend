@@ -2984,9 +2984,10 @@ function etiquetaExpedicaoPrompt(expedicaoId){
 // ---------- Som de bipe (Web Audio, sem arquivo externo) ----------
 let _actx=null;
 function _ac(){ try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended') _actx.resume(); return _actx; }catch(e){ return null; } }
-function _tone(freq,dur,type,vol){ const ac=_ac(); if(!ac) return; try{ const o=ac.createOscillator(),g=ac.createGain(); o.type=type||'square'; o.frequency.value=freq; o.connect(g); g.connect(ac.destination); const t=ac.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol||0.25,t+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02); }catch(e){} }
-function beepOk(){ _tone(1180,0.11,'square',0.28); }        // bipe curto e agudo (leitura OK)
-function beepErro(){ _tone(240,0.16,'sawtooth',0.3); setTimeout(()=>_tone(190,0.2,'sawtooth',0.3),130); } // grave duplo (erro)
+function _tone(freq,dur,type,vol){ const ac=_ac(); if(!ac) return; try{ const o=ac.createOscillator(),g=ac.createGain(); o.type=type||'square'; o.frequency.value=freq; o.connect(g); g.connect(ac.destination); const t=ac.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(Math.min(1,vol||1),t+0.005); g.gain.setValueAtTime(Math.min(1,vol||1),t+dur*0.7); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02); }catch(e){} }
+// Volume no máximo: dois tons simultâneos (fundamental + harmônico) p/ um bipe bem estridente.
+function beepOk(){ _tone(1180,0.16,'square',1); _tone(2360,0.16,'square',0.9); }   // leitura OK
+function beepErro(){ _tone(220,0.2,'sawtooth',1); _tone(330,0.2,'square',0.8); setTimeout(()=>{ _tone(180,0.24,'sawtooth',1); _tone(270,0.24,'square',0.8); },150); } // grave duplo (erro)
 
 // ---------- Scanner por câmera (QR + código de barras) ----------
 // Usa BarcodeDetector nativo (Chrome/Edge/Android). No iPhone (Safari não tem
