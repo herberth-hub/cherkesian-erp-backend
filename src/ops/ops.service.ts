@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OP } from '@prisma/client';
+import { OP, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
+
+type RomLinha = { materialId: number; codigo: string; descricao: string; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string };
 
 @Injectable()
 export class OpsService {
@@ -24,6 +26,56 @@ export class OpsService {
       throw new NotFoundException(`OP ${id} não encontrada.`);
     }
     return op;
+  }
+
+  /** Romaneio de corte da OP: materiais a separar (já baixados do saldo na geração). */
+  async romaneio(id: number, empresaId: number) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id },
+      include: { pedido: { select: { empresaId: true, numero: true } } },
+    });
+    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } }) : null;
+    const itens = ((op.romaneioMateriais as unknown as RomLinha[]) ?? []);
+    return {
+      op: op.numero, pedido: op.pedido?.numero ?? null, quantidade: op.quantidade,
+      produto: produto ? `${produto.codigo} · ${produto.descricao}` : null,
+      itens,
+      conferidos: itens.filter((i) => i.conferido).length,
+      total: itens.length,
+    };
+  }
+
+  /** Dupla conferência: estoquista bipa o material/rolo do romaneio. NÃO baixa saldo (já baixado na OP). */
+  async conferirMaterial(id: number, codigoRaw: string, empresaId: number, usuario: string) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id },
+      include: { pedido: { select: { empresaId: true } } },
+    });
+    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
+    if (!rom.length) throw new BadRequestException('Esta OP não tem romaneio de materiais.');
+    const codigo = (codigoRaw ?? '').trim();
+    if (!codigo) throw new BadRequestException('Bipe o material.');
+
+    // Resolve a linha do romaneio: por código do material, por etiqueta de rolo (UN-...) ou por descrição.
+    let alvo = rom.find((r) => r.codigo.toLowerCase() === codigo.toLowerCase());
+    if (!alvo && /^un-/i.test(codigo)) {
+      const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+      if (un) alvo = rom.find((r) => (un.materialId != null && r.materialId === un.materialId) || (r.descricao || '').toLowerCase() === (un.descricao || '').toLowerCase());
+    }
+    if (!alvo) alvo = rom.find((r) => (r.descricao || '').toLowerCase().includes(codigo.toLowerCase()));
+    if (!alvo) throw new BadRequestException('Material bipado não faz parte do romaneio desta OP.');
+
+    const ja = alvo.conferido === true;
+    alvo.conferido = true;
+    alvo.conferidoPor = usuario;
+    await this.prisma.oP.update({ where: { id }, data: { romaneioMateriais: rom as unknown as Prisma.InputJsonValue } });
+    const faltam = rom.filter((r) => !r.conferido).length;
+    return {
+      ok: true, ja, material: alvo.descricao, codigo: alvo.codigo,
+      conferidos: rom.filter((r) => r.conferido).length, total: rom.length, faltam, completo: faltam === 0,
+    };
   }
 
   async updateStatus(id: number, dto: UpdateOpStatusDto, empresaId: number): Promise<OP> {

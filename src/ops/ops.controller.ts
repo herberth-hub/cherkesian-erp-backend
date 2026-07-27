@@ -2,9 +2,12 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { OpsService } from './ops.service';
@@ -26,6 +29,25 @@ export class OpsController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.opsService.findOne(id, user.empresaId);
+  }
+
+  /** Romaneio de corte: materiais a separar para a OP (com status de conferência). */
+  @Areas('pcp', 'producao', 'estoque')
+  @Get(':id/romaneio')
+  romaneio(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.opsService.romaneio(id, user.empresaId);
+  }
+
+  /** Dupla conferência do estoquista: bipa o material/rolo do romaneio (não baixa saldo). */
+  @Areas('pcp', 'producao', 'estoque')
+  @Post(':id/conferir-material')
+  @HttpCode(HttpStatus.OK)
+  conferirMaterial(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { codigo: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.conferirMaterial(id, body?.codigo ?? '', user.empresaId, user.usuario);
   }
 
   /** Etiqueta do fardo (corte) para a Zebra: dados + ZPL. destino = facção/setor. */

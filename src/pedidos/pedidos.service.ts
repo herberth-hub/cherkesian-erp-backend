@@ -344,6 +344,11 @@ export class PedidosService {
       const produtoId = itemProd?.produtoId ?? null;
       // A OP herda a grade de tamanhos do item do pedido (flui p/ os kits do corte).
       const gradeOp = (itemProd?.grade as Prisma.InputJsonValue | undefined) ?? undefined;
+      // Romaneio de corte: materiais que o estoquista separa (baixados aqui do saldo).
+      const romaneio = [...necessarioPorMaterial.entries()].map(([materialId, q]) => {
+        const m = materiais.find((x) => x.id === materialId)!;
+        return { materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(q.toFixed(4)), unidade: m.unidade, conferido: false };
+      });
       const op = await tx.oP.create({
         data: {
           numero: numeroOp,
@@ -355,6 +360,7 @@ export class PedidosService {
           pilotoLiberado: true,
           progresso: 0,
           gradeTamanhos: gradeOp,
+          romaneioMateriais: romaneio as Prisma.InputJsonValue,
         },
       });
       await tx.pedido.update({

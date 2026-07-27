@@ -417,6 +417,7 @@ model OP {
   pilotoLiberado Boolean  @default(false)
   prioridade     Prioridade @default(media)
   gradeTamanhos  Json?    // distribuição por tamanho, ex.: {"P":10,"M":20,"G":8}
+  romaneioMateriais Json? // materiais do corte (BOM × qtd) c/ conferência: [{materialId,codigo,descricao,quantidade,unidade,conferido,...}]
   lotes          Lote[]
 }
 
