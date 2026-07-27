@@ -145,6 +145,7 @@ model Filial {
   ops               OP[]
   notasFiscais      NotaFiscal[]
   notasEntrada      NotaEntrada[]
+  contasPagar       ContaPagar[]
 }
 
 model Usuario {
@@ -502,6 +503,8 @@ model ContaReceber {
 model ContaPagar {
   id           Int          @id @default(autoincrement())
   empresaId    Int
+  filialId     Int?         // CNPJ (HC Quality / Cherkesian) responsável pelo pagamento
+  filial       Filial?      @relation(fields: [filialId], references: [id])
   fornecedorId Int?
   categoria    String
   referencia   String?

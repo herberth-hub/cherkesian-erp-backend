@@ -18,6 +18,11 @@ export class UpdateContaPagarDto {
   fornecedorId?: number;
 
   @IsOptional()
+  @IsInt()
+  @IsPositive()
+  filialId?: number;
+
+  @IsOptional()
   @IsDateString()
   vencimento?: string;
 

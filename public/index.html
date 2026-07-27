@@ -1377,10 +1377,17 @@ async function viewPagar(c){
   window.__PAGS = list;
   const nome = {}; forn.forEach(f=>nome[f.id]=f.nome);
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
-  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()', relBtn('pagar')) + panelTable(
-    ['Vencimento','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
+  // Total em aberto por empresa/CNPJ (quanto cada uma tem a pagar).
+  const porEmp={}; list.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
+  const chips = Object.keys(porEmp).sort().map(k=>`<div class="card" style="padding:10px 14px"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a pagar</div></div>`).join('');
+  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()', relBtn('pagar'))
+    + (chips?`<div class="cards" style="margin-bottom:14px">${chips}</div>`:'')
+    + panelTable(
+    ['Vencimento','Empresa','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
     list.map(t=>[
-      dfmt(t.vencimento), esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
+      dfmt(t.vencimento),
+      t.filial?`<span class="pill gray" title="${esc(t.filial.cnpj||'')}">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
+      esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum título a pagar.');
@@ -1572,9 +1579,12 @@ async function saveReceber(){
   catch(e){ toast(e.message,'err'); }
 }
 async function formPagar(){
-  const forn = await api('/fornecedores');
+  const [forn, filiais] = await Promise.all([api('/fornecedores'), api('/filiais').catch(()=>[])]);
   const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
+  const filList=(filiais||[]); const matrizId=(filList.find(f=>f.matriz)||filList[0]||{}).id;
+  const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Novo título a pagar</h3>
+    ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador *</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
     ${field('f_cat','Categoria * (ex.: Facção, Aluguel)','')}
     <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
     ${field('f_ref','Referência','placeholder="ex.: OC-0001, NF 123"')}
@@ -1584,6 +1594,7 @@ async function formPagar(){
 }
 async function savePagar(){
   const body = { categoria:val('f_cat'), vencimento:val('f_venc'), valor:Number(val('f_valor')) };
+  const filid=val('f_filial'); if(filid) body.filialId=Number(filid);
   const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
   const ref=val('f_ref'); if(ref) body.referencia=ref;
   if(!body.categoria||!body.vencimento||!body.valor){ toast('Preencha categoria, vencimento e valor.','err'); return; }
@@ -1605,9 +1616,12 @@ async function saveReceberEdit(id){
 }
 async function formPagarEdit(id){
   const t = (window.__PAGS||[]).find(x=>x.id===id); if(!t){ toast('Título não encontrado.','err'); return; }
-  const forn = await api('/fornecedores');
+  const [forn, filiais] = await Promise.all([api('/fornecedores'), api('/filiais').catch(()=>[])]);
   const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}" ${t.fornecedorId===f.id?'selected':''}>${esc(f.nome)}</option>`)).join('');
+  const filList=(filiais||[]); const curFil=t.filial?t.filial.id:null;
+  const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===curFil?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Editar título a pagar</h3>
+    ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
     ${field('f_cat','Categoria','value="'+esc(t.categoria||'')+'"')}
     <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
     ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
@@ -1618,6 +1632,7 @@ async function formPagarEdit(id){
 }
 async function savePagarEdit(id){
   const body={ categoria:val('f_cat'), referencia:val('f_ref') };
+  const filid=val('f_filial'); if(filid) body.filialId=Number(filid);
   const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
   const v=val('f_venc'); if(v) body.vencimento=v; const vl=val('f_valor'); if(vl) body.valor=Number(vl);
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
@@ -1977,13 +1992,21 @@ async function formNotaEntrada(prefill){
   }
   neRender();
 }
+function neMatLabel(m){ return m.codigo+' · '+m.descricao+(m.cor?' · '+m.cor:''); }
+function neFindMat(text){
+  const mats=window.__MATS||[]; const t=(text||'').trim().toLowerCase(); if(!t) return null;
+  let m=mats.find(x=>neMatLabel(x).toLowerCase()===t);       // escolha exata do datalist
+  if(!m) m=mats.find(x=>x.codigo.toLowerCase()===t);          // código exato
+  if(!m) m=mats.find(x=>t.startsWith(x.codigo.toLowerCase()+' · '));
+  return m||null;
+}
 function neRender(){
   const box=$('neitens'); if(!box) return;
   const mats=window.__MATS||[];
-  const mo = ['<option value="">— vincular material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-desc="${esc(m.descricao)}">${esc(m.codigo)} · ${esc(m.descricao)}</option>`)).join('');
-  box.innerHTML = NEITENS.map((it,i)=>`
+  const dl = `<datalist id="ne_matlist">${mats.map(m=>`<option value="${esc(neMatLabel(m))}"></option>`).join('')}</datalist>`;
+  box.innerHTML = dl + NEITENS.map((it,i)=>`
     <div class="grid2" style="margin-bottom:6px">
-      <select class="inp" id="ne_mat_${i}" onchange="APP.neMat(${i})">${mo}</select>
+      <input class="inp" id="ne_mat_${i}" list="ne_matlist" autocomplete="off" placeholder="🔎 vincular material (digite código ou nome)" oninput="APP.neMat(${i})" onchange="APP.neMat(${i})">
       <input class="inp" id="ne_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
     </div>
     <div class="grid3" style="margin-bottom:12px">
@@ -1991,12 +2014,13 @@ function neRender(){
       <input class="inp" id="ne_un_${i}" placeholder="un" value="${esc(it.unidade||'un')}">
       <div style="display:flex;gap:6px"><input class="inp" id="ne_vu_${i}" type="number" step="0.0001" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">${NEITENS.length>1?`<button class="btn-sm" onclick="APP.neDel(${i})">×</button>`:''}</div>
     </div>`).join('');
-  NEITENS.forEach((it,i)=>{ if(it.materialId){ const s=$('ne_mat_'+i); if(s) s.value=it.materialId; } });
+  // Prefill do vínculo quando o item já tem material (ex.: edição).
+  NEITENS.forEach((it,i)=>{ if(it.materialId){ const m=mats.find(x=>x.id===it.materialId); const s=$('ne_mat_'+i); if(m&&s) s.value=neMatLabel(m); } });
 }
-function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) return; it.descricao=d.value; it.quantidade=val('ne_qtd_'+i); it.unidade=val('ne_un_'+i)||'un'; it.valorUnit=val('ne_vu_'+i); const m=$('ne_mat_'+i); it.materialId=(m&&m.value)?Number(m.value):undefined; }); }
+function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) return; it.descricao=d.value; it.quantidade=val('ne_qtd_'+i); it.unidade=val('ne_un_'+i)||'un'; it.valorUnit=val('ne_vu_'+i); const m=neFindMat(val('ne_mat_'+i)); it.materialId=m?m.id:undefined; }); }
 function neAdd(){ neSync(); NEITENS.push({unidade:'un'}); neRender(); }
 function neDel(i){ neSync(); NEITENS.splice(i,1); neRender(); }
-function neMat(i){ const o=$('ne_mat_'+i).selectedOptions[0]; if(o&&o.value){ if(!$('ne_desc_'+i).value)$('ne_desc_'+i).value=o.getAttribute('data-desc')||''; $('ne_un_'+i).value=o.getAttribute('data-un')||'un'; } }
+function neMat(i){ const m=neFindMat(val('ne_mat_'+i)); if(m){ const d=$('ne_desc_'+i); if(d&&!d.value)d.value=m.descricao; const u=$('ne_un_'+i); if(u)u.value=m.unidade||'un'; const vu=$('ne_vu_'+i); if(vu&&!vu.value&&Number(m.custo)>0)vu.value=Number(m.custo); } }
 function neCpToggle(){ $('ne_cpbox').style.display=$('ne_cp').checked?'':'none'; }
 async function saveNotaEntrada(){
   neSync();

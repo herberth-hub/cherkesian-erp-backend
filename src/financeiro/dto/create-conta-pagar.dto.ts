@@ -15,6 +15,12 @@ export class CreateContaPagarDto {
   @IsPositive()
   fornecedorId?: number;
 
+  /** Empresa/CNPJ (filial) responsável pelo pagamento. */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  filialId?: number;
+
   @IsString()
   @IsNotEmpty({ message: 'Informe a categoria (ex.: Matéria-prima, Facção, Aluguel).' })
   @MaxLength(80)

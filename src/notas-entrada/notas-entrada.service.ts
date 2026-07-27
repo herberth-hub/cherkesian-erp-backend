@@ -102,6 +102,7 @@ export class NotasEntradaService {
         const cp = await tx.contaPagar.create({
           data: {
             empresaId,
+            filialId,
             fornecedorId,
             categoria: dto.categoria || 'Matéria-prima',
             referencia: `NF entrada ${dto.numero}`,
