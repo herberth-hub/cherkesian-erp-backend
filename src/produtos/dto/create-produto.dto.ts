@@ -99,4 +99,9 @@ export class CreateProdutoDto extends ProdutoFichaDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'precoBase deve ter no máximo 2 casas decimais.' })
   @IsPositive({ message: 'precoBase deve ser positivo.' })
   precoBase?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo deve ter no máximo 2 casas decimais.' })
+  @Min(0)
+  custo?: number;
 }
