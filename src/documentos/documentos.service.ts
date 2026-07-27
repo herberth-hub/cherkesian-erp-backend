@@ -328,7 +328,28 @@ export class DocumentosService {
       gradeCaixinhas(doc, this.expandirGrade(produto.grade).map((t) => [t, '']));
     }
 
-    if (bom.length) {
+    // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado
+    // na geração (com status de conferência); OPs antigas caem no cálculo ao vivo da BOM.
+    type Rom = { codigo: string; descricao: string; quantidade: number; unidade: string; conferido?: boolean; conferidoPor?: string };
+    const romaneio = (op.romaneioMateriais as unknown as Rom[] | null) ?? [];
+    if (romaneio.length) {
+      secao(doc, `Romaneio de corte — materiais a separar (${op.quantidade} peças)`);
+      tabela(
+        doc,
+        [
+          { titulo: 'Conf.', largura: 45 },
+          { titulo: 'Material', largura: 85 },
+          { titulo: 'Descrição', largura: 175 },
+          { titulo: 'Qtd total', largura: 95, alinhamento: 'right' },
+        ],
+        romaneio.map((r) => [
+          r.conferido ? 'OK' : '—',
+          r.codigo,
+          r.descricao,
+          `${Number(r.quantidade).toFixed(3)} ${r.unidade}`,
+        ]),
+      );
+    } else if (bom.length) {
       secao(doc, 'Consumo de material (por peça × total da OP)');
       tabela(
         doc,
@@ -346,7 +367,7 @@ export class DocumentosService {
         ]),
       );
     }
-    assinaturas(doc, 'PCP / Programação', 'Produção — Recebido');
+    assinaturas(doc, 'Separado por (estoque)', 'Recebido no corte');
     return doc;
   }
 
