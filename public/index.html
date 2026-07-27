@@ -2455,7 +2455,7 @@ async function formEntradaEstoque(){
       <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
     <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
       <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
-        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp"><option value="">—</option></select></div>
+        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
         <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option></select></div></div></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
@@ -2518,27 +2518,37 @@ function imprimirEtqUnidades(pecas, meta){
   w.document.close();
 }
 // Esquemas de endereçamento por coluna: A = produto acabado; B = matéria-prima.
-const ENDER_ESQ = {
-  A: { andar:['0','1','2','3','4'], caixa: CAIXAS_MASTER },
-  B: { andar:['A','B','C'], caixa: ['A','B','C'].flatMap(l=>Array.from({length:12},(_,i)=>l+(i+1))) },
-};
+const ENDER_ANDAR = { A:['0','1','2','3','4'], B:['A','B','C'] };
+// Caixas dependem do andar: coluna B, andar A -> A1..A12; andar B -> B1..B12; etc.
+function edCaixas(col, andar){
+  if(col==='B'){ const l=andar||'A'; return Array.from({length:12},(_,i)=>l+(i+1)); }
+  return CAIXAS_MASTER;
+}
 function edCol(){
-  const col=val('ed_col')||'A'; const esq=ENDER_ESQ[col]||ENDER_ESQ.A;
-  const a=$('ed_and'), c=$('ed_cx');
-  if(a) a.innerHTML=esq.andar.map(x=>'<option>'+x+'</option>').join('');
-  if(c) c.innerHTML=esq.caixa.map(x=>'<option>'+x+'</option>').join('');
+  const col=val('ed_col')||'A'; const a=$('ed_and');
+  if(a) a.innerHTML=(ENDER_ANDAR[col]||ENDER_ANDAR.A).map(x=>'<option>'+x+'</option>').join('');
+  edAndar();
+}
+function edAndar(){
+  const col=val('ed_col')||'A'; const c=$('ed_cx');
+  if(c) c.innerHTML=edCaixas(col, val('ed_and')).map(x=>'<option>'+x+'</option>').join('');
 }
 function enCol(){
-  const col=val('en_col'); const esq=ENDER_ESQ[col]||{andar:[],caixa:[]};
-  const a=$('en_and'), c=$('en_cx');
-  if(a) a.innerHTML='<option value="">—</option>'+esq.andar.map(x=>'<option>'+x+'</option>').join('');
-  if(c) c.innerHTML='<option value="">—</option>'+esq.caixa.map(x=>'<option>'+x+'</option>').join('');
+  const col=val('en_col'); const a=$('en_and');
+  const andares=col?(ENDER_ANDAR[col]||[]):[];
+  if(a) a.innerHTML='<option value="">—</option>'+andares.map(x=>'<option>'+x+'</option>').join('');
+  enAndar();
+}
+function enAndar(){
+  const col=val('en_col'); const c=$('en_cx');
+  if(!c) return;
+  c.innerHTML='<option value="">—</option>'+(col?edCaixas(col, val('en_and')).map(x=>'<option>'+x+'</option>').join('') : '');
 }
 async function formEnderecar(){
   openModal(`<h3>🏷 Endereçar unidades (bipar)</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima. As opções de andar e caixa mudam conforme a coluna.</div>
     <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option>A</option><option>B</option></select></div>
-      <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp"></select></div>
+      <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp" onchange="APP.edAndar()"></select></div>
       <div class="mrow"><label class="fl">Caixa Master *</label><select id="ed_cx" class="inp"></select></div></div>
     <div style="display:flex;gap:8px;align-items:end;margin-top:6px">
       <div style="flex:1"><label class="fl">Bipe a etiqueta da peça</label><input id="ed_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.enderecarBip()"></div>
@@ -3970,7 +3980,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, saveEntradaEstoque, formEnderecar, edCol, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
