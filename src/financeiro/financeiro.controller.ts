@@ -10,7 +10,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { TituloStatus } from '@prisma/client';
 import { ContasReceberService } from './contas-receber.service';
 import { ContasPagarService } from './contas-pagar.service';
@@ -119,6 +121,30 @@ export class FinanceiroController {
   @Get('fluxo')
   fluxo(@CurrentUser() user: AuthUser) {
     return this.financeiro.fluxo(user.empresaId);
+  }
+
+  @Areas('fluxo')
+  @Get('fluxo/calendario')
+  calendario(
+    @CurrentUser() user: AuthUser,
+    @Query('de') de?: string,
+    @Query('ate') ate?: string,
+  ) {
+    return this.financeiro.calendario(user.empresaId, de, ate);
+  }
+
+  @Areas('fluxo')
+  @Get('fluxo/calendario/xlsx')
+  async calendarioXlsx(
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+    @Query('de') de?: string,
+    @Query('ate') ate?: string,
+  ) {
+    const { buffer, nome } = await this.financeiro.calendarioXlsx(user.empresaId, de, ate);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}.xlsx"`);
+    res.send(buffer);
   }
 
   // ===== Comissões (financeiro + comercial) =====

@@ -1381,11 +1381,18 @@ async function viewPagar(c){
 }
 async function viewFluxo(c){
   const f = await api('/financeiro/fluxo');
+  window.__FLUXO=f;
   const bkt = (b,label)=>`<div class="card"><div class="k" style="font-size:11px;color:var(--muted);margin-bottom:8px">${label}</div>
     <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Vencida</span><b style="color:#c14a34">${money(b.vencida)}</b></div>
     <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Vencendo</span><b class="gold">${money(b.vencendo)}</b></div>
     <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">A vencer</span><b>${money(b.a_vencer)}</b></div></div>`;
+  const aba = window.__FLUXOABA||'resumo';
+  const tab = (id,txt)=>`<button class="btn-sm" style="${aba===id?'background:var(--navy);color:#fff':''}" onclick="APP.fluxoAba('${id}')">${txt}</button>`;
   c.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:14px">${tab('resumo','Resumo')}${tab('calendario','📅 Calendário')}</div>
+    <div id="fluxoBody"></div>`;
+  if(aba==='calendario'){ await renderFluxoCalendario($('fluxoBody')); return; }
+  $('fluxoBody').innerHTML = `
     <div class="cards">
       ${kpi('Recebido (realizado)', money(f.realizado.recebido), '')}
       ${kpi('Pago (realizado)', money(f.realizado.pago), '')}
@@ -1400,6 +1407,101 @@ async function viewFluxo(c){
       ${bkt(f.receberPorVencimento,'A RECEBER')}
       ${bkt(f.pagarPorVencimento,'A PAGAR')}
     </div></div>`;
+}
+function fluxoAba(id){ window.__FLUXOABA=id; viewFluxo($('content')); }
+function fluxoMesRef(){ if(!window.__FLUXOMES){ const d=new Date(); window.__FLUXOMES={a:d.getFullYear(),m:d.getMonth()}; } return window.__FLUXOMES; }
+function fluxoMesNav(delta){ const r=fluxoMesRef(); let m=r.m+delta,a=r.a; if(m<0){m=11;a--;} if(m>11){m=0;a++;} window.__FLUXOMES={a,m}; renderFluxoCalendario($('fluxoBody')); }
+function fluxoRange(){ const r=fluxoMesRef(); const p2=n=>String(n).padStart(2,'0'); const de=`${r.a}-${p2(r.m+1)}-01`; const ult=new Date(r.a,r.m+1,0).getDate(); const ate=`${r.a}-${p2(r.m+1)}-${p2(ult)}`; return {de,ate}; }
+async function renderFluxoCalendario(host){
+  const {de,ate} = fluxoRange();
+  host.innerHTML = '<div class="muted" style="padding:20px">Carregando calendário…</div>';
+  let cal; try{ cal = await api('/financeiro/fluxo/calendario?de='+de+'&ate='+ate); }catch(e){ host.innerHTML='<div class="empty">'+esc(e.message)+'</div>'; return; }
+  window.__FLUXOCAL=cal;
+  const meses=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const r=fluxoMesRef();
+  const byDay={}; cal.dias.forEach(d=>{ byDay[d.data]=d; });
+  const primeiro=new Date(r.a,r.m,1); const offset=primeiro.getDay(); const ndias=new Date(r.a,r.m+1,0).getDate();
+  const p2=n=>String(n).padStart(2,'0');
+  const cells=[];
+  for(let i=0;i<offset;i++) cells.push('<div class="fcal-cell fcal-empty"></div>');
+  for(let dia=1;dia<=ndias;dia++){
+    const key=`${r.a}-${p2(r.m+1)}-${p2(dia)}`; const d=byDay[key];
+    const ent=d?Number(d.entrada):0, sai=d?Number(d.saida):0, sal=d?Number(d.saldoAcumulado):null, def=d&&d.deficit;
+    const cnt=(d?d.entradas.length+d.saidas.length:0);
+    cells.push(`<div class="fcal-cell${def?' fcal-def':''}${(ent||sai)?' fcal-has':''}" ${cnt?`onclick="APP.fluxoDiaDet('${key}')" style="cursor:pointer"`:''}>
+      <div class="fcal-d">${dia}</div>
+      ${ent?`<div class="fcal-in">▲ ${money(ent)}</div>`:''}
+      ${sai?`<div class="fcal-out">▼ ${money(sai)}</div>`:''}
+      ${sal!=null?`<div class="fcal-sal" style="color:${sal<0?'#c14a34':'#5b6b53'}">${money(sal)}</div>`:''}
+    </div>`);
+  }
+  const alertas = (cal.alertas||[]).map(a=>`<div class="fcal-alert ${a.nivel}">
+    <b>${a.nivel==='critico'?'⛔':'⚠️'} ${esc(a.titulo)}</b>
+    <div style="font-size:12px;margin-top:3px">${esc(a.detalhe)}</div>
+    ${a.data?`<button class="btn-sm" style="margin-top:6px" onclick="APP.fluxoDiaDet('${a.data}')">Ver dia</button>`:''}
+  </div>`).join('');
+  host.innerHTML = `
+    <style>
+      .fcal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+      .fcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+      .fcal-dow{text-align:center;font-size:11px;font-weight:700;color:var(--muted);padding:4px 0}
+      .fcal-cell{min-height:74px;border:1px solid var(--line,#e6e3d8);border-radius:8px;padding:5px 6px;background:#fff;position:relative}
+      .fcal-empty{background:transparent;border:none}
+      .fcal-has{box-shadow:inset 0 0 0 1px #eee}
+      .fcal-def{background:#fdecea;border-color:#e7a99e}
+      .fcal-d{font-size:12px;font-weight:700;color:#3a4152}
+      .fcal-in{font-size:11px;color:#1e7a44;font-weight:600;margin-top:2px}
+      .fcal-out{font-size:11px;color:#c14a34;font-weight:600}
+      .fcal-sal{font-size:11px;font-weight:700;position:absolute;bottom:4px;right:6px}
+      .fcal-alert{border-radius:10px;padding:11px 13px;margin-bottom:8px}
+      .fcal-alert.critico{background:#fdecea;border:1px solid #e7a99e;color:#8a2f1e}
+      .fcal-alert.atencao{background:#fbf7e8;border:1px solid #efe2b8;color:#7a6a2e}
+    </style>
+    <div class="cards" style="margin-bottom:12px">
+      ${kpi('Saldo inicial', money(cal.saldoInicial), 'caixa realizado')}
+      ${kpi('Entradas do mês', money(cal.totais.entrada), '')}
+      ${kpi('Saídas do mês', money(cal.totais.saida), '')}
+      ${kpi('Saldo final projetado', money(cal.totais.saldoFinal), Number(cal.totais.saldoFinal)<0?'⛔ negativo':'')}
+    </div>
+    ${alertas?`<div class="sect"><h3>Alertas e sugestões de prorrogação</h3>${alertas}</div>`:'<div class="fcal-alert atencao">✓ Sem risco de caixa negativo no período. Entradas cobrem as saídas.</div>'}
+    <div class="sect">
+      <div class="fcal-head">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn-sm" onclick="APP.fluxoMesNav(-1)">‹</button>
+          <b style="min-width:150px;text-align:center">${meses[r.m]} ${r.a}</b>
+          <button class="btn-sm" onclick="APP.fluxoMesNav(1)">›</button>
+        </div>
+        <button class="btn-primary" style="background:#1e7a44" onclick="APP.fluxoExcel()">📊 Baixar Excel</button>
+      </div>
+      <div class="fcal-grid" style="margin-bottom:6px">
+        ${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(x=>`<div class="fcal-dow">${x}</div>`).join('')}
+      </div>
+      <div class="fcal-grid">${cells.join('')}</div>
+      <div class="muted" style="font-size:11px;margin-top:8px">▲ entradas · ▼ saídas · nº embaixo = saldo acumulado projetado. Dias em vermelho ficam com caixa negativo. Clique num dia para ver os títulos.</div>
+    </div>`;
+}
+function fluxoDiaDet(key){
+  const cal=window.__FLUXOCAL; if(!cal) return;
+  const d=cal.dias.find(x=>x.data===key); if(!d) return;
+  const [a,m,dd]=key.split('-'); const titulo=`${dd}/${m}/${a}`;
+  const lin=(arr,cor,sig)=>arr.length?arr.map(x=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #f0ede2">
+      <span>${sig} ${esc(x.parte)}${x.atrasado?' <span class="pill" style="background:#fdecea;color:#c14a34">atrasado</span>':''}</span>
+      <b style="color:${cor}">${money(x.valor)}</b></div>`).join(''):'<div class="muted" style="font-size:12px;padding:4px 0">—</div>';
+  openModal(`<h3>${titulo}</h3>
+    <div style="display:flex;gap:14px;margin-bottom:6px"><span class="muted">Saldo acumulado projetado:</span> <b style="color:${Number(d.saldoAcumulado)<0?'#c14a34':'#1e7a44'}">${money(d.saldoAcumulado)}</b></div>
+    <div class="sect" style="margin-top:8px"><h3 style="color:#1e7a44;font-size:13px">▲ A receber neste dia — ${money(d.entrada)}</h3>${lin(d.entradas,'#1e7a44','▲')}</div>
+    <div class="sect" style="margin-top:10px"><h3 style="color:#c14a34;font-size:13px">▼ A pagar neste dia — ${money(d.saida)}</h3>${lin(d.saidas,'#c14a34','▼')}</div>
+    <div class="muted" style="font-size:11.5px;margin-top:10px">💡 Para prorrogar um pagamento, ajuste o vencimento em <b>A Pagar → Editar</b>.</div>
+    <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+async function fluxoExcel(){
+  const {de,ate}=fluxoRange();
+  try{
+    const r=await fetch(API+'/financeiro/fluxo/calendario/xlsx?de='+de+'&ate='+ate,{headers:{Authorization:'Bearer '+S.access}});
+    if(!r.ok){ let m='Falha ao gerar Excel ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
+    const blob=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fluxo-caixa-'+de+'_'+ate+'.xlsx';
+    document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(),120); toast('Excel gerado — verifique os downloads.','ok');
+  }catch(e){ toast(e.message,'err'); }
 }
 async function viewComissoes(c){
   const list = await api('/financeiro/comissoes');
@@ -1904,11 +2006,46 @@ async function saveNotaEntrada(){
   const cnpjE=(val('ne_cnpj')||'').replace(/\D/g,''); if(cnpjE) body.cnpjEmitente=cnpjE;
   const nomeE=val('ne_nome'); if(nomeE) body.nomeEmitente=nomeE;
   try{
-    const n=await api('/notas-entrada',{method:'POST',body}); closeModal(); window.__NEPRE=null;
+    const n=await api('/notas-entrada',{method:'POST',body}); window.__NEPRE=null;
     let msg='Entrada registrada (NF '+n.numero+').';
-    if(n.materiaisAtualizados&&n.materiaisAtualizados.length) msg+=' Estoque: '+n.materiaisAtualizados.join(', ')+'.';
     if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
-    toast(msg,'ok'); loadRoute();
+    toast(msg,'ok');
+    // Toda entrada com estoque marcado pergunta o destino físico (endereçar × expedição).
+    if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens); }
+    else { closeModal(); loadRoute(); }
+  }catch(e){ toast(e.message,'err'); }
+}
+// Pop-up: onde colocar a matéria-prima que deu entrada — estoque (endereçar) ou expedição.
+function perguntarDestinoMP(itens){
+  window.__MPITENS = itens;
+  const tot = itens.reduce((s,it)=>s+Math.max(1,Math.round(Number(it.quantidade)||1)),0);
+  openModal(`<h3>📦 Onde colocar a matéria-prima?</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 12px">A NF foi registrada. Toda entrada precisa de um destino físico. Serão geradas <b>${tot}</b> etiqueta(s) unitária(s).</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" style="flex:1" onclick="APP.gerarUnidadesMP('estoque')">📦 Estoque<br><span style="font-weight:400;font-size:11px">gera etiquetas e endereça</span></button>
+      <button class="btn-primary" style="flex:1;background:#1e7a44" onclick="APP.gerarUnidadesMP('expedicao')">🚚 Expedição<br><span style="font-weight:400;font-size:11px">direto pra despachar</span></button>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Pular (só saldo agregado)</button></div>`);
+}
+async function gerarUnidadesMP(destino){
+  const itens = window.__MPITENS||[]; const todas=[];
+  toast('Gerando etiquetas…','ok');
+  try{
+    for(const it of itens){
+      const q = Math.min(500, Math.max(1, Math.round(Number(it.quantidade)||1)));
+      const r = await api('/estoque/entrada',{method:'POST',body:{tipo:'materia', descricao:it.descricao, quantidade:q, origem:'entrada', destino}});
+      (r.pecas||[]).forEach(p=>todas.push(p));
+    }
+    closeModal(); window.__MPITENS=null;
+    if(destino==='estoque'){
+      imprimirEtqUnidades(todas,{loteEntrada:'ENTRADA-MP'});
+      toast(todas.length+' etiquetas geradas — bipe para endereçar.','ok');
+      setTimeout(()=>APP.formEnderecar(),500);
+    } else {
+      imprimirEtqUnidades(todas,{loteEntrada:'MP-EXPEDICAO'});
+      toast(todas.length+' peças reservadas para expedição.','ok');
+    }
+    loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
 async function buscarSefaz(){
@@ -3534,10 +3671,11 @@ window.APP = {
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
+  fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
