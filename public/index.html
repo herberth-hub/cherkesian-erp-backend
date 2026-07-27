@@ -131,7 +131,23 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 .tst.ok{border-left-color:#2fae63}.tst.err{border-left-color:#e05a3c}
 @keyframes slideup{from{transform:translateY(10px);opacity:0}}
 .gate{background:var(--onyx2);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:26px;max-width:420px;color:var(--ivory)}
-@media(max-width:860px){#shell{grid-template-columns:1fr}#side{display:none}#login{grid-template-columns:1fr}#login .brandcol{display:none}}
+.hamb{display:none;background:transparent;border:1px solid var(--line);border-radius:8px;width:40px;height:40px;font-size:20px;line-height:1;cursor:pointer;align-items:center;justify-content:center;color:var(--ink);flex:none}
+#navmask{display:none}
+@media(max-width:860px){
+  #shell{grid-template-columns:1fr}
+  #side{position:fixed;top:0;left:0;bottom:0;width:272px;max-width:84vw;z-index:1000;transform:translateX(-100%);transition:transform .22s ease;box-shadow:0 0 34px rgba(0,0,0,.55)}
+  #shell.navopen #side{transform:translateX(0)}
+  #navmask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999}
+  #shell:not(.navopen) #navmask{display:none}
+  #shell.navopen #navmask{display:block}
+  .hamb{display:inline-flex}
+  #top{height:58px;padding:0 12px}
+  #top .tt{font-size:15px}
+  #top .ts{display:none}
+  #top .user>div:first-child{display:none}
+  #content{padding:14px}
+  #login{grid-template-columns:1fr}#login .brandcol{display:none}
+}
 </style>
 </head>
 <body>
@@ -380,8 +396,14 @@ function renderShell(){
       <div id="top"></div>
       <div id="content"></div>
     </div>
+    <div id="navmask" onclick="APP.toggleNav(false)"></div>
   </div>`;
   renderTop();
+}
+function toggleNav(force){
+  const sh=document.getElementById('shell'); if(!sh) return;
+  const open = (force===undefined) ? !sh.classList.contains('navopen') : !!force;
+  sh.classList.toggle('navopen', open);
 }
 function navHtml(){
   let h='';
@@ -401,7 +423,10 @@ function navHtml(){
 function renderTop(){
   const t = TITLES[S.route] || [S.route,''];
   $('top').innerHTML = `
-    <div><div class="tt">${esc(t[0])}</div><div class="ts">${esc(t[1])}</div></div>
+    <div style="display:flex;align-items:center;gap:12px;min-width:0">
+      <button class="hamb" aria-label="Menu" onclick="APP.toggleNav()">☰</button>
+      <div style="min-width:0"><div class="tt">${esc(t[0])}</div><div class="ts">${esc(t[1])}</div></div>
+    </div>
     <div class="user">
       <div style="text-align:right"><div style="font-size:12.5px;font-weight:600">${esc(S.user.nome)}</div>
         <div style="font-size:11px;color:var(--muted)">@${esc(S.user.usuario)} · ${esc(S.user.acesso)}</div></div>
@@ -2354,7 +2379,8 @@ function consultarCaixa(){
 }
 async function verCaixa(codigo){
   if(!codigo || !String(codigo).trim()){ toast('Informe ou bipe a caixa.','err'); return; }
-  let d; try{ d=await api('/estoque/caixa/'+encodeURIComponent(String(codigo).trim())); }catch(e){ toast(e.message,'err'); return; }
+  let d; try{ d=await api('/estoque/caixa/'+encodeURIComponent(String(codigo).trim())); }catch(e){ beepErro(); toast(e.message,'err'); return; }
+  beepOk();
   const rows=(d.itens||[]).map(i=>`<tr><td style="padding:6px 8px;border-top:1px solid #eee">${esc(i.descricao)}</td><td style="padding:6px 8px;border-top:1px solid #eee">${esc(i.cor||'—')}</td><td style="padding:6px 8px;border-top:1px solid #eee;text-align:center">${esc(i.tamanho||'—')}</td><td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><b>${i.quantidade}</b></td></tr>`).join('');
   openModal(`<h3>📦 Caixa Master ${esc(d.caixa)}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 10px">${d.endereco?esc(d.endereco)+' · ':''}<b>${d.totalPecas}</b> peça(s) guardada(s)</div>
@@ -2512,6 +2538,7 @@ async function enderecarBip(){
     let r=await api('/estoque/enderecar',{method:'POST',body});
     // Já está exatamente neste endereço → avisa e NÃO duplica.
     if(r && r.jaAqui){
+      beepErro();
       const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee;color:#8a6d3b">⚠️ ${esc(r.codigo)} já está endereçado aqui (${esc(r.endereco)}) — entrada ignorada.</div>`+log.innerHTML;
       toast('Esta peça já está neste endereço.','err'); $('ed_bip').value=''; $('ed_bip').focus(); return;
     }
@@ -2523,9 +2550,10 @@ async function enderecarBip(){
       if(!ok){ const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee;color:#8a6d3b">↩️ ${esc(r.codigo)} mantido em ${esc(r.atual)}</div>`+log.innerHTML; $('ed_bip').value=''; $('ed_bip').focus(); return; }
       r=await api('/estoque/enderecar',{method:'POST',body:Object.assign({},body,{confirmar:true})});
     }
+    beepOk();
     const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee">${r.movido?'🔀':'✅'} ${esc(r.codigo)} · ${esc(r.descricao)} ${r.tamanho?('· '+esc(r.tamanho)):''} → ${esc(r.endereco)}${r.movido?' <span style="color:#8a6d3b">(movido)</span>':''}</div>`+log.innerHTML;
     $('ed_bip').value=''; $('ed_bip').focus();
-  }catch(e){ toast('Falha: '+(e.message||e),'err'); $('ed_bip').select(); }
+  }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); $('ed_bip').select(); }
 }
 async function formMov(){
   const prods = await api('/produtos');
@@ -2953,6 +2981,13 @@ function etiquetaExpedicaoPrompt(expedicaoId){
   if(n===null) return;
   etiquetaExpedicao(expedicaoId, Math.max(1, Number(n)||1));
 }
+// ---------- Som de bipe (Web Audio, sem arquivo externo) ----------
+let _actx=null;
+function _ac(){ try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended') _actx.resume(); return _actx; }catch(e){ return null; } }
+function _tone(freq,dur,type,vol){ const ac=_ac(); if(!ac) return; try{ const o=ac.createOscillator(),g=ac.createGain(); o.type=type||'square'; o.frequency.value=freq; o.connect(g); g.connect(ac.destination); const t=ac.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol||0.25,t+0.008); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02); }catch(e){} }
+function beepOk(){ _tone(1180,0.11,'square',0.28); }        // bipe curto e agudo (leitura OK)
+function beepErro(){ _tone(240,0.16,'sawtooth',0.3); setTimeout(()=>_tone(190,0.2,'sawtooth',0.3),130); } // grave duplo (erro)
+
 // ---------- Scanner por câmera (QR + código de barras) ----------
 // Usa BarcodeDetector nativo (Chrome/Edge/Android). No iPhone (Safari não tem
 // BarcodeDetector) cai automaticamente para a biblioteca ZXing (self-hosted).
@@ -2972,7 +3007,7 @@ async function abrirScanner(onCode){
   ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Aponte a câmera para o QR ou código de barras</div><video id="scanv" playsinline muted autoplay style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video><div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
   document.getElementById('scanx').onclick=fecharScanner;
   const v=document.getElementById('scanv');
-  const done=(raw)=>{ fecharScanner(); if(onCode) onCode(raw); };
+  const done=(raw)=>{ beepOk(); fecharScanner(); if(onCode) onCode(raw); };
   try{
     if('BarcodeDetector' in window){
       const det=new window.BarcodeDetector({formats:['qr_code','code_128','ean_13','ean_8','code_39','upc_a','upc_e','itf','codabar']});
@@ -3065,9 +3100,10 @@ async function formConferencia(id){
 async function conferirBip(id, codigo){
   const cod=codigo||val('conf_bip'); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
   try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod}});
+    if(r.ja) beepErro(); else beepOk();
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     formConferencia(id);
-  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+  }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); }
 }
 async function despacharExp(id){
   const cod=(document.getElementById('master_bip')||{}).value||'';
@@ -3858,6 +3894,7 @@ window.APP = {
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
   go(r){ go(r); },
+  toggleNav,
   closeModal, formCliente, saveCliente, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
