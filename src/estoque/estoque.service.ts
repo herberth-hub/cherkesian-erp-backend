@@ -131,6 +131,31 @@ export class EstoqueService {
     });
   }
 
+  /** Consulta uma unidade pela etiqueta (somente leitura) — status e endereço atual. */
+  async consultarUnidade(codigoRaw: string, empresaId: number) {
+    const codigo = (codigoRaw ?? '').trim();
+    if (!codigo) throw new BadRequestException('Informe ou bipe a etiqueta.');
+    const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+    if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
+    const statusLabel: Record<string, string> = {
+      aguardando_endereco: 'Aguardando endereço', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado',
+    };
+    return {
+      codigo: un.codigo,
+      descricao: un.descricao,
+      cor: un.cor,
+      tamanho: un.tamanho,
+      tipo: un.tipo,
+      status: un.status,
+      statusLabel: statusLabel[un.status] ?? un.status,
+      enderecado,
+      endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna ?? undefined, andar: un.andar ?? undefined, caixaMaster: un.caixaMaster ?? undefined }) : null,
+      coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
+      loteEntrada: un.loteEntrada,
+    };
+  }
+
   /** Regenera as etiquetas (código de barras) de unidades já existentes, para reimpressão. */
   async etiquetasUnidades(codigos: string[], empresaId: number) {
     const lista = (codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean).slice(0, 500);

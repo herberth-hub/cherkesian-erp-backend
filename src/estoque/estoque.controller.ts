@@ -46,6 +46,12 @@ export class EstoqueController {
     return this.estoqueService.etiquetasUnidades(body?.codigos ?? [], user.empresaId);
   }
 
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('unidade/:codigo')
+  consultarUnidade(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.consultarUnidade(codigo, user.empresaId);
+  }
+
   @Areas('estoque', 'producao')
   @Post('enderecar')
   @HttpCode(HttpStatus.OK)

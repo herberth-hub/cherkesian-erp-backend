@@ -2332,7 +2332,7 @@ async function viewEstoque(c){
     `<button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨 Reimprimir</button>`
   ]);
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
     + `<div class="cards"><div class="card kpi"><div class="k">Unidades em estoque</div><div class="v">${emEstoque}</div><div class="s">${aguard} aguardando endereço</div></div></div>`
     + `<div class="sect"><h3>Produto acabado (agregado)</h3>${panelTable(['Produto','Tamanho','Saldo','Local',''],
         list.map(e=>[
@@ -2528,7 +2528,7 @@ async function formEnderecar(){
       <button class="btn-primary" onclick="APP.enderecarBip()">Endereçar</button>
       <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('ed_bip').value=code;APP.enderecarBip();})">📷</button></div>
     <div id="ed_log" style="margin-top:8px;font-size:12px;max-height:30vh;overflow:auto"></div>
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Fechar</button></div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Só consultar etiqueta</button><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Fechar</button></div>`);
   setTimeout(()=>{const i=$('ed_bip'); if(i)i.focus();},50);
 }
 async function enderecarBip(){
@@ -2554,6 +2554,34 @@ async function enderecarBip(){
     const log=$('ed_log'); if(log) log.innerHTML=`<div style="padding:4px 0;border-bottom:1px solid #eee">${r.movido?'🔀':'✅'} ${esc(r.codigo)} · ${esc(r.descricao)} ${r.tamanho?('· '+esc(r.tamanho)):''} → ${esc(r.endereco)}${r.movido?' <span style="color:#8a6d3b">(movido)</span>':''}</div>`+log.innerHTML;
     $('ed_bip').value=''; $('ed_bip').focus();
   }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); $('ed_bip').select(); }
+}
+// Consulta de etiqueta (SÓ leitura — não endereça). Enter/câmera fazem a busca.
+function formConsultaEtiqueta(){
+  openModal(`<h3>🔎 Consultar etiqueta</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe ou digite a etiqueta para ver <b>onde está endereçada</b> e o status. Isto <b>não</b> movimenta nada.</div>
+    <div style="display:flex;gap:8px;align-items:end">
+      <div style="flex:1"><label class="fl">Etiqueta da peça</label><input id="cons_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.consultarEtiqueta()"></div>
+      <button class="btn-primary" onclick="APP.consultarEtiqueta()">Consultar</button>
+      <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('cons_bip').value=code;APP.consultarEtiqueta();})">📷</button></div>
+    <div id="cons_out" style="margin-top:12px"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  setTimeout(()=>{const i=$('cons_bip'); if(i)i.focus();},50);
+}
+async function consultarEtiqueta(){
+  const codigo=(val('cons_bip')||'').trim(); if(!codigo){ return; }
+  const out=$('cons_out');
+  try{
+    const u=await api('/estoque/unidade/'+encodeURIComponent(codigo));
+    beepOk();
+    const pill = u.status==='em_estoque'?'green':(u.status==='aguardando_endereco'?'red':(u.status==='reservado'?'blue':'gray'));
+    out.innerHTML=`<div style="border:1px solid #e7e3d8;border-radius:10px;padding:12px 14px;background:#fff">
+      <div style="font-weight:800;font-size:14px">${esc(u.descricao)}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · TAM '+esc(u.tamanho):''}</div>
+      <div class="mono gold" style="font-size:12px;margin:2px 0 8px">${esc(u.codigo)}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Status</span><span class="pill ${pill}">${esc(u.statusLabel)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Endereço</span><b>${u.enderecado?esc(u.endereco):'<span style="color:#c14a34">sem endereço</span>'}</b></div>
+    </div>`;
+  }catch(e){ beepErro(); out.innerHTML=`<div style="color:#c14a34;font-size:13px;padding:6px 0">❌ ${esc(e.message||'Etiqueta não encontrada.')}</div>`; }
+  $('cons_bip').value=''; $('cons_bip').focus();
 }
 async function formMov(){
   const prods = await api('/produtos');
@@ -2985,8 +3013,18 @@ function etiquetaExpedicaoPrompt(expedicaoId){
 let _actx=null;
 function _ac(){ try{ if(!_actx) _actx=new (window.AudioContext||window.webkitAudioContext)(); if(_actx.state==='suspended') _actx.resume(); return _actx; }catch(e){ return null; } }
 function _tone(freq,dur,type,vol){ const ac=_ac(); if(!ac) return; try{ const o=ac.createOscillator(),g=ac.createGain(); o.type=type||'square'; o.frequency.value=freq; o.connect(g); g.connect(ac.destination); const t=ac.currentTime; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(Math.min(1,vol||1),t+0.005); g.gain.setValueAtTime(Math.min(1,vol||1),t+dur*0.7); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02); }catch(e){} }
-// Volume no máximo: dois tons simultâneos (fundamental + harmônico) p/ um bipe bem estridente.
-function beepOk(){ _tone(1180,0.16,'square',1); _tone(2360,0.16,'square',0.9); }   // leitura OK
+// Bipe estilo leitor de caixa de mercado: um "blip" curto que sobe de tom, alto e limpo.
+function beepOk(){
+  const ac=_ac(); if(!ac) return;
+  try{ const o=ac.createOscillator(), g=ac.createGain(); o.type='square';
+    const t=ac.currentTime;
+    o.frequency.setValueAtTime(1000,t); o.frequency.exponentialRampToValueAtTime(1900,t+0.055);
+    o.connect(g); g.connect(ac.destination);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(1,t+0.004);
+    g.gain.setValueAtTime(1,t+0.075); g.gain.exponentialRampToValueAtTime(0.0001,t+0.11);
+    o.start(t); o.stop(t+0.13);
+  }catch(e){}
+}
 function beepErro(){ _tone(220,0.2,'sawtooth',1); _tone(330,0.2,'square',0.8); setTimeout(()=>{ _tone(180,0.24,'sawtooth',1); _tone(270,0.24,'square',0.8); },150); } // grave duplo (erro)
 
 // ---------- Scanner por câmera (QR + código de barras) ----------
@@ -3005,7 +3043,13 @@ function carregarZxing(){
 async function abrirScanner(onCode){
   let ov=document.getElementById('scanov'); if(!ov){ ov=document.createElement('div'); ov.id='scanov'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px';
-  ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Aponte a câmera para o QR ou código de barras</div><video id="scanv" playsinline muted autoplay style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video><div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
+  ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Centralize o código de barras na linha vermelha</div>'
+    +'<div style="position:relative;display:inline-block;line-height:0">'
+    +'<video id="scanv" playsinline muted autoplay style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video>'
+    +'<div style="position:absolute;left:6%;right:6%;top:50%;height:3px;background:#ff2d2d;transform:translateY(-50%);box-shadow:0 0 8px 1px rgba(255,45,45,.9);border-radius:2px;pointer-events:none"></div>'
+    +'<div style="position:absolute;left:50%;top:calc(50% - 26px);width:2px;height:52px;background:rgba(255,45,45,.55);transform:translateX(-50%);pointer-events:none"></div>'
+    +'</div>'
+    +'<div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
   document.getElementById('scanx').onclick=fecharScanner;
   const v=document.getElementById('scanv');
   const done=(raw)=>{ beepOk(); fecharScanner(); if(onCode) onCode(raw); };
@@ -3908,7 +3952,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
+  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
