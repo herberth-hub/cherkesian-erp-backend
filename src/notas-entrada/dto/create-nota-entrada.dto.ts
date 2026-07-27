@@ -36,6 +36,13 @@ export class NotaEntradaItemDto {
   valorUnit!: number;
 }
 
+export class ParcelaEntradaDto {
+  @IsDateString() vencimento!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valor da parcela deve ter no máximo 2 casas.' })
+  @IsPositive({ message: 'valor da parcela deve ser positivo.' })
+  valor!: number;
+}
+
 export class CreateNotaEntradaDto {
   @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
 
@@ -66,8 +73,15 @@ export class CreateNotaEntradaDto {
   /** Gera o título no Contas a Pagar. */
   @IsOptional() @IsBoolean() gerarContaPagar?: boolean;
 
-  /** Vencimento do título (se gerarContaPagar). Padrão: hoje. */
+  /** Vencimento do título (se gerarContaPagar e sem parcelas). Padrão: hoje. */
   @IsOptional() @IsDateString() vencimento?: string;
+
+  /** Parcelas do título a pagar (uma conta por parcela). Se vazio, gera 1 título. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ParcelaEntradaDto)
+  parcelas?: ParcelaEntradaDto[];
 
   /** Categoria do título a pagar (padrão "Matéria-prima"). */
   @IsOptional() @IsString() @MaxLength(60) categoria?: string;

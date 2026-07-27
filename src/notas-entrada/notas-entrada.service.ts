@@ -96,21 +96,28 @@ export class NotasEntradaService {
         it.materialId = novo.id;
       }
 
-      // Título a pagar (opcional)
+      // Título(s) a pagar (opcional) — uma conta por parcela; sem parcelas, 1 título.
       let contaPagarId: number | undefined;
       if (dto.gerarContaPagar) {
-        const cp = await tx.contaPagar.create({
-          data: {
-            empresaId,
-            filialId,
-            fornecedorId,
-            categoria: dto.categoria || 'Matéria-prima',
-            referencia: `NF entrada ${dto.numero}`,
-            vencimento: dto.vencimento ? new Date(dto.vencimento) : new Date(),
-            valor: new Prisma.Decimal(valor.toFixed(2)),
-          },
-        });
-        contaPagarId = cp.id;
+        const parcelas = (dto.parcelas && dto.parcelas.length)
+          ? dto.parcelas
+          : [{ vencimento: dto.vencimento || new Date().toISOString().slice(0, 10), valor }];
+        const n = parcelas.length;
+        for (let i = 0; i < n; i++) {
+          const pc = parcelas[i];
+          const cp = await tx.contaPagar.create({
+            data: {
+              empresaId,
+              filialId,
+              fornecedorId,
+              categoria: dto.categoria || 'Matéria-prima',
+              referencia: `NF entrada ${dto.numero}${n > 1 ? ` (${i + 1}/${n})` : ''}`,
+              vencimento: new Date(pc.vencimento),
+              valor: new Prisma.Decimal(Number(pc.valor).toFixed(2)),
+            },
+          });
+          if (i === 0) contaPagarId = cp.id;
+        }
       }
 
       const nota = await tx.notaEntrada.create({
