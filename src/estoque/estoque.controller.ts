@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -50,6 +52,15 @@ export class EstoqueController {
   @Get('unidade/:codigo')
   consultarUnidade(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
     return this.estoqueService.consultarUnidade(codigo, user.empresaId);
+  }
+
+  @Areas('estoque', 'producao')
+  @Delete('unidade/:codigo')
+  excluirUnidade(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') {
+      throw new ForbiddenException('Apenas o administrador da conta pode excluir etiquetas.');
+    }
+    return this.estoqueService.excluirUnidade(codigo, user.empresaId);
   }
 
   @Areas('estoque', 'producao')

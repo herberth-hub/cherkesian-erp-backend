@@ -2324,12 +2324,13 @@ async function viewEstoque(c){
   const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
   const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque').length;
   const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
+  const _admin = S.user.acesso==='total';
   const uRows=(unidades||[]).slice(0,300).map(u=>[
     `<span class="mono gold">${esc(u.codigo)}</span>`,
     esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
     unidStatusPill(u.status),
     (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>',
-    `<button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨 Reimprimir</button>`
+    `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨 Reimprimir</button>${_admin?`<button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`:''}</div>`
   ]);
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
       `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
@@ -2344,6 +2345,13 @@ async function viewEstoque(c){
         ${uRows.length?`<button class="btn-sm" onclick="APP.reimprimirVisiveis()">🖨 Reimprimir visíveis</button>`:''}</h3>
         ${panelTable(['Código','Item','Status','Endereço','Etiqueta'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
   window.__UNIDS=(unidades||[]).slice(0,300);
+}
+async function excluirUnidade(codigo){
+  const ok=await uiConfirm({tipo:'warn', titulo:'Excluir etiqueta', ok:'Excluir', cancel:'Cancelar',
+    msg:`Excluir a etiqueta ${codigo}?\n\nEssa unidade será removida do estoque. Ação apenas para o administrador.`});
+  if(!ok) return;
+  try{ await api('/estoque/unidade/'+encodeURIComponent(codigo),{method:'DELETE'}); toast('Etiqueta '+codigo+' excluída.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 async function reimprimirUnidade(codigo){
   try{
@@ -3980,7 +3988,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

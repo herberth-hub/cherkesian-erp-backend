@@ -156,6 +156,16 @@ export class EstoqueService {
     };
   }
 
+  /** Exclui uma etiqueta/unidade (somente admin — validado no controller). Bloqueia se já despachada. */
+  async excluirUnidade(codigoRaw: string, empresaId: number): Promise<{ removido: true; codigo: string }> {
+    const codigo = (codigoRaw ?? '').trim();
+    const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+    if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    if (un.status === 'despachado') throw new BadRequestException('Etiqueta já despachada não pode ser excluída.');
+    await this.prisma.unidadeEstoque.delete({ where: { codigo } });
+    return { removido: true, codigo };
+  }
+
   /** Regenera as etiquetas (código de barras) de unidades já existentes, para reimpressão. */
   async etiquetasUnidades(codigos: string[], empresaId: number) {
     const lista = (codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean).slice(0, 500);
