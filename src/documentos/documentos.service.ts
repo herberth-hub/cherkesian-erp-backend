@@ -15,7 +15,7 @@ import {
   assinaturas,
   camposDuplos,
   dataBR,
-  gradeCaixinhas,
+  gradeTabela,
   imagem,
   itemPedido,
   money,
@@ -322,10 +322,10 @@ export class DocumentosService {
     const grade = op.gradeTamanhos as Record<string, number> | null;
     if (grade && Object.keys(grade).length) {
       secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
-      gradeCaixinhas(doc, Object.entries(grade).map(([t, q]) => [t, String(q)]));
+      gradeTabela(doc, Object.entries(grade).map(([t, q]) => [t, String(q)]));
     } else if (produto?.grade) {
       secao(doc, 'Grade de tamanhos (preencher)');
-      gradeCaixinhas(doc, this.expandirGrade(produto.grade).map((t) => [t, '']));
+      gradeTabela(doc, this.expandirGrade(produto.grade).map((t) => [t, '']));
     }
 
     // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado

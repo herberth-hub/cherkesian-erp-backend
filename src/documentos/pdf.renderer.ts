@@ -187,6 +187,45 @@ export function gradeCaixinhas(doc: Pdf, itens: Array<[string, string]>): void {
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 
+/**
+ * Grade de tamanhos em TABELA: linha de cabeçalho com os tamanhos + coluna Total,
+ * e uma linha com as quantidades (em branco quando não informadas).
+ */
+export function gradeTabela(doc: Pdf, itens: Array<[string, string]>): void {
+  const x0 = 50;
+  const tableW = doc.page.width - 100;
+  const cols = itens.length + 1; // + coluna Total
+  const colW = tableW / cols;
+  const rowH = 26;
+  let y = doc.y + 4;
+  if (y + rowH * 2 > doc.page.height - 110) { doc.addPage(); y = 128; }
+
+  const total = itens.reduce((s, [, q]) => s + (Number(q) || 0), 0);
+  const headers = [...itens.map(([t]) => t), 'Total'];
+  const values = [...itens.map(([, q]) => q || ''), total ? String(total) : ''];
+
+  // Cabeçalho (faixa dourada clara)
+  for (let i = 0; i < cols; i++) {
+    const x = x0 + i * colW;
+    doc.rect(x, y, colW, rowH).fill('#f7efd3');
+    doc.rect(x, y, colW, rowH).lineWidth(0.8).strokeColor(OURO).stroke();
+    doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(10)
+      .text(headers[i], x, y + rowH / 2 - 6, { width: colW, align: 'center' });
+  }
+  // Linha de quantidades
+  const y2 = y + rowH;
+  for (let i = 0; i < cols; i++) {
+    const x = x0 + i * colW;
+    doc.rect(x, y2, colW, rowH).fillColor('#ffffff').fill();
+    doc.rect(x, y2, colW, rowH).lineWidth(0.8).strokeColor(OURO).stroke();
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13)
+      .text(values[i] || ' ', x, y2 + rowH / 2 - 8, { width: colW, align: 'center' });
+  }
+  doc.x = x0;
+  doc.y = y2 + rowH + 12;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
 /** Parágrafo de texto (preserva quebras de linha). */
 export function textoBloco(doc: Pdf, texto: string): void {
   doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(texto || '—', 50, doc.y, {
