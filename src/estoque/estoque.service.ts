@@ -131,6 +131,34 @@ export class EstoqueService {
     });
   }
 
+  /** Regenera as etiquetas (código de barras) de unidades já existentes, para reimpressão. */
+  async etiquetasUnidades(codigos: string[], empresaId: number) {
+    const lista = (codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean).slice(0, 500);
+    if (!lista.length) throw new BadRequestException('Informe ao menos um código de unidade.');
+    const unidades = await this.prisma.unidadeEstoque.findMany({ where: { empresaId, codigo: { in: lista } } });
+    if (!unidades.length) throw new NotFoundException('Nenhuma unidade encontrada para reimpressão.');
+    // REF = código do produto/material (não é gravado na unidade; buscamos pelos ids).
+    const prodIds = [...new Set(unidades.map((u) => u.produtoId).filter((x): x is number => x != null))];
+    const matIds = [...new Set(unidades.map((u) => u.materialId).filter((x): x is number => x != null))];
+    const [prods, mats] = await Promise.all([
+      prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : Promise.resolve([]),
+      matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, codigo: true } }) : Promise.resolve([]),
+    ]);
+    const refProd = new Map(prods.map((p) => [p.id, p.codigo]));
+    const refMat = new Map(mats.map((m) => [m.id, m.codigo]));
+    // Preserva a ordem pedida (por código) para o operador.
+    const porCodigo = new Map(unidades.map((u) => [u.codigo, u]));
+    const pecas = [];
+    for (const codigo of lista) {
+      const u = porCodigo.get(codigo);
+      if (!u) continue;
+      const ref = (u.produtoId != null ? refProd.get(u.produtoId) : undefined) ?? (u.materialId != null ? refMat.get(u.materialId) : undefined) ?? '';
+      const bc = await bwipjs.toBuffer({ bcid: 'code128', text: u.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
+      pecas.push({ codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+    }
+    return { total: pecas.length, pecas };
+  }
+
   // ===================== CAIXAS MASTER (etiqueta + conteúdo) =====================
   /** Extrai só os dígitos do identificador da caixa (aceita "1.000", "CX-1000", URL "?caixa=1000"). */
   private digitosCaixa(raw: string): string {

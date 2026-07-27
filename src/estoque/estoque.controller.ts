@@ -39,6 +39,13 @@ export class EstoqueController {
     return this.estoqueService.entrada(dto, user.empresaId, user.usuario);
   }
 
+  @Areas('estoque', 'producao', 'expedicao')
+  @Post('unidades/etiquetas')
+  @HttpCode(HttpStatus.OK)
+  etiquetasUnidades(@Body() body: { codigos: string[] }, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.etiquetasUnidades(body?.codigos ?? [], user.empresaId);
+  }
+
   @Areas('estoque', 'producao')
   @Post('enderecar')
   @HttpCode(HttpStatus.OK)

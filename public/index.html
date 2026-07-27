@@ -2158,7 +2158,8 @@ async function viewEstoque(c){
     `<span class="mono gold">${esc(u.codigo)}</span>`,
     esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
     unidStatusPill(u.status),
-    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>'
+    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>',
+    `<button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨 Reimprimir</button>`
   ]);
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
       `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
@@ -2169,7 +2170,28 @@ async function viewEstoque(c){
           esc(e.tamanho), `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
           `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
         ]), list.length?null:'Sem produto acabado agregado.')}</div>`
-    + `<div class="sect"><h3>Unidades endereçadas (${(unidades||[]).length})</h3>${panelTable(['Código','Item','Status','Endereço'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
+    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px">Unidades endereçadas (${(unidades||[]).length})
+        ${uRows.length?`<button class="btn-sm" onclick="APP.reimprimirVisiveis()">🖨 Reimprimir visíveis</button>`:''}</h3>
+        ${panelTable(['Código','Item','Status','Endereço','Etiqueta'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
+  window.__UNIDS=(unidades||[]).slice(0,300);
+}
+async function reimprimirUnidade(codigo){
+  try{
+    const r=await api('/estoque/unidades/etiquetas',{method:'POST',body:{codigos:[codigo]}});
+    if(!r.pecas||!r.pecas.length){ toast('Etiqueta não encontrada.','err'); return; }
+    imprimirEtqUnidades(r.pecas,{loteEntrada:'REIMPRESSAO'});
+  }catch(e){ toast(e.message,'err'); }
+}
+async function reimprimirVisiveis(){
+  const cods=(window.__UNIDS||[]).map(u=>u.codigo);
+  if(!cods.length){ toast('Nada para reimprimir.','err'); return; }
+  const ok=await uiConfirm({tipo:'info', titulo:'Reimprimir etiquetas', ok:'Reimprimir '+cods.length, cancel:'Cancelar', msg:'Serão reimpressas '+cods.length+' etiqueta(s) das unidades visíveis na lista.'});
+  if(!ok) return;
+  try{
+    const r=await api('/estoque/unidades/etiquetas',{method:'POST',body:{codigos:cods}});
+    if(!r.pecas||!r.pecas.length){ toast('Nenhuma etiqueta gerada.','err'); return; }
+    imprimirEtqUnidades(r.pecas,{loteEntrada:'REIMPRESSAO'});
+  }catch(e){ toast(e.message,'err'); }
 }
 function unidStatusPill(s){ const m={aguardando_endereco:['red','s/ endereço'],em_estoque:['green','em estoque'],reservado:['blue','reservado'],despachado:['gray','despachado']}; const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 
@@ -3677,7 +3699,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster,
+  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
