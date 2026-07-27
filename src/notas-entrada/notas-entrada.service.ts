@@ -30,7 +30,7 @@ export class NotasEntradaService {
   findAll(empresaId: number) {
     return this.prisma.notaEntrada.findMany({
       where: { empresaId },
-      include: { fornecedor: { select: { id: true, nome: true } }, itens: true },
+      include: { fornecedor: { select: { id: true, nome: true } }, filial: { select: { id: true, nome: true, cnpj: true } }, itens: true },
       orderBy: { id: 'desc' },
     });
   }
@@ -52,6 +52,16 @@ export class NotasEntradaService {
     if (dto.chave && digitos(dto.chave).length === 44) {
       const existe = await this.prisma.notaEntrada.findUnique({ where: { chave: digitos(dto.chave) } });
       if (existe) throw new BadRequestException(`Esta NF (chave ...${digitos(dto.chave).slice(-6)}) já foi registrada.`);
+    }
+
+    // Filial/CNPJ destinatário: usa a informada (validando a empresa); senão a matriz.
+    let filialId = dto.filialId;
+    if (filialId) {
+      const fil = await this.prisma.filial.findUnique({ where: { id: filialId } });
+      if (!fil || fil.empresaId !== empresaId) throw new NotFoundException(`Filial ${filialId} não encontrada.`);
+    } else {
+      const matriz = await this.prisma.filial.findFirst({ where: { empresaId }, orderBy: [{ matriz: 'desc' }, { id: 'asc' }] });
+      filialId = matriz?.id;
     }
 
     // Fornecedor: usa o informado; senão acha pelo CNPJ do emitente; senão CADASTRA na hora.
@@ -105,6 +115,7 @@ export class NotasEntradaService {
       const nota = await tx.notaEntrada.create({
         data: {
           empresaId,
+          filialId,
           fornecedorId,
           numero: dto.numero,
           serie: dto.serie,

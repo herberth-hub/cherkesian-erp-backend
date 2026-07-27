@@ -39,6 +39,9 @@ export class NotaEntradaItemDto {
 export class CreateNotaEntradaDto {
   @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
 
+  /** CNPJ destinatário (filial HC Quality / Cherkesian) que recebeu a mercadoria. */
+  @IsOptional() @IsInt() @IsPositive() filialId?: number;
+
   @IsString()
   @IsNotEmpty({ message: 'Informe o número da NF.' })
   @MaxLength(40)

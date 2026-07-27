@@ -1920,10 +1920,11 @@ async function viewNotasEntrada(c){
   const list = await api('/notas-entrada');
   const extra = `<button class="btn-sm" onclick="APP.lerNfEntrada()">📷 Bipar NF (ler chave)</button> <button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button> <button class="btn-sm" onclick="APP.viewCtes()">🚚 CT-es (fretes)</button>`;
   c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra) + panelTable(
-    ['Número','Fornecedor / Emitente','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
+    ['Número','Fornecedor / Emitente','Empresa destino','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
     list.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>${n.serie?'<span class="muted"> / '+esc(n.serie)+'</span>':''}`,
       esc(n.fornecedor?n.fornecedor.nome:(n.nomeEmitente||'—')),
+      n.filial?`<span title="${esc(n.filial.cnpj||'')}">${esc(n.filial.nome)}</span>`:'<span class="muted">—</span>',
       dfmt(n.emitidaEm), money(n.valor),
       n.lancadaEstoque?'<span class="pill green">lançado</span>':'<span class="muted">—</span>',
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
@@ -1933,13 +1934,17 @@ async function viewNotasEntrada(c){
 }
 async function formNotaEntrada(prefill){
   if(!prefill) window.__NEPRE=null;
-  const [forn, mats] = await Promise.all([api('/fornecedores'), api('/materiais')]);
+  const [forn, mats, filiais] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/filiais').catch(()=>[])]);
   window.__MATS = mats;
   const p = prefill||{};
   const fo = ['<option value="">— selecione —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
+  const filList=(filiais||[]);
+  const matrizId=(filList.find(f=>f.matriz)||filList[0]||{}).id;
+  const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   NEITENS = (p.itens&&p.itens.length)?p.itens.map(x=>Object.assign({},x)):[{unidade:'un'}];
   openModal(`<h3>Nova nota de entrada</h3>
     ${p.nomeEmitente?`<div class="muted" style="font-size:12px;margin:-6px 0 8px">Emitente (SEFAZ): <b>${esc(p.nomeEmitente)}</b>${p.cnpjEmitente?' · CNPJ '+esc(p.cnpjEmitente):''}</div>`:''}
+    ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ destino * <span class="muted">(quem recebe a mercadoria)</span></label><select id="ne_filial" class="inp">${filOpts}</select></div>`:''}
     <div class="grid2">
       <div class="mrow"><label class="fl">Fornecedor (se já cadastrado)</label><select id="ne_forn" class="inp">${fo}</select></div>
       ${field('ne_num','Número da NF *','value="'+esc(p.numero||'')+'"')}
@@ -2002,6 +2007,7 @@ async function saveNotaEntrada(){
   if(!temForn){ toast('Informe o fornecedor: selecione um cadastrado, ou preencha o CNPJ/nome (ele será cadastrado automaticamente).','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item (descrição, quantidade e valor).','err'); return; }
   const body = { numero:val('ne_num'), itens };
+  const filid=val('ne_filial'); if(filid) body.filialId=Number(filid);
   const fid=val('ne_forn'); if(fid) body.fornecedorId=Number(fid);
   const serie=val('ne_serie'); if(serie) body.serie=serie;
   const chave=(val('ne_chave')||'').replace(/\D/g,''); if(chave) body.chave=chave;

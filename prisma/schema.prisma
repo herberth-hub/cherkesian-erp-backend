@@ -144,6 +144,7 @@ model Filial {
   pedidos           Pedido[]
   ops               OP[]
   notasFiscais      NotaFiscal[]
+  notasEntrada      NotaEntrada[]
 }
 
 model Usuario {
@@ -237,6 +238,8 @@ model Fornecedor {
 model NotaEntrada { // NF de compra recebida do fornecedor (entrada de mercadoria)
   id            Int      @id @default(autoincrement())
   empresaId     Int
+  filialId      Int?        // CNPJ destinatário (HC Quality / Cherkesian) que recebeu a mercadoria
+  filial        Filial?     @relation(fields: [filialId], references: [id])
   fornecedorId  Int?
   fornecedor    Fornecedor? @relation(fields: [fornecedorId], references: [id])
   numero        String
