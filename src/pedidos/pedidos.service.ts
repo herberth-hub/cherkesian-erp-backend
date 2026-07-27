@@ -251,13 +251,35 @@ export class PedidosService {
       }
     }
 
-    // 2) Consumo agregado (BOM × quantidade) por material
+    // 2) Separa itens de PRODUÇÃO (geram OP) dos de REVENDA (não geram OP).
+    //    Item sem produtoId (sob medida) conta como produção.
+    const prodIds = [...new Set(pedido.itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    const prods = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, tipo: true } }) : [];
+    const tipoDe = new Map(prods.map((p) => [p.id, p.tipo]));
+    const ehProducao = (item: (typeof pedido.itens)[number]) => !item.produtoId || tipoDe.get(item.produtoId) !== 'revenda';
+    const itensProducao = pedido.itens.filter(ehProducao);
+    const itensRevenda = pedido.itens.filter((i) => !ehProducao(i));
+
+    // Só revenda → não gera OP; pedido segue direto para expedição.
+    if (itensProducao.length === 0) {
+      await this.prisma.pedido.update({ where: { id }, data: { etapa: 'estoque', status: 'Pronto para expedição' } });
+      return {
+        status: 'sem_producao' as const,
+        pedido: { numero: pedido.numero, etapa: 'estoque' },
+        revenda: itensRevenda.map((i) => ({ descricao: i.descricao, quantidade: i.quantidade })),
+        message: 'Todos os itens são de revenda — nenhuma OP necessária. Pedido liberado para expedição.',
+      };
+    }
+
+    // Consumo agregado (BOM × quantidade) só dos itens de produção + BOM por item (romaneio).
     const necessarioPorMaterial = new Map<number, Prisma.Decimal>();
+    const bomPorItem = new Map<number, Awaited<ReturnType<typeof this.prisma.consumo.findMany>>>();
     let totalPecas = 0;
-    for (const item of pedido.itens) {
+    for (const item of itensProducao) {
       totalPecas += item.quantidade;
       if (!item.produtoId) continue;
       const bom = await this.prisma.consumo.findMany({ where: { produtoId: item.produtoId } });
+      bomPorItem.set(item.id, bom);
       for (const b of bom) {
         const usa = b.quantidade.mul(item.quantidade);
         const atual = necessarioPorMaterial.get(b.materialId) ?? new Prisma.Decimal(0);
@@ -331,7 +353,7 @@ export class PedidosService {
       };
     }
 
-    // 4) Material disponível → gera OP, baixa saldo e avança o pedido
+    // 4) Material disponível → baixa saldo, gera UMA OP POR ITEM de produção e avança o pedido
     const resultado = await this.prisma.$transaction(async (tx) => {
       for (const [materialId, necessario] of necessarioPorMaterial) {
         await tx.material.update({
@@ -339,41 +361,44 @@ export class PedidosService {
           data: { saldo: { decrement: necessario } },
         });
       }
-      const numeroOp = await this.gerarNumeroOP(tx);
-      const itemProd = pedido.itens.find((i) => i.produtoId) ?? pedido.itens[0];
-      const produtoId = itemProd?.produtoId ?? null;
-      // A OP herda a grade de tamanhos do item do pedido (flui p/ os kits do corte).
-      const gradeOp = (itemProd?.grade as Prisma.InputJsonValue | undefined) ?? undefined;
-      // Romaneio de corte: materiais que o estoquista separa (baixados aqui do saldo).
-      const romaneio = [...necessarioPorMaterial.entries()].map(([materialId, q]) => {
-        const m = materiais.find((x) => x.id === materialId)!;
-        return { materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(q.toFixed(4)), unidade: m.unidade, conferido: false };
-      });
-      const op = await tx.oP.create({
-        data: {
-          numero: numeroOp,
-          pedidoId: pedido.id,
-          filialId: pedido.filialId,
-          produtoId,
-          quantidade: totalPecas,
-          status: 'a_iniciar',
-          pilotoLiberado: true,
-          progresso: 0,
-          gradeTamanhos: gradeOp,
-          romaneioMateriais: romaneio as Prisma.InputJsonValue,
-        },
-      });
+      const opsCriadas = [] as { numero: string; status: string; quantidade: number; produtoId: number | null }[];
+      for (const item of itensProducao) {
+        const numeroOp = await this.gerarNumeroOP(tx);
+        // Romaneio do item = BOM do produto × quantidade do item.
+        const bom = item.produtoId ? bomPorItem.get(item.id) ?? [] : [];
+        const romaneio = bom.map((b) => {
+          const m = materiais.find((x) => x.id === b.materialId)!;
+          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(b.quantidade.mul(item.quantidade).toFixed(4)), unidade: m.unidade, conferido: false };
+        });
+        const op = await tx.oP.create({
+          data: {
+            numero: numeroOp,
+            pedidoId: pedido.id,
+            filialId: pedido.filialId,
+            produtoId: item.produtoId ?? null,
+            quantidade: item.quantidade,
+            status: 'a_iniciar',
+            pilotoLiberado: true,
+            progresso: 0,
+            gradeTamanhos: (item.grade as Prisma.InputJsonValue | undefined) ?? undefined,
+            romaneioMateriais: romaneio as Prisma.InputJsonValue,
+          },
+        });
+        opsCriadas.push({ numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId });
+      }
       await tx.pedido.update({
         where: { id },
         data: { etapa: 'producao', status: 'Em produção' },
       });
-      return op;
+      return opsCriadas;
     });
 
     return {
       status: 'op_gerada' as const,
       pedido: { numero: pedido.numero, etapa: 'producao' },
-      op: { numero: resultado.numero, status: resultado.status, quantidade: resultado.quantidade },
+      ops: resultado.map((o) => ({ numero: o.numero, status: o.status, quantidade: o.quantidade })),
+      op: resultado[0] ? { numero: resultado[0].numero, status: resultado[0].status, quantidade: resultado[0].quantidade } : null,
+      revenda: itensRevenda.map((i) => ({ descricao: i.descricao, quantidade: i.quantidade })),
       consumo: [...necessarioPorMaterial.entries()].map(([materialId, q]) => {
         const m = materiais.find((x) => x.id === materialId)!;
         return { material: m.codigo, descricao: m.descricao, baixado: q.toFixed(3), unidade: m.unidade };

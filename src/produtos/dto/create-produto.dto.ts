@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -104,4 +105,7 @@ export class CreateProdutoDto extends ProdutoFichaDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo deve ter no máximo 2 casas decimais.' })
   @Min(0)
   custo?: number;
+
+  /** produção (industrializado, gera OP) | revenda (comprado p/ revender). */
+  @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
 }

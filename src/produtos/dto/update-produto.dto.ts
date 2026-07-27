@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -38,4 +39,6 @@ export class UpdateProdutoDto extends ProdutoFichaDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo deve ter no máximo 2 casas decimais.' })
   @Min(0)
   custo?: number;
+
+  @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
 }

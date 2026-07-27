@@ -280,6 +280,7 @@ model Produto {
   descricao String
   cor       String?
   grade     String?
+  tipo      String   @default("producao") // producao (industrializado, gera OP) | revenda (comprado p/ revender)
   precoBase Decimal? @db.Decimal(12,2)
   custo     Decimal? @db.Decimal(12,2) // custo unitário (revenda: preço de compra; produção: custo direto)
   consumo   Consumo[]
