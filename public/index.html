@@ -2,8 +2,17 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cherkesian ERP</title>
+<!-- PWA / instalar no iPhone e Android -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1E2C48">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cherkesian">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -2944,23 +2953,49 @@ function etiquetaExpedicaoPrompt(expedicaoId){
   if(n===null) return;
   etiquetaExpedicao(expedicaoId, Math.max(1, Number(n)||1));
 }
-// ---------- Scanner por câmera (QR + código de barras via BarcodeDetector) ----------
-let _scan={stream:null,raf:null};
+// ---------- Scanner por câmera (QR + código de barras) ----------
+// Usa BarcodeDetector nativo (Chrome/Edge/Android). No iPhone (Safari não tem
+// BarcodeDetector) cai automaticamente para a biblioteca ZXing (self-hosted).
+let _scan={stream:null,raf:null,zx:null};
+function carregarZxing(){
+  return new Promise((res,rej)=>{
+    if(window.ZXing) return res(window.ZXing);
+    const s=document.createElement('script'); s.src='/vendor/zxing.min.js';
+    s.onload=()=>window.ZXing?res(window.ZXing):rej(new Error('ZXing não carregou'));
+    s.onerror=()=>rej(new Error('Falha ao carregar o leitor.'));
+    document.head.appendChild(s);
+  });
+}
 async function abrirScanner(onCode){
-  if(!('BarcodeDetector' in window)){ toast('Seu navegador não suporta leitura por câmera. Use Chrome/Edge atualizado (PC ou Android) — ou um leitor USB.','err'); return; }
   let ov=document.getElementById('scanov'); if(!ov){ ov=document.createElement('div'); ov.id='scanov'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px';
-  ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Aponte a câmera para o QR ou código de barras</div><video id="scanv" playsinline style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video><div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
+  ov.innerHTML='<div style="color:#fff;font-weight:700;font-size:15px">📷 Aponte a câmera para o QR ou código de barras</div><video id="scanv" playsinline muted autoplay style="max-width:92vw;max-height:68vh;border-radius:10px;background:#000"></video><div id="scanm" style="color:#ccc;font-size:13px">Procurando código…</div><button id="scanx" style="padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:700">Fechar</button>';
   document.getElementById('scanx').onclick=fecharScanner;
+  const v=document.getElementById('scanv');
+  const done=(raw)=>{ fecharScanner(); if(onCode) onCode(raw); };
   try{
-    const det=new window.BarcodeDetector({formats:['qr_code','code_128','ean_13','ean_8','code_39','upc_a','upc_e','itf','codabar']});
-    _scan.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    const v=document.getElementById('scanv'); v.srcObject=_scan.stream; await v.play();
-    const loop=async()=>{ if(!_scan.stream) return; try{ const cs=await det.detect(v); if(cs&&cs.length){ const raw=cs[0].rawValue; fecharScanner(); if(onCode) onCode(raw); return; } }catch(e){} _scan.raf=requestAnimationFrame(loop); };
-    loop();
-  }catch(e){ const m=document.getElementById('scanm'); if(m) m.textContent='Não foi possível acessar a câmera: '+(e.message||e); }
+    if('BarcodeDetector' in window){
+      const det=new window.BarcodeDetector({formats:['qr_code','code_128','ean_13','ean_8','code_39','upc_a','upc_e','itf','codabar']});
+      _scan.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      v.srcObject=_scan.stream; await v.play();
+      const loop=async()=>{ if(!_scan.stream) return; try{ const cs=await det.detect(v); if(cs&&cs.length){ done(cs[0].rawValue); return; } }catch(e){} _scan.raf=requestAnimationFrame(loop); };
+      loop(); return;
+    }
+    // iPhone / Safari: ZXing
+    const m=document.getElementById('scanm'); if(m) m.textContent='Carregando leitor…';
+    const ZX=await carregarZxing();
+    if(m) m.textContent='Procurando código…';
+    const hints=new Map();
+    const fmts=[ZX.BarcodeFormat.QR_CODE,ZX.BarcodeFormat.CODE_128,ZX.BarcodeFormat.CODE_39,ZX.BarcodeFormat.EAN_13,ZX.BarcodeFormat.EAN_8,ZX.BarcodeFormat.ITF,ZX.BarcodeFormat.CODABAR,ZX.BarcodeFormat.UPC_A,ZX.BarcodeFormat.UPC_E];
+    hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, fmts);
+    _scan.zx=new ZX.BrowserMultiFormatReader(hints, 250);
+    _scan.zx.decodeFromConstraints({video:{facingMode:{ideal:'environment'}}}, v, (result)=>{ if(result){ done(result.getText()); } });
+  }catch(e){ const m=document.getElementById('scanm'); if(m) m.textContent='Não foi possível acessar a câmera: '+(e.message||e)+'. Verifique a permissão de câmera do Safari.'; }
 }
-function fecharScanner(){ try{ if(_scan.raf)cancelAnimationFrame(_scan.raf); if(_scan.stream)_scan.stream.getTracks().forEach(t=>t.stop()); }catch(e){} _scan={stream:null,raf:null}; const ov=document.getElementById('scanov'); if(ov) ov.remove(); }
+function fecharScanner(){
+  try{ if(_scan.raf)cancelAnimationFrame(_scan.raf); if(_scan.zx){ _scan.zx.reset(); } if(_scan.stream)_scan.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+  _scan={stream:null,raf:null,zx:null}; const ov=document.getElementById('scanov'); if(ov) ov.remove();
+}
 async function etiquetasUnitariasExp(id){
   try{
     const d=await api('/expedicoes/'+id+'/etiquetas-unitarias');
@@ -3849,6 +3884,8 @@ window.APP = {
   relatorio, relGerar,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
+// PWA: registra o service worker (torna o app instalável no celular).
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }); }
 boot();
 })();
 </script>

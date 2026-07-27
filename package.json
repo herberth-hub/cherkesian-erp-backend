@@ -37,6 +37,7 @@
     "@nestjs/serve-static": "^4.0.2",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^5.22.0",
+    "@zxing/library": "^0.21.3",
     "bcryptjs": "^2.4.3",
     "bwip-js": "^4.11.2",
     "class-transformer": "^0.5.1",
