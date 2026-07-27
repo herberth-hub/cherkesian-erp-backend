@@ -11,7 +11,7 @@ export class EntradaEstoqueDto {
   @IsInt() @Min(1) @Max(500) quantidade!: number;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
   @IsOptional() @IsIn(['A', 'B']) coluna?: string;
-  @IsOptional() @IsInt() @Min(0) @Max(4) andar?: number;
+  @IsOptional() @IsString() @MaxLength(4) andar?: string;
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
   @IsOptional() @IsInt() @IsPositive() pedidoId?: number;
   @IsOptional() @IsIn(['entrada', 'producao']) origem?: string;
@@ -20,7 +20,7 @@ export class EntradaEstoqueDto {
 export class EnderecarDto {
   @IsString() @IsNotEmpty() codigo!: string;
   @IsIn(['A', 'B']) coluna!: string;
-  @IsInt() @Min(0) @Max(4) andar!: number;
+  @IsString() @IsNotEmpty() @MaxLength(4) andar!: string;
   @IsString() @IsNotEmpty() @MaxLength(10) caixaMaster!: string;
   @IsOptional() @IsBoolean() confirmar?: boolean;
 }

@@ -22,7 +22,7 @@ export class EstoqueService {
    */
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
-    quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: number; caixaMaster?: string;
+    quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
     pedidoId?: number; origem?: string;
   }, empresaId: number, usuario: string) {
     const qtd = Math.floor(Number(dto.quantidade));
@@ -74,20 +74,20 @@ export class EstoqueService {
     return { loteEntrada, total: qtd, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
   }
 
-  private enderecoTxt(d: { coluna?: string; andar?: number; caixaMaster?: string }): string | null {
+  private enderecoTxt(d: { coluna?: string; andar?: string; caixaMaster?: string }): string | null {
     if (!d.coluna && d.andar == null && !d.caixaMaster) return null;
     return `Coluna ${d.coluna ?? '—'} · Andar ${d.andar ?? '—'} · Caixa ${d.caixaMaster ?? '—'}`;
   }
 
   /** Endereça uma unidade (bipada) no armazém. Se já estiver endereçada em OUTRO
    *  lugar, NÃO troca sem confirmar: devolve `precisaConfirmar` com o endereço atual. */
-  async enderecar(dto: { codigo: string; coluna: string; andar: number; caixaMaster: string; confirmar?: boolean }, empresaId: number, usuario: string) {
+  async enderecar(dto: { codigo: string; coluna: string; andar: string; caixaMaster: string; confirmar?: boolean }, empresaId: number, usuario: string) {
     const codigo = (dto.codigo ?? '').trim();
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Unidade ${codigo} não encontrada.`);
     if (un.status === 'despachado') throw new BadRequestException('Unidade já despachada.');
 
-    const fmt = (c?: string | null, a?: number | null, x?: string | null) => `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
+    const fmt = (c?: string | null, a?: string | null, x?: string | null) => `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
     const jaEnderecado = un.status === 'em_estoque' && (un.coluna != null || un.andar != null || un.caixaMaster != null);
     const mudou = un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
     // Já está EXATAMENTE neste endereço → não duplica, só avisa.
@@ -209,7 +209,7 @@ export class EstoqueService {
     });
     const dentro = unidades.filter((u) => (u.caixaMaster ?? '').replace(/\D/g, '') === dig);
     // Agrupa por item (descrição+cor+tamanho) para leitura rápida do que tem dentro.
-    const grupos = new Map<string, { descricao: string; cor: string; tamanho: string; quantidade: number; coluna?: string | null; andar?: number | null }>();
+    const grupos = new Map<string, { descricao: string; cor: string; tamanho: string; quantidade: number; coluna?: string | null; andar?: string | null }>();
     for (const u of dentro) {
       const chave = `${u.descricao}|${u.cor ?? ''}|${u.tamanho ?? ''}`;
       const g = grupos.get(chave) ?? { descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', quantidade: 0, coluna: u.coluna, andar: u.andar };

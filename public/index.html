@@ -2454,9 +2454,9 @@ async function formEntradaEstoque(){
     <div class="grid2">${field('en_qtd','Quantidade *','type="number" min="1" max="500" placeholder="ex.: 70"')}
       <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
     <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
-      <div class="grid3"><div class="mrow"><label class="fl">Coluna</label><select id="en_col" class="inp"><option value="">—</option><option>A</option><option>B</option></select></div>
-        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp"><option value="">—</option>${[0,1,2,3,4].map(a=>'<option>'+a+'</option>').join('')}</select></div>
-        <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option>${CAIXAS_MASTER.map(x=>'<option>'+x+'</option>').join('')}</select></div></div></div>
+      <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
+        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp"><option value="">—</option></select></div>
+        <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option></select></div></div></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
   enTipo();
@@ -2468,7 +2468,7 @@ async function saveEntradaEstoque(){
   const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
   const body={ tipo, quantidade:Number(val('en_qtd')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
-  if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=Number(val('en_and')); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
+  if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
   if(!body.quantidade||body.quantidade<1){ toast('Informe a quantidade.','err'); return; }
   if(!body.descricao){ toast('Informe a descrição (ou selecione um item).','err'); return; }
   try{ const r=await api('/estoque/entrada',{method:'POST',body}); closeModal();
@@ -2517,23 +2517,41 @@ function imprimirEtqUnidades(pecas, meta){
     </body></html>`);
   w.document.close();
 }
+// Esquemas de endereçamento por coluna: A = produto acabado; B = matéria-prima.
+const ENDER_ESQ = {
+  A: { andar:['0','1','2','3','4'], caixa: CAIXAS_MASTER },
+  B: { andar:['A','B','C'], caixa: ['A','B','C'].flatMap(l=>Array.from({length:12},(_,i)=>l+(i+1))) },
+};
+function edCol(){
+  const col=val('ed_col')||'A'; const esq=ENDER_ESQ[col]||ENDER_ESQ.A;
+  const a=$('ed_and'), c=$('ed_cx');
+  if(a) a.innerHTML=esq.andar.map(x=>'<option>'+x+'</option>').join('');
+  if(c) c.innerHTML=esq.caixa.map(x=>'<option>'+x+'</option>').join('');
+}
+function enCol(){
+  const col=val('en_col'); const esq=ENDER_ESQ[col]||{andar:[],caixa:[]};
+  const a=$('en_and'), c=$('en_cx');
+  if(a) a.innerHTML='<option value="">—</option>'+esq.andar.map(x=>'<option>'+x+'</option>').join('');
+  if(c) c.innerHTML='<option value="">—</option>'+esq.caixa.map(x=>'<option>'+x+'</option>').join('');
+}
 async function formEnderecar(){
   openModal(`<h3>🏷 Endereçar unidades (bipar)</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Defina o endereço e bipe as etiquetas — cada peça vai para essa posição. Ex.: Coluna A · Andar 4 · Caixa 3.000.</div>
-    <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp"><option>A</option><option>B</option></select></div>
-      <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp">${[0,1,2,3,4].map(a=>'<option>'+a+'</option>').join('')}</select></div>
-      <div class="mrow"><label class="fl">Caixa Master *</label><select id="ed_cx" class="inp">${CAIXAS_MASTER.map(x=>'<option>'+x+'</option>').join('')}</select></div></div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima. As opções de andar e caixa mudam conforme a coluna.</div>
+    <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option>A</option><option>B</option></select></div>
+      <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp"></select></div>
+      <div class="mrow"><label class="fl">Caixa Master *</label><select id="ed_cx" class="inp"></select></div></div>
     <div style="display:flex;gap:8px;align-items:end;margin-top:6px">
       <div style="flex:1"><label class="fl">Bipe a etiqueta da peça</label><input id="ed_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.enderecarBip()"></div>
       <button class="btn-primary" onclick="APP.enderecarBip()">Endereçar</button>
       <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('ed_bip').value=code;APP.enderecarBip();})">📷</button></div>
     <div id="ed_log" style="margin-top:8px;font-size:12px;max-height:30vh;overflow:auto"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Só consultar etiqueta</button><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Fechar</button></div>`);
+  edCol();
   setTimeout(()=>{const i=$('ed_bip'); if(i)i.focus();},50);
 }
 async function enderecarBip(){
   const codigo=val('ed_bip'); if(!codigo){ return; }
-  const body={ codigo, coluna:val('ed_col'), andar:Number(val('ed_and')), caixaMaster:val('ed_cx') };
+  const body={ codigo, coluna:val('ed_col'), andar:val('ed_and'), caixaMaster:val('ed_cx') };
   try{
     let r=await api('/estoque/enderecar',{method:'POST',body});
     // Já está exatamente neste endereço → avisa e NÃO duplica.
@@ -3952,7 +3970,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, saveEntradaEstoque, formEnderecar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
+  formEntradaEstoque, enTipo, enDest, enCol, saveEntradaEstoque, formEnderecar, edCol, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
