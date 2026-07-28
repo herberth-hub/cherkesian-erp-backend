@@ -254,8 +254,9 @@ export class PedidosService {
     // 2) Separa itens de PRODUÇÃO (geram OP) dos de REVENDA (não geram OP).
     //    Item sem produtoId (sob medida) conta como produção.
     const prodIds = [...new Set(pedido.itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
-    const prods = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, tipo: true } }) : [];
+    const prods = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, tipo: true, componentes: true } }) : [];
     const tipoDe = new Map(prods.map((p) => [p.id, p.tipo]));
+    const compDe = new Map(prods.map((p) => [p.id, p.componentes as { produtoId: number; quantidade: number }[] | null]));
     const ehProducao = (item: (typeof pedido.itens)[number]) => !item.produtoId || tipoDe.get(item.produtoId) !== 'revenda';
     const itensProducao = pedido.itens.filter(ehProducao);
     const itensRevenda = pedido.itens.filter((i) => !ehProducao(i));
@@ -271,17 +272,30 @@ export class PedidosService {
       };
     }
 
-    // Consumo agregado (BOM × quantidade) só dos itens de produção + BOM por item (romaneio).
+    // Expande conjuntos (produtos com componentes) em UNIDADES de produção — 1 OP por unidade.
+    type UnidProd = { chave: number; produtoId: number | null; quantidade: number; grade: unknown };
+    const unidades: UnidProd[] = [];
+    let ch = 0;
+    for (const item of itensProducao) {
+      const comps = item.produtoId ? compDe.get(item.produtoId) : null;
+      if (comps && comps.length) {
+        for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade });
+      } else {
+        unidades.push({ chave: ch++, produtoId: item.produtoId ?? null, quantidade: item.quantidade, grade: item.grade });
+      }
+    }
+
+    // Consumo agregado (BOM × quantidade) por unidade de produção (romaneio por unidade).
     const necessarioPorMaterial = new Map<number, Prisma.Decimal>();
     const bomPorItem = new Map<number, Awaited<ReturnType<typeof this.prisma.consumo.findMany>>>();
     let totalPecas = 0;
-    for (const item of itensProducao) {
-      totalPecas += item.quantidade;
-      if (!item.produtoId) continue;
-      const bom = await this.prisma.consumo.findMany({ where: { produtoId: item.produtoId } });
-      bomPorItem.set(item.id, bom);
+    for (const u of unidades) {
+      totalPecas += u.quantidade;
+      if (!u.produtoId) continue;
+      const bom = await this.prisma.consumo.findMany({ where: { produtoId: u.produtoId } });
+      bomPorItem.set(u.chave, bom);
       for (const b of bom) {
-        const usa = this.consumoDoItem(b, item);
+        const usa = this.consumoDoItem(b, u);
         const atual = necessarioPorMaterial.get(b.materialId) ?? new Prisma.Decimal(0);
         necessarioPorMaterial.set(b.materialId, atual.plus(usa));
       }
@@ -362,25 +376,25 @@ export class PedidosService {
         });
       }
       const opsCriadas = [] as { numero: string; status: string; quantidade: number; produtoId: number | null }[];
-      for (const item of itensProducao) {
+      for (const u of unidades) {
         const numeroOp = await this.gerarNumeroOP(tx);
-        // Romaneio do item = BOM do produto × quantidade do item.
-        const bom = item.produtoId ? bomPorItem.get(item.id) ?? [] : [];
+        // Romaneio da unidade = BOM do produto × quantidade (por tamanho quando houver).
+        const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
         const romaneio = bom.map((b) => {
           const m = materiais.find((x) => x.id === b.materialId)!;
-          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(this.consumoDoItem(b, item).toFixed(4)), unidade: m.unidade, conferido: false };
+          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false };
         });
         const op = await tx.oP.create({
           data: {
             numero: numeroOp,
             pedidoId: pedido.id,
             filialId: pedido.filialId,
-            produtoId: item.produtoId ?? null,
-            quantidade: item.quantidade,
+            produtoId: u.produtoId ?? null,
+            quantidade: u.quantidade,
             status: 'a_iniciar',
             pilotoLiberado: true,
             progresso: 0,
-            gradeTamanhos: (item.grade as Prisma.InputJsonValue | undefined) ?? undefined,
+            gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined,
             romaneioMateriais: romaneio as Prisma.InputJsonValue,
           },
         });

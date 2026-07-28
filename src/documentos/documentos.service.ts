@@ -315,6 +315,17 @@ export class DocumentosService {
         ['Descrição', produto.descricao],
         ['Cor', produto.cor ?? '—'],
       ]);
+      // Imagem do modelo para o cortador identificar a peça (ou moldura em branco).
+      secao(doc, 'Modelo da peça');
+      if (produto.fotoModelo) {
+        imagem(doc, produto.fotoModelo, 160);
+      } else {
+        const x = 50, w = doc.page.width - 100, h = 130;
+        const y = doc.y + 2;
+        doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).dash(3, { space: 3 }).strokeColor('#C9A227').stroke().undash();
+        doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('FOTO DO MODELO (cole/anexe a imagem da peça)', x, y + h / 2 - 6, { width: w, align: 'center' });
+        doc.y = y + h + 12; doc.x = x; doc.fillColor('#242a26');
+      }
     }
 
     // Grade de tamanhos em caixinhas: usa a distribuição da OP quando definida;

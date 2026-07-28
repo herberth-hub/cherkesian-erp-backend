@@ -291,6 +291,7 @@ model Produto {
   clienteGrupo String?                     // grupo de cliente dono do produto (ex.: SANTA CASA DE SBC)
   clienteId    Int?                        // cliente específico (opcional)
   setor        String?                     // setor de uso (ex.: HIGIENE/LIMPEZA)
+  componentes  Json?                       // conjunto/kit: [{produtoId, quantidade}] — ao gerar OP, explode nestes
   consumo   Consumo[]
   estoque   Estoque[]
   medidas   ProdutoMedida[]
