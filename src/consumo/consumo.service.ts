@@ -54,6 +54,7 @@ export class ConsumoService {
         produtoId: dto.produtoId,
         materialId: dto.materialId,
         quantidade: dto.quantidade,
+        porTamanho: dto.porTamanho ?? undefined,
         unidade: dto.unidade,
       },
     });

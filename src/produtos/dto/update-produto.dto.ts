@@ -1,5 +1,6 @@
 import {
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -41,4 +42,14 @@ export class UpdateProdutoDto extends ProdutoFichaDto {
   custo?: number;
 
   @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'precoEspecial deve ter no máximo 2 casas.' })
+  @Min(0)
+  precoEspecial?: number;
+
+  @IsOptional() @IsString() @MaxLength(120) tamsEspeciais?: string;
+  @IsOptional() @IsString() @MaxLength(120) clienteGrupo?: string;
+  @IsOptional() @IsInt() @IsPositive() clienteId?: number;
+  @IsOptional() @IsString() @MaxLength(80) setor?: string;
 }

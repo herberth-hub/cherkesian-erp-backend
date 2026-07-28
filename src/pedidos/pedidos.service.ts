@@ -281,7 +281,7 @@ export class PedidosService {
       const bom = await this.prisma.consumo.findMany({ where: { produtoId: item.produtoId } });
       bomPorItem.set(item.id, bom);
       for (const b of bom) {
-        const usa = b.quantidade.mul(item.quantidade);
+        const usa = this.consumoDoItem(b, item);
         const atual = necessarioPorMaterial.get(b.materialId) ?? new Prisma.Decimal(0);
         necessarioPorMaterial.set(b.materialId, atual.plus(usa));
       }
@@ -368,7 +368,7 @@ export class PedidosService {
         const bom = item.produtoId ? bomPorItem.get(item.id) ?? [] : [];
         const romaneio = bom.map((b) => {
           const m = materiais.find((x) => x.id === b.materialId)!;
-          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(b.quantidade.mul(item.quantidade).toFixed(4)), unidade: m.unidade, conferido: false };
+          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(this.consumoDoItem(b, item).toFixed(4)), unidade: m.unidade, conferido: false };
         });
         const op = await tx.oP.create({
           data: {
@@ -407,6 +407,26 @@ export class PedidosService {
   }
 
   // ===== Helpers =====
+
+  /**
+   * Consumo total de um material para o item do pedido.
+   * Se a BOM tem consumo POR TAMANHO e o item tem grade, soma tamanho×metros por tamanho;
+   * senão, usa o consumo padrão × quantidade do item.
+   */
+  private consumoDoItem(b: { quantidade: Prisma.Decimal; porTamanho?: unknown }, item: { quantidade: number; grade?: unknown }): Prisma.Decimal {
+    const porTam = b.porTamanho as Record<string, number> | null | undefined;
+    const grade = item.grade as Record<string, number> | null | undefined;
+    if (porTam && grade && typeof grade === 'object') {
+      let total = new Prisma.Decimal(0);
+      for (const [tam, qtd] of Object.entries(grade)) {
+        const q = Number(qtd) || 0;
+        const consumoTam = Number(porTam[String(tam).toUpperCase()] ?? porTam[String(tam)] ?? 0);
+        if (q > 0 && consumoTam > 0) total = total.plus(new Prisma.Decimal(consumoTam).mul(q));
+      }
+      if (total.greaterThan(0)) return total;
+    }
+    return b.quantidade.mul(item.quantidade);
+  }
 
   /** Normaliza a grade de tamanhos do item; se houver, a quantidade = soma da grade. */
   private normalizarGrade(item: { grade?: Record<string, number>; quantidade: number }): { grade?: Prisma.InputJsonValue; quantidade: number } {

@@ -284,8 +284,13 @@ model Produto {
   cor       String?
   grade     String?
   tipo      String   @default("producao") // producao (industrializado, gera OP) | revenda (comprado p/ revender)
-  precoBase Decimal? @db.Decimal(12,2)
+  precoBase Decimal? @db.Decimal(12,2)     // preço de venda padrão (tamanhos normais)
+  precoEspecial Decimal? @db.Decimal(12,2) // preço de venda da tabela especial (tamanhos grandes)
+  tamsEspeciais String?                    // tamanhos da tabela especial, ex.: "G1,G2,G3,G4,G5"
   custo     Decimal? @db.Decimal(12,2) // custo unitário (revenda: preço de compra; produção: custo direto)
+  clienteGrupo String?                     // grupo de cliente dono do produto (ex.: SANTA CASA DE SBC)
+  clienteId    Int?                        // cliente específico (opcional)
+  setor        String?                     // setor de uso (ex.: HIGIENE/LIMPEZA)
   consumo   Consumo[]
   estoque   Estoque[]
   medidas   ProdutoMedida[]
@@ -345,7 +350,8 @@ model Consumo { // BOM — receita por peça
   produto    Produto  @relation(fields: [produtoId], references: [id])
   materialId Int
   material   Material @relation(fields: [materialId], references: [id])
-  quantidade Decimal  @db.Decimal(12,4)
+  quantidade Decimal  @db.Decimal(12,4)  // consumo padrão (fallback quando não há por tamanho)
+  porTamanho Json?    // consumo por tamanho { "PP":1.73, "P":1.80, ... } na mesma unidade
   unidade    String
 }
 

@@ -108,4 +108,20 @@ export class CreateProdutoDto extends ProdutoFichaDto {
 
   /** produção (industrializado, gera OP) | revenda (comprado p/ revender). */
   @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'precoEspecial deve ter no máximo 2 casas.' })
+  @Min(0)
+  precoEspecial?: number;
+
+  /** Tamanhos da tabela especial, ex.: "G1,G2,G3,G4,G5". */
+  @IsOptional() @IsString() @MaxLength(120) tamsEspeciais?: string;
+
+  /** Grupo de cliente dono do produto (ex.: SANTA CASA DE SBC). */
+  @IsOptional() @IsString() @MaxLength(120) clienteGrupo?: string;
+
+  @IsOptional() @IsInt() @IsPositive() clienteId?: number;
+
+  /** Setor de uso (ex.: HIGIENE/LIMPEZA). */
+  @IsOptional() @IsString() @MaxLength(80) setor?: string;
 }
