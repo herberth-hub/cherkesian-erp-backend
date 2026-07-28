@@ -90,6 +90,17 @@ export class OpsController {
     return this.opsService.updateGrade(id, dto.grade, user.empresaId);
   }
 
+  /** Confirmação de corte pelo setor (permite parcial quando acaba o tecido). */
+  @Areas('pcp', 'producao')
+  @Patch(':id/corte')
+  registrarCorte(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { grade?: Record<string, unknown>; obs?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.registrarCorte(id, body?.grade ?? {}, body?.obs, user.empresaId);
+  }
+
   @Patch(':id/progresso')
   updateProgresso(
     @Param('id', ParseIntPipe) id: number,

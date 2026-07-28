@@ -1,0 +1,5 @@
+-- Confirmação de corte (parcial quando acaba o tecido)
+ALTER TABLE "OP" ADD COLUMN IF NOT EXISTS "gradeCortada" JSONB;
+ALTER TABLE "OP" ADD COLUMN IF NOT EXISTS "quantidadeCortada" INTEGER;
+ALTER TABLE "OP" ADD COLUMN IF NOT EXISTS "corteParcial" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "OP" ADD COLUMN IF NOT EXISTS "corteObs" TEXT;

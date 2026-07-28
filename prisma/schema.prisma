@@ -433,8 +433,12 @@ model OP {
   progresso      Int      @default(0)
   pilotoLiberado Boolean  @default(false)
   prioridade     Prioridade @default(media)
-  gradeTamanhos  Json?    // distribuição por tamanho, ex.: {"P":10,"M":20,"G":8}
+  gradeTamanhos  Json?    // distribuição planejada por tamanho, ex.: {"P":10,"M":20,"G":8}
   romaneioMateriais Json? // materiais do corte (BOM × qtd) c/ conferência: [{materialId,codigo,descricao,quantidade,unidade,conferido,...}]
+  gradeCortada   Json?    // quantidade REALMENTE cortada por tamanho (corte parcial se acabar tecido)
+  quantidadeCortada Int?  // total cortado (soma da gradeCortada)
+  corteParcial   Boolean  @default(false) // true quando cortou menos que o planejado
+  corteObs       String?  // observação do corte (ex.: "acabou o tecido, faltou G1/G2")
   lotes          Lote[]
 }
 

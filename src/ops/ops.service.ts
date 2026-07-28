@@ -152,6 +152,45 @@ export class OpsService {
     });
   }
 
+  /**
+   * Confirmação de corte pelo setor: registra a quantidade REALMENTE cortada por
+   * tamanho. Permite corte parcial (menos que o planejado) quando o tecido acaba.
+   */
+  async registrarCorte(
+    id: number,
+    grade: Record<string, unknown>,
+    obs: string | undefined,
+    empresaId: number,
+  ): Promise<OP> {
+    const op = await this.findOne(id, empresaId);
+    const limpa: Record<string, number> = {};
+    let total = 0;
+    for (const [tamanho, qtd] of Object.entries(grade ?? {})) {
+      const t = String(tamanho).trim().toUpperCase();
+      const n = Number(qtd);
+      if (!t || t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
+      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${t}: "${qtd}".`);
+      if (n > 0) { limpa[t] = n; total += n; }
+    }
+    if (total <= 0) throw new BadRequestException('Informe a quantidade cortada (ao menos 1 peça).');
+    if (total > op.quantidade) {
+      throw new BadRequestException(`Cortado (${total}) não pode passar do planejado (${op.quantidade}).`);
+    }
+    const parcial = total < op.quantidade;
+    return this.prisma.oP.update({
+      where: { id },
+      data: {
+        gradeCortada: limpa as Prisma.InputJsonValue,
+        quantidadeCortada: total,
+        corteParcial: parcial,
+        corteObs: obs?.trim() || null,
+        status: 'em_producao',
+        setorAtual: parcial ? 'Costura · corte parcial' : 'Costura',
+        progresso: op.progresso < 25 ? 25 : op.progresso,
+      },
+    });
+  }
+
   async updateProgresso(id: number, dto: UpdateOpProgressoDto, empresaId: number): Promise<OP> {
     await this.findOne(id, empresaId);
     return this.prisma.oP.update({

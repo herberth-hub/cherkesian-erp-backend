@@ -2061,7 +2061,7 @@ async function viewProducao(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), esc(o.setorAtual||'—'), prioPill(o.prioridade),
-      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
+      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick='APP.formCorte(${JSON.stringify(o).replace(/'/g,"&#39;")})'>✂ Corte</button> <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
@@ -2241,6 +2241,55 @@ async function saveOp(id){
     }
     await api('/ops/'+id+'/grade',{method:'PATCH',body:{grade}});
     closeModal(); toast('OP atualizada.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// Confirmação de corte pelo setor (permite parcial quando acaba o tecido).
+function formCorte(o){
+  window.__CORTE = o;
+  const planej = (o.gradeTamanhos && Object.keys(o.gradeTamanhos).length) ? o.gradeTamanhos : null;
+  const jaCort = (o.gradeCortada && Object.keys(o.gradeCortada).length) ? o.gradeCortada : null;
+  const fonte = jaCort || planej;
+  const tams = fonte ? Object.keys(fonte) : ['ÚNICO'];
+  const cels = tams.map(t=>{
+    const plan = planej ? (planej[t]||0) : o.quantidade;
+    const cur = jaCort ? (jaCort[t]!=null?jaCort[t]:'') : plan;
+    return `<div style="text-align:center;width:82px">
+      <label class="fl" style="font-size:10px">${esc(t)} <span class="muted">(plan ${plan})</span></label>
+      <input class="inp" id="ct_${esc(t)}" data-plan="${plan}" type="number" min="0" value="${cur}" oninput="APP.corteTotal()" style="width:100%;text-align:center;padding:5px 4px;font-size:13px">
+    </div>`;
+  }).join('');
+  openModal(`<h3>✂ Confirmar corte — OP ${esc(o.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe quanto foi <b>realmente cortado</b>. Se o tecido acabou, corte parcial (menos que o planejado) é permitido.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">${cels}
+      <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Total cortado</label><div id="ct_tot" style="font-size:18px;font-weight:800">0</div></div>
+    </div>
+    <div id="ct_aviso" style="margin-top:8px"></div>
+    ${taField('ct_obs','Observação do corte (ex.: acabou o tecido, faltou G1/G2)','',2, o.corteObs||'')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveCorte(${o.id})">Confirmar corte</button></div>`);
+  if(o.corteObs){ const el=$('ct_obs'); if(el) el.value=o.corteObs; }
+  corteTotal();
+}
+function corteTotal(){
+  const o=window.__CORTE||{}; const tams = document.querySelectorAll('[id^="ct_"][data-plan]');
+  let tot=0, plan=0;
+  tams.forEach(el=>{ tot+=Number(el.value)||0; plan+=Number(el.getAttribute('data-plan'))||0; });
+  const t=$('ct_tot'); if(t) t.textContent=tot;
+  const av=$('ct_aviso'); if(av){
+    if(tot>0 && tot<(plan|| o.quantidade)) av.innerHTML=`<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:12px">⚠️ Corte parcial: ${tot} de ${plan||o.quantidade} peças. Os ${(plan||o.quantidade)-tot} faltantes ficam pendentes (registre o motivo abaixo).</div>`;
+    else if(tot>(plan||o.quantidade)) av.innerHTML=`<div class="card" style="background:#fde8e4;border-color:#e0a99b;color:#a33;font-size:12px">Cortado (${tot}) maior que o planejado (${plan||o.quantidade}). Ajuste.</div>`;
+    else av.innerHTML='';
+  }
+}
+async function saveCorte(id){
+  const grade={}; document.querySelectorAll('[id^="ct_"][data-plan]').forEach(el=>{
+    const t=el.id.slice(3); const n=Number(el.value)||0; if(n>0) grade[t]=n;
+  });
+  const total=Object.values(grade).reduce((a,b)=>a+b,0);
+  if(total<=0){ toast('Informe a quantidade cortada.','err'); return; }
+  try{ const r=await api('/ops/'+id+'/corte',{method:'PATCH',body:{grade, obs:val('ct_obs')||undefined}});
+    closeModal(); toast(r.corteParcial?('Corte PARCIAL registrado ('+r.quantidadeCortada+'/'+r.quantidade+').'):'Corte confirmado ('+r.quantidadeCortada+' peças).', r.corteParcial?'err':'ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -4363,7 +4412,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,

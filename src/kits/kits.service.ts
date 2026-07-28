@@ -125,10 +125,15 @@ export class KitsService {
     const lote = await this.prisma.loteTecido.findUnique({ where: { id: dto.loteTecidoId } });
     if (!lote || lote.empresaId !== empresaId) throw new NotFoundException(`Lote ${dto.loteTecidoId} não encontrado.`);
 
-    const grade = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+    // O kit nasce do que foi REALMENTE cortado (gradeCortada); se o corte ainda não
+    // foi confirmado, usa a grade planejada da OP como base.
+    const grade =
+      (op.gradeCortada as Record<string, number> | null) ??
+      (op.gradeTamanhos as Record<string, number> | null) ??
+      {};
     const tamanhos = Object.entries(grade).filter(([, q]) => Number(q) > 0);
     if (!tamanhos.length) {
-      throw new BadRequestException('A OP não tem grade de tamanhos definida. Defina a grade (ex.: PP:8, M:2, G:2) antes de gerar os kits.');
+      throw new BadRequestException('A OP não tem grade definida. Confirme o corte (✂ Corte) ou defina a grade de tamanhos antes de gerar os kits.');
     }
     // Evita duplicar kits da mesma OP.
     const jaTem = await this.prisma.kit.count({ where: { empresaId, opId: op.id } });
