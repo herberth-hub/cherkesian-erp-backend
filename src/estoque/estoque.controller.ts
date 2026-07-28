@@ -70,6 +70,21 @@ export class EstoqueController {
     return this.estoqueService.enderecar(dto, user.empresaId, user.usuario);
   }
 
+  // ===== Quarentena (anomalia / estorno de cliente) =====
+  @Areas('estoque', 'producao', 'expedicao')
+  @Post('quarentena')
+  @HttpCode(HttpStatus.OK)
+  enviarQuarentena(@Body() body: { codigo: string; motivo?: string }, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.enviarQuarentena(body?.codigo ?? '', body?.motivo ?? '', user.empresaId);
+  }
+
+  @Areas('estoque', 'producao')
+  @Post('quarentena/resolver')
+  @HttpCode(HttpStatus.OK)
+  resolverQuarentena(@Body() body: { codigo: string; destino?: string }, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.resolverQuarentena(body?.codigo ?? '', body?.destino ?? 'recebimento', user.empresaId);
+  }
+
   // ===== Caixas master (etiqueta p/ colar + leitura do conteúdo) =====
   @Areas('estoque', 'producao')
   @Get('caixas/etiquetas')

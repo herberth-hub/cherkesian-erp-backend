@@ -2719,19 +2719,30 @@ function unidTipoPill(t){ const m={produto:['blue','produto acabado'],materia:['
 async function viewEstoque(c){
   const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
   window.__UNIDS_ALL = unidades||[];
-  const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque').length;
+  const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque'||u.status==='reservado').length;
   const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
+  const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
   const cont={produto:0,materia:0,aviamento:0}; (unidades||[]).forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
-    + `<div class="cards"><div class="card kpi"><div class="k">Unidades em estoque</div><div class="v">${emEstoque}</div><div class="s">${aguard} aguardando endereço</div></div></div>`
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+    + `<div class="cards">
+        <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('estoque')"><div class="k">Em estoque</div><div class="v">${emEstoque}</div><div class="s">endereçadas</div></div>
+        <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('recebimento')"><div class="k">📥 Recebimento</div><div class="v">${aguard}</div><div class="s">aguardando endereço</div></div>
+        <div class="card kpi" style="cursor:pointer;${quar?'border-color:#e0a99b':''}" onclick="APP.estAreaSet('quarentena')"><div class="k">⚠ Quarentena</div><div class="v" style="${quar?'color:#c14a34':''}">${quar}</div><div class="s">anomalia / estorno</div></div>
+      </div>`
     + `<div class="sect"><h3>Produto acabado (agregado)</h3>${panelTable(['Produto','Tamanho','Saldo','Local',''],
         list.map(e=>[
           `<span class="mono gold">${esc(e.produto.codigo)}</span> <span class="muted" style="font-size:11px">${esc(e.produto.descricao)}</span>`,
           esc(e.tamanho), `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
           `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
         ]), list.length?null:'Sem produto acabado agregado.')}</div>`
-    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Unidades endereçadas
+    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Unidades
+        <select id="und_area" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
+          <option value="">Todas as áreas</option>
+          <option value="estoque">Em estoque (${emEstoque})</option>
+          <option value="recebimento">📥 Recebimento (${aguard})</option>
+          <option value="quarentena">⚠ Quarentena (${quar})</option>
+        </select>
         <select id="und_tipo" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
           <option value="">Todos os tipos (${(unidades||[]).length})</option>
           <option value="produto">Produto acabado (${cont.produto})</option>
@@ -2743,23 +2754,64 @@ async function viewEstoque(c){
         <div id="unidsbox"></div></div>`;
   renderUnidades();
 }
+function estAreaSet(a){ const s=$('und_area'); if(s){ s.value=a; renderUnidades(); const el=$('unidsbox'); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); } }
+function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u.status==='aguardando_endereco') return 'recebimento'; if(u.status==='em_estoque'||u.status==='reservado') return 'estoque'; return u.status; }
 function renderUnidades(){
   const box=$('unidsbox'); if(!box) return;
-  const tipo=val('und_tipo'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
+  const tipo=val('und_tipo'), area=val('und_area'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
   let arr=(window.__UNIDS_ALL||[]);
+  if(area) arr=arr.filter(u=>areaDaUnidade(u)===area);
   if(tipo) arr=arr.filter(u=>u.tipo===tipo);
-  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.areaMotivo].some(x=>String(x||'').toLowerCase().includes(q)));
   window.__UNIDS=arr.slice(0,300);
-  const uRows=window.__UNIDS.map(u=>[
-    `<span class="mono gold">${esc(u.codigo)}</span>`,
-    unidTipoPill(u.tipo),
-    esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
-    unidStatusPill(u.status),
-    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>',
-    `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>${_admin?`<button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`:''}</div>`
-  ]);
-  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
-    + panelTable(['Código','Tipo','Item','Status','Endereço','Etiqueta'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
+  const uRows=window.__UNIDS.map(u=>{
+    const ender=(u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`
+      : (u.status==='quarentena'&&u.areaMotivo)?`<span style="color:#c14a34;font-size:11px">⚠ ${esc(u.areaMotivo)}</span>`:'<span class="muted">—</span>';
+    let acoes=`<button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>`;
+    if(u.status==='quarentena') acoes+=` <button class="btn-sm" style="color:#1e7a44" onclick="APP.resolverQuarentena('${esc(u.codigo)}')">Resolver</button>`;
+    else if(u.status!=='despachado') acoes+=` <button class="btn-sm" style="color:#b5731a" title="Enviar p/ quarentena" onclick="APP.enviarQuarentena('${esc(u.codigo)}')">⚠</button>`;
+    if(_admin) acoes+=` <button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`;
+    return [
+      `<span class="mono gold">${esc(u.codigo)}</span>`,
+      unidTipoPill(u.tipo),
+      esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
+      unidStatusPill(u.status),
+      ender,
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${acoes}</div>`
+    ];
+  });
+  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
+    + panelTable(['Código','Tipo','Item','Status','Endereço / Motivo','Ações'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
+}
+// Envia/resolve quarentena (por bipagem ou clique).
+async function enviarQuarentena(codigo){
+  const m = prompt('Motivo da quarentena (anomalia, estorno de cliente, avaria...):','');
+  if(m===null) return;
+  try{ await api('/estoque/quarentena',{method:'POST',body:{codigo, motivo:m}}); toast('Unidade '+codigo+' em quarentena.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function resolverQuarentena(codigo){
+  const d = await uiConfirm({tipo:'info', titulo:'Resolver quarentena — '+codigo, ok:'Devolver ao Recebimento', cancel:'Cancelar',
+    msg:'A unidade volta para o Recebimento (sem endereço) para ser realocada. Se preferir descartar, use Excluir (admin).'});
+  if(!d) return;
+  try{ await api('/estoque/quarentena/resolver',{method:'POST',body:{codigo, destino:'recebimento'}}); toast('Quarentena resolvida — '+codigo+' no Recebimento.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+function formQuarentena(){
+  openModal(`<h3>⚠ Enviar unidade para quarentena</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe ou digite a etiqueta da peça/material com anomalia ou estorno de cliente.</div>
+    <div style="display:flex;gap:8px;align-items:end">
+      <div style="flex:1"><label class="fl">Etiqueta</label><input id="qz_cod" class="inp" placeholder="UN-… ou bipe" onkeydown="if(event.key==='Enter')document.getElementById('qz_mot').focus()"></div>
+      <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('qz_cod').value=code;})">📷</button></div>
+    ${field('qz_mot','Motivo','placeholder="anomalia, estorno de cliente, avaria…"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveQuarentena()">Enviar p/ quarentena</button></div>`);
+  setTimeout(()=>{const i=$('qz_cod'); if(i)i.focus();},50);
+}
+async function saveQuarentena(){
+  const codigo=val('qz_cod').trim(); if(!codigo){ toast('Bipe a etiqueta.','err'); return; }
+  try{ await api('/estoque/quarentena',{method:'POST',body:{codigo, motivo:val('qz_mot')}}); closeModal(); toast('Unidade em quarentena.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 async function excluirUnidade(codigo){
   const ok=await uiConfirm({tipo:'warn', titulo:'Excluir etiqueta', ok:'Excluir', cancel:'Cancelar',
@@ -2786,7 +2838,7 @@ async function reimprimirVisiveis(){
     imprimirEtqUnidades(r.pecas,{loteEntrada:'REIMPRESSAO'});
   }catch(e){ toast(e.message,'err'); }
 }
-function unidStatusPill(s){ const m={aguardando_endereco:['red','s/ endereço'],em_estoque:['green','em estoque'],reservado:['blue','reservado'],despachado:['gray','despachado']}; const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
+function unidStatusPill(s){ const m={aguardando_endereco:['gold','📥 recebimento'],em_estoque:['green','em estoque'],reservado:['blue','reservado'],despachado:['gray','despachado'],quarentena:['red','⚠ quarentena']}; const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 
 // ===== Caixas master: consulta do conteúdo + etiquetas p/ colar =====
 function consultarCaixa(){
@@ -4418,7 +4470,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, renderUnidades,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

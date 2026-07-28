@@ -131,6 +131,39 @@ export class EstoqueService {
     });
   }
 
+  /** Envia uma unidade para a QUARENTENA (anomalia / estorno de cliente). */
+  async enviarQuarentena(codigoRaw: string, motivo: string, empresaId: number) {
+    const codigo = (codigoRaw ?? '').trim();
+    if (!codigo) throw new BadRequestException('Informe ou bipe a etiqueta.');
+    const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+    if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    if (un.status === 'despachado') throw new BadRequestException('Unidade já despachada não pode ir para quarentena.');
+    const upd = await this.prisma.unidadeEstoque.update({
+      where: { id: un.id },
+      data: { status: 'quarentena', areaMotivo: (motivo ?? '').trim() || 'Sem motivo informado' },
+    });
+    return { codigo: upd.codigo, status: upd.status, areaMotivo: upd.areaMotivo };
+  }
+
+  /**
+   * Resolve a quarentena: 'recebimento' devolve para alocação (limpa endereço);
+   * 'estoque' mantém o endereço e volta a em_estoque (se já tinha endereço).
+   */
+  async resolverQuarentena(codigoRaw: string, destino: string, empresaId: number) {
+    const codigo = (codigoRaw ?? '').trim();
+    const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+    if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    if (un.status !== 'quarentena') throw new BadRequestException('A unidade não está em quarentena.');
+    const paraEstoque = destino === 'estoque' && (un.coluna != null || un.andar != null || un.caixaMaster != null);
+    const upd = await this.prisma.unidadeEstoque.update({
+      where: { id: un.id },
+      data: paraEstoque
+        ? { status: 'em_estoque', areaMotivo: null }
+        : { status: 'aguardando_endereco', coluna: null, andar: null, caixaMaster: null, areaMotivo: null },
+    });
+    return { codigo: upd.codigo, status: upd.status };
+  }
+
   /** Consulta uma unidade pela etiqueta (somente leitura) — status e endereço atual. */
   async consultarUnidade(codigoRaw: string, empresaId: number) {
     const codigo = (codigoRaw ?? '').trim();
@@ -139,7 +172,7 @@ export class EstoqueService {
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
     const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
     const statusLabel: Record<string, string> = {
-      aguardando_endereco: 'Aguardando endereço', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado',
+      aguardando_endereco: 'Recebimento (aguardando endereço)', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado', quarentena: 'Quarentena',
     };
     return {
       codigo: un.codigo,

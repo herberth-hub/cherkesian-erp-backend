@@ -704,7 +704,8 @@ model UnidadeEstoque {
   coluna      String?  // A | B
   andar       String?  // produto acabado: 0..4 · matéria-prima: A/B/C
   caixaMaster String?  // 1.000 .. 10.000
-  status      String   @default("aguardando_endereco") // aguardando_endereco | em_estoque | reservado | despachado
+  status      String   @default("aguardando_endereco") // aguardando_endereco(recebimento) | em_estoque | reservado | despachado | quarentena
+  areaMotivo  String?  // motivo da quarentena (anomalia, estorno de cliente...)
   pedidoId    Int?
   expedicaoId Int?
   loteEntrada String?  // agrupador da entrada (mesma remessa)
