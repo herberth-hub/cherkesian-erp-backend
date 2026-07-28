@@ -35,6 +35,14 @@ export class NotasEntradaService {
     });
   }
 
+  /** Marca a NF como etiquetada (volumes emitidos). */
+  async marcarEtiquetasGeradas(id: number, empresaId: number) {
+    const nota = await this.prisma.notaEntrada.findUnique({ where: { id } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota de entrada ${id} não encontrada.`);
+    await this.prisma.notaEntrada.update({ where: { id }, data: { etiquetasGeradas: true } });
+    return { ok: true };
+  }
+
   async findOne(id: number, empresaId: number) {
     const nota = await this.prisma.notaEntrada.findUnique({
       where: { id },

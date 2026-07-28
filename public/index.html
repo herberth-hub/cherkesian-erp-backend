@@ -2089,11 +2089,22 @@ async function viewNotasEntrada(c){
       esc(n.fornecedor?n.fornecedor.nome:(n.nomeEmitente||'—')),
       n.filial?`<span title="${esc(n.filial.cnpj||'')}">${esc(n.filial.nome)}</span>`:'<span class="muted">—</span>',
       dfmt(n.emitidaEm), money(n.valor),
-      n.lancadaEstoque?'<span class="pill green">lançado</span>':'<span class="muted">—</span>',
+      n.lancadaEstoque?('<span class="pill green">lançado</span>'+((!n.etiquetasGeradas)?' <span class="pill red" title="Ainda não emitiu as etiquetas de volume">⚠ sem etiqueta</span>':'')):'<span class="muted">—</span>',
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
       `<span class="pill gray">${esc(n.origem)}</span>`,
-      `<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".');
+  // Se atualizou a página e há entradas sem etiqueta, abre a 1ª para emitir.
+  const pend=(list||[]).filter(n=>n.lancadaEstoque&&!n.etiquetasGeradas);
+  if(pend.length && !window.__ETQAUTO){ window.__ETQAUTO=true; setTimeout(()=>APP.emitirEtiquetasNF(pend[0].id),400); }
+}
+// Reabre o pop-up de destino/etiquetas para uma NF que ainda não etiquetou.
+async function emitirEtiquetasNF(id){
+  let n; try{ n=await api('/notas-entrada/'+id); }catch(e){ toast(e.message,'err'); return; }
+  const itens=(n.itens||[]).map(it=>({ descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un' }));
+  if(!itens.length){ toast('Esta NF não tem itens para etiquetar.','err'); return; }
+  window.__NEVOL=0;
+  perguntarDestinoMP(itens, id);
 }
 async function formNotaEntrada(prefill){
   if(!prefill) window.__NEPRE=null;
@@ -2234,14 +2245,15 @@ async function saveNotaEntrada(){
     if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
     toast(msg,'ok');
     // Toda entrada com estoque marcado pergunta o destino físico (endereçar × expedição).
-    if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens); }
+    if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens, n.id); }
     else { closeModal(); loadRoute(); }
   }catch(e){ toast(e.message,'err'); }
 }
 // Pop-up: onde colocar a matéria-prima que deu entrada — estoque (endereçar) ou expedição.
 // Cada item pode ter VÁRIOS lotes do fornecedor (linha lote + volumes por lote).
-function perguntarDestinoMP(itens){
+function perguntarDestinoMP(itens, nfId){
   window.__MPITENS = itens;
+  window.__MPNF = nfId||null;
   const volNf = Number(window.__NEVOL||0);
   const umItem = itens.length===1;
   window.__MPLOTES = itens.map((it)=>[{ lote: it.loteFornecedor||'', vol: (umItem&&volNf?volNf:1) }]);
@@ -2295,6 +2307,7 @@ async function gerarUnidadesMP(destino){
     }
     closeModal(); window.__MPITENS=null; window.__MPLOTES=null;
     if(!todas.length){ toast('Nenhuma etiqueta gerada.','err'); loadRoute(); return; }
+    if(window.__MPNF){ api('/notas-entrada/'+window.__MPNF+'/etiquetas-geradas',{method:'POST'}).catch(()=>{}); window.__MPNF=null; }
     if(destino==='estoque'){
       imprimirEtqUnidades(todas,{loteEntrada:'ENTRADA-MP'});
       toast(todas.length+' etiqueta(s) de volume gerada(s) — bipe para endereçar.','ok');
@@ -4080,7 +4093,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

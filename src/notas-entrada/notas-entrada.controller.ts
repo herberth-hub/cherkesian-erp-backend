@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Post,
@@ -49,6 +51,13 @@ export class NotasEntradaController {
   @Post()
   create(@Body() dto: CreateNotaEntradaDto, @CurrentUser() user: AuthUser) {
     return this.service.create(dto, user.empresaId, user.usuario);
+  }
+
+  /** Marca que as etiquetas de volume (rolos) já foram emitidas para esta NF. */
+  @Post(':id/etiquetas-geradas')
+  @HttpCode(HttpStatus.OK)
+  marcarEtiquetas(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.service.marcarEtiquetasGeradas(id, user.empresaId);
   }
 
   @Delete(':id')
