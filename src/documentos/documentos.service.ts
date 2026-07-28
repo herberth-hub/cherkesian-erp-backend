@@ -409,7 +409,7 @@ export class DocumentosService {
           r.codigo,
           r.descricao,
           r.localizacao || '—',
-          `${Number(r.quantidade).toFixed(3)} ${r.unidade}`,
+          `${this.qtdBR(r.quantidade)} ${r.unidade}`,
           (r.lotes && r.lotes.length) ? r.lotes.join(', ') : '—',
         ]),
       );
@@ -426,8 +426,8 @@ export class DocumentosService {
         bom.map((b) => [
           b.material.codigo,
           b.material.descricao,
-          `${b.quantidade.toFixed(3)} ${b.unidade}`,
-          `${b.quantidade.mul(op.quantidade).toFixed(3)} ${b.unidade}`,
+          `${this.qtdBR(b.quantidade)} ${b.unidade}`,
+          `${this.qtdBR(b.quantidade.mul(op.quantidade))} ${b.unidade}`,
         ]),
       );
     }
@@ -463,6 +463,19 @@ export class DocumentosService {
     const puro = /^\s*\d{1,3}\s*(ddl|dias?|d)?\s*$/i.test(f);
     const texto = puro && datas.length ? `${uniq[0]} dias (vencimento ${datas[0]})` : f;
     return { texto, vencimentos };
+  }
+
+  /**
+   * Formata quantidade no padrão brasileiro (vírgula decimal, ponto de milhar).
+   * Ex.: 6.3 -> "6,30"; 33.96 -> "33,96"; 0.422 -> "0,422". Evita ler "6.300" como 6300.
+   */
+  private qtdBR(n: number | Prisma.Decimal): string {
+    const fixed = (Number(n) || 0).toFixed(3);
+    let [int, dec] = fixed.split('.');
+    dec = dec.replace(/0+$/, '');
+    if (dec.length < 2) dec = (dec + '00').slice(0, 2);
+    const intBR = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return `${intBR},${dec}`;
   }
 
   /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
@@ -552,7 +565,7 @@ export class DocumentosService {
         ['Modelo', g.modelo],
         ['Tecido (encaixe)', g.tecido],
         ['OPs deste grupo', g.ops.join(', ')],
-        ['Consumo total de tecido', `${g.consumo.toFixed(3)} ${g.unidade}`],
+        ['Consumo total de tecido', `${this.qtdBR(g.consumo)} ${g.unidade}`],
       ]);
       const entries = Object.entries(g.grade).sort((a, b) => ESCADA.indexOf(a[0]) - ESCADA.indexOf(b[0]));
       gradeTabela(doc, entries.map(([t, q]) => [t, String(q)]));
@@ -587,7 +600,7 @@ export class DocumentosService {
         { titulo: 'Un.', largura: 55 },
         { titulo: 'Valor', largura: 85, alinhamento: 'right' },
       ],
-      [[oc.descricao, oc.quantidade.toFixed(3), oc.unidade, money(oc.valor)]],
+      [[oc.descricao, this.qtdBR(oc.quantidade), oc.unidade, money(oc.valor)]],
     );
     totalDestaque(doc, 'Valor do pedido', money(oc.valor));
     secao(doc, 'Observações');

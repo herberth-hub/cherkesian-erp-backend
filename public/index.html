@@ -2075,7 +2075,7 @@ function renderRomaneio(){
   const linhas=(r.itens||[]).map((m,i)=>`<tr>
       <td style="padding:6px 8px;border-top:1px solid #eee">${m.conferido?'✅':'⬜'}</td>
       <td style="padding:6px 8px;border-top:1px solid #eee"><span class="mono gold">${esc(m.codigo)}</span> ${esc(m.descricao.split(' · ')[0])}${m.localizacao?' <span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px">📍 '+esc(m.localizacao)+'</span>':''}</td>
-      <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><b>${esc(String(m.quantidade))}</b> ${esc(m.unidade)}</td>
+      <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><b>${Number(m.quantidade).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:3})}</b> ${esc(m.unidade)}</td>
       <td style="padding:5px 8px;border-top:1px solid #eee"><input class="inp" id="rom_lote_${i}" data-cod="${esc(m.codigo)}" value="${esc((m.lotes||[]).join(', '))}" placeholder="digite o lote…" style="font-size:12px;padding:5px 7px"></td>
       <td style="padding:6px 8px;border-top:1px solid #eee;font-size:11px;color:${m.conferido?'#1e7a44':'#c14a34'}">${m.conferido?('conferido'+(m.conferidoPor?(' · '+esc(m.conferidoPor)):'')):'pendente'}</td></tr>`).join('');
   openModal(`<h3>🧾 Romaneio de corte — OP ${esc(r.op)}</h3>
