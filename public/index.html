@@ -2110,13 +2110,13 @@ async function conferirRomaneioBip(){
 }
 function imprimirRomaneio(){
   const r=(window.__ROM||{}).dados; if(!r) return;
-  const linhas=(r.itens||[]).map(m=>`<tr><td>☐</td><td>${esc(m.codigo)}</td><td>${esc(m.descricao.split(' · ')[0])}</td><td style="text-align:right">${esc(String(m.quantidade))} ${esc(m.unidade)}</td></tr>`).join('');
+  const linhas=(r.itens||[]).map(m=>`<tr><td>☐</td><td>${esc(m.codigo)}</td><td>${esc(m.descricao.split(' · ')[0])}</td><td style="text-align:center;font-weight:700">${m.localizacao?'📍 '+esc(m.localizacao):'—'}</td><td style="text-align:right">${esc(String(m.quantidade))} ${esc(m.unidade)}</td></tr>`).join('');
   const w=window.open('','_blank','width=800,height=900'); if(!w){ toast('Libere o pop-up.','err'); return; }
   w.document.write(`<html><head><meta charset=utf-8><title>Romaneio OP ${esc(r.op)}</title>
     <style>*{font-family:Arial}h2{margin:0 0 2px}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left}th{background:#eee}</style></head><body>
     <h2>Romaneio de corte — OP ${esc(r.op)}</h2>
     <div>${r.produto?esc(r.produto):''} · ${r.quantidade} peça(s)${r.pedido?(' · pedido '+esc(r.pedido)):''}</div>
-    <table><thead><tr><th>OK</th><th>Código</th><th>Material</th><th>Quantidade</th></tr></thead><tbody>${linhas}</tbody></table>
+    <table><thead><tr><th>OK</th><th>Código</th><th>Material</th><th>Local</th><th>Quantidade</th></tr></thead><tbody>${linhas}</tbody></table>
     <p style="margin-top:24px">Separado por: __________________________  ·  Conferido por: __________________________</p>
     <script>window.print()<\/script></body></html>`);
   w.document.close();

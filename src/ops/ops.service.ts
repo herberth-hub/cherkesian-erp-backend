@@ -37,6 +37,14 @@ export class OpsService {
     if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } }) : null;
     const itens = ((op.romaneioMateriais as unknown as RomLinha[]) ?? []);
+    // Enriquece com a localização ATUAL do material (vale até para OPs antigas cujo
+    // snapshot foi gravado antes do campo existir).
+    const ids = itens.map((i) => i.materialId).filter((x): x is number => x != null);
+    if (ids.length) {
+      const locs = await this.prisma.material.findMany({ where: { id: { in: ids } }, select: { id: true, localizacao: true } });
+      const locMap = new Map(locs.map((m) => [m.id, m.localizacao]));
+      for (const i of itens) if (i.materialId != null && (i.localizacao == null || i.localizacao === '')) i.localizacao = locMap.get(i.materialId) ?? null;
+    }
     return {
       op: op.numero, pedido: op.pedido?.numero ?? null, quantidade: op.quantidade,
       produto: produto ? `${produto.codigo} · ${produto.descricao}` : null,
