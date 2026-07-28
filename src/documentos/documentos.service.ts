@@ -34,6 +34,7 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   proposta: { titulo: 'Proposta Comercial', prefixo: 'PROP', area: 'vendas' },
   pedido: { titulo: 'Pedido de Venda', prefixo: 'PVD', area: 'vendas' },
   op: { titulo: 'Ordem de Produção', prefixo: 'OPD', area: 'producao' },
+  plano_corte: { titulo: 'Plano de Corte', prefixo: 'PCT', area: 'producao' },
   pedido_compra: { titulo: 'Pedido de Compra', prefixo: 'OCD', area: 'compras' },
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
   ficha_medidas: { titulo: 'Ficha de Medidas', prefixo: 'MED', area: 'medidas' },
@@ -202,6 +203,8 @@ export class DocumentosService {
         return this.pdfPedido(tipo, referenciaId, empresaId, numero);
       case 'op':
         return this.pdfOp(referenciaId, empresaId, numero);
+      case 'plano_corte':
+        return this.pdfPlanoCorte(referenciaId, empresaId, numero);
       case 'pedido_compra':
         return this.pdfCompra(referenciaId, empresaId, numero);
       case 'romaneio':
@@ -483,6 +486,80 @@ export class DocumentosService {
       if (i >= 0 && f >= i) return ESCADA.slice(i, f + 1);
     }
     return texto.split(/[,;/]+/).map((t) => t.trim()).filter(Boolean).slice(0, 16);
+  }
+
+  /**
+   * Plano de Corte: agrupa as OPs do pedido por modelo (produto) + tecido principal,
+   * somando a grade por tamanho e o consumo de tecido — para o setor de Risco encaixar.
+   * As OPs continuam individuais (rastreio); este documento é o plano de encaixe.
+   */
+  private async pdfPlanoCorte(pedidoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: { cliente: true, ops: true },
+    });
+    if (!pedido || pedido.empresaId !== empresaId) {
+      throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    }
+    const ops = pedido.ops ?? [];
+    const prodIds = [...new Set(ops.map((o) => o.produtoId).filter((x): x is number => x != null))];
+    const prods = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } } }) : [];
+    const prodMap = new Map<number, Produto>(prods.map((p) => [p.id, p]));
+
+    type Rom = { codigo: string; descricao: string; quantidade: number; unidade: string };
+    const tecidoDaOp = (op: (typeof ops)[number]): Rom | null => {
+      const rom = (op.romaneioMateriais as unknown as Rom[] | null) ?? [];
+      return rom.find((r) => /^MP-TEC/i.test(r.codigo)) ?? rom.find((r) => /^MP-/i.test(r.codigo)) ?? null;
+    };
+
+    type Grupo = { modelo: string; tecido: string; ops: string[]; grade: Record<string, number>; consumo: number; unidade: string };
+    const grupos = new Map<string, Grupo>();
+    for (const op of ops) {
+      const prod = op.produtoId ? prodMap.get(op.produtoId) ?? null : null;
+      const modelo = prod ? `${prod.codigo} · ${prod.descricao}` : op.numero;
+      const tec = tecidoDaOp(op);
+      const tecido = tec ? tec.descricao.split(' · ')[0] : (prod?.tecido || 'Tecido não definido');
+      const key = `${op.produtoId ?? 0}|${tec?.codigo ?? tecido}`;
+      const g: Grupo = grupos.get(key) ?? { modelo, tecido, ops: [], grade: {}, consumo: 0, unidade: tec?.unidade ?? 'm' };
+      g.ops.push(op.numero);
+      const grade = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+      if (Object.keys(grade).length) {
+        for (const [t, q] of Object.entries(grade)) g.grade[t] = (g.grade[t] || 0) + Number(q);
+      } else {
+        g.grade['ÚNICO'] = (g.grade['ÚNICO'] || 0) + op.quantidade;
+      }
+      if (tec) g.consumo += Number(tec.quantidade) || 0;
+      grupos.set(key, g);
+    }
+
+    const doc = novoDocumento('Plano de Corte', numero);
+    secao(doc, 'Identificação');
+    camposDuplos(doc, [
+      ['Plano de corte', numero],
+      ['Pedido de origem', pedido.numero],
+      ['Cliente', pedido.cliente.nome],
+      ['OPs agrupadas', `${ops.length} OP(s) em ${grupos.size} grupo(s)`],
+    ]);
+    textoBloco(doc, 'Agrupa as OPs por modelo + tecido para o Risco encaixar o corte e otimizar o enfesto. Cada peça mantém sua OP individual para rastreio.');
+
+    const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'ÚNICO'];
+    let idx = 0;
+    for (const g of grupos.values()) {
+      idx++;
+      if (doc.y > doc.page.height - 220) doc.addPage();
+      secao(doc, `Grupo ${idx} · ${g.tecido}`);
+      camposDuplos(doc, [
+        ['Modelo', g.modelo],
+        ['Tecido (encaixe)', g.tecido],
+        ['OPs deste grupo', g.ops.join(', ')],
+        ['Consumo total de tecido', `${g.consumo.toFixed(3)} ${g.unidade}`],
+      ]);
+      const entries = Object.entries(g.grade).sort((a, b) => ESCADA.indexOf(a[0]) - ESCADA.indexOf(b[0]));
+      gradeTabela(doc, entries.map(([t, q]) => [t, String(q)]));
+    }
+    assinaturas(doc, 'Risco / Encaixe', 'Corte / Enfesto');
+    rodapeGrupo(doc);
+    return doc;
   }
 
   private async pdfCompra(ocId: number, empresaId: number, numero: string): Promise<Pdf> {

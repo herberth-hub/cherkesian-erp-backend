@@ -824,6 +824,7 @@ function pedidoAcoes(p){
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
     if(p.etapa!=='expedicao'){ b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir tudo</button> <button class="btn-sm" onclick="APP.formExpParcial(${p.id})">📦 Expedição parcial</button> `; }
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+    if(['producao','expedicao'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarDoc('plano_corte',${p.id})">🧵 Plano de Corte</button> `;
   }
   // Editar/Excluir liberados até a produção começar (antes de gerar OP).
   if(['orcamento','aprovado','piloto'].includes(p.etapa)){
