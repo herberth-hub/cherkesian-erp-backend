@@ -717,3 +717,19 @@ model UnidadeEstoque {
   @@index([empresaId, status])
   @@index([codigo])
 }
+
+// ===== Integração Mercado Livre (OAuth2 + tokens por empresa) =====
+model MercadoLivreConta {
+  id            Int       @id @default(autoincrement())
+  empresaId     Int       @unique
+  appId         String?   // Client ID do app no developers do ML
+  appSecret     String?   // Client Secret (guardado no banco privado)
+  redirectUri   String?   // URI de callback registrada no app
+  accessToken   String?
+  refreshToken  String?
+  tokenExpira   DateTime? // validade do access token
+  mlUserId      String?   // user_id da conta ML conectada
+  nickname      String?   // apelido da conta no ML
+  conectadoEm   DateTime?
+  atualizadoEm  DateTime  @updatedAt
+}

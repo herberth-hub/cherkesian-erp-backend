@@ -190,10 +190,11 @@ const NAVDEF = [
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
+  ['Integrações', [['mercadolivre','Mercado Livre','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais']);
+const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
@@ -226,6 +227,7 @@ const TITLES = {
   filiais:['Filiais / CNPJs do grupo','Matriz e filiais emissoras de NF-e · admin'],
   notas:['Notas Fiscais','NF-e emitidas · status, chave e protocolo'],
   agente:['Assistente IA','Pergunte sobre pedidos, produção, estoque e financeiro'],
+  mercadolivre:['Mercado Livre','Integração: conectar conta, pedidos e estoque · admin'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -477,6 +479,7 @@ async function loadRoute(){
     if(S.route==='regras') return viewRegras(c);
     if(S.route==='empresa') return await viewEmpresa(c);
     if(S.route==='filiais') return await viewFiliais(c);
+    if(S.route==='mercadolivre') return await viewMercadoLivre(c);
     if(S.route==='kits') return await viewKits(c);
     if(S.route==='bi') return await viewBi(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
@@ -2915,7 +2918,20 @@ async function etiquetasCaixasMaster(){
 // Deep-link: QR da caixa (?caixa=1000) abre direto o conteúdo após login.
 function checkDeepLink(){
   try{
-    const cx=new URLSearchParams(location.search).get('caixa');
+    const p=new URLSearchParams(location.search);
+    // Callback do OAuth do Mercado Livre: ?mlcb=1&code=...
+    const mlcode=p.get('code');
+    if((p.get('mlcb')||mlcode) && S.user){
+      history.replaceState(null,'',location.pathname);
+      if(mlcode){
+        toast('Conectando ao Mercado Livre…','ok');
+        api('/mercadolivre/conectar',{method:'POST',body:{code:mlcode}})
+          .then(r=>{ toast('Mercado Livre conectado'+(r.nickname?(' · '+r.nickname):'')+'.','ok'); go('mercadolivre'); })
+          .catch(e=>{ toast('Falha ao conectar: '+(e.message||e),'err'); go('mercadolivre'); });
+      }
+      return;
+    }
+    const cx=p.get('caixa');
     if(cx && S.user){
       history.replaceState(null,'',location.pathname);
       if(canAccess('estoque')) go('estoque');
@@ -4125,6 +4141,49 @@ async function saveFilial(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ===== Integração Mercado Livre =====
+async function viewMercadoLivre(c){
+  if(S.user.acesso!=='total'){ c.innerHTML='<div class="empty">Somente o administrador da conta pode configurar integrações.</div>'; return; }
+  let st; try{ st=await api('/mercadolivre/status'); }catch(e){ c.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
+  const redirDefault = st.redirectUri || (location.origin+'/?mlcb=1');
+  const conBadge = st.conectado
+    ? `<span class="pill green">● Conectado${st.nickname?(' · '+esc(st.nickname)):''}</span>`
+    : (st.configurado?'<span class="pill gold">Configurado · não conectado</span>':'<span class="pill gray">Não configurado</span>');
+  c.innerHTML = `
+    <div class="sect"><h3 style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">🛒 Mercado Livre ${conBadge}</h3>
+      <div class="muted" style="font-size:12.5px;margin:-2px 0 10px">Conecte sua conta de vendedor. Passo 1: crie um app em <b>developers.mercadolivre.com.br</b> e informe o App ID + Secret. Passo 2: registre a <b>Redirect URI</b> abaixo no app. Passo 3: clique em Conectar e autorize.</div>
+      <div class="panel" style="padding:18px;max-width:720px">
+        ${field('ml_appid','App ID (Client ID)','value="'+esc(st.appId||'')+'" placeholder="ex.: 1234567890123456"')}
+        ${field('ml_secret','Secret Key (Client Secret)','type="password" placeholder="'+(st.temSecret?'•••••••• (mantém o atual se vazio)':'cole o Client Secret')+'"')}
+        <div class="mrow"><label class="fl">Redirect URI (registre exatamente esta no app do ML)</label>
+          <div style="display:flex;gap:6px"><input id="ml_redir" class="inp" style="flex:1" value="${esc(redirDefault)}">
+          <button class="btn-sm" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('ml_redir').value);APP.toast&&APP.toast('Copiado.','ok')">Copiar</button></div></div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn-sm" onclick="APP.mlSalvarConfig()">Salvar configuração</button>
+          ${st.configurado&&!st.conectado?'<button class="btn-primary" onclick="APP.mlConectar()">🔗 Conectar conta</button>':''}
+          ${st.conectado?'<button class="btn-sm" style="color:#c14a34" onclick="APP.mlDesconectar()">Desconectar</button>':''}
+        </div>
+      </div>
+    </div>
+    ${st.conectado?`<div class="sect"><h3>Conta conectada</h3>${panelTable(['Conta ML','User ID','Conectado em','Token expira'],[[esc(st.nickname||'—'),esc(st.mlUserId||'—'),st.conectadoEm?new Date(st.conectadoEm).toLocaleString('pt-BR'):'—',st.tokenExpira?new Date(st.tokenExpira).toLocaleString('pt-BR'):'—']])}
+      <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:12.5px;margin-top:8px">Próximo passo: escolher o 1º fluxo (importar pedidos, sincronizar estoque ou publicar anúncios). A fundação (login/token) já está pronta.</div></div>`:''}`;
+}
+async function mlSalvarConfig(){
+  const body={ appId:val('ml_appid').trim(), redirectUri:val('ml_redir').trim() };
+  const sec=val('ml_secret'); if(sec) body.appSecret=sec;
+  try{ await api('/mercadolivre/config',{method:'POST',body}); toast('Configuração salva.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function mlConectar(){
+  try{ const r=await api('/mercadolivre/auth-url'); if(r&&r.url){ window.location.href=r.url; } }
+  catch(e){ toast(e.message,'err'); }
+}
+async function mlDesconectar(){
+  if(!await uiConfirm('Desconectar a conta do Mercado Livre? A configuração do app é mantida.')) return;
+  try{ await api('/mercadolivre/desconectar',{method:'POST'}); toast('Conta desconectada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // Fiscal do produto (NCM/CFOP/...)
 async function formProdutoFiscal(id){
   const p = await api('/produtos/'+id);
@@ -4478,7 +4537,7 @@ window.APP = {
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
-  formFilial, saveFilial,
+  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar,
