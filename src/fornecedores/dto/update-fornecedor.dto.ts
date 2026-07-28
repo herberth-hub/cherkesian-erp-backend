@@ -8,6 +8,11 @@ export class UpdateFornecedorDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  nomeFantasia?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(20)
   cnpjCpf?: string;
 

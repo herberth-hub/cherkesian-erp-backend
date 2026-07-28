@@ -758,7 +758,7 @@ async function viewFornecedores(c){
   const list = await api('/fornecedores');
   c.innerHTML = toolbar('Fornecedores e facções', 'Novo fornecedor', 'APP.formFornecedor()') + panelTable(
     ['Nome','Tipo','Contato','Telefone','Cidade/UF','Ações'],
-    list.map(f=>[`<b>${esc(f.nome)}</b>`, esc(f.tipo||'—'), esc(f.contato||'—'), esc(f.telefone||'—'), esc(f.cidadeUf||'—'),
+    list.map(f=>[`<b>${esc(f.nomeFantasia||f.nome)}</b>${f.nomeFantasia?'<br><span class="muted" style="font-size:11px">'+esc(f.nome)+'</span>':''}`, esc(f.tipo||'—'), esc(f.contato||'—'), esc(f.telefone||'—'), esc(f.cidadeUf||'—'),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formFornecedor(${f.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/fornecedores',${f.id})">Excluir</button></div>`]),
     list.length?null:'Nenhum fornecedor ainda.');
 }
@@ -1053,7 +1053,7 @@ async function lookupCep(cepId, map){
 }
 function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
 function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
-function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
+function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
 async function formCliente(id){
   let cl = {};
   if(id){ try{ cl = await api('/clientes/'+id); }catch(e){ toast(e.message,'err'); return; } }
@@ -1248,14 +1248,14 @@ async function formFornecedor(id){
   if(id){ try{ f = await api('/fornecedores/'+id); }catch(e){ toast(e.message,'err'); return; } }
   openModal(`<h3>${id?'Editar':'Novo'} fornecedor</h3>
     <div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(f.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjForn()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>
-    ${field('f_nome','Nome *','value="'+esc(f.nome||'')+'"')}
+    <div class="grid2">${field('f_nome','Razão social *','value="'+esc(f.nome||'')+'"')}${field('f_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}</div>
     <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
     <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveFornecedor(${id||0})">Salvar</button></div>`);
 }
 async function saveFornecedor(id){
-  const body = { nome:val('f_nome'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
+  const body = { nome:val('f_nome'), nomeFantasia:val('f_fant'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/fornecedores/'+id):'/fornecedores',{method:id?'PATCH':'POST',body}); closeModal(); toast('Fornecedor salvo.','ok'); loadRoute(); }

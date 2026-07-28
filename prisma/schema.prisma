@@ -223,10 +223,11 @@ model ConsultaCredito { // Resultado de consulta de crédito/situação do clien
 }
 
 model Fornecedor {
-  id        Int    @id @default(autoincrement())
-  empresaId Int
-  nome      String
-  cnpjCpf   String?
+  id           Int    @id @default(autoincrement())
+  empresaId    Int
+  nome         String
+  nomeFantasia String?
+  cnpjCpf      String?
   tipo      String?
   contato   String?
   telefone  String?
