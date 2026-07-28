@@ -324,8 +324,15 @@ export class DocumentosService {
       secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
       gradeTabela(doc, Object.entries(grade).map(([t, q]) => [t, String(q)]));
     } else if (produto?.grade) {
-      secao(doc, 'Grade de tamanhos (preencher)');
-      gradeTabela(doc, this.expandirGrade(produto.grade).map((t) => [t, '']));
+      const cols = this.expandirGrade(produto.grade);
+      if (cols.length <= 1) {
+        // Tamanho único: quantidade = total da OP (preenchido).
+        secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
+        gradeTabela(doc, [[cols[0] ?? 'ÚNICO', String(op.quantidade)]]);
+      } else {
+        secao(doc, 'Grade de tamanhos (preencher)');
+        gradeTabela(doc, cols.map((t) => [t, '']));
+      }
     }
 
     // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado
