@@ -242,20 +242,15 @@ export class DocumentosService {
       ['Cidade/UF', pedido.cliente.cidadeUf ?? '—'],
     ]);
 
-    // Vencimento calculado a partir da forma de pagamento (ex.: "20 DDL", "30/60/90").
-    const diasPg = [...String(pedido.formaPagamento ?? '').matchAll(/(\d{1,3})/g)]
-      .map((m) => parseInt(m[1], 10)).filter((d) => d > 0 && d <= 360).sort((a, b) => a - b);
-    const baseVenc = pedido.data ? new Date(pedido.data) : new Date();
-    const vencimentoTxt = diasPg.length
-      ? diasPg.map((d) => { const x = new Date(baseVenc); x.setDate(x.getDate() + d); return dataBR(x); }).join(', ')
-      : 'à vista';
+    // Forma de pagamento + vencimento (converte "19" em data; ignora "50%").
+    const pag = this.pagamentoInfo(pedido.formaPagamento, pedido.data ? new Date(pedido.data) : new Date());
 
     secao(doc, 'Dados do pedido');
     camposDuplos(doc, [
       ['Número do pedido', pedido.numero],
       ['Data', dataBR(pedido.data)],
-      ['Forma de pagamento', pedido.formaPagamento ?? 'a combinar'],
-      ['Vencimento', vencimentoTxt],
+      ['Forma de pagamento', pag.texto],
+      ['Vencimento', pag.vencimentos],
       ['Etapa atual', pedido.etapa],
     ]);
 
@@ -296,7 +291,7 @@ export class DocumentosService {
     secao(doc, 'Condições comerciais');
     const prazoTxt = pedido.prazoEntrega ? dataBR(pedido.prazoEntrega) : 'a combinar';
     camposDuplos(doc, [
-      ['Forma de pagamento', pedido.formaPagamento ?? 'a combinar'],
+      ['Forma de pagamento', pag.texto],
       ['Frete', pedido.frete ?? 'a combinar'],
       ['Prazo de entrega', prazoTxt],
       ['Validade da proposta', tipo === 'proposta' ? '15 dias' : '—'],
@@ -439,6 +434,32 @@ export class DocumentosService {
    * Expande a grade textual do produto em lista de tamanhos:
    * "PP,GA" → [PP, GA] · "PP ao G4" → escada padrão entre os extremos.
    */
+  /**
+   * Interpreta a forma de pagamento e calcula o(s) vencimento(s).
+   * Ignora números seguidos de "%" (ex.: "50% sinal" não vira 50 dias).
+   * Se a forma é só o nº de dias (ex.: "19", "30 ddl"), o texto já mostra a data.
+   */
+  private pagamentoInfo(forma: string | null, base: Date): { texto: string; vencimentos: string } {
+    const f = (forma ?? '').trim();
+    // Remove percentuais ("50%") antes de extrair os prazos em dias.
+    const semPct = f.replace(/\d{1,3}\s*%/g, '');
+    const dias = [...semPct.matchAll(/\d{1,3}/g)]
+      .map((m) => parseInt(m[0], 10))
+      .filter((d) => d > 0 && d <= 360);
+    const uniq = [...new Set(dias)].sort((a, b) => a - b);
+    const datas = uniq.map((d) => {
+      const x = new Date(base);
+      x.setDate(x.getDate() + d);
+      return dataBR(x);
+    });
+    const vencimentos = datas.length ? datas.join(', ') : 'à vista';
+    if (!f) return { texto: 'a combinar', vencimentos: 'à vista' };
+    // Forma "pura" (só número de dias) → mostra em dias + a data, não o número solto.
+    const puro = /^\s*\d{1,3}\s*(ddl|dias?|d)?\s*$/i.test(f);
+    const texto = puro && datas.length ? `${uniq[0]} dias (vencimento ${datas[0]})` : f;
+    return { texto, vencimentos };
+  }
+
   /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
   private precoTamanho(produto: Produto | null, base: Prisma.Decimal, tam: string): Prisma.Decimal {
     const esp = produto?.tamsEspeciais
