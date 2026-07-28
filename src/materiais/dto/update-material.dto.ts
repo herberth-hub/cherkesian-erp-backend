@@ -28,6 +28,11 @@ export class UpdateMaterialDto {
   unidade?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  localizacao?: string;
+
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'saldo deve ter no máximo 3 casas decimais.' })
   @Min(0, { message: 'saldo não pode ser negativo.' })
   saldo?: number;

@@ -41,6 +41,12 @@ export class CreateMaterialDto {
   @MaxLength(10)
   unidade?: string;
 
+  /** Localização na prateleira/estoque (ex.: "B3") — aparece no romaneio de corte. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  localizacao?: string;
+
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'saldo deve ter no máximo 3 casas decimais.' })
   @Min(0, { message: 'saldo não pode ser negativo.' })

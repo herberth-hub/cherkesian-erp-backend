@@ -386,7 +386,7 @@ export class PedidosService {
         const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
         const romaneio = bom.map((b) => {
           const m = materiais.find((x) => x.id === b.materialId)!;
-          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false };
+          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false };
         });
         const op = await tx.oP.create({
           data: {

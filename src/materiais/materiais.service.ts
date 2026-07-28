@@ -44,6 +44,7 @@ export class MateriaisService {
           saldo: dto.saldo ?? 0,
           minimo: dto.minimo ?? 0,
           custo: dto.custo ?? 0,
+          localizacao: dto.localizacao,
         },
       });
     } catch (err) {
@@ -63,6 +64,7 @@ export class MateriaisService {
         saldo: dto.saldo,
         minimo: dto.minimo,
         custo: dto.custo,
+        localizacao: dto.localizacao,
       },
     });
   }

@@ -346,6 +346,7 @@ model Material {
   saldo     Decimal  @default(0) @db.Decimal(12,3)
   minimo    Decimal  @default(0) @db.Decimal(12,3)
   custo     Decimal  @default(0) @db.Decimal(12,2)
+  localizacao String? // endereço na prateleira/estoque (ex.: "B3") — agiliza a separação no romaneio
   consumo   Consumo[]
 }
 

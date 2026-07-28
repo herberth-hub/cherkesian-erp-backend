@@ -321,7 +321,9 @@ export function totalDestaque(doc: Pdf, rotulo: string, valor: string): void {
 
 /** Bloco de assinaturas lado a lado. */
 export function assinaturas(doc: Pdf, esquerda: string, direita: string): void {
-  const y = Math.min(doc.y + 46, doc.page.height - 130);
+  // Se não há espaço abaixo do conteúdo atual, quebra página (evita sobrepor a tabela).
+  if (doc.y + 60 > doc.page.height - 80) doc.addPage();
+  const y = doc.y + 46;
   const w = (doc.page.width - 100 - 40) / 2;
   doc.moveTo(50, y).lineTo(50 + w, y).lineWidth(0.8).strokeColor(TINTA).stroke();
   doc.moveTo(50 + w + 40, y).lineTo(50 + w + 40 + w, y).lineWidth(0.8).strokeColor(TINTA).stroke();

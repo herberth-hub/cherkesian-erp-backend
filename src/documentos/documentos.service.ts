@@ -387,23 +387,25 @@ export class DocumentosService {
 
     // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado
     // na geração (com status de conferência); OPs antigas caem no cálculo ao vivo da BOM.
-    type Rom = { codigo: string; descricao: string; quantidade: number; unidade: string; conferido?: boolean; conferidoPor?: string; lotes?: string[] };
+    type Rom = { codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido?: boolean; conferidoPor?: string; lotes?: string[] };
     const romaneio = (op.romaneioMateriais as unknown as Rom[] | null) ?? [];
     if (romaneio.length) {
       secao(doc, `Romaneio de corte — materiais a separar (${op.quantidade} peças)`);
       tabela(
         doc,
         [
-          { titulo: 'Conf.', largura: 40 },
-          { titulo: 'Material', largura: 78 },
+          { titulo: 'Conf.', largura: 34 },
+          { titulo: 'Material', largura: 74 },
           { titulo: 'Descrição', largura: 150 },
-          { titulo: 'Qtd total', largura: 82, alinhamento: 'right' },
-          { titulo: 'Lote fornec.', largura: 95 },
+          { titulo: 'Local', largura: 55 },
+          { titulo: 'Qtd total', largura: 76, alinhamento: 'right' },
+          { titulo: 'Lote fornec.', largura: 56 },
         ],
         romaneio.map((r) => [
           r.conferido ? 'OK' : '—',
           r.codigo,
           r.descricao,
+          r.localizacao || '—',
           `${Number(r.quantidade).toFixed(3)} ${r.unidade}`,
           (r.lotes && r.lotes.length) ? r.lotes.join(', ') : '—',
         ]),

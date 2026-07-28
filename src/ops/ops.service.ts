@@ -3,7 +3,7 @@ import { OP, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 
-type RomLinha = { materialId: number; codigo: string; descricao: string; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
+type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
 @Injectable()
 export class OpsService {
