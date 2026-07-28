@@ -2239,18 +2239,36 @@ async function saveNotaEntrada(){
   }catch(e){ toast(e.message,'err'); }
 }
 // Pop-up: onde colocar a matéria-prima que deu entrada — estoque (endereçar) ou expedição.
+// Cada item pode ter VÁRIOS lotes do fornecedor (linha lote + volumes por lote).
 function perguntarDestinoMP(itens){
   window.__MPITENS = itens;
-  const volNf = Number(window.__NEVOL||0);        // total de volumes declarado na NF
+  const volNf = Number(window.__NEVOL||0);
   const umItem = itens.length===1;
-  const rows = itens.map((it,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-      <div style="flex:1;font-size:12px;line-height:1.2">${esc(it.descricao||('Item '+(i+1)))}<span class="muted"> · ${esc(String(it.quantidade||''))} ${esc(it.unidade||'')}</span></div>
-      <input class="inp" id="mplote_${i}" type="text" value="${esc(it.loteFornecedor||'')}" style="width:120px" title="lote do fornecedor" placeholder="lote fornec.">
-      <input class="inp" id="mpvol_${i}" type="number" min="0" step="1" value="${umItem&&volNf?volNf:1}" style="width:78px" title="volumes/rolos" placeholder="volumes">
+  window.__MPLOTES = itens.map((it)=>[{ lote: it.loteFornecedor||'', vol: (umItem&&volNf?volNf:1) }]);
+  renderMPDestino();
+}
+function mpSyncLotes(){
+  (window.__MPLOTES||[]).forEach((rows,i)=>rows.forEach((r,j)=>{
+    const le=$('mplote_'+i+'_'+j), ve=$('mpvol_'+i+'_'+j);
+    if(le) r.lote=le.value; if(ve) r.vol=ve.value;
+  }));
+}
+function mpLoteAdd(i){ mpSyncLotes(); window.__MPLOTES[i].push({lote:'',vol:1}); renderMPDestino(); }
+function mpLoteDel(i,j){ mpSyncLotes(); window.__MPLOTES[i].splice(j,1); if(!window.__MPLOTES[i].length) window.__MPLOTES[i].push({lote:'',vol:1}); renderMPDestino(); }
+function renderMPDestino(){
+  const itens=window.__MPITENS||[], L=window.__MPLOTES||[]; const volNf=Number(window.__NEVOL||0); const umItem=itens.length===1;
+  const rows = itens.map((it,i)=>`<div style="border-top:1px solid #eee;padding:7px 0">
+      <div style="font-size:12px;line-height:1.2;margin-bottom:5px">${esc(it.descricao||('Item '+(i+1)))}<span class="muted"> · ${esc(String(it.quantidade||''))} ${esc(it.unidade||'')}</span></div>
+      ${(L[i]||[]).map((r,j)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+          <input class="inp" id="mplote_${i}_${j}" value="${esc(r.lote||'')}" placeholder="lote fornec." style="flex:1;font-size:12px;padding:5px 7px">
+          <input class="inp" id="mpvol_${i}_${j}" type="number" min="0" step="1" value="${r.vol}" title="volumes deste lote" style="width:74px;font-size:12px;padding:5px 7px">
+          ${(L[i].length>1)?`<button class="btn-sm" title="remover lote" onclick="APP.mpLoteDel(${i},${j})">×</button>`:'<span style="display:inline-block;width:24px"></span>'}
+        </div>`).join('')}
+      <button class="btn-sm" style="font-size:11px" onclick="APP.mpLoteAdd(${i})">+ outro lote</button>
     </div>`).join('');
   openModal(`<h3>📦 Onde colocar a matéria-prima?</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 10px">A NF foi registrada. Informe quantos <b>volumes/rolos</b> de cada item (uma etiqueta por volume) e escolha o destino. Deixe 0 para não etiquetar o item.</div>
-    ${volNf?`<div style="font-size:12px;background:#fbf7e8;border:1px solid #efe2b8;border-radius:8px;padding:7px 10px;margin-bottom:10px;color:#7a6a2e">📦 A NF declara <b>${volNf}</b> volume(s) no total${umItem?' (já preenchido).':' — distribua entre os itens (a soma deve dar '+volNf+').'}</div>`:''}
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">A NF foi registrada. Informe os <b>volumes/rolos</b> por lote (uma etiqueta por volume). Se o fornecedor mandou <b>mais de um lote</b> do mesmo item, use <b>"+ outro lote"</b>. Volume 0 não etiqueta.</div>
+    ${volNf?`<div style="font-size:12px;background:#fbf7e8;border:1px solid #efe2b8;border-radius:8px;padding:7px 10px;margin-bottom:6px;color:#7a6a2e">📦 A NF declara <b>${volNf}</b> volume(s) no total${umItem?' (já preenchido).':' — distribua entre itens/lotes.'}</div>`:''}
     ${rows}
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn-primary" style="flex:1" onclick="APP.gerarUnidadesMP('estoque')">📦 Estoque<br><span style="font-weight:400;font-size:11px">gera etiquetas e endereça</span></button>
@@ -2259,22 +2277,23 @@ function perguntarDestinoMP(itens){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Pular (só saldo agregado)</button></div>`);
 }
 async function gerarUnidadesMP(destino){
-  const itens = window.__MPITENS||[]; const todas=[];
-  // Lê os volumes por item ANTES de fechar o modal.
-  const vols = itens.map((it,i)=>Math.min(500, Math.max(0, Math.round(Number(val('mpvol_'+i))||0))));
-  const lotes = itens.map((it,i)=>(val('mplote_'+i)||'').trim());
-  if(vols.reduce((s,v)=>s+v,0)===0){ toast('Informe ao menos 1 volume para etiquetar.','err'); return; }
+  mpSyncLotes();
+  const itens = window.__MPITENS||[], L=window.__MPLOTES||[]; const todas=[];
+  let totalVol=0; L.forEach(rows=>rows.forEach(r=> totalVol+=Math.max(0,Math.round(Number(r.vol)||0))));
+  if(totalVol===0){ toast('Informe ao menos 1 volume para etiquetar.','err'); return; }
   toast('Gerando etiquetas…','ok');
   try{
     for(let i=0;i<itens.length;i++){
-      const q = vols[i]; if(!q) continue;
-      const it = itens[i];
-      const body={tipo:'materia', descricao:it.descricao, quantidade:q, origem:'entrada', destino};
-      if(lotes[i]) body.loteFornecedor=lotes[i];
-      const r = await api('/estoque/entrada',{method:'POST',body});
-      (r.pecas||[]).forEach(p=>todas.push(p));
+      const it=itens[i];
+      for(const r of (L[i]||[])){
+        const q=Math.min(500, Math.max(0, Math.round(Number(r.vol)||0))); if(!q) continue;
+        const body={tipo:'materia', descricao:it.descricao, quantidade:q, origem:'entrada', destino};
+        const lote=(r.lote||'').trim(); if(lote) body.loteFornecedor=lote;
+        const res=await api('/estoque/entrada',{method:'POST',body});
+        (res.pecas||[]).forEach(p=>todas.push(p));
+      }
     }
-    closeModal(); window.__MPITENS=null;
+    closeModal(); window.__MPITENS=null; window.__MPLOTES=null;
     if(!todas.length){ toast('Nenhuma etiqueta gerada.','err'); loadRoute(); return; }
     if(destino==='estoque'){
       imprimirEtqUnidades(todas,{loteEntrada:'ENTRADA-MP'});
@@ -4061,7 +4080,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
