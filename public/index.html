@@ -2789,6 +2789,11 @@ async function etiquetasCaixasMaster(){
     body.z50mode .wrap{display:block} body.z50mode{background:#eee}
     body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:1.5mm 6mm}
     body.z50mode .page:last-child{page-break-after:auto}
+    /* Etiqueta 100x150: 1 por etiqueta (elementos maiores) */
+    body.z150mode .wrap{display:block} body.z150mode{background:#eee}
+    body.z150mode .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:6mm}
+    body.z150mode .page:last-child{page-break-after:auto}
+    body.z150mode .cxn{font-size:52pt} body.z150mode .cxqr{width:34mm;height:34mm} body.z150mode .cxbc{height:16mm} body.z150mode .cxc{font-size:15pt} body.z150mode .cxh{font-size:11pt}
     /* A4 grade */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
     body.a4mode .page{border:1px solid #000;border-radius:6px;padding:4mm;break-inside:avoid;min-height:45mm;display:flex}
@@ -2797,11 +2802,12 @@ async function etiquetasCaixasMaster(){
     .bar button{padding:6px 10px;cursor:pointer}
     </style></head><body class="z50mode">
     <div class="bar"><b style="align-self:center">Imprimir:</b>
-      <button onclick="setCX('z50')">🏷 Zebra 100×50 (1 por etiqueta)</button>
+      <button onclick="setCX('z50')">🏷 Zebra 100×50</button>
+      <button onclick="setCX('z150')">🏷 100×150 mm</button>
       <button onclick="setCX('a4')">📄 Folha A4 (grade)</button>
       <span style="align-self:center;color:#666">${n} caixa(s)</span></div>
     <div class="wrap">${pages}</div>
-    <script>function setCX(s){var z=s!=='a4';document.body.className=z?'z50mode':'a4mode';document.getElementById('cxsz').textContent=z?'@page{size:100mm 50mm;margin:0}':'@page{size:A4;margin:8mm}';setTimeout(function(){window.print()},150);}<\/script>
+    <script>function setCX(s){var cls={z50:'z50mode',z150:'z150mode',a4:'a4mode'}[s]||'z50mode';document.body.className=cls;var pg={z50:'@page{size:100mm 50mm;margin:0}',z150:'@page{size:100mm 150mm;margin:0}',a4:'@page{size:A4;margin:8mm}'}[s]||'';document.getElementById('cxsz').textContent=pg;setTimeout(function(){window.print()},150);}<\/script>
     </body></html>`);
   w.document.close();
 }
