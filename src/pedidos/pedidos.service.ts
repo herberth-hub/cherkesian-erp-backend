@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Produto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
 import { CreditoService } from '../credito/credito.service';
@@ -88,8 +88,9 @@ export class PedidosService {
     const itensData: Prisma.PedidoItemCreateWithoutPedidoInput[] = [];
     for (const item of dto.itens) {
       let descricao = item.descricao;
+      let produto: Produto | null = null;
       if (item.produtoId) {
-        const produto = await this.prisma.produto.findUnique({ where: { id: item.produtoId } });
+        produto = await this.prisma.produto.findUnique({ where: { id: item.produtoId } });
         if (!produto || produto.empresaId !== empresaId) {
           throw new NotFoundException(`Produto ${item.produtoId} não encontrado.`);
         }
@@ -100,7 +101,7 @@ export class PedidosService {
       }
       const valorUnit = new Prisma.Decimal(item.valorUnit);
       const { grade, quantidade } = this.normalizarGrade(item);
-      valorTotal = valorTotal.plus(valorUnit.mul(quantidade));
+      valorTotal = valorTotal.plus(this.subtotalItem(produto, valorUnit, grade, quantidade));
       itensData.push({
         produtoId: item.produtoId,
         descricao,
@@ -155,15 +156,16 @@ export class PedidosService {
     const itensData: Prisma.PedidoItemCreateWithoutPedidoInput[] = [];
     for (const item of dto.itens) {
       let descricao = item.descricao;
+      let produto: Produto | null = null;
       if (item.produtoId) {
-        const produto = await this.prisma.produto.findUnique({ where: { id: item.produtoId } });
+        produto = await this.prisma.produto.findUnique({ where: { id: item.produtoId } });
         if (!produto || produto.empresaId !== empresaId) throw new NotFoundException(`Produto ${item.produtoId} não encontrado.`);
         descricao = descricao ?? produto.descricao;
       }
       if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
       const valorUnit = new Prisma.Decimal(item.valorUnit);
       const { grade, quantidade } = this.normalizarGrade(item);
-      valorTotal = valorTotal.plus(valorUnit.mul(quantidade));
+      valorTotal = valorTotal.plus(this.subtotalItem(produto, valorUnit, grade, quantidade));
       itensData.push({ produtoId: item.produtoId, descricao, quantidade, valorUnit, grade });
     }
 
@@ -455,6 +457,38 @@ export class PedidosService {
       if (soma > 0) return { grade: limpa, quantidade: soma };
     }
     return { grade: undefined, quantidade: item.quantidade };
+  }
+
+  /** Tamanhos que usam a tabela de preço especial (ex.: "G1,G2,G3,G4,G5"). */
+  static tamsEspeciais(produto: Produto | null): string[] {
+    return produto?.tamsEspeciais
+      ? String(produto.tamsEspeciais).split(/[,;/ ]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+  }
+
+  /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
+  static precoTamanho(produto: Produto | null, valorUnitBase: Prisma.Decimal, tam: string): Prisma.Decimal {
+    if (produto?.precoEspecial != null && PedidosService.tamsEspeciais(produto).includes(String(tam).toUpperCase())) {
+      return new Prisma.Decimal(produto.precoEspecial);
+    }
+    return valorUnitBase;
+  }
+
+  /** Subtotal do item respeitando as faixas de preço por tamanho (quando há grade). */
+  private subtotalItem(
+    produto: Produto | null,
+    valorUnitBase: Prisma.Decimal,
+    grade: Prisma.InputJsonValue | undefined,
+    quantidade: number,
+  ): Prisma.Decimal {
+    if (grade && typeof grade === 'object') {
+      let s = new Prisma.Decimal(0);
+      for (const [tam, q] of Object.entries(grade as Record<string, number>)) {
+        s = s.plus(PedidosService.precoTamanho(produto, valorUnitBase, tam).mul(Number(q) || 0));
+      }
+      return s;
+    }
+    return valorUnitBase.mul(quantidade);
   }
 
   /** Resolve a filial emissora: a informada (validada) ou a matriz da empresa. */

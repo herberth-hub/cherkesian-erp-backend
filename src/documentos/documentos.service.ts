@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Documento } from '@prisma/client';
+import { Documento, Prisma, Produto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { AuthUser } from '../auth/auth.types';
@@ -225,6 +225,12 @@ export class DocumentosService {
     if (!pedido || pedido.empresaId !== empresaId) {
       throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
     }
+    // Mapa de produtos dos itens (p/ aplicar faixas de preço por tamanho no PDF).
+    const prodIds = [...new Set(pedido.itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    const prodsArr = prodIds.length
+      ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } } })
+      : [];
+    const prodMap = new Map<number, Produto>(prodsArr.map((p) => [p.id, p]));
     const titulo = tipo === 'proposta' ? 'Proposta Comercial' : 'Pedido de Venda';
     const doc = novoDocumento(titulo, numero);
 
@@ -255,12 +261,28 @@ export class DocumentosService {
 
     secao(doc, 'Itens · grade de tamanhos');
     pedido.itens.forEach((i, idx) => {
+      const grade = i.grade as Record<string, number> | null;
+      const base = i.valorUnit;
+      // Linhas por tamanho, cada uma com o preço da sua faixa (especial p/ tamanhos grandes).
+      const linhas =
+        grade && Object.keys(grade).length
+          ? Object.entries(grade)
+              .filter(([, q]) => Number(q) > 0)
+              .map(([tam, q]) => {
+                const unit = this.precoTamanho(i.produtoId ? prodMap.get(i.produtoId) ?? null : null, base,tam);
+                const qtd = Number(q) || 0;
+                return { tam, qtd, unit: money(unit), total: money(unit.mul(qtd)) };
+              })
+          : [{ tam: '—', qtd: i.quantidade, unit: money(base), total: money(base.mul(i.quantidade)) }];
+      const subtotal = linhas.reduce(
+        (s, l) => s.plus(this.precoTamanho(i.produtoId ? prodMap.get(i.produtoId) ?? null : null, base,l.tam).mul(l.qtd)),
+        new Prisma.Decimal(0),
+      );
       itemPedido(doc, {
         num: String(idx + 1).padStart(2, '0'),
         descricao: i.descricao,
-        grade: (i.grade as Record<string, number> | null),
-        unit: money(i.valorUnit),
-        subtotal: money(i.valorUnit.mul(i.quantidade)),
+        linhas,
+        subtotal: money(subtotal),
       });
     });
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
@@ -395,6 +417,17 @@ export class DocumentosService {
    * Expande a grade textual do produto em lista de tamanhos:
    * "PP,GA" → [PP, GA] · "PP ao G4" → escada padrão entre os extremos.
    */
+  /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
+  private precoTamanho(produto: Produto | null, base: Prisma.Decimal, tam: string): Prisma.Decimal {
+    const esp = produto?.tamsEspeciais
+      ? String(produto.tamsEspeciais).split(/[,;/ ]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
+      : [];
+    if (produto?.precoEspecial != null && esp.includes(String(tam).toUpperCase())) {
+      return new Prisma.Decimal(produto.precoEspecial);
+    }
+    return base;
+  }
+
   private expandirGrade(grade: string): string[] {
     const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8'];
     const texto = grade.trim().toUpperCase();

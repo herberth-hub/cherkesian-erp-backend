@@ -361,28 +361,54 @@ export function gradeChips(doc: Pdf, grade: Record<string, number> | null | unde
 /** Um item do pedido no estilo minimalista: nº + descrição, valor à direita e chips da grade. */
 export function itemPedido(
   doc: Pdf,
-  o: { num: string; descricao: string; grade: Record<string, number> | null; unit: string; subtotal: string },
+  o: {
+    num: string;
+    descricao: string;
+    linhas: Array<{ tam: string; qtd: number; unit: string; total: string }>;
+    subtotal: string;
+  },
 ): void {
-  if (doc.y > doc.page.height - 170) doc.addPage();
+  const linhas = o.linhas ?? [];
+  const alturaEstim = 34 + (linhas.length + 2) * 20 + 30;
+  if (doc.y + alturaEstim > doc.page.height - 90) doc.addPage();
   const x0 = 50;
-  const wDir = 150;
-  const xDir = doc.page.width - 50 - wDir;
   const yTop = doc.y;
-  // nº
+  // nº + descrição
   doc.roundedRect(x0, yTop, 22, 15, 3).fill(NAVY);
   doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(8).text(o.num, x0, yTop + 4, { width: 22, align: 'center' });
-  // descrição
-  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11.5).text(o.descricao, x0 + 30, yTop + 1, { width: xDir - (x0 + 30) - 8 });
-  const yDesc = doc.y;
-  // valor unit + subtotal à direita
-  doc.fillColor(CINZA).font('Helvetica').fontSize(8.5).text('Valor unit. ' + o.unit, xDir, yTop + 1, { width: wDir, align: 'right' });
-  doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(12.5).text(o.subtotal, xDir, yTop + 13, { width: wDir, align: 'right' });
+  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11.5).text(o.descricao, x0 + 30, yTop + 1, { width: doc.page.width - 50 - (x0 + 30) });
   doc.x = x0;
-  doc.y = Math.max(yDesc, yTop + 30);
-  // grade em tabela (tamanhos + Total)
-  const gent = Object.entries(o.grade ?? {}).filter(([, q]) => Number(q) > 0).map(([t, q]) => [t, String(q)] as [string, string]);
-  if (gent.length) gradeTabela(doc, gent);
-  // separador fino
+  doc.y = Math.max(doc.y, yTop + 18) + 4;
+
+  // Tabela: Tamanho | Qtd | Valor unit. | Total
+  const tableW = doc.page.width - 100;
+  const cQtd = 70, cUnit = 120, cTotal = 130;
+  const cTam = tableW - cQtd - cUnit - cTotal;
+  const rowH = 20;
+  const drawRow = (cells: string[], opts: { header?: boolean; bold?: boolean } = {}) => {
+    let y = doc.y;
+    if (y + rowH > doc.page.height - 80) { doc.addPage(); y = doc.y; }
+    const ws = [cTam, cQtd, cUnit, cTotal];
+    const aligns: Array<'left' | 'center' | 'right'> = ['left', 'center', 'right', 'right'];
+    let x = x0;
+    for (let i = 0; i < cells.length; i++) {
+      if (opts.header) doc.rect(x, y, ws[i], rowH).fill('#f7efd3');
+      doc.rect(x, y, ws[i], rowH).lineWidth(0.6).strokeColor(OURO).stroke();
+      doc.fillColor(opts.header ? OURO_ESCURO : TINTA)
+        .font(opts.header || opts.bold ? 'Helvetica-Bold' : 'Helvetica')
+        .fontSize(opts.header ? 9 : 10)
+        .text(cells[i], x + 4, y + rowH / 2 - 6, { width: ws[i] - 8, align: aligns[i] });
+      x += ws[i];
+    }
+    doc.x = x0; doc.y = y + rowH;
+  };
+  drawRow(['Tamanho', 'Qtd', 'Valor unit.', 'Total'], { header: true });
+  linhas.forEach((l) => drawRow([l.tam, String(l.qtd), l.unit, l.total]));
+  // Linha de subtotal do item
+  const totQtd = linhas.reduce((s, l) => s + (Number(l.qtd) || 0), 0);
+  drawRow(['Subtotal do item', String(totQtd), '', o.subtotal], { bold: true });
+
+  doc.moveDown(0.6);
   doc.moveTo(x0, doc.y).lineTo(doc.page.width - 50, doc.y).lineWidth(0.5).strokeColor(LINHA).stroke();
   doc.moveDown(0.5);
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
