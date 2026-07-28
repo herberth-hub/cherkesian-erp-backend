@@ -53,6 +53,15 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'public'),
       exclude: ['/api/(.*)'],
+      serveStaticOptions: {
+        // index.html/sw.js sempre da rede (nunca versão velha em cache do navegador);
+        // demais estáticos podem cachear normalmente.
+        setHeaders: (res, path) => {
+          if (/\.(html)$/i.test(path) || /sw\.js$/i.test(path)) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          }
+        },
+      },
     }),
     PrismaModule,
     AuthModule,
