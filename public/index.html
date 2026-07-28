@@ -755,7 +755,7 @@ function prodTabela(list){
       ...(admin?[p.custo!=null?`<span class="muted">${money(p.custo)}</span>`:'—']:[]),
       p.precoEspecial?`${money(p.precoBase)}<div class="muted" style="font-size:10px">esp. ${money(p.precoEspecial)}</div>`:(p.precoBase?money(p.precoBase):'—'),
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">📋 Ficha</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.formReceita(${p.id})">🧬 Receita</button><button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">📋 Ficha</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum produto ainda.');
 }
 function prodFiltrar(){
@@ -1262,6 +1262,140 @@ async function saveProduto(id){
   body.grade = gradeStr; // string vazia limpa a grade
   try{ await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
+}
+
+// ===== Receita (BOM): materiais + consumo por tamanho + componentes do conjunto =====
+async function formReceita(id){
+  let prod, consumos, materiais, produtos;
+  try{
+    [prod, consumos, materiais, produtos] = await Promise.all([
+      api('/produtos/'+id), api('/consumo?produtoId='+id), api('/materiais'), api('/produtos')
+    ]);
+  }catch(e){ toast(e.message,'err'); return; }
+  window.__REC = {
+    id, prod,
+    grade: (prod.grade||'').split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16),
+    consumos: consumos||[],
+    materiais: materiais||[],
+    produtos: (produtos||[]).filter(p=>p.id!==id),
+    componentes: Array.isArray(prod.componentes)? prod.componentes.map(c=>({produtoId:c.produtoId, quantidade:Number(c.quantidade)||1})) : [],
+    open: null, // id do consumo com o painel "por tamanho" aberto
+  };
+  renderReceita();
+}
+function recMatName(mid){ const m=(window.__REC.materiais||[]).find(x=>x.id===mid); return m?(m.codigo+' · '+m.descricao):('#'+mid); }
+function recProdName(pid){ const p=(window.__REC.produtos||[]).find(x=>x.id===pid)|| (window.__REC.prod.id===pid?window.__REC.prod:null); return p?(p.codigo+' · '+p.descricao):('#'+pid); }
+function renderReceita(){
+  const R=window.__REC; if(!R) return;
+  const isConj = (R.componentes&&R.componentes.length)>0;
+  // ----- Linhas de material (BOM) -----
+  const bomRows = (R.consumos||[]).map(cs=>{
+    const pt = cs.porTamanho||{};
+    const temPT = pt && Object.keys(pt).length>0;
+    const aberto = R.open===cs.id;
+    const grid = R.grade.length ? R.grade : Object.keys(pt);
+    const ptEditor = aberto ? `<tr><td colspan="5" style="background:#faf8f0;padding:8px 10px">
+        <div class="muted" style="font-size:11px;margin-bottom:6px">Consumo por tamanho (mesma unidade). Deixe em branco os tamanhos que usam a quantidade base.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${grid.map(t=>`<div style="display:flex;flex-direction:column;width:76px"><label class="fl" style="font-size:10px">${esc(t)}</label><input class="inp" id="pt_${cs.id}_${esc(t)}" type="number" step="0.0001" value="${pt[t]!=null?pt[t]:''}" style="padding:5px 6px;font-size:12px"></div>`).join('')||'<span class="muted" style="font-size:12px">Defina a grade de tamanhos no produto para editar por tamanho.</span>'}</div>
+        <div style="margin-top:8px;display:flex;gap:6px"><button class="btn-primary" onclick="APP.recSalvarPorTamanho(${cs.id})">Salvar por tamanho</button><button class="btn-sm" onclick="APP.recLimparPorTamanho(${cs.id})">Limpar</button><button class="btn-sm" onclick="APP.recToggle(0)">Fechar</button></div>
+      </td></tr>` : '';
+    return `<tr>
+        <td style="padding:6px 8px;border-top:1px solid #eee"><span class="mono gold">${esc(recMatName(cs.materialId).split(' · ')[0])}</span> ${esc((recMatName(cs.materialId).split(' · ')[1])||'')}</td>
+        <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" id="qt_${cs.id}" type="number" step="0.0001" value="${esc(String(cs.quantidade))}" style="width:88px;text-align:right;padding:5px 6px;font-size:12px"></td>
+        <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" id="un_${cs.id}" value="${esc(cs.unidade)}" style="width:56px;padding:5px 6px;font-size:12px"></td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:center">${temPT?'<span class="pill green" style="font-size:10px">'+Object.keys(pt).length+' tam.</span>':'<span class="muted" style="font-size:11px">—</span>'}</td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;white-space:nowrap;text-align:right">
+          <button class="btn-sm" onclick="APP.recSalvarLinha(${cs.id})">💾</button>
+          <button class="btn-sm" onclick="APP.recToggle(${aberto?0:cs.id})">📐 tam.</button>
+          <button class="btn-sm" style="color:#c14a34" onclick="APP.recRemover(${cs.id})">✕</button>
+        </td></tr>${ptEditor}`;
+  }).join('');
+  const matOpts = (R.materiais||[]).map(m=>`<option value="${esc(m.codigo)} · ${esc(m.descricao)}">`).join('');
+  const custoTot = (R.consumos||[]).reduce((s,cs)=>{ const m=(R.materiais||[]).find(x=>x.id===cs.materialId); return s + (m?Number(m.custo||0)*Number(cs.quantidade||0):0); },0);
+  // ----- Componentes do conjunto -----
+  const compRows = (R.componentes||[]).map((c,i)=>`<tr>
+      <td style="padding:6px 8px;border-top:1px solid #eee">${esc(recProdName(c.produtoId))}</td>
+      <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" type="number" step="0.001" value="${c.quantidade}" onchange="APP.recCompQtd(${i},this.value)" style="width:80px;text-align:right;padding:5px 6px;font-size:12px"></td>
+      <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.recCompDel(${i})">✕</button></td></tr>`).join('');
+  const prodOpts = (R.produtos||[]).map(p=>`<option value="${p.id}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+
+  openModal(`<h3>🧬 Receita técnica — ${esc(R.prod.codigo)} <span class="muted" style="font-size:12px;font-weight:400">${esc(R.prod.descricao)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Grade: ${R.grade.length?R.grade.map(esc).join(' · '):'<i>sem grade — defina em Produto p/ consumo por tamanho</i>'}</div>
+
+    ${secDivisor('COMPONENTES DO CONJUNTO')}
+    <div class="muted" style="font-size:11.5px;margin:-2px 0 6px">Se este produto for um <b>conjunto</b>, adicione as peças que o compõem. Ao gerar OP, o conjunto explode em uma OP para cada peça (a receita de tecido vai em cada peça).</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Peça componente</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd / conjunto</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${compRows||'<tr><td colspan="3" style="padding:8px;text-align:center;color:#999">Não é conjunto (produto simples).</td></tr>'}</tbody></table></div>
+    <div style="display:flex;gap:6px;align-items:end;margin-top:6px">
+      <div style="flex:1"><label class="fl">Adicionar peça ao conjunto</label><select id="rec_comp" class="inp"><option value="">— produto —</option>${prodOpts}</select></div>
+      <div style="width:110px"><label class="fl">Qtd</label><input id="rec_compq" class="inp" type="number" step="0.001" value="1"></div>
+      <button class="btn-sm" onclick="APP.recCompAdd()">+ Adicionar</button>
+    </div>
+    <div style="margin-top:6px"><button class="btn-primary" onclick="APP.recSalvarComponentes()">Salvar composição do conjunto</button></div>
+
+    ${secDivisor('MATERIAIS / TECIDOS (BOM)')}
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Material</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd base</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Un.</th><th style="text-align:center;padding:7px 8px;background:#F4F2ED;font-size:11px">Por tam.</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${bomRows||'<tr><td colspan="5" style="padding:8px;text-align:center;color:#999">Sem materiais na receita.</td></tr>'}</tbody></table></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Custo de material (qtd base): <b>${money(custoTot)}</b></div>
+    <div style="display:flex;gap:6px;align-items:end;margin-top:8px">
+      <div style="flex:1"><label class="fl">Adicionar material</label><input id="rec_mat" class="inp" list="rec_mats" placeholder="digite código ou descrição…"><datalist id="rec_mats">${matOpts}</datalist></div>
+      <div style="width:110px"><label class="fl">Qtd base</label><input id="rec_qt" class="inp" type="number" step="0.0001" placeholder="0.0000"></div>
+      <div style="width:80px"><label class="fl">Un.</label><input id="rec_un" class="inp" value="m"></div>
+      <button class="btn-sm" onclick="APP.recAddMaterial()">+ Adicionar</button>
+    </div>
+
+    <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+function recToggle(cid){ window.__REC.open = cid||null; renderReceita(); }
+async function recAddMaterial(){
+  const R=window.__REC; const txt=val('rec_mat').trim(); const qt=Number(val('rec_qt')); const un=val('rec_un').trim()||'m';
+  if(!txt){ toast('Escolha o material.','err'); return; }
+  if(!(qt>0)){ toast('Informe a quantidade base.','err'); return; }
+  const cod=txt.split(' · ')[0].trim().toUpperCase();
+  const m=(R.materiais||[]).find(x=>x.codigo.toUpperCase()===cod) || (R.materiais||[]).find(x=>(x.codigo+' · '+x.descricao).toUpperCase()===txt.toUpperCase());
+  if(!m){ toast('Material não encontrado. Selecione da lista.','err'); return; }
+  try{ await api('/consumo',{method:'POST',body:{produtoId:R.id, materialId:m.id, quantidade:qt, unidade:un}}); toast('Material vinculado.','ok'); formReceita(R.id); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function recSalvarLinha(cid){
+  const qt=Number(val('qt_'+cid)); const un=val('un_'+cid).trim();
+  if(!(qt>0)){ toast('Quantidade inválida.','err'); return; }
+  try{ await api('/consumo/'+cid,{method:'PATCH',body:{quantidade:qt, unidade:un||undefined}}); toast('Linha salva.','ok');
+    const cs=window.__REC.consumos.find(x=>x.id===cid); if(cs){ cs.quantidade=qt; if(un)cs.unidade=un; } renderReceita();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function recSalvarPorTamanho(cid){
+  const R=window.__REC; const grid=R.grade.length?R.grade:Object.keys((R.consumos.find(x=>x.id===cid)||{}).porTamanho||{});
+  const pt={}; grid.forEach(t=>{ const v=val('pt_'+cid+'_'+t); if(v!=='' && !isNaN(Number(v))) pt[t]=Number(v); });
+  try{ await api('/consumo/'+cid,{method:'PATCH',body:{porTamanho:pt}}); toast('Consumo por tamanho salvo.','ok');
+    const cs=R.consumos.find(x=>x.id===cid); if(cs) cs.porTamanho=pt; R.open=null; renderReceita();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function recLimparPorTamanho(cid){
+  try{ await api('/consumo/'+cid,{method:'PATCH',body:{porTamanho:{}}}); toast('Por tamanho limpo.','ok');
+    const cs=window.__REC.consumos.find(x=>x.id===cid); if(cs) cs.porTamanho={}; window.__REC.open=null; renderReceita();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function recRemover(cid){
+  if(!await uiConfirm('Remover este material da receita?')) return;
+  try{ await api('/consumo/'+cid,{method:'DELETE'}); toast('Removido.','ok'); formReceita(window.__REC.id); }
+  catch(e){ toast(e.message,'err'); }
+}
+function recCompAdd(){
+  const R=window.__REC; const pid=Number(val('rec_comp')); const q=Number(val('rec_compq'))||1;
+  if(!pid){ toast('Escolha o produto.','err'); return; }
+  if(R.componentes.some(c=>c.produtoId===pid)){ toast('Peça já está no conjunto.','err'); return; }
+  R.componentes.push({produtoId:pid, quantidade:q}); renderReceita();
+}
+function recCompQtd(i,v){ const q=Number(v); if(q>0) window.__REC.componentes[i].quantidade=q; }
+function recCompDel(i){ window.__REC.componentes.splice(i,1); renderReceita(); }
+async function recSalvarComponentes(){
+  const R=window.__REC;
+  try{ await api('/produtos/'+R.id,{method:'PATCH',body:{componentes:R.componentes.map(c=>({produtoId:c.produtoId, quantidade:Number(c.quantidade)||1}))}});
+    toast('Composição do conjunto salva.','ok'); R.prod.componentes=R.componentes.slice();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 async function formMaterial(id){
@@ -4144,6 +4278,7 @@ window.APP = {
   go(r){ go(r); },
   toggleNav,
   closeModal, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
+  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, calcVenc, addItem, rmItem, itemPreco, itemQty, itemAddTam, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,

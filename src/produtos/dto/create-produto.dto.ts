@@ -124,4 +124,20 @@ export class CreateProdutoDto extends ProdutoFichaDto {
 
   /** Setor de uso (ex.: HIGIENE/LIMPEZA). */
   @IsOptional() @IsString() @MaxLength(80) setor?: string;
+
+  /**
+   * Composição do conjunto: [{ produtoId, quantidade }].
+   * Quando presente, ao gerar OP o conjunto explode nas OPs dos componentes.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComponenteDto)
+  componentes?: ComponenteDto[];
+}
+
+/** Um componente do conjunto (produto filho + quantidade por conjunto). */
+export class ComponenteDto {
+  @IsInt() @IsPositive() produtoId!: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) @IsPositive() quantidade?: number;
 }

@@ -5,11 +5,13 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
 import { ConsumoService } from './consumo.service';
 import { CreateConsumoDto } from './dto/create-consumo.dto';
+import { UpdateConsumoDto } from './dto/update-consumo.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -30,6 +32,15 @@ export class ConsumoController {
   @Post()
   create(@Body() dto: CreateConsumoDto, @CurrentUser() user: AuthUser) {
     return this.consumoService.create(dto, user.empresaId);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateConsumoDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.consumoService.update(id, dto, user.empresaId);
   }
 
   @Delete(':id')

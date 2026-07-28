@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -7,8 +8,10 @@ import {
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
-import { ProdutoFichaDto } from './create-produto.dto';
+import { Type } from 'class-transformer';
+import { ComponenteDto, ProdutoFichaDto } from './create-produto.dto';
 
 export class UpdateProdutoDto extends ProdutoFichaDto {
   @IsOptional()
@@ -52,4 +55,10 @@ export class UpdateProdutoDto extends ProdutoFichaDto {
   @IsOptional() @IsString() @MaxLength(120) clienteGrupo?: string;
   @IsOptional() @IsInt() @IsPositive() clienteId?: number;
   @IsOptional() @IsString() @MaxLength(80) setor?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComponenteDto)
+  componentes?: ComponenteDto[];
 }

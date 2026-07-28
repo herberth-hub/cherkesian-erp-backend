@@ -3,9 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Consumo } from '@prisma/client';
+import { Consumo, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateConsumoDto } from './dto/create-consumo.dto';
+import { UpdateConsumoDto } from './dto/update-consumo.dto';
 
 @Injectable()
 export class ConsumoService {
@@ -56,6 +57,31 @@ export class ConsumoService {
         quantidade: dto.quantidade,
         porTamanho: dto.porTamanho ?? undefined,
         unidade: dto.unidade,
+      },
+    });
+  }
+
+  async update(id: number, dto: UpdateConsumoDto, empresaId: number): Promise<Consumo> {
+    const consumo = await this.prisma.consumo.findUnique({
+      where: { id },
+      include: { produto: { select: { empresaId: true } } },
+    });
+    if (!consumo || consumo.produto.empresaId !== empresaId) {
+      throw new NotFoundException(`Item de consumo ${id} não encontrado.`);
+    }
+    // porTamanho: {} limpa (null); undefined mantém o valor atual.
+    const porTamanho =
+      dto.porTamanho === undefined
+        ? undefined
+        : Object.keys(dto.porTamanho).length
+          ? dto.porTamanho
+          : null;
+    return this.prisma.consumo.update({
+      where: { id },
+      data: {
+        quantidade: dto.quantidade,
+        unidade: dto.unidade,
+        porTamanho: porTamanho === null ? Prisma.DbNull : porTamanho,
       },
     });
   }

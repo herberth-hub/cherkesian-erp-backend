@@ -50,6 +50,7 @@ export class ProdutosService {
           setor: dto.setor,
           custo: dto.custo,
           tipo: dto.tipo,
+          componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
           ...this.dadosFicha(dto),
           ...this.dadosFiscais(dto),
           medidas: dto.medidas?.length ? { create: this.medidasCreate(dto.medidas) } : undefined,
@@ -78,6 +79,10 @@ export class ProdutosService {
           setor: dto.setor,
           custo: dto.custo,
           tipo: dto.tipo,
+          componentes:
+            dto.componentes === undefined
+              ? undefined
+              : (dto.componentes as unknown as Prisma.InputJsonValue),
           ...this.dadosFicha(dto),
           ...this.dadosFiscais(dto),
         },
