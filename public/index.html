@@ -2425,18 +2425,13 @@ async function puxarSefazChave(){
   else await uiAlert({tipo:'info', titulo:'Itens ainda sendo baixados', ok:'Entendi', msg:'Número, fornecedor e vencimento foram puxados ✔\n\nOs ITENS da nota ainda estão sendo baixados pela SEFAZ (isso acontece logo após a ciência da operação). \n\n• Clique em "🔎 Puxar SEFAZ" de novo em alguns minutos para trazer os produtos automaticamente,\n• ou adicione os itens manualmente agora e salve.'});
 }
 
+function unidTipoPill(t){ const m={produto:['blue','produto acabado'],materia:['gold','matéria-prima'],aviamento:['gray','aviamento']}; const x=m[t]||['gray',t||'—']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 async function viewEstoque(c){
   const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
+  window.__UNIDS_ALL = unidades||[];
   const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque').length;
   const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
-  const _admin = S.user.acesso==='total';
-  const uRows=(unidades||[]).slice(0,300).map(u=>[
-    `<span class="mono gold">${esc(u.codigo)}</span>`,
-    esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
-    unidStatusPill(u.status),
-    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>',
-    `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨 Reimprimir</button>${_admin?`<button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`:''}</div>`
-  ]);
+  const cont={produto:0,materia:0,aviamento:0}; (unidades||[]).forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
       `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
     + `<div class="cards"><div class="card kpi"><div class="k">Unidades em estoque</div><div class="v">${emEstoque}</div><div class="s">${aguard} aguardando endereço</div></div></div>`
@@ -2446,10 +2441,35 @@ async function viewEstoque(c){
           esc(e.tamanho), `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
           `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
         ]), list.length?null:'Sem produto acabado agregado.')}</div>`
-    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px">Unidades endereçadas (${(unidades||[]).length})
-        ${uRows.length?`<button class="btn-sm" onclick="APP.reimprimirVisiveis()">🖨 Reimprimir visíveis</button>`:''}</h3>
-        ${panelTable(['Código','Item','Status','Endereço','Etiqueta'], uRows, uRows.length?null:'Nenhuma unidade. Faça uma Entrada para gerar etiquetas unitárias.')}</div>`;
-  window.__UNIDS=(unidades||[]).slice(0,300);
+    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Unidades endereçadas
+        <select id="und_tipo" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
+          <option value="">Todos os tipos (${(unidades||[]).length})</option>
+          <option value="produto">Produto acabado (${cont.produto})</option>
+          <option value="materia">Matéria-prima (${cont.materia})</option>
+          <option value="aviamento">Aviamento (${cont.aviamento})</option>
+        </select>
+        <input id="und_q" class="inp" placeholder="buscar código/descrição/caixa" oninput="APP.renderUnidades()" style="width:230px;font-size:12px;padding:5px 8px">
+        <button class="btn-sm" onclick="APP.reimprimirVisiveis()">🖨 Reimprimir visíveis</button></h3>
+        <div id="unidsbox"></div></div>`;
+  renderUnidades();
+}
+function renderUnidades(){
+  const box=$('unidsbox'); if(!box) return;
+  const tipo=val('und_tipo'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
+  let arr=(window.__UNIDS_ALL||[]);
+  if(tipo) arr=arr.filter(u=>u.tipo===tipo);
+  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster].some(x=>String(x||'').toLowerCase().includes(q)));
+  window.__UNIDS=arr.slice(0,300);
+  const uRows=window.__UNIDS.map(u=>[
+    `<span class="mono gold">${esc(u.codigo)}</span>`,
+    unidTipoPill(u.tipo),
+    esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
+    unidStatusPill(u.status),
+    (u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`:'<span class="muted">—</span>',
+    `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" title="Reimprimir etiqueta" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>${_admin?`<button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`:''}</div>`
+  ]);
+  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
+    + panelTable(['Código','Tipo','Item','Status','Endereço','Etiqueta'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
 }
 async function excluirUnidade(codigo){
   const ok=await uiConfirm({tipo:'warn', titulo:'Excluir etiqueta', ok:'Excluir', cancel:'Cancelar',
@@ -4095,7 +4115,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, renderUnidades,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
