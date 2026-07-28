@@ -50,6 +50,18 @@ export class OpsController {
     return this.opsService.conferirMaterial(id, body?.codigo ?? '', user.empresaId, user.usuario);
   }
 
+  /** Reserva manual de lotes do fornecedor por material (rastreio, sem baixar saldo). */
+  @Areas('pcp', 'producao', 'estoque')
+  @Post(':id/romaneio-lotes')
+  @HttpCode(HttpStatus.OK)
+  salvarLotes(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { itens: { codigo?: string; materialId?: number; lote: string }[] },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.salvarLotes(id, user.empresaId, body?.itens ?? []);
+  }
+
   /** Etiqueta do fardo (corte) para a Zebra: dados + ZPL. destino = facção/setor. */
   @Get(':id/etiqueta')
   etiqueta(

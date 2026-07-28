@@ -87,6 +87,28 @@ export class OpsService {
     };
   }
 
+  /** Reserva manual: grava lotes do fornecedor digitados por material (sem baixar saldo). */
+  async salvarLotes(id: number, empresaId: number, itens: { codigo?: string; materialId?: number; lote: string }[]) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id },
+      include: { pedido: { select: { empresaId: true } } },
+    });
+    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
+    if (!rom.length) throw new BadRequestException('Esta OP não tem romaneio de materiais.');
+    let gravados = 0;
+    for (const it of itens ?? []) {
+      const lote = (it.lote ?? '').trim();
+      if (!lote) continue;
+      const linha = rom.find((r) => (it.materialId != null && r.materialId === it.materialId) || (it.codigo && r.codigo.toLowerCase() === it.codigo.toLowerCase()));
+      if (!linha) continue;
+      linha.lotes = linha.lotes ?? [];
+      if (!linha.lotes.includes(lote)) { linha.lotes.push(lote); gravados++; }
+    }
+    await this.prisma.oP.update({ where: { id }, data: { romaneioMateriais: rom as unknown as Prisma.InputJsonValue } });
+    return { ok: true, gravados };
+  }
+
   async updateStatus(id: number, dto: UpdateOpStatusDto, empresaId: number): Promise<OP> {
     await this.findOne(id, empresaId);
     const data: Record<string, unknown> = {
