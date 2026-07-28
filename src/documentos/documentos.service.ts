@@ -390,9 +390,32 @@ export class DocumentosService {
 
     // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado
     // na geração (com status de conferência); OPs antigas caem no cálculo ao vivo da BOM.
-    type Rom = { codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido?: boolean; conferidoPor?: string; lotes?: string[] };
+    type Rom = { materialId?: number | null; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido?: boolean; conferidoPor?: string; lotes?: string[] };
     const romaneio = (op.romaneioMateriais as unknown as Rom[] | null) ?? [];
     if (romaneio.length) {
+      // Localização: campo manual do material ou endereçamento das unidades em estoque.
+      const mids = romaneio.map((r) => r.materialId).filter((x): x is number => x != null);
+      if (mids.length) {
+        const [mats, unids] = await Promise.all([
+          this.prisma.material.findMany({ where: { id: { in: mids } }, select: { id: true, localizacao: true } }),
+          this.prisma.unidadeEstoque.findMany({ where: { materialId: { in: mids }, saidaEm: null }, select: { materialId: true, coluna: true, andar: true, caixaMaster: true } }),
+        ]);
+        const manualMap = new Map(mats.map((m) => [m.id, m.localizacao]));
+        const endMap = new Map<number, Set<string>>();
+        for (const u of unids) {
+          if (u.materialId == null) continue;
+          const partes = [u.coluna, u.andar, u.caixaMaster].filter((x) => x != null && x !== '');
+          if (!partes.length) continue;
+          (endMap.get(u.materialId) ?? endMap.set(u.materialId, new Set()).get(u.materialId)!).add(partes.join(' · '));
+        }
+        for (const r of romaneio) {
+          if (r.materialId == null) continue;
+          const manual = manualMap.get(r.materialId);
+          if (manual) { r.localizacao = manual; continue; }
+          const ends = endMap.get(r.materialId);
+          if (ends && ends.size) r.localizacao = [...ends].slice(0, 3).join(' | ');
+        }
+      }
       secao(doc, `Romaneio de corte — materiais a separar (${op.quantidade} peças)`);
       tabela(
         doc,

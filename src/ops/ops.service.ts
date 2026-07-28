@@ -37,13 +37,33 @@ export class OpsService {
     if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } }) : null;
     const itens = ((op.romaneioMateriais as unknown as RomLinha[]) ?? []);
-    // Enriquece com a localização ATUAL do material (vale até para OPs antigas cujo
-    // snapshot foi gravado antes do campo existir).
+    // Localização do material (vale até para OPs antigas). Prioridade:
+    // 1) campo manual do material; 2) endereçamento das unidades em estoque (coluna/andar/caixa).
     const ids = itens.map((i) => i.materialId).filter((x): x is number => x != null);
     if (ids.length) {
-      const locs = await this.prisma.material.findMany({ where: { id: { in: ids } }, select: { id: true, localizacao: true } });
+      const [locs, unids] = await Promise.all([
+        this.prisma.material.findMany({ where: { id: { in: ids } }, select: { id: true, localizacao: true } }),
+        this.prisma.unidadeEstoque.findMany({
+          where: { materialId: { in: ids }, saidaEm: null },
+          select: { materialId: true, coluna: true, andar: true, caixaMaster: true },
+        }),
+      ]);
       const locMap = new Map(locs.map((m) => [m.id, m.localizacao]));
-      for (const i of itens) if (i.materialId != null && (i.localizacao == null || i.localizacao === '')) i.localizacao = locMap.get(i.materialId) ?? null;
+      const endMap = new Map<number, Set<string>>();
+      for (const u of unids) {
+        if (u.materialId == null) continue;
+        const partes = [u.coluna, u.andar, u.caixaMaster].filter((x) => x != null && x !== '');
+        if (!partes.length) continue;
+        if (!endMap.has(u.materialId)) endMap.set(u.materialId, new Set());
+        endMap.get(u.materialId)!.add(partes.join(' · '));
+      }
+      for (const i of itens) {
+        if (i.materialId == null) continue;
+        const manual = locMap.get(i.materialId);
+        if (manual) { i.localizacao = manual; continue; }
+        const ends = endMap.get(i.materialId);
+        i.localizacao = ends && ends.size ? [...ends].slice(0, 3).join(' | ') : null;
+      }
     }
     return {
       op: op.numero, pedido: op.pedido?.numero ?? null, quantidade: op.quantidade,
