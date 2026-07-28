@@ -175,6 +175,7 @@ model Cliente {
   empresa    Empresa  @relation(fields: [empresaId], references: [id])
   nome       String
   fantasia   String?
+  grupo      String?  // grupo de clientes (ex.: rede/matriz que agrupa várias unidades)
   cnpjCpf    String?
   contato    String?
   telefone   String?

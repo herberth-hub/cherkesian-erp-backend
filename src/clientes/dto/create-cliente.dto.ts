@@ -34,6 +34,11 @@ export class CreateClienteDto extends ClienteFiscalDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(120)
+  grupo?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(20)
   cnpjCpf?: string;
 

@@ -30,6 +30,7 @@ export class ClientesService {
         empresaId,
         nome: dto.nome,
         fantasia: dto.fantasia,
+        grupo: dto.grupo,
         cnpjCpf: dto.cnpjCpf,
         contato: dto.contato,
         telefone: dto.telefone,
@@ -50,6 +51,7 @@ export class ClientesService {
       data: {
         nome: dto.nome,
         fantasia: dto.fantasia,
+        grupo: dto.grupo,
         cnpjCpf: dto.cnpjCpf,
         contato: dto.contato,
         telefone: dto.telefone,
