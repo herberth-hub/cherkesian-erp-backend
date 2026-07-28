@@ -190,7 +190,7 @@ export class EstoqueService {
       if (!u) continue;
       const ref = (u.produtoId != null ? refProd.get(u.produtoId) : undefined) ?? (u.materialId != null ? refMat.get(u.materialId) : undefined) ?? '';
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: u.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
-      pecas.push({ codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+      pecas.push({ codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
     }
     return { total: pecas.length, pecas };
   }
