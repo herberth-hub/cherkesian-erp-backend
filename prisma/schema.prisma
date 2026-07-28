@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["omitApi"]
 }
 
 datasource db {
@@ -308,6 +309,8 @@ model Produto {
   observacoes    String? @db.Text // observações gerais da ficha
   fotoModelo     String? @db.Text // foto do modelo (data URI base64)
   fotoModelagem  String? @db.Text // imagem da modelagem Audaces (data URI base64)
+  arquivoModelagem     String? @db.Text // arquivo da modelagem Audaces (.adsx/.zip) em data URI base64
+  arquivoModelagemNome String? // nome original do arquivo de modelagem arquivado
 
   // ===== Dados fiscais (item da NF-e) — validar com a contabilidade =====
   ncm             String? // 8 dígitos

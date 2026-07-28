@@ -1147,6 +1147,21 @@ async function fotoSel(kind, el){
   catch(e){ toast('Não foi possível ler a imagem.','err'); }
 }
 function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+// Arquivo da modelagem Audaces (.adsx/.zip) — arquivado como data URI, com nome original.
+function arqModThumb(){
+  const a=window.__ARQMOD||{};
+  if(a.data){ return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pill green" style="font-size:11px">📁 arquivo</span> <a href="${a.data}" download="${esc(a.nome||'modelagem')}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||'modelagem')}</a> <a onclick="APP.arqModDel()" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`; }
+  return `<span class="muted" style="font-size:12px">Nenhum arquivo arquivado.</span>`;
+}
+function arqModSel(el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  if(f.size > 9*1024*1024){ toast('Arquivo muito grande (máx. ~9 MB).','err'); el.value=''; return; }
+  const r=new FileReader();
+  r.onload=()=>{ window.__ARQMOD={ data:String(r.result), nome:f.name }; $('arqmod_pv').innerHTML=arqModThumb(); };
+  r.onerror=()=>toast('Não foi possível ler o arquivo.','err');
+  r.readAsDataURL(f);
+}
+function arqModDel(){ window.__ARQMOD={ data:'', nome:'' }; $('arqmod_pv').innerHTML=arqModThumb(); }
 function pmedSync(){
   (window.__PMED||[]).forEach((r,i)=>{
     const d=$('pm_desc_'+i); if(!d) return;
@@ -1181,6 +1196,7 @@ async function formProduto(id){
   if(!window.__CLILIST){ try{ window.__CLILIST=await api('/clientes'); }catch(e){ window.__CLILIST=[]; } }
   window.__GRUPOSCLI=[...new Set((window.__CLILIST||[]).map(c=>c.grupo).filter(Boolean))].sort();
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
+  window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
   const fotoBox=(kind,lbl)=>`<div><label class="fl">${esc(lbl)}</label><div id="fpv_${kind}" style="margin:4px 0">${fotoThumb(kind)}</div><input type="file" accept="image/*" onchange="APP.fotoSel('${kind}',this)" style="font-size:12px"></div>`;
@@ -1216,7 +1232,12 @@ async function formProduto(id){
     <div class="grid2" style="align-items:end">${field('f_tam','Tamanhos (colunas)','value="'+esc((window.__PMEDT||[]).join(', '))+'"')}<div class="mrow"><button class="btn-sm" onclick="APP.pmedApplySizes()">Aplicar tamanhos</button> <button class="btn-sm" onclick="APP.pmedAdd()">+ linha</button></div></div>
     <div id="pmedbox"></div>
     ${secDivisor('FOTOS')}
-    <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Modelagem (Audaces)')}</div>
+    <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Foto da modelagem (imagem)')}</div>
+    <div style="margin-top:10px"><label class="fl">Arquivo de modelagem (Audaces · .adsx / .zip) — para arquivar</label>
+      <div id="arqmod_pv" style="margin:4px 0">${arqModThumb()}</div>
+      <input type="file" accept=".adsx,.zip,.rar,.dxf,.plt,application/zip,application/octet-stream,application/x-zip-compressed" onchange="APP.arqModSel(this)" style="font-size:12px">
+      <div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo original da modelagem no produto (máx. ~9 MB). Depois é só baixar aqui.</div>
+    </div>
     ${secDivisor('DADOS FISCAIS (NF-e) · valide com a contabilidade')}
     <div class="grid2">${field('f_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'" placeholder="ex.: 61099000"')}${field('f_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
     <div class="grid3">${field('f_orig','Origem (0-8)','type="number" min="0" max="8" value="'+(p.origem??0)+'"')}${field('f_un','Unidade','value="'+esc(p.unidadeComercial||'UN')+'"')}${field('f_cest','CEST (se houver)','value="'+esc(p.cest||'')+'"')}</div>
@@ -1253,6 +1274,8 @@ async function saveProduto(id){
   // fotos e medidas SEMPRE enviadas (string vazia limpa; medidas substituem a grade)
   const fm=window.__FOTO||{};
   body.fotoModelo = fm.modelo||''; body.fotoModelagem = fm.modelagem||'';
+  const am=window.__ARQMOD||{};
+  body.arquivoModelagem = am.data||''; body.arquivoModelagemNome = am.nome||'';
   body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
     .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
   // Tamanhos: sincroniza o campo "Tamanhos (colunas)" para a grade — persiste sempre,
@@ -4300,7 +4323,7 @@ window.APP = {
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial,
-  fotoSel, fotoDel, pmedAdd, pmedDel, pmedApplySizes,
+  fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar,
 };

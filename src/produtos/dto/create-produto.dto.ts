@@ -61,6 +61,9 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   // Fotos em data URI base64 (comprimidas no cliente). Limite alto p/ imagens.
   @IsOptional() @IsString() @MaxLength(4_000_000) fotoModelo?: string;
   @IsOptional() @IsString() @MaxLength(4_000_000) fotoModelagem?: string;
+  // Arquivo da modelagem Audaces (.adsx/.zip) em data URI base64.
+  @IsOptional() @IsString() @MaxLength(12_000_000) arquivoModelagem?: string;
+  @IsOptional() @IsString() @MaxLength(200) arquivoModelagemNome?: string;
 
   @IsOptional()
   @IsArray()

@@ -16,10 +16,10 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false, bodyParser: false });
   const config = app.get(ConfigService);
 
-  // Corpo limitado a 8 MB: acomoda as fotos (base64) da ficha técnica do produto,
-  // comprimidas no cliente; ainda barra payloads abusivos (anti-DoS).
-  app.use(json({ limit: '8mb' }));
-  app.use(urlencoded({ extended: true, limit: '8mb' }));
+  // Corpo limitado a 16 MB: acomoda as fotos (base64) + o arquivo de modelagem
+  // (Audaces .adsx/.zip) da ficha técnica; ainda barra payloads abusivos (anti-DoS).
+  app.use(json({ limit: '16mb' }));
+  app.use(urlencoded({ extended: true, limit: '16mb' }));
 
   // ===== Cabeçalhos de segurança (Helmet) =====
   // CSP sob medida: o frontend é um único HTML com scripts/estilos inline e

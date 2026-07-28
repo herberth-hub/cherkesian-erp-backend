@@ -13,9 +13,12 @@ import { proximoCodigo } from '../common/utils/codigo.util';
 export class ProdutosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number): Promise<Produto[]> {
+  findAll(empresaId: number) {
+    // Omite os campos base64 pesados (foto/arquivo) — a lista não precisa deles
+    // e isso mantém o payload leve. Eles voltam no findOne (edição).
     return this.prisma.produto.findMany({
       where: { empresaId },
+      omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true },
       orderBy: { codigo: 'asc' },
     });
   }
@@ -126,6 +129,8 @@ export class ProdutosService {
       observacoes: dto.observacoes,
       fotoModelo: dto.fotoModelo,
       fotoModelagem: dto.fotoModelagem,
+      arquivoModelagem: dto.arquivoModelagem,
+      arquivoModelagemNome: dto.arquivoModelagemNome,
     };
   }
 
