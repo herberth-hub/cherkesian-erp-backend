@@ -220,7 +220,7 @@ export class DocumentosService {
   private async pdfPedido(tipo: string, pedidoId: number, empresaId: number, numero: string): Promise<Pdf> {
     const pedido = await this.prisma.pedido.findUnique({
       where: { id: pedidoId },
-      include: { itens: true, cliente: true },
+      include: { itens: true, cliente: true, filial: true },
     });
     if (!pedido || pedido.empresaId !== empresaId) {
       throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
@@ -278,18 +278,40 @@ export class DocumentosService {
         (s, l) => s.plus(this.precoTamanho(i.produtoId ? prodMap.get(i.produtoId) ?? null : null, base,l.tam).mul(l.qtd)),
         new Prisma.Decimal(0),
       );
+      const prod = i.produtoId ? prodMap.get(i.produtoId) ?? null : null;
       itemPedido(doc, {
         num: String(idx + 1).padStart(2, '0'),
         descricao: i.descricao,
+        cor: prod?.cor ?? null,
+        foto: prod?.fotoModelo ?? null,
         linhas,
         subtotal: money(subtotal),
       });
     });
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
 
+    // Condições comerciais (pagamento, frete, prazo, validade).
+    // Mantém o bloco junto: se não couber no restante da página, começa em nova.
+    if (doc.y > doc.page.height - 230) doc.addPage();
+    secao(doc, 'Condições comerciais');
+    const prazoTxt = pedido.prazoEntrega ? dataBR(pedido.prazoEntrega) : 'a combinar';
+    camposDuplos(doc, [
+      ['Forma de pagamento', pedido.formaPagamento ?? 'a combinar'],
+      ['Frete', pedido.frete ?? 'a combinar'],
+      ['Prazo de entrega', prazoTxt],
+      ['Validade da proposta', tipo === 'proposta' ? '15 dias' : '—'],
+    ]);
     if (tipo === 'proposta') {
-      secao(doc, 'Condições');
-      textoBloco(doc, 'Proposta válida por 15 dias. Cliente novo: produção liberada após aprovação da peça-piloto.');
+      textoBloco(doc, 'Cliente novo: produção liberada após aprovação da peça-piloto.');
+    }
+
+    // Dados bancários para pagamento (da filial emissora).
+    if (pedido.filial?.dadosBancarios?.trim()) {
+      secao(doc, 'Dados bancários para pagamento');
+      textoBloco(doc, pedido.filial.dadosBancarios);
+    }
+
+    if (tipo === 'proposta') {
       assinaturas(doc, 'GRUPO CHERKESIAN', pedido.cliente.nome);
     } else {
       assinaturas(doc, 'GRUPO CHERKESIAN', `${pedido.cliente.nome} — De acordo`);

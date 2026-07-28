@@ -1488,7 +1488,8 @@ async function formPedido(id){
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
-    ${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
+    <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
+      <div class="mrow"><label class="fl">Frete</label><input id="f_frete" class="inp" list="fretes" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}"><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
   renderItens();
@@ -1592,6 +1593,7 @@ async function savePedido(id){
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
+  const frete=val('f_frete'); if(frete) body.frete=frete;
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
@@ -3987,6 +3989,8 @@ function formFilial(id){
     <div class="muted" style="font-size:11px;margin-bottom:8px">Transição 2026: CBS 0,9% e IBS 0,1%. ⚠️ Teste em homologação antes de emitir em produção.</div>
     <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">NUMERAÇÃO DA NF-e (independente por CNPJ)</b></div>
     <div class="grid2">${field('fl_serie','Série','value="'+esc(f.nfeSerie||'1')+'"')}${field('fl_prox','Próximo número','type="number" min="1" value="'+(f.nfeProximoNumero||1)+'"')}</div>
+    <div class="mrow"><label class="fl">Dados bancários (saem na proposta/pedido)</label>
+      <textarea id="fl_banco" class="inp" rows="4" placeholder="Favorecido: ...\nBanco / Agência / Conta\nPIX: ...">${esc(f.dadosBancarios||'')}</textarea></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveFilial(${id||0})">Salvar</button></div>`);
 }
@@ -4003,6 +4007,7 @@ async function saveFilial(id){
   body.reformaAtiva=$('fl_reforma').checked;
   body.cbsAliquota=_n('fl_cbs'); body.ibsUfAliquota=_n('fl_ibsuf'); body.ibsMunAliquota=_n('fl_ibsmun');
   body.ibsCbsCst=val('fl_ibscst')||undefined; body.ibsCbsClassTrib=val('fl_ibsclass')||undefined;
+  body.dadosBancarios=(($('fl_banco')&&$('fl_banco').value)||'').trim();
   if(!body.nome){ toast('Informe o nome da filial.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]===''||body[k]===undefined) delete body[k]; });
   try{ await api(id?('/filiais/'+id):'/filiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Filial salva.','ok'); loadRoute(); }

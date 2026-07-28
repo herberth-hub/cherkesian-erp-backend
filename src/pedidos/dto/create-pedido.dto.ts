@@ -69,6 +69,12 @@ export class CreatePedidoDto {
   @MaxLength(120)
   formaPagamento?: string;
 
+  /** Condição de frete (ex.: "CIF — incluso" / "FOB — por conta do cliente"). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  frete?: string;
+
   /** Nº do pedido de compra do cliente (SAP/PO). */
   @IsOptional()
   @IsString()

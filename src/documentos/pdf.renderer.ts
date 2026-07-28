@@ -359,26 +359,54 @@ export function gradeChips(doc: Pdf, grade: Record<string, number> | null | unde
 }
 
 /** Um item do pedido no estilo minimalista: nº + descrição, valor à direita e chips da grade. */
+/** Foto do produto num quadrado padrão (canto do item). Sem foto, desenha moldura "FOTO". */
+function drawFotoCanto(doc: Pdf, dataUri: string | null | undefined, x: number, y: number, size: number): void {
+  const m = dataUri ? /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(dataUri.trim()) : null;
+  if (m) {
+    try {
+      doc.image(Buffer.from(m[1], 'base64'), x, y, { fit: [size, size], align: 'center', valign: 'center' });
+      doc.rect(x, y, size, size).lineWidth(0.8).strokeColor(OURO).stroke();
+      return;
+    } catch {
+      /* imagem inválida: cai na moldura abaixo */
+    }
+  }
+  doc.roundedRect(x, y, size, size, 5).lineWidth(0.8).dash(3, { space: 3 }).strokeColor(OURO).stroke().undash();
+  doc.fillColor('#a99a63').font('Helvetica').fontSize(8).text('FOTO', x, y + size / 2 - 5, { width: size, align: 'center' });
+  doc.fillColor(TINTA);
+}
+
 export function itemPedido(
   doc: Pdf,
   o: {
     num: string;
     descricao: string;
+    cor?: string | null;
+    foto?: string | null;
     linhas: Array<{ tam: string; qtd: number; unit: string; total: string }>;
     subtotal: string;
   },
 ): void {
   const linhas = o.linhas ?? [];
-  const alturaEstim = 34 + (linhas.length + 2) * 20 + 30;
+  const FOTO = 84; // caixa quadrada padrão da foto no canto
+  const alturaEstim = Math.max(FOTO + 8, 34 + (linhas.length + 2) * 20) + 30;
   if (doc.y + alturaEstim > doc.page.height - 90) doc.addPage();
   const x0 = 50;
   const yTop = doc.y;
-  // nº + descrição
+  // Foto do produto no canto superior direito (formato padrão) — ou moldura em branco.
+  const xFoto = doc.page.width - 50 - FOTO;
+  drawFotoCanto(doc, o.foto, xFoto, yTop, FOTO);
+  // nº + descrição (larguras limitadas para não invadir a foto)
+  const wTexto = xFoto - (x0 + 30) - 10;
   doc.roundedRect(x0, yTop, 22, 15, 3).fill(NAVY);
   doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(8).text(o.num, x0, yTop + 4, { width: 22, align: 'center' });
-  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11.5).text(o.descricao, x0 + 30, yTop + 1, { width: doc.page.width - 50 - (x0 + 30) });
+  doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11.5).text(o.descricao, x0 + 30, yTop + 1, { width: wTexto });
+  if (o.cor) {
+    doc.fillColor(CINZA).font('Helvetica').fontSize(9.5).text('Cor: ' + o.cor, x0 + 30, doc.y + 1, { width: wTexto });
+  }
   doc.x = x0;
-  doc.y = Math.max(doc.y, yTop + 18) + 4;
+  // A tabela ocupa a largura total; começa abaixo da foto para não sobrepô-la.
+  doc.y = Math.max(doc.y + 4, yTop + FOTO + 8);
 
   // Tabela: Tamanho | Qtd | Valor unit. | Total
   const tableW = doc.page.width - 100;

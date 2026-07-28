@@ -141,6 +141,7 @@ model Filial {
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
   focusToken        String? // token Focus NFe da filial (senão usa FOCUS_NFE_TOKEN global)
+  dadosBancarios    String? @db.Text // banco/agência/conta/PIX/favorecido — sai na proposta/pedido
   criadoEm          DateTime @default(now())
   pedidos           Pedido[]
   ops               OP[]
@@ -373,6 +374,7 @@ model Pedido {
   valorTotal     Decimal      @db.Decimal(12,2)
   status         String
   formaPagamento String?
+  frete          String?      // condição de frete (ex.: "CIF — incluso" / "FOB — por conta do cliente")
   etapa          PedidoEtapa  @default(orcamento)
   clienteNovo    Boolean      @default(false)
   ordemCompraCliente String?  // nº do pedido de compra do cliente (SAP/PO) — sai na NF
