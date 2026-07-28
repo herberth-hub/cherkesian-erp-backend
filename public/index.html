@@ -2895,8 +2895,10 @@ function imprimirEtqUnidades(pecas, meta){
 // Esquemas de endereçamento por coluna: A = produto acabado; B = matéria-prima.
 const ENDER_ANDAR = { A:['0','1','2','3','4'], B:['A','B','C'] };
 // Caixas dependem do andar: coluna B, andar A -> A1..A12; andar B -> B1..B12; etc.
+// Coluna B também oferece caixas master próprias (além dos endereços por andar).
+const CAIXAS_MASTER_B = ['7.000','8.000','9.000'];
 function edCaixas(col, andar){
-  if(col==='B'){ const l=andar||'A'; return Array.from({length:12},(_,i)=>l+(i+1)); }
+  if(col==='B'){ const l=andar||'A'; return [...Array.from({length:12},(_,i)=>l+(i+1)), ...CAIXAS_MASTER_B]; }
   return CAIXAS_MASTER;
 }
 function edCol(){
