@@ -688,6 +688,7 @@ model UnidadeEstoque {
   pedidoId    Int?
   expedicaoId Int?
   loteEntrada String?  // agrupador da entrada (mesma remessa)
+  loteFornecedor String? // lote/partida do tecido informado pelo fornecedor (rastreio produto/lote)
   criadoEm    DateTime @default(now())
   criadoPor   String?
   saidaEm     DateTime?

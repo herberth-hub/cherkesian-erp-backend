@@ -3,7 +3,7 @@ import { OP, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 
-type RomLinha = { materialId: number; codigo: string; descricao: string; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string };
+type RomLinha = { materialId: number; codigo: string; descricao: string; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
 @Injectable()
 export class OpsService {
@@ -60,9 +60,13 @@ export class OpsService {
 
     // Resolve a linha do romaneio: por código do material, por etiqueta de rolo (UN-...) ou por descrição.
     let alvo = rom.find((r) => r.codigo.toLowerCase() === codigo.toLowerCase());
+    let loteRolo: string | null = null;
     if (!alvo && /^un-/i.test(codigo)) {
       const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
-      if (un) alvo = rom.find((r) => (un.materialId != null && r.materialId === un.materialId) || (r.descricao || '').toLowerCase() === (un.descricao || '').toLowerCase());
+      if (un) {
+        loteRolo = un.loteFornecedor ?? null;
+        alvo = rom.find((r) => (un.materialId != null && r.materialId === un.materialId) || (r.descricao || '').toLowerCase() === (un.descricao || '').toLowerCase());
+      }
     }
     if (!alvo) alvo = rom.find((r) => (r.descricao || '').toLowerCase().includes(codigo.toLowerCase()));
     if (!alvo) throw new BadRequestException('Material bipado não faz parte do romaneio desta OP.');
@@ -70,10 +74,15 @@ export class OpsService {
     const ja = alvo.conferido === true;
     alvo.conferido = true;
     alvo.conferidoPor = usuario;
+    // Rastreio: acumula o lote do fornecedor do(s) rolo(s) bipado(s).
+    if (loteRolo) {
+      alvo.lotes = alvo.lotes ?? [];
+      if (!alvo.lotes.includes(loteRolo)) alvo.lotes.push(loteRolo);
+    }
     await this.prisma.oP.update({ where: { id }, data: { romaneioMateriais: rom as unknown as Prisma.InputJsonValue } });
     const faltam = rom.filter((r) => !r.conferido).length;
     return {
-      ok: true, ja, material: alvo.descricao, codigo: alvo.codigo,
+      ok: true, ja, material: alvo.descricao, codigo: alvo.codigo, lote: loteRolo, lotes: alvo.lotes ?? [],
       conferidos: rom.filter((r) => r.conferido).length, total: rom.length, faltam, completo: faltam === 0,
     };
   }
@@ -152,6 +161,10 @@ export class OpsService {
     // Cor: não é campo estruturado — tenta extrair da observação do pedido ("Cor: X").
     const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
     const cor = corMatch ? corMatch[1].trim() : '-';
+    // Rastreio: lotes do fornecedor dos materiais conferidos no romaneio da OP.
+    const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
+    const lotes = [...new Set(rom.flatMap((r) => r.lotes ?? []).filter(Boolean))];
+    const loteTxt = lotes.length ? lotes.join(', ') : '-';
     const dados = {
       op: op.numero,
       pedido: op.pedido?.numero ?? '-',
@@ -160,13 +173,14 @@ export class OpsService {
       quantidade: op.quantidade,
       grade: gradeTxt,
       cor,
+      lote: loteTxt,
       destino: destino?.trim() || op.setorAtual || '-',
     };
     return { dados, zpl: this.montarZpl(dados) };
   }
 
   /** ZPL para etiqueta ~100x80mm @203dpi (Code128 da OP). */
-  private montarZpl(d: { op: string; pedido: string; cliente: string; produto: string; quantidade: number; grade: string; cor: string; destino: string }): string {
+  private montarZpl(d: { op: string; pedido: string; cliente: string; produto: string; quantidade: number; grade: string; cor: string; lote: string; destino: string }): string {
     const s = (v: string | number) => String(v).replace(/[\^~]/g, ' ').slice(0, 40);
     return [
       '^XA',
@@ -179,9 +193,10 @@ export class OpsService {
       `^FO24,146^FDProduto: ${s(d.produto)}^FS`,
       `^FO24,184^FDGrade: ${s(d.grade)}^FS`,
       `^FO24,222^FDQtd total: ${d.quantidade}   Cor: ${s(d.cor)}^FS`,
+      `^FO24,258^FDLote tecido: ${s(d.lote)}^FS`,
       '^CF0,32',
-      `^FO24,264^FDDESTINO: ${s(d.destino)}^FS`,
-      `^FO24,320^BY3^BCN,120,Y,N,N^FD${s(d.op)}^FS`,
+      `^FO24,300^FDDESTINO: ${s(d.destino)}^FS`,
+      `^FO24,352^BY3^BCN,110,Y,N,N^FD${s(d.op)}^FS`,
       '^XZ',
     ].join('\n');
   }

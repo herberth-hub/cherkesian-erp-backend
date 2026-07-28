@@ -23,7 +23,7 @@ export class EstoqueService {
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
-    pedidoId?: number; origem?: string;
+    pedidoId?: number; origem?: string; loteFornecedor?: string;
   }, empresaId: number, usuario: string) {
     const qtd = Math.floor(Number(dto.quantidade));
     if (!qtd || qtd < 1) throw new BadRequestException('Informe a quantidade (>= 1).');
@@ -60,7 +60,7 @@ export class EstoqueService {
           empresaId, codigo, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
           descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
           coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
-          pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, criadoPor: usuario,
+          pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
         },
       });
       criadas.push({ codigo });
@@ -69,7 +69,7 @@ export class EstoqueService {
     const pecas = [];
     for (const c of criadas) {
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: c.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
-      pecas.push({ codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+      pecas.push({ codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '', loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
     }
     return { loteEntrada, total: qtd, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
   }
@@ -153,6 +153,7 @@ export class EstoqueService {
       endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna ?? undefined, andar: un.andar ?? undefined, caixaMaster: un.caixaMaster ?? undefined }) : null,
       coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
       loteEntrada: un.loteEntrada,
+      loteFornecedor: un.loteFornecedor,
     };
   }
 
