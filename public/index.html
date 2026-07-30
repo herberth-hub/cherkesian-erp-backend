@@ -1492,6 +1492,12 @@ async function formPedido(id){
     <label class="fl">Itens</label>
     <div id="pitens"></div>
     <button class="btn-sm" onclick="APP.addItem()" style="margin-top:8px">+ Adicionar item</button>
+    <div id="ped_totais" style="display:flex;justify-content:flex-end;gap:22px;align-items:center;margin:10px 2px 4px;padding:8px 12px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px">
+      <div style="font-size:12px;color:#6a675e">Total de peças: <b id="ped_totpc" style="font-size:15px;color:#242a26">0</b></div>
+      <div style="font-size:12px;color:#6a675e">Valor total: <b id="ped_totvl" style="font-size:16px;color:#3a2f08">R$ 0,00</b></div>
+    </div>
+    <div class="mrow"><label class="fl">Observações (saem na NF-e — informações complementares)</label>
+      <textarea id="f_obs" class="inp" rows="2" placeholder="ex.: Empenho nº …, entrega no almoxarifado, etc.">${esc(ped&&ped.obs||'')}</textarea></div>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
       <div class="mrow"><label class="fl">Frete</label><input id="f_frete" class="inp" list="fretes" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}"><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
@@ -1583,6 +1589,31 @@ function itemQty(i){
   const g=PITENS[i].grade; const soma=g?Object.values(g).reduce((a,b)=>a+b,0):0;
   const manual=Number(val('it_qtd_'+i))||0;
   lbl.textContent = soma>0?soma:manual;
+  pedTotais();
+}
+// Preço unitário de um tamanho (aplica preço especial nas faixas do produto).
+function precoTamCli(p, base, tam){
+  const esp=tamsEspDoProduto(p);
+  if(p && p.precoEspecial!=null && esp.includes(String(tam).toUpperCase())) return Number(p.precoEspecial);
+  return base;
+}
+// Totais do pedido (peças + valor), respeitando faixas de preço por tamanho.
+function pedTotais(){
+  const box=$('ped_totpc'); if(!box) return;
+  const prods=window.__PROD||[];
+  let pc=0, vl=0;
+  for(let i=0;i<PITENS.length;i++){
+    const it=PITENS[i]; const p=it.produtoId?prods.find(x=>x.id===it.produtoId):null;
+    const base=Number($('it_val_'+i)?val('it_val_'+i):it.val)||Number(it.val)||0;
+    const g=it.grade;
+    if(g && Object.keys(g).length){
+      for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; pc+=n; vl+=precoTamCli(p,base,t)*n; }
+    } else {
+      const manual=Number($('it_qtd_'+i)?val('it_qtd_'+i):it.qtd)||0; pc+=manual; vl+=base*manual;
+    }
+  }
+  $('ped_totpc').textContent=pc;
+  const vlEl=$('ped_totvl'); if(vlEl) vlEl.textContent=money(vl);
 }
 // Ao escolher o produto: resolve id, herda preço base e re-renderiza (traz os tamanhos do produto).
 function itemProd(i){
@@ -1621,6 +1652,7 @@ async function savePedido(id){
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
+  const obs=(($('f_obs')&&$('f_obs').value)||'').trim(); body.obs=obs||undefined;
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal(); toast('Pedido '+p.numero+' atualizado.','ok'); }
     else { const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); }

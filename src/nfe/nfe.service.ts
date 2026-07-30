@@ -91,6 +91,7 @@ export class NfeService {
     // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
     const cobranca = this.duplicatasDePedido(pedido?.formaPagamento, Number(valor));
     const infoAdic = [
+      pedido?.obs ? pedido.obs.trim() : null,
       pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
       pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
       cobranca.venctoTxt,
