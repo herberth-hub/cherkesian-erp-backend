@@ -73,7 +73,7 @@ export class NfeService {
     if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado. Cadastre a matriz em Filiais (Config. Fiscal).');
 
     // Token: o da filial tem prioridade; senão, o global do ambiente.
-    const token = filial.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
 
     // Validação fiscal mínima só quando vai emitir DE VERDADE (com provedor).
     if (token) {
@@ -194,7 +194,7 @@ export class NfeService {
       itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit });
     }
 
-    const token = filial.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
     if (token) {
       const faltas = this.validarFiscal(filial, cliente, itens.length);
       if (faltas.length) {
@@ -302,7 +302,7 @@ export class NfeService {
     const filial = nota.filialId
       ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } })
       : null;
-    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
 
     const ref = this.refDaNota(nota);
@@ -333,7 +333,7 @@ export class NfeService {
     const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
     if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
-    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
     return { nota, token };
   }
 
@@ -412,7 +412,7 @@ export class NfeService {
     const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
     if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
-    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
     const host = this.focusHost(filial?.nfeAmbiente);
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
@@ -474,7 +474,7 @@ export class NfeService {
     const anexos: Array<{ filename: string; content: Buffer; contentType?: string }> = [];
     if (nota.provedor === 'focusnfe' && nota.status === 'autorizada') {
       const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
-      const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+      const token = this.tokenDaFilial(filial);
       if (token) {
         const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente);
         const nome = String(nota.numero).replace('/', '-');
@@ -505,7 +505,7 @@ export class NfeService {
       throw new BadRequestException('DANFE/XML só ficam disponíveis após a autorização da SEFAZ.');
     }
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
-    const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
+    const token = this.tokenDaFilial(filial);
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
     const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente);
     const nome = String(nota.numero).replace('/', '-');
@@ -842,6 +842,16 @@ export class NfeService {
       ...(infoAdicional ? { informacoes_adicionais_contribuinte: infoAdicional.slice(0, 5000) } : {}),
       items,
     };
+  }
+
+  /**
+   * Token Focus da filial escolhido pelo AMBIENTE (cada CNPJ tem token próprio na Focus):
+   * produção → focusTokenProd; homologação → focusTokenHomolog; senão o genérico/global.
+   */
+  private tokenDaFilial(filial: { nfeAmbiente?: string | null; focusToken?: string | null; focusTokenHomolog?: string | null; focusTokenProd?: string | null } | null): string | undefined {
+    const amb = filial?.nfeAmbiente || this.config.get<string>('NFE_AMBIENTE');
+    const perAmb = amb === 'producao' ? filial?.focusTokenProd : filial?.focusTokenHomolog;
+    return perAmb || filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN') || undefined;
   }
 
   /**

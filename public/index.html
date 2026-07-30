@@ -4242,7 +4242,10 @@ function formFilial(id){
     <div class="grid2">${field('fl_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}${field('fl_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     <div class="grid3">${field('fl_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('fl_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('fl_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
     <div class="grid3">${field('fl_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('fl_codmun','Cód. IBGE','value="'+esc(f.codMunicipio||'')+'"')}${field('fl_uf','UF','value="'+esc(f.uf||'')+'" maxlength="2"')}</div>
-    <div class="grid2">${field('fl_cep','CEP','value="'+esc(f.cep||'')+'"')}${field('fl_token','Token Focus NFe (opcional)','value="'+esc(f.focusToken||'')+'" placeholder="usa o global se vazio"')}</div>
+    ${field('fl_cep','CEP','value="'+esc(f.cep||'')+'"')}
+    <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 2px;font-weight:700">TOKENS FOCUS NFe (cada CNPJ tem o seu — copie do painel da Focus)</div>
+    <div class="grid2">${field('fl_tokhom','Token de HOMOLOGAÇÃO','value="'+esc(f.focusTokenHomolog||'')+'" placeholder="token de teste da Focus"')}${field('fl_tokprod','Token de PRODUÇÃO','value="'+esc(f.focusTokenProd||'')+'" placeholder="token de produção da Focus"')}</div>
+    ${field('fl_token','Token genérico (fallback, opcional)','value="'+esc(f.focusToken||'')+'" placeholder="usa o global do sistema se vazio"')}
     <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">REGIME TRIBUTÁRIO (impostos da NF-e por empresa)</b></div>
     <div class="grid2"><div class="mrow"><label class="fl">Regime</label><select id="fl_regime" class="inp">
         ${[['lucro_presumido','Lucro Presumido'],['lucro_real','Lucro Real'],['simples','Simples Nacional']].map(([v,t])=>`<option value="${v}" ${((f.regimeTributario||'lucro_presumido')===v)?'selected':''}>${t}</option>`).join('')}
@@ -4274,7 +4277,7 @@ async function saveFilial(id){
   const body = { nome:val('fl_nome'), matriz:$('fl_matriz').checked, ativa:$('fl_ativa').checked,
     cnpj:val('fl_cnpj'), inscricaoEstadual:val('fl_ie'), crt:Number(val('fl_crt')), nomeFantasia:val('fl_fant'), telefone:val('fl_tel'),
     logradouro:val('fl_log'), numeroEndereco:val('fl_num'), bairro:val('fl_bairro'), municipio:val('fl_mun'), codMunicipio:val('fl_codmun'),
-    uf:(val('fl_uf')||'').toUpperCase(), cep:val('fl_cep'), focusToken:val('fl_token'), nfeSerie:val('fl_serie')||'1', nfeProximoNumero:Number(val('fl_prox')||1),
+    uf:(val('fl_uf')||'').toUpperCase(), cep:val('fl_cep'), focusToken:val('fl_token'), focusTokenHomolog:val('fl_tokhom'), focusTokenProd:val('fl_tokprod'), nfeSerie:val('fl_serie')||'1', nfeProximoNumero:Number(val('fl_prox')||1),
     regimeTributario:val('fl_regime')||'lucro_presumido', icmsCstPadrao:val('fl_icmscst')||undefined, pisCofinsCst:val('fl_pccst')||undefined, csosn:val('fl_csosn')||undefined };
   const _n=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
   body.icmsInterno=_n('fl_icmsint'); body.pisAliquota=_n('fl_pis'); body.cofinsAliquota=_n('fl_cofins');

@@ -141,7 +141,9 @@ model Filial {
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
   nfeAmbiente       String? // homologacao | producao — sobrepõe o NFE_AMBIENTE global (null = usa o global)
-  focusToken        String? // token Focus NFe da filial (senão usa FOCUS_NFE_TOKEN global)
+  focusToken        String? // token Focus NFe genérico da filial (fallback)
+  focusTokenHomolog String? // token Focus de HOMOLOGAÇÃO da empresa (por CNPJ)
+  focusTokenProd    String? // token Focus de PRODUÇÃO da empresa (por CNPJ)
   dadosBancarios    String? @db.Text // banco/agência/conta/PIX/favorecido — sai na proposta/pedido
   criadoEm          DateTime @default(now())
   pedidos           Pedido[]
