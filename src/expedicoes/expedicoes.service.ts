@@ -324,11 +324,14 @@ export class ExpedicoesService {
 
   async conferencia(id: number, empresaId: number) {
     const exp = await this.getExp(id, empresaId);
+    const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? [])
+      .map((c) => ({ numero: c.numero, pecas: c.pecas, conferida: !!c.conferida }));
     return {
       numero: exp.numero,
       codBip: String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase(), // código da etiqueta MASTER
       esperadas: exp.pecas, conferidas: exp.pecasConferidas,
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
+      caixas, totalCaixas: caixas.length, caixasConferidas: caixas.filter((c) => c.conferida).length,
     };
   }
 
@@ -346,7 +349,19 @@ export class ExpedicoesService {
     }
     let add = 1;
     let detalhe = codigo;
-    if (/^KIT-/i.test(codigo)) {
+    let caixasUpd: Prisma.InputJsonValue | undefined;
+    if (/-CX\d+$/i.test(codigo)) {
+      // Bipou uma CAIXA: confere todas as peças dela de uma vez.
+      const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? []).slice();
+      const prefixo = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const n = Number(/-CX(\d+)$/i.exec(codigo)?.[1] ?? 0);
+      const box = caixas.find((c) => c.numero === n && codigo.toUpperCase() === `${prefixo}-CX${c.numero}`);
+      if (!box) throw new NotFoundException(`Caixa ${codigo} não pertence a esta expedição.`);
+      add = box.pecas || 0;
+      detalhe = `Caixa ${n} (${add} pç)`;
+      box.conferida = true;
+      caixasUpd = caixas as unknown as Prisma.InputJsonValue;
+    } else if (/^KIT-/i.test(codigo)) {
       const kit = await this.prisma.kit.findUnique({ where: { codigo } });
       if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
       add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
@@ -363,7 +378,7 @@ export class ExpedicoesService {
     const completou = novas >= esperadas;
     await this.prisma.expedicao.update({
       where: { id },
-      data: { pecasConferidas: novas, conferidos, conferenciaStatus: completou ? 'conferida' : 'conferindo', conferidoPor: usuario, ...(completou ? { conferidoEm: new Date() } : {}) },
+      data: { pecasConferidas: novas, conferidos, conferenciaStatus: completou ? 'conferida' : 'conferindo', conferidoPor: usuario, ...(completou ? { conferidoEm: new Date() } : {}), ...(caixasUpd ? { caixas: caixasUpd } : {}) },
     });
     return {
       ja: false,
