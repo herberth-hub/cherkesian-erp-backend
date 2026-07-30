@@ -3233,7 +3233,7 @@ function cxLabel(c){ return c ? (c.descricao.split(' · ')[0].slice(0,28)+' · '
 function cxAlocado(ci){ const X=window.__CX; let s=0; X.boxes.forEach(b=>b.linhas.forEach(l=>{ if(l.ci===ci) s+=Number(l.qtd)||0; })); return s; }
 function renderCaixas(){
   const X=window.__CX; if(!X) return;
-  const opts=(sel)=>'<option value="-1">— escolha item · cor · tamanho —</option>'+X.combos.map((c,i)=>{ const rest=c.disp-cxAlocado(i); return '<option value="'+i+'"'+(sel===i?' selected':'')+'>'+esc(cxLabel(c))+' (resta '+rest+')</option>'; }).join('');
+  const opts=(sel)=>'<option value="-1">— escolha item · cor · tamanho —</option>'+X.combos.map((c,i)=>{ const rest=c.disp-cxAlocado(i); if(rest<=0 && i!==sel) return ''; /* já incluído noutra caixa → não oferece de novo */ return '<option value="'+i+'"'+(sel===i?' selected':'')+'>'+esc(cxLabel(c))+' (resta '+rest+')</option>'; }).join('');
   const boxesHtml=X.boxes.map((b,bi)=>{
     const pcs=b.linhas.reduce((s,l)=>s+(Number(l.qtd)||0),0);
     const linhas=b.linhas.map((l,li)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
