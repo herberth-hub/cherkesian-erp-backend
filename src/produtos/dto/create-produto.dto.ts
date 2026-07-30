@@ -91,7 +91,7 @@ export class CreateProdutoDto extends ProdutoFichaDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(60)
+  @MaxLength(300)
   cor?: string;
 
   @IsOptional()
