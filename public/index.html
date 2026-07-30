@@ -3279,24 +3279,38 @@ async function imprimirEtiquetasCaixas(expId){
   let d; try{ d=await api('/expedicoes/'+expId+'/caixas/etiquetas'); }catch(e){ toast(e.message,'err'); return; }
   const pages=(d.etiquetas||[]).map(et=>{
     const linhas=(et.conteudo||[]).map(l=>`<tr><td>${esc(l.tamanho||'ÚNICO')}</td><td>${esc(l.cor||'—')}</td><td style="text-align:right">${l.qtd}</td></tr>`).join('');
-    return `<div class="cxp"><div class="cxtop"><div><div class="cxnum">CX ${et.caixaNum}/${et.totalCaixas}</div><div class="cxexp">${esc(et.expedicao)}${et.nf?(' · NF '+esc(et.nf)):''}${et.pedido?(' · '+esc(et.pedido)):''}</div></div><img class="cxqr" src="${et.qr}"></div>
+    return `<div class="page"><div class="cxtop"><div><div class="cxnum">CX ${et.caixaNum}/${et.totalCaixas}</div><div class="cxexp">${esc(et.expedicao)}${et.nf?(' · NF '+esc(et.nf)):''}${et.pedido?(' · '+esc(et.pedido)):''}</div></div><img class="cxqr" src="${et.qr}"></div>
       <div class="cxcli">${esc(et.cliente)} — ${esc(et.cidadeUf||'')}</div>
       <table class="cxt"><thead><tr><th>Tam</th><th>Cor</th><th style="text-align:right">Qtd</th></tr></thead><tbody>${linhas}</tbody></table>
       <div class="cxtot">Total da caixa: <b>${et.pecas}</b> peça(s)${et.peso?(' · '+et.peso+' kg'):''}</div>
       <img class="cxbc" src="${et.barcode}"><div class="cxcod">${esc(et.codigo)}</div></div>`;
   }).join('');
-  const w=window.open('','_blank','width=460,height=720'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
+  const n=(d.etiquetas||[]).length;
+  const w=window.open('','_blank','width=520,height=760'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
   w.document.write(`<html><head><meta charset=utf-8><title>Etiquetas de caixa · ${esc(d.etiquetas&&d.etiquetas[0]?d.etiquetas[0].expedicao:'')}</title>
-    <style>@page{size:100mm 150mm;margin:0}*{box-sizing:border-box;font-family:Arial}body{margin:0}
-    .cxp{width:100mm;height:150mm;padding:6mm;page-break-after:always;display:flex;flex-direction:column;color:#000}
+    <style id="psz">@page{size:100mm 150mm;margin:0}</style>
+    <style>*{box-sizing:border-box;font-family:Arial}html,body{margin:0}body{color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .page{width:100mm;height:150mm;padding:6mm;display:flex;flex-direction:column;background:#fff}
     .cxtop{display:flex;justify-content:space-between;align-items:flex-start}
     .cxnum{font-size:26pt;font-weight:900;line-height:1} .cxexp{font-size:9pt;color:#333;margin-top:2mm}
     .cxqr{width:26mm;height:26mm} .cxcli{font-size:11pt;font-weight:700;margin:3mm 0 2mm;border-top:1px solid #000;padding-top:2mm}
     .cxt{width:100%;border-collapse:collapse;font-size:11pt} .cxt th,.cxt td{border:1px solid #999;padding:2mm 2.5mm;text-align:left} .cxt th{background:#eee;font-size:9pt}
     .cxtot{font-size:11pt;margin-top:auto;padding-top:2mm} .cxbc{height:12mm;max-width:100%;margin-top:1mm} .cxcod{font-family:monospace;font-weight:700;font-size:10pt}
-    @media print{.bar{display:none}} .bar{position:fixed;top:4px;right:4px}</style></head>
-    <body><div class="bar"><button onclick="window.print()">🖨 Imprimir</button></div>${pages}
-    <script>setTimeout(function(){window.print()},200)<\/script></body></html>`);
+    /* 100×150 (padrão): 1 etiqueta por página */
+    body.z150mode{background:#eee} body.z150mode .wrap{display:block}
+    body.z150mode .page{page-break-after:always;margin:0 auto 3mm} body.z150mode .page:last-child{page-break-after:auto}
+    /* A4 (grade 2 col p/ economizar papel na impressora comum) */
+    body.a4mode{background:#eee} body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
+    body.a4mode .page{width:auto;height:auto;min-height:125mm;border:1px solid #000;border-radius:6px;break-inside:avoid;margin:0}
+    @media print{body{background:#fff} .bar{display:none!important} body.z150mode .page{margin:0}}
+    .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
+    .bar button{padding:6px 10px;cursor:pointer}</style></head>
+    <body class="z150mode"><div class="bar"><b style="align-self:center">Imprimir:</b>
+      <button onclick="setSizeCX('z150')">🏷 100×150 mm</button>
+      <button onclick="setSizeCX('a4')">📄 Folha A4 (grade)</button>
+      <span style="align-self:center;color:#666">${n} caixa(s)</span></div>
+    <div class="wrap">${pages}</div>
+    <script>function setSizeCX(s){var cls={z150:'z150mode',a4:'a4mode'}[s]||'z150mode';document.body.className=cls;var pg={z150:'@page{size:100mm 150mm;margin:0}',a4:'@page{size:A4;margin:8mm}'}[s]||'';document.getElementById('psz').textContent=pg;setTimeout(function(){window.print()},150);}setTimeout(function(){window.print()},250);<\/script></body></html>`);
   w.document.close(); closeModal(); loadRoute();
 }
 function confPill(s){ const m={pendente:['gray','pendente'],conferindo:['blue','conferindo'],conferida:['gold','conferida'],despachado:['green','despachado']}; const x=m[s]||['gray',s||'pendente']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
