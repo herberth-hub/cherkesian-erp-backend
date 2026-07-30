@@ -140,6 +140,7 @@ model Filial {
   telefone          String?
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
+  nfeAmbiente       String? // homologacao | producao — sobrepõe o NFE_AMBIENTE global (null = usa o global)
   focusToken        String? // token Focus NFe da filial (senão usa FOCUS_NFE_TOKEN global)
   dadosBancarios    String? @db.Text // banco/agência/conta/PIX/favorecido — sai na proposta/pedido
   criadoEm          DateTime @default(now())

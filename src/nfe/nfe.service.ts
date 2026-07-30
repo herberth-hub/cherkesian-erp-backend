@@ -102,7 +102,7 @@ export class NfeService {
     const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas });
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload)
+      ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
       : this.emitirSimulada();
 
     // Rejeitada: não persiste nem consome número (a SEFAZ/provedor não aceitou).
@@ -243,7 +243,7 @@ export class NfeService {
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEAV-${filial.id}-${serie}-${numeroSeq}`, payload)
+      ? await this.emitirFocusNfe(token, `NFEAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
       : this.emitirSimulada();
 
     if (emissao.status === 'rejeitada') {
@@ -306,7 +306,7 @@ export class NfeService {
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
 
     const ref = this.refDaNota(nota);
-    const r = await this.consultarFocus(token, ref);
+    const r = await this.consultarFocus(token, ref, filial?.nfeAmbiente);
 
     const mapa: Record<string, NFeStatus> = {
       autorizado: 'autorizada',
@@ -353,7 +353,8 @@ export class NfeService {
       throw new ConflictException('Só é possível cancelar na SEFAZ uma nota AUTORIZADA. Para nota rejeitada/pendente, use Excluir.');
     }
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
-    const r = await this.cancelarFocus(token, this.refDaNota(nota), justificativa);
+    const ambCanc = nota.filialId ? (await this.prisma.filial.findUnique({ where: { id: nota.filialId }, select: { nfeAmbiente: true } }))?.nfeAmbiente : null;
+    const r = await this.cancelarFocus(token, this.refDaNota(nota), justificativa, ambCanc);
     if (!r.ok) throw new BadRequestException(`Falha ao cancelar na SEFAZ: ${r.motivo}`);
     const upd = await this.prisma.notaFiscal.update({
       where: { id },
@@ -396,7 +397,8 @@ export class NfeService {
       return { ok: true, mensagem: 'CC-e registrada (simulada).', correcao };
     }
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
-    const r = await this.cartaCorrecaoFocus(token, this.refDaNota(nota), correcao);
+    const ambCCe = nota.filialId ? (await this.prisma.filial.findUnique({ where: { id: nota.filialId }, select: { nfeAmbiente: true } }))?.nfeAmbiente : null;
+    const r = await this.cartaCorrecaoFocus(token, this.refDaNota(nota), correcao, ambCCe);
     if (!r.ok) throw new BadRequestException(`Falha na carta de correção: ${r.motivo}`);
     await this.prisma.notaFiscal.update({
       where: { id },
@@ -412,7 +414,7 @@ export class NfeService {
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
     const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
-    const host = this.focusHost();
+    const host = this.focusHost(filial?.nfeAmbiente);
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
     const det = (await (await fetch(`https://${host}/v2/nfe/${encodeURIComponent(this.refDaNota(nota))}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
     const caminho = (det?.['caminho_pdf_carta_correcao'] ?? det?.['caminho_carta_correcao']) as string | undefined;
@@ -474,7 +476,7 @@ export class NfeService {
       const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
       const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
       if (token) {
-        const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota));
+        const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente);
         const nome = String(nota.numero).replace('/', '-');
         if (arq.pdf) anexos.push({ filename: `NFe-${nome}.pdf`, content: arq.pdf, contentType: 'application/pdf' });
         if (arq.xml) anexos.push({ filename: `NFe-${nome}.xml`, content: arq.xml, contentType: 'application/xml' });
@@ -505,7 +507,7 @@ export class NfeService {
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
     const token = filial?.focusToken || this.config.get<string>('FOCUS_NFE_TOKEN');
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
-    const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota));
+    const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente);
     const nome = String(nota.numero).replace('/', '-');
     if (tipo === 'danfe') {
       if (!arq.pdf) throw new BadRequestException('DANFE ainda não disponível na Focus. Tente novamente em instantes.');
@@ -516,9 +518,9 @@ export class NfeService {
   }
 
   /** Baixa DANFE (PDF) e XML da nota na Focus. */
-  private async baixarArquivosFocus(token: string, ref: string) {
+  private async baixarArquivosFocus(token: string, ref: string, amb?: string | null) {
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
-    const host = this.focusHost();
+    const host = this.focusHost(amb);
     const det = (await (await fetch(`https://${host}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
     const baixar = async (caminho?: unknown): Promise<Buffer | null> => {
       if (!caminho || typeof caminho !== 'string') return null;
@@ -536,8 +538,8 @@ export class NfeService {
     };
   }
 
-  private async cancelarFocus(token: string, ref: string, justificativa: string) {
-    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}`;
+  private async cancelarFocus(token: string, ref: string, justificativa: string, amb?: string | null) {
+    const url = `https://${this.focusHost(amb)}/v2/nfe/${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
         method: 'DELETE',
@@ -553,8 +555,8 @@ export class NfeService {
     }
   }
 
-  private async cartaCorrecaoFocus(token: string, ref: string, correcao: string) {
-    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}/carta_correcao`;
+  private async cartaCorrecaoFocus(token: string, ref: string, correcao: string, amb?: string | null) {
+    const url = `https://${this.focusHost(amb)}/v2/nfe/${encodeURIComponent(ref)}/carta_correcao`;
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -569,8 +571,8 @@ export class NfeService {
     }
   }
 
-  private async consultarFocus(token: string, ref: string) {
-    const url = `https://${this.focusHost()}/v2/nfe/${encodeURIComponent(ref)}`;
+  private async consultarFocus(token: string, ref: string, amb?: string | null) {
+    const url = `https://${this.focusHost(amb)}/v2/nfe/${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
         headers: { Authorization: 'Basic ' + Buffer.from(token + ':').toString('base64') },
@@ -842,16 +844,18 @@ export class NfeService {
     };
   }
 
-  /** Host da API Focus por ambiente (produção usa api.; homologação usa homologacao.). */
-  private focusHost(): string {
-    return this.config.get<string>('NFE_AMBIENTE') === 'producao'
-      ? 'api.focusnfe.com.br'
-      : 'homologacao.focusnfe.com.br';
+  /**
+   * Host da API Focus por ambiente (produção usa api.; homologação usa homologacao.).
+   * `amb` (ambiente da filial) sobrepõe o NFE_AMBIENTE global quando informado.
+   */
+  private focusHost(amb?: string | null): string {
+    const ambiente = amb || this.config.get<string>('NFE_AMBIENTE');
+    return ambiente === 'producao' ? 'api.focusnfe.com.br' : 'homologacao.focusnfe.com.br';
   }
 
   // ===== Provedores =====
-  private async emitirFocusNfe(token: string, ref: string, payload: unknown) {
-    const url = `https://${this.focusHost()}/v2/nfe?ref=${encodeURIComponent(ref)}`;
+  private async emitirFocusNfe(token: string, ref: string, payload: unknown, amb?: string | null) {
+    const url = `https://${this.focusHost(amb)}/v2/nfe?ref=${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
         method: 'POST',

@@ -28,6 +28,8 @@ export class CreateFilialDto {
   @IsOptional() @IsString() @MaxLength(3) nfeSerie?: string;
   @IsOptional() @IsInt() @Min(1, { message: 'nfeProximoNumero deve ser >= 1.' }) nfeProximoNumero?: number;
   @IsOptional() @IsString() @MaxLength(200) focusToken?: string;
+  /** Ambiente NF-e da filial: homologacao | producao (sobrepõe o global). */
+  @IsOptional() @IsIn(['homologacao', 'producao']) nfeAmbiente?: string;
   /** Dados bancários p/ pagamento (banco/agência/conta/PIX/favorecido) — sai na proposta/pedido. */
   @IsOptional() @IsString() @MaxLength(1000) dadosBancarios?: string;
 
