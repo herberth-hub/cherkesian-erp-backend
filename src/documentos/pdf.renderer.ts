@@ -361,6 +361,63 @@ export function gradeChips(doc: Pdf, grade: Record<string, number> | null | unde
 }
 
 /** Um item do pedido no estilo minimalista: nº + descrição, valor à direita e chips da grade. */
+/**
+ * Tabela densa de itens no estilo "pedido 479": uma linha por item (quebrada em 2
+ * quando há faixa de preço especial), tamanhos em colunas + V.Unit e V.Total,
+ * e linha de totais. Ocupa pouquíssimo espaço — pedido grande cabe em 1 página.
+ */
+export function pedidoGradeTabela(
+  doc: Pdf,
+  data: {
+    sizes: string[];
+    rows: Array<{ num: string; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }>;
+    totBySize: Record<string, number>;
+    totPecas: number;
+    totValor: string;
+  },
+): void {
+  const x0 = 50;
+  const tableW = doc.page.width - 100;
+  const cItem = 20, cCor = 58, cVU = 46, cVT = 60;
+  const nS = data.sizes.length;
+  const cSize = Math.max(16, Math.min(30, Math.floor((tableW * 0.36) / Math.max(1, nS))));
+  const cDesc = tableW - cItem - cCor - cVU - cVT - cSize * nS;
+  const cols: Array<{ w: number; a: 'left' | 'center' | 'right' }> = [
+    { w: cItem, a: 'center' }, { w: cDesc, a: 'left' }, { w: cCor, a: 'left' },
+    ...data.sizes.map(() => ({ w: cSize, a: 'center' as const })),
+    { w: cVU, a: 'right' }, { w: cVT, a: 'right' },
+  ];
+  const headers = ['#', 'DESCRIÇÃO', 'COR', ...data.sizes, 'V.UN', 'V.TOTAL'];
+
+  const drawRow = (cells: string[], o: { header?: boolean; total?: boolean } = {}) => {
+    const fs = o.header ? 6.8 : 7.4;
+    doc.font(o.header || o.total ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs);
+    // altura pela coluna mais alta (descrição OU cor, que também quebra linha)
+    const hDesc = doc.heightOfString(cells[1] || '', { width: cols[1].w - 6 });
+    const hCor = doc.heightOfString(cells[2] || '', { width: cols[2].w - 6 });
+    const rowH = Math.max(o.header ? 16 : 15, Math.max(hDesc, hCor) + 6);
+    if (doc.y + rowH > doc.page.height - 80) { doc.addPage(); }
+    let x = x0; const y = doc.y;
+    for (let i = 0; i < cols.length; i++) {
+      if (o.header) doc.rect(x, y, cols[i].w, rowH).fill('#f4f0e2');
+      else if (o.total) doc.rect(x, y, cols[i].w, rowH).fill('#faf6ea');
+      doc.rect(x, y, cols[i].w, rowH).lineWidth(0.4).strokeColor('#c9bd93').stroke();
+      doc.fillColor(o.header ? OURO_ESCURO : TINTA).font(o.header || o.total ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs)
+        .text(cells[i] ?? '', x + 3, y + 3, { width: cols[i].w - 6, align: cols[i].a, lineBreak: true });
+      x += cols[i].w;
+    }
+    doc.x = x0; doc.y = y + rowH;
+  };
+
+  drawRow(headers, { header: true });
+  for (const r of data.rows) {
+    drawRow([r.num, r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), r.vUnit, r.vTotal]);
+  }
+  drawRow(['', 'TOTAL', '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), String(data.totPecas), data.totValor], { total: true });
+  doc.x = x0; doc.moveDown(0.6);
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
 /** Foto do produto num quadrado padrão (canto do item). Sem foto, desenha moldura "FOTO". */
 function drawFotoCanto(doc: Pdf, dataUri: string | null | undefined, x: number, y: number, size: number): void {
   const m = dataUri ? /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(dataUri.trim()) : null;

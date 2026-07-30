@@ -18,6 +18,7 @@ import {
   gradeTabela,
   imagem,
   itemPedido,
+  pedidoGradeTabela,
   money,
   novaEtiqueta,
   novoDocumento,
@@ -258,34 +259,47 @@ export class DocumentosService {
     ]);
 
     secao(doc, 'Itens · grade de tamanhos');
+    // Colunas de tamanho = união dos tamanhos presentes, na ordem da escada.
+    const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'ÚNICO'];
+    const presentes = new Set<string>();
+    for (const i of pedido.itens) {
+      const g = i.grade as Record<string, number> | null;
+      if (g && Object.keys(g).length) Object.entries(g).forEach(([t, q]) => { if (Number(q) > 0) presentes.add(t.toUpperCase()); });
+      else presentes.add('ÚNICO');
+    }
+    const sizes = ESCADA.filter((s) => presentes.has(s)).concat([...presentes].filter((s) => !ESCADA.includes(s)));
+
+    const rows: Array<{ num: string; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }> = [];
+    const totBySize: Record<string, number> = {};
+    let totPecas = 0;
+    let totValor = new Prisma.Decimal(0);
     pedido.itens.forEach((i, idx) => {
-      const grade = i.grade as Record<string, number> | null;
-      const base = i.valorUnit;
-      // Linhas por tamanho, cada uma com o preço da sua faixa (especial p/ tamanhos grandes).
-      const linhas =
-        grade && Object.keys(grade).length
-          ? Object.entries(grade)
-              .filter(([, q]) => Number(q) > 0)
-              .map(([tam, q]) => {
-                const unit = this.precoTamanho(i.produtoId ? prodMap.get(i.produtoId) ?? null : null, base,tam);
-                const qtd = Number(q) || 0;
-                return { tam, qtd, unit: money(unit), total: money(unit.mul(qtd)) };
-              })
-          : [{ tam: '—', qtd: i.quantidade, unit: money(base), total: money(base.mul(i.quantidade)) }];
-      const subtotal = linhas.reduce(
-        (s, l) => s.plus(this.precoTamanho(i.produtoId ? prodMap.get(i.produtoId) ?? null : null, base,l.tam).mul(l.qtd)),
-        new Prisma.Decimal(0),
-      );
       const prod = i.produtoId ? prodMap.get(i.produtoId) ?? null : null;
-      itemPedido(doc, {
-        num: String(idx + 1).padStart(2, '0'),
-        descricao: i.descricao,
-        cor: i.cor ?? prod?.cor ?? null,
-        foto: prod?.fotoModelo ?? null,
-        linhas,
-        subtotal: money(subtotal),
-      });
+      const base = i.valorUnit;
+      const grade = (i.grade as Record<string, number> | null) ?? null;
+      const num = String(idx + 1).padStart(2, '0');
+      const cor = i.cor ?? prod?.cor ?? null;
+      // Agrupa as quantidades por PREÇO (base vs especial) — cada preço vira uma linha.
+      const porPreco = new Map<string, { unit: Prisma.Decimal; q: Record<string, number> }>();
+      const add = (tam: string, qtd: number) => {
+        if (!(qtd > 0)) return;
+        const unit = this.precoTamanho(prod, base, tam);
+        const key = unit.toFixed(2);
+        if (!porPreco.has(key)) porPreco.set(key, { unit, q: {} });
+        porPreco.get(key)!.q[tam] = (porPreco.get(key)!.q[tam] || 0) + qtd;
+        totBySize[tam] = (totBySize[tam] || 0) + qtd;
+        totPecas += qtd;
+      };
+      if (grade && Object.keys(grade).length) Object.entries(grade).forEach(([t, q]) => add(t.toUpperCase(), Number(q) || 0));
+      else add('ÚNICO', i.quantidade);
+      for (const { unit, q } of porPreco.values()) {
+        const linhaQtd = Object.values(q).reduce((a, b) => a + b, 0);
+        const vt = unit.mul(linhaQtd);
+        totValor = totValor.plus(vt);
+        rows.push({ num, descricao: i.descricao, cor, qtyBySize: q, vUnit: money(unit), vTotal: money(vt) });
+      }
     });
+    pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: money(totValor) });
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
 
     // Condições comerciais (pagamento, frete, prazo, validade).
