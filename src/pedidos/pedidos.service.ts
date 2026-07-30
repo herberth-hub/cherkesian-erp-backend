@@ -278,15 +278,16 @@ export class PedidosService {
     }
 
     // Expande conjuntos (produtos com componentes) em UNIDADES de produção — 1 OP por unidade.
-    type UnidProd = { chave: number; produtoId: number | null; quantidade: number; grade: unknown };
+    type UnidProd = { chave: number; produtoId: number | null; quantidade: number; grade: unknown; cor: string | null };
     const unidades: UnidProd[] = [];
     let ch = 0;
     for (const item of itensProducao) {
       const comps = item.produtoId ? compDe.get(item.produtoId) : null;
+      const cor = (item as { cor?: string | null }).cor ?? null;
       if (comps && comps.length) {
-        for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade });
+        for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade, cor });
       } else {
-        unidades.push({ chave: ch++, produtoId: item.produtoId ?? null, quantidade: item.quantidade, grade: item.grade });
+        unidades.push({ chave: ch++, produtoId: item.produtoId ?? null, quantidade: item.quantidade, grade: item.grade, cor });
       }
     }
 
@@ -395,6 +396,7 @@ export class PedidosService {
             pedidoId: pedido.id,
             filialId: pedido.filialId,
             produtoId: u.produtoId ?? null,
+            cor: u.cor,
             quantidade: u.quantidade,
             status: 'a_iniciar',
             pilotoLiberado: true,

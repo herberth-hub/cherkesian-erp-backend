@@ -2101,7 +2101,7 @@ function renderRomaneio(){
       <td style="padding:5px 8px;border-top:1px solid #eee"><input class="inp" id="rom_lote_${i}" data-cod="${esc(m.codigo)}" value="${esc((m.lotes||[]).join(', '))}" placeholder="digite o lote…" style="font-size:12px;padding:5px 7px"></td>
       <td style="padding:6px 8px;border-top:1px solid #eee;font-size:11px;color:${m.conferido?'#1e7a44':'#c14a34'}">${m.conferido?('conferido'+(m.conferidoPor?(' · '+esc(m.conferidoPor)):'')):'pendente'}</td></tr>`).join('');
   openModal(`<h3>🧾 Romaneio de corte — OP ${esc(r.op)}</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">${r.produto?esc(r.produto)+' · ':''}${r.quantidade} peça(s)${r.pedido?(' · pedido '+esc(r.pedido)):''}. O saldo já foi baixado na geração da OP — <b>o bip aqui é só conferência</b> (não baixa de novo).</div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">${r.produto?esc(r.produto)+' · ':''}${r.cor?('<b style="color:#3a2f08">Cor: '+esc(r.cor)+'</b> · '):''}${r.quantidade} peça(s)${r.pedido?(' · pedido '+esc(r.pedido)):''}. O saldo já foi baixado na geração da OP — <b>o bip aqui é só conferência</b> (não baixa de novo).</div>
     <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
       <div style="flex:1"><label class="fl">Bipe o material / rolo (MP-…, AVI-… ou UN-…)</label><input id="rom_bip" class="inp" placeholder="bipe ou digite" onkeydown="if(event.key==='Enter')APP.conferirRomaneioBip()"></div>
       <button class="btn-primary" onclick="APP.conferirRomaneioBip()">Conferir</button>
@@ -2137,7 +2137,7 @@ function imprimirRomaneio(){
   w.document.write(`<html><head><meta charset=utf-8><title>Romaneio OP ${esc(r.op)}</title>
     <style>*{font-family:Arial}h2{margin:0 0 2px}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left}th{background:#eee}</style></head><body>
     <h2>Romaneio de corte — OP ${esc(r.op)}</h2>
-    <div>${r.produto?esc(r.produto):''} · ${r.quantidade} peça(s)${r.pedido?(' · pedido '+esc(r.pedido)):''}</div>
+    <div>${r.produto?esc(r.produto):''} · ${r.cor?('<b>Cor: '+esc(r.cor)+'</b> · '):''}${r.quantidade} peça(s)${r.pedido?(' · pedido '+esc(r.pedido)):''}</div>
     <table><thead><tr><th>OK</th><th>Código</th><th>Material</th><th>Local</th><th>Quantidade</th></tr></thead><tbody>${linhas}</tbody></table>
     <p style="margin-top:24px">Separado por: __________________________  ·  Conferido por: __________________________</p>
     <script>window.print()<\/script></body></html>`);

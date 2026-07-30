@@ -425,6 +425,7 @@ model OP {
   filialId       Int?
   filial         Filial?  @relation(fields: [filialId], references: [id])
   produtoId      Int?
+  cor            String?  // cor escolhida no pedido (segue p/ corte/costura e kits)
   quantidade     Int
   inicio         DateTime?
   entregaPrev    DateTime?

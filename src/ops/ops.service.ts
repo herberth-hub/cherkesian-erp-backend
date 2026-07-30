@@ -68,6 +68,7 @@ export class OpsService {
     return {
       op: op.numero, pedido: op.pedido?.numero ?? null, quantidade: op.quantidade,
       produto: produto ? `${produto.codigo} · ${produto.descricao}` : null,
+      cor: op.cor ?? null,
       itens,
       conferidos: itens.filter((i) => i.conferido).length,
       total: itens.length,

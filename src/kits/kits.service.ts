@@ -141,7 +141,8 @@ export class KitsService {
 
     const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { descricao: true } }) : null;
     const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
-    const cor = dto.cor?.trim() || (corMatch ? corMatch[1].trim() : undefined);
+    // Prioridade: cor informada no kit → cor da OP (veio do pedido) → obs do pedido.
+    const cor = dto.cor?.trim() || op.cor?.trim() || (corMatch ? corMatch[1].trim() : undefined);
     const pecasPorJogo = dto.pecasPorJogo && dto.pecasPorJogo > 0 ? dto.pecasPorJogo : 1;
     const agora = new Date();
 

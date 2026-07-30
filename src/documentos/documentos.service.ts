@@ -355,7 +355,7 @@ export class DocumentosService {
         ['Código', produto.codigo],
         ['Grade', produto.grade ?? '—'],
         ['Descrição', produto.descricao],
-        ['Cor', produto.cor ?? '—'],
+        ['Cor', op.cor ?? produto.cor ?? '—'],
       ]);
       // Imagem do modelo para o cortador identificar a peça (ou moldura em branco).
       secao(doc, 'Modelo da peça');
