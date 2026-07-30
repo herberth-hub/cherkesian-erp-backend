@@ -1477,7 +1477,7 @@ async function formPedido(id){
   let ped=null;
   if(id){ try{ ped = await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; } }
   PITENS = ped && ped.itens && ped.itens.length
-    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null}))
+    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   const selCli = ped?ped.clienteId:null;
@@ -1525,11 +1525,21 @@ function tamsDoProduto(p){
 function tamsEspDoProduto(p){
   return (p&&p.tamsEspeciais)?String(p.tamsEspeciais).split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
 }
+// Cores cadastradas do produto (separadas por "·"). Ex.: "2187 Verde · 9158 Cinza".
+function coresDoProduto(p){
+  return (p&&p.cor)?String(p.cor).split(/\s*[·|;]\s*/).map(s=>s.trim()).filter(Boolean):[];
+}
 function renderItens(){
   const prods = window.__PROD||[];
   $('pitens').innerHTML = prodDatalist('prodlist',prods) + PITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     const gr = it.grade || {};
+    const cores = coresDoProduto(cur);
+    const corSel = cores.length ? `<div class="mrow" style="margin-bottom:6px"><label class="fl">Cor * <span class="muted" style="font-size:10px">(obrigatória)</span></label>
+        <select class="inp" id="it_cor_${i}" onchange="APP.itemCor(${i})" style="${!it.cor?'border-color:#e0a99b':''}">
+          <option value="">— escolha a cor —</option>
+          ${cores.map(cc=>'<option'+(it.cor===cc?' selected':'')+'>'+esc(cc)+'</option>').join('')}
+        </select></div>` : '';
     const tams = tamsDoProduto(cur);
     const esp = tamsEspDoProduto(cur);
     const temEsp = cur && cur.precoEspecial!=null && esp.length;
@@ -1546,6 +1556,7 @@ function renderItens(){
         <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})">
           ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
       </div>
+      ${corSel}
       <div style="font-size:11px;color:#6a675e;margin:2px 0 4px">Quantidade por tamanho${temEsp?' <span style="color:#9a7d1e">(★ = preço especial '+money(cur.precoEspecial)+')</span>':''}:</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end">${cels}
         <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Qtd total</label><div style="font-size:16px;font-weight:700;color:#242a26" id="it_qtdlbl_${i}">0</div></div>
@@ -1566,6 +1577,7 @@ function itemGradeInp(i){
   itemQty(i);
 }
 function itemSync(i){ PITENS[i].val = Number(val('it_val_'+i))||PITENS[i].val; PITENS[i].qtd = Number(val('it_qtd_'+i))||0; itemQty(i); }
+function itemCor(i){ PITENS[i].cor = val('it_cor_'+i)||''; const el=$('it_cor_'+i); if(el) el.style.borderColor = PITENS[i].cor?'':'#e0a99b'; }
 function itemQty(i){
   const lbl=$('it_qtdlbl_'+i); if(!lbl)return;
   const g=PITENS[i].grade; const soma=g?Object.values(g).reduce((a,b)=>a+b,0):0;
@@ -1577,6 +1589,9 @@ function itemProd(i){
   const p=prodByLabel(window.__PROD,val('it_prod_'+i));
   PITENS[i].produtoId = p?p.id:null;
   PITENS[i].val = Number(val('it_val_'+i)) || (p&&p.precoBase?Number(p.precoBase):PITENS[i].val);
+  // Ao trocar o produto, reseta a cor; auto-seleciona se o produto tiver só uma cor.
+  const cores = coresDoProduto(p);
+  PITENS[i].cor = cores.length===1 ? cores[0] : '';
   renderItens();
 }
 async function savePedido(id){
@@ -1591,7 +1606,11 @@ async function savePedido(id){
     const manual=Number(val('it_qtd_'+i))||0;
     const quantidade = soma>0?soma:manual;
     if(!(quantidade>0)){ toast('Item '+(i+1)+': informe a grade (por tamanho) ou a quantidade.','err'); return; }
+    // Cor obrigatória quando o produto tem cores cadastradas.
+    const cores = coresDoProduto(p);
+    if(cores.length && !PITENS[i].cor){ toast('Item '+(i+1)+' ('+p.descricao+'): escolha a COR.','err'); return; }
     const item={ produtoId:p.id, quantidade, valorUnit:Number(v) };
+    if(PITENS[i].cor) item.cor=PITENS[i].cor;
     if(soma>0) item.grade=g;
     itens.push(item);
   }
@@ -4518,7 +4537,7 @@ window.APP = {
   closeModal, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
+  formPedido, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,

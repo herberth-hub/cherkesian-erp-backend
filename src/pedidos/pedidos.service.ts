@@ -105,6 +105,7 @@ export class PedidosService {
       itensData.push({
         produtoId: item.produtoId,
         descricao,
+        cor: item.cor?.trim() || null,
         quantidade,
         valorUnit,
         grade,
@@ -167,7 +168,7 @@ export class PedidosService {
       const valorUnit = new Prisma.Decimal(item.valorUnit);
       const { grade, quantidade } = this.normalizarGrade(item);
       valorTotal = valorTotal.plus(this.subtotalItem(produto, valorUnit, grade, quantidade));
-      itensData.push({ produtoId: item.produtoId, descricao, quantidade, valorUnit, grade });
+      itensData.push({ produtoId: item.produtoId, descricao, cor: item.cor?.trim() || null, quantidade, valorUnit, grade });
     }
 
     const filialId = await this.resolverFilial(empresaId, dto.filialId);

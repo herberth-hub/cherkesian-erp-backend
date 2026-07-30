@@ -280,7 +280,7 @@ export class DocumentosService {
       itemPedido(doc, {
         num: String(idx + 1).padStart(2, '0'),
         descricao: i.descricao,
-        cor: prod?.cor ?? null,
+        cor: i.cor ?? prod?.cor ?? null,
         foto: prod?.fotoModelo ?? null,
         linhas,
         subtotal: money(subtotal),

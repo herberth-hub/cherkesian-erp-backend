@@ -40,6 +40,12 @@ export class CreatePedidoItemDto {
   @IsOptional()
   @IsObject()
   grade?: Record<string, number>;
+
+  /** Cor escolhida do produto (das cores cadastradas). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cor?: string;
 }
 
 export class CreatePedidoDto {
