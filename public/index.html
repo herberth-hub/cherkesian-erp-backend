@@ -841,6 +841,7 @@ function pedidoAcoes(p){
 async function formExpParcial(pedidoId){
   let ped; try{ ped=await api('/pedidos/'+pedidoId); }catch(e){ toast(e.message,'err'); return; }
   const itens = ped.itens||[];
+  const corTag = it => it.cor?`<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px;margin-left:6px">🎨 ${esc(it.cor)}</span>`:'';
   const cards = itens.map(it=>{
     const grade = it.grade && Object.keys(it.grade).length ? it.grade : null;
     if(grade){
@@ -854,12 +855,12 @@ async function formExpParcial(pedidoId){
       }).join('');
       const totalRes = Object.entries(grade).reduce((s,[t,q])=>s+(Number(q)-Number(jaG[t]||0)),0);
       return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff">
-        <div style="font-weight:700;font-size:13px">${esc(it.descricao)} <span class="muted" style="font-weight:400;font-size:11px">· residual ${totalRes}</span></div>
+        <div style="font-weight:700;font-size:13px">${esc(it.descricao)}${corTag(it)} <span class="muted" style="font-weight:400;font-size:11px">· residual ${totalRes}</span></div>
         <div style="margin-top:6px;display:flex;flex-wrap:wrap">${sizes}</div></div>`;
     }
     const exp = it.quantidadeExpedida||0; const res = it.quantidade-exp;
     return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff;display:flex;justify-content:space-between;align-items:center">
-      <div><div style="font-weight:700;font-size:13px">${esc(it.descricao)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade}</div></div>
+      <div><div style="font-weight:700;font-size:13px">${esc(it.descricao)}${corTag(it)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade}</div></div>
       <input type="number" min="0" max="${res}" value="${res>0?res:0}" ${res>0?'':'disabled'} class="expq" data-item="${it.id}" style="width:74px;text-align:center;padding:5px"></div>`;
   }).join('');
   openModal(`<h3>📦 Expedição parcial · <span class="mono gold">${esc(ped.numero)}</span></h3>
