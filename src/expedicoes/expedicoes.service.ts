@@ -17,7 +17,7 @@ type CaixaLinha = { descricao: string; cor?: string | null; tamanho?: string | n
 
 /** Item selecionado para uma expedição (parcial ou total), com grade opcional por tamanho. */
 type SelExped = {
-  item: { id: number; produtoId: number | null; descricao: string; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown; gradeExpedida: unknown };
+  item: { id: number; produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown; gradeExpedida: unknown };
   qtd: number;
   gradeShip?: Record<string, number>;
 };
@@ -268,6 +268,7 @@ export class ExpedicoesService {
       pedidoItemId: item.id,
       produtoId: item.produtoId,
       descricao: item.descricao,
+      cor: item.cor ?? null, // cor escolhida no pedido (p/ montar caixas por cor)
       quantidade: qtd,
       valorUnit: Number(item.valorUnit),
       grade: gradeShip ?? null, // grade DESTA remessa (por tamanho) → a NF quebra por tamanho

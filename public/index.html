@@ -3213,12 +3213,15 @@ async function formCaixas(expId){
   let e; try{ const list=await api('/expedicoes'); e=(list||[]).find(x=>x.id===expId); }catch(err){ toast(err.message,'err'); return; }
   if(!e){ toast('Expedição não encontrada.','err'); return; }
   let ped=null; if(e.pedidoId){ try{ ped=await api('/pedidos/'+e.pedidoId); }catch(_){} }
-  // Combos disponíveis (produto · cor · tamanho) a partir dos itens do pedido.
+  // Só o que foi EXPEDIDO nesta expedição (snapshot exp.itens); fallback = pedido inteiro.
+  const corPorItem={}; (ped?ped.itens:[]).forEach(it=>{ corPorItem[it.id]=it.cor||''; });
+  const fonte = (e.itens&&e.itens.length)? e.itens : (ped?ped.itens:[]);
   const combos=[];
-  (ped?ped.itens:[]).forEach(it=>{
+  fonte.forEach(it=>{
+    const cor = it.cor || corPorItem[it.pedidoItemId] || '';
     const g=it.grade&&Object.keys(it.grade).length?it.grade:null;
-    if(g) Object.entries(g).forEach(([t,q])=>combos.push({descricao:it.descricao, cor:it.cor||'', tamanho:t, disp:Number(q)||0}));
-    else combos.push({descricao:it.descricao, cor:it.cor||'', tamanho:'', disp:it.quantidade});
+    if(g) Object.entries(g).forEach(([t,q])=>combos.push({descricao:it.descricao, cor, tamanho:t, disp:Number(q)||0}));
+    else combos.push({descricao:it.descricao, cor, tamanho:'', disp:it.quantidade});
   });
   // Caixas existentes → tenta remapear pros combos.
   const idxCombo=(d,c,t)=>combos.findIndex(k=>k.descricao===d&&(k.cor||'')===(c||'')&&(k.tamanho||'')===(t||''));
