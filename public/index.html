@@ -1274,7 +1274,12 @@ async function saveProduto(id){
   const tipo = val('f_tipo'); if(tipo) body.tipo = tipo;
   const orig = val('f_orig'); if(orig!=='') body.origem = Number(orig);
   const ialq = val('f_ialq'); if(ialq) body.icmsAliquota = Number(ialq);
-  if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
+  if(!body.categoria||!body.descricao){
+    const alvo = !body.categoria ? $('f_cat') : $('f_desc');
+    toast('Preencha '+(!body.categoria?'a Categoria':'a Descrição')+' — campo obrigatório no topo da ficha.','err');
+    if(alvo){ try{ alvo.scrollIntoView({behavior:'smooth',block:'center'}); }catch(_){} try{ alvo.focus(); }catch(_){} const o=alvo.style.boxShadow; alvo.style.boxShadow='0 0 0 3px #c14a34'; setTimeout(()=>{ alvo.style.boxShadow=o; },1800); }
+    return;
+  }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   // fotos e medidas SEMPRE enviadas (string vazia limpa; medidas substituem a grade)
   const fm=window.__FOTO||{};
