@@ -13,6 +13,8 @@ import { proximoSequencial } from '../common/utils/codigo.util';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
 
+type CaixaLinha = { descricao: string; cor?: string | null; tamanho?: string | null; qtd: number };
+
 /** Item selecionado para uma expedição (parcial ou total), com grade opcional por tamanho. */
 type SelExped = {
   item: { id: number; produtoId: number | null; descricao: string; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown; gradeExpedida: unknown };
@@ -25,6 +27,56 @@ export class ExpedicoesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Dados da etiqueta de expedição (preenchida do pedido) + QR e código de barras. */
+  // ===== Plano de embalagem por caixa (packing list + etiqueta de conteúdo) =====
+  private async expDaEmpresa(id: number, empresaId: number) {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id } });
+    if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    return { exp, cliente };
+  }
+
+  /** Salva o plano de caixas da expedição (substitui integralmente). */
+  async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number }>) {
+    await this.expDaEmpresa(id, empresaId);
+    const limpas = (caixas ?? []).map((c, i) => {
+      const conteudo = (c.conteudo ?? [])
+        .map((l) => ({ descricao: (l.descricao ?? '').trim(), cor: l.cor?.trim() || null, tamanho: l.tamanho?.trim() || null, qtd: Math.round(Number(l.qtd) || 0) }))
+        .filter((l) => l.descricao && l.qtd > 0);
+      const pecas = conteudo.reduce((s, l) => s + l.qtd, 0);
+      return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null };
+    }).filter((c) => c.conteudo.length);
+    await this.prisma.expedicao.update({ where: { id }, data: { caixas: limpas as unknown as Prisma.InputJsonValue } });
+    const totalPecas = limpas.reduce((s, c) => s + c.pecas, 0);
+    return { caixas: limpas, totalCaixas: limpas.length, totalPecas };
+  }
+
+  /** Dados das etiquetas de conteúdo (uma por caixa) para impressão. */
+  async etiquetasCaixas(id: number, empresaId: number) {
+    const { exp, cliente } = await this.expDaEmpresa(id, empresaId);
+    const caixas = (exp.caixas as Array<{ numero: number; conteudo: CaixaLinha[]; pecas: number; peso?: number | null }> | null) ?? [];
+    if (!caixas.length) throw new BadRequestException('Nenhuma caixa montada nesta expedição. Use "Montar caixas" primeiro.');
+    const pedido = exp.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, select: { numero: true } }) : null;
+    const total = caixas.length;
+    const etiquetas = [];
+    for (const c of caixas) {
+      const codigo = `${String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase()}-CX${c.numero}`;
+      const [qr, barcode] = await Promise.all([
+        bwipjs.toBuffer({ bcid: 'qrcode', text: codigo, scale: 4, padding: 0 }),
+        bwipjs.toBuffer({ bcid: 'code128', text: codigo, scale: 2, height: 12, includetext: false, padding: 0 }),
+      ]);
+      etiquetas.push({
+        codigo, caixaNum: c.numero, totalCaixas: total,
+        expedicao: exp.numero, pedido: pedido?.numero ?? null, nf: exp.nf ?? null,
+        cliente: cliente.nome, cidadeUf: cliente.cidadeUf ?? (cliente.municipio && cliente.uf ? `${cliente.municipio}/${cliente.uf}` : '—'),
+        conteudo: c.conteudo, pecas: c.pecas, peso: c.peso ?? null,
+        qr: 'data:image/png;base64,' + qr.toString('base64'),
+        barcode: 'data:image/png;base64,' + barcode.toString('base64'),
+      });
+    }
+    return { total, etiquetas };
+  }
+
   async etiqueta(id: number, empresaId: number) {
     const exp = await this.prisma.expedicao.findUnique({ where: { id } });
     if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);

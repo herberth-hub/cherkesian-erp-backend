@@ -500,6 +500,7 @@ model Expedicao {
   loteId         Int?
   parcial        Boolean  @default(false) // expedição/faturamento parcial do pedido
   itens          Json?    // snapshot dos itens desta expedição (parcial): [{produtoId,descricao,quantidade,valorUnit,grade?}]
+  caixas         Json?    // plano de embalagem: [{numero,conteudo:[{descricao,cor,tamanho,qtd}],pecas,peso?}]
   status         String   @default("Separado")
   // ===== Dupla conferência + despacho =====
   pecasConferidas   Int      @default(0)

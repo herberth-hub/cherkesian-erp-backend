@@ -51,6 +51,18 @@ export class ExpedicoesController {
     return this.expedicoesService.etiquetasUnitarias(id, user.empresaId);
   }
 
+  // ===== Plano de embalagem por caixa =====
+  @Post(':id/caixas')
+  @HttpCode(HttpStatus.OK)
+  salvarCaixas(@Param('id', ParseIntPipe) id: number, @Body() body: { caixas?: unknown[] }, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.salvarCaixas(id, user.empresaId, (body?.caixas ?? []) as never);
+  }
+
+  @Get(':id/caixas/etiquetas')
+  etiquetasCaixas(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.etiquetasCaixas(id, user.empresaId);
+  }
+
   // ===== Dupla conferência + despacho =====
   @Get(':id/conferencia')
   conferencia(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

@@ -3204,8 +3204,97 @@ async function viewExpedicao(c){
       e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
-      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
     ]), list.length?null:'Nenhuma expedição.');
+}
+
+// ===== Plano de embalagem por caixa (packing list + etiqueta de conteúdo) =====
+async function formCaixas(expId){
+  let e; try{ const list=await api('/expedicoes'); e=(list||[]).find(x=>x.id===expId); }catch(err){ toast(err.message,'err'); return; }
+  if(!e){ toast('Expedição não encontrada.','err'); return; }
+  let ped=null; if(e.pedidoId){ try{ ped=await api('/pedidos/'+e.pedidoId); }catch(_){} }
+  // Combos disponíveis (produto · cor · tamanho) a partir dos itens do pedido.
+  const combos=[];
+  (ped?ped.itens:[]).forEach(it=>{
+    const g=it.grade&&Object.keys(it.grade).length?it.grade:null;
+    if(g) Object.entries(g).forEach(([t,q])=>combos.push({descricao:it.descricao, cor:it.cor||'', tamanho:t, disp:Number(q)||0}));
+    else combos.push({descricao:it.descricao, cor:it.cor||'', tamanho:'', disp:it.quantidade});
+  });
+  // Caixas existentes → tenta remapear pros combos.
+  const idxCombo=(d,c,t)=>combos.findIndex(k=>k.descricao===d&&(k.cor||'')===(c||'')&&(k.tamanho||'')===(t||''));
+  const boxes=(e.caixas&&e.caixas.length)? e.caixas.map(cx=>({ peso:cx.peso||'', linhas:(cx.conteudo||[]).map(l=>({ci:idxCombo(l.descricao,l.cor,l.tamanho), qtd:l.qtd})) })) : [{peso:'',linhas:[{ci:-1,qtd:''}]}];
+  window.__CX={ expId, numero:e.numero, combos, boxes };
+  renderCaixas();
+}
+function cxLabel(c){ return c ? (c.descricao.split(' · ')[0].slice(0,28)+' · '+(c.cor||'s/ cor')+' · '+(c.tamanho||'ÚNICO')) : '—'; }
+function cxAlocado(ci){ const X=window.__CX; let s=0; X.boxes.forEach(b=>b.linhas.forEach(l=>{ if(l.ci===ci) s+=Number(l.qtd)||0; })); return s; }
+function renderCaixas(){
+  const X=window.__CX; if(!X) return;
+  const opts=(sel)=>'<option value="-1">— escolha item · cor · tamanho —</option>'+X.combos.map((c,i)=>{ const rest=c.disp-cxAlocado(i); return '<option value="'+i+'"'+(sel===i?' selected':'')+'>'+esc(cxLabel(c))+' (resta '+rest+')</option>'; }).join('');
+  const boxesHtml=X.boxes.map((b,bi)=>{
+    const pcs=b.linhas.reduce((s,l)=>s+(Number(l.qtd)||0),0);
+    const linhas=b.linhas.map((l,li)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+      <select class="inp" style="flex:1;font-size:12px;padding:5px" onchange="APP.cxSetCombo(${bi},${li},this.value)">${opts(l.ci)}</select>
+      <input class="inp" type="number" min="1" value="${l.qtd||''}" placeholder="qtd" style="width:74px;text-align:center;padding:5px" oninput="APP.cxSetQtd(${bi},${li},this.value)">
+      <button class="btn-sm" style="color:#c14a34" onclick="APP.cxDelLinha(${bi},${li})">✕</button></div>`).join('');
+    return `<div style="border:1px solid #e0d9c4;border-radius:8px;padding:10px;margin-bottom:8px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="color:#3a2f08">📦 Caixa ${bi+1}</b>
+        <span style="font-size:12px;color:#6a675e">${pcs} peça(s) <input class="inp" type="number" step="0.01" value="${b.peso||''}" placeholder="peso kg" style="width:86px;margin-left:8px;padding:4px" oninput="APP.cxSetPeso(${bi},this.value)"> ${X.boxes.length>1?'<button class="btn-sm" style="color:#c14a34;margin-left:6px" onclick="APP.cxDelBox('+bi+')">excluir caixa</button>':''}</span>
+      </div>${linhas}
+      <button class="btn-sm" onclick="APP.cxAddLinha(${bi})">+ item na caixa</button></div>`;
+  }).join('');
+  const totalPc=X.boxes.reduce((s,b)=>s+b.linhas.reduce((a,l)=>a+(Number(l.qtd)||0),0),0);
+  const ref=X.combos.map((c,i)=>{ const r=c.disp-cxAlocado(i); return `<span class="pill" style="background:${r===0?'#e6f4ea':r<0?'#fde8e4':'#f4f0e2'};color:${r<0?'#a33':'#5a5320'};font-size:10px;margin:0 4px 4px 0;display:inline-block">${esc(cxLabel(c))}: ${cxAlocado(i)}/${c.disp}${r<0?' ⚠':''}</span>`; }).join('');
+  openModal(`<h3>📦 Montar caixas — Expedição <span class="mono gold">${esc(X.numero)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Monte cada caixa escolhendo item · cor · tamanho e a quantidade. Uma caixa pode ter vários tamanhos/cores.</div>
+    <div style="background:#faf8f0;border:1px solid #efe2b8;border-radius:8px;padding:8px;margin-bottom:10px"><div style="font-size:11px;color:#8a7a2e;margin-bottom:4px">Disponível no pedido (alocado / total):</div>${ref||'<span class="muted">Sem itens do pedido.</span>'}</div>
+    <div style="max-height:46vh;overflow:auto">${boxesHtml}</div>
+    <button class="btn-sm" onclick="APP.cxAddBox()" style="margin-top:4px">+ Adicionar caixa</button>
+    <div style="text-align:right;font-size:13px;margin-top:6px">Total nas caixas: <b>${totalPc}</b> peça(s) · ${X.boxes.length} caixa(s)</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" onclick="APP.saveCaixas(false)">Salvar</button>
+      <button class="btn-primary" onclick="APP.saveCaixas(true)">Salvar e imprimir etiquetas</button></div>`);
+}
+function cxSetCombo(bi,li,v){ window.__CX.boxes[bi].linhas[li].ci=Number(v); renderCaixas(); }
+function cxSetQtd(bi,li,v){ window.__CX.boxes[bi].linhas[li].qtd=v; }
+function cxSetPeso(bi,v){ window.__CX.boxes[bi].peso=v; }
+function cxAddLinha(bi){ window.__CX.boxes[bi].linhas.push({ci:-1,qtd:''}); renderCaixas(); }
+function cxDelLinha(bi,li){ window.__CX.boxes[bi].linhas.splice(li,1); if(!window.__CX.boxes[bi].linhas.length) window.__CX.boxes[bi].linhas.push({ci:-1,qtd:''}); renderCaixas(); }
+function cxAddBox(){ window.__CX.boxes.push({peso:'',linhas:[{ci:-1,qtd:''}]}); renderCaixas(); }
+function cxDelBox(bi){ window.__CX.boxes.splice(bi,1); renderCaixas(); }
+async function saveCaixas(print){
+  const X=window.__CX;
+  const caixas=X.boxes.map(b=>({ peso:b.peso!==''?Number(b.peso):undefined, conteudo:b.linhas.filter(l=>l.ci>=0&&Number(l.qtd)>0).map(l=>{ const c=X.combos[l.ci]; return {descricao:c.descricao, cor:c.cor||null, tamanho:c.tamanho||null, qtd:Number(l.qtd)}; }) })).filter(c=>c.conteudo.length);
+  if(!caixas.length){ toast('Monte ao menos uma caixa com itens.','err'); return; }
+  try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas}});
+    toast(r.totalCaixas+' caixa(s) salvas · '+r.totalPecas+' peças.','ok');
+    if(print) await imprimirEtiquetasCaixas(X.expId); else { closeModal(); loadRoute(); }
+  }catch(e){ toast(e.message,'err'); }
+}
+async function imprimirEtiquetasCaixas(expId){
+  let d; try{ d=await api('/expedicoes/'+expId+'/caixas/etiquetas'); }catch(e){ toast(e.message,'err'); return; }
+  const pages=(d.etiquetas||[]).map(et=>{
+    const linhas=(et.conteudo||[]).map(l=>`<tr><td>${esc(l.tamanho||'ÚNICO')}</td><td>${esc(l.cor||'—')}</td><td style="text-align:right">${l.qtd}</td></tr>`).join('');
+    return `<div class="cxp"><div class="cxtop"><div><div class="cxnum">CX ${et.caixaNum}/${et.totalCaixas}</div><div class="cxexp">${esc(et.expedicao)}${et.nf?(' · NF '+esc(et.nf)):''}${et.pedido?(' · '+esc(et.pedido)):''}</div></div><img class="cxqr" src="${et.qr}"></div>
+      <div class="cxcli">${esc(et.cliente)} — ${esc(et.cidadeUf||'')}</div>
+      <table class="cxt"><thead><tr><th>Tam</th><th>Cor</th><th style="text-align:right">Qtd</th></tr></thead><tbody>${linhas}</tbody></table>
+      <div class="cxtot">Total da caixa: <b>${et.pecas}</b> peça(s)${et.peso?(' · '+et.peso+' kg'):''}</div>
+      <img class="cxbc" src="${et.barcode}"><div class="cxcod">${esc(et.codigo)}</div></div>`;
+  }).join('');
+  const w=window.open('','_blank','width=460,height=720'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
+  w.document.write(`<html><head><meta charset=utf-8><title>Etiquetas de caixa · ${esc(d.etiquetas&&d.etiquetas[0]?d.etiquetas[0].expedicao:'')}</title>
+    <style>@page{size:100mm 150mm;margin:0}*{box-sizing:border-box;font-family:Arial}body{margin:0}
+    .cxp{width:100mm;height:150mm;padding:6mm;page-break-after:always;display:flex;flex-direction:column;color:#000}
+    .cxtop{display:flex;justify-content:space-between;align-items:flex-start}
+    .cxnum{font-size:26pt;font-weight:900;line-height:1} .cxexp{font-size:9pt;color:#333;margin-top:2mm}
+    .cxqr{width:26mm;height:26mm} .cxcli{font-size:11pt;font-weight:700;margin:3mm 0 2mm;border-top:1px solid #000;padding-top:2mm}
+    .cxt{width:100%;border-collapse:collapse;font-size:11pt} .cxt th,.cxt td{border:1px solid #999;padding:2mm 2.5mm;text-align:left} .cxt th{background:#eee;font-size:9pt}
+    .cxtot{font-size:11pt;margin-top:auto;padding-top:2mm} .cxbc{height:12mm;max-width:100%;margin-top:1mm} .cxcod{font-family:monospace;font-weight:700;font-size:10pt}
+    @media print{.bar{display:none}} .bar{position:fixed;top:4px;right:4px}</style></head>
+    <body><div class="bar"><button onclick="window.print()">🖨 Imprimir</button></div>${pages}
+    <script>setTimeout(function(){window.print()},200)<\/script></body></html>`);
+  w.document.close(); closeModal(); loadRoute();
 }
 function confPill(s){ const m={pendente:['gray','pendente'],conferindo:['blue','conferindo'],conferida:['gold','conferida'],despachado:['green','despachado']}; const x=m[s]||['gray',s||'pendente']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 async function formExpedicao(){
@@ -4594,6 +4683,7 @@ window.APP = {
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
