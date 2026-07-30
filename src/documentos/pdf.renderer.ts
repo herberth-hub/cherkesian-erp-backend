@@ -370,7 +370,7 @@ export function pedidoGradeTabela(
   doc: Pdf,
   data: {
     sizes: string[];
-    rows: Array<{ num: string; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }>;
+    rows: Array<{ num: string; codigo?: string | null; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }>;
     totBySize: Record<string, number>;
     totPecas: number;
     totValor: string;
@@ -378,23 +378,23 @@ export function pedidoGradeTabela(
 ): void {
   const x0 = 50;
   const tableW = doc.page.width - 100;
-  const cItem = 20, cCor = 58, cVU = 46, cVT = 60;
+  const cItem = 18, cCod = 54, cCor = 56, cVU = 44, cVT = 58;
   const nS = data.sizes.length;
-  const cSize = Math.max(16, Math.min(30, Math.floor((tableW * 0.36) / Math.max(1, nS))));
-  const cDesc = tableW - cItem - cCor - cVU - cVT - cSize * nS;
+  const cSize = Math.max(15, Math.min(30, Math.floor((tableW * 0.34) / Math.max(1, nS))));
+  const cDesc = tableW - cItem - cCod - cCor - cVU - cVT - cSize * nS;
   const cols: Array<{ w: number; a: 'left' | 'center' | 'right' }> = [
-    { w: cItem, a: 'center' }, { w: cDesc, a: 'left' }, { w: cCor, a: 'left' },
+    { w: cItem, a: 'center' }, { w: cCod, a: 'left' }, { w: cDesc, a: 'left' }, { w: cCor, a: 'left' },
     ...data.sizes.map(() => ({ w: cSize, a: 'center' as const })),
     { w: cVU, a: 'right' }, { w: cVT, a: 'right' },
   ];
-  const headers = ['#', 'DESCRIÇÃO', 'COR', ...data.sizes, 'V.UN', 'V.TOTAL'];
+  const headers = ['#', 'CÓDIGO', 'DESCRIÇÃO', 'COR', ...data.sizes, 'V.UN', 'V.TOTAL'];
 
   const drawRow = (cells: string[], o: { header?: boolean; total?: boolean } = {}) => {
     const fs = o.header ? 6.8 : 7.4;
     doc.font(o.header || o.total ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs);
-    // altura pela coluna mais alta (descrição OU cor, que também quebra linha)
-    const hDesc = doc.heightOfString(cells[1] || '', { width: cols[1].w - 6 });
-    const hCor = doc.heightOfString(cells[2] || '', { width: cols[2].w - 6 });
+    // altura pela coluna mais alta (descrição OU cor, que também quebram linha)
+    const hDesc = doc.heightOfString(cells[2] || '', { width: cols[2].w - 6 });
+    const hCor = doc.heightOfString(cells[3] || '', { width: cols[3].w - 6 });
     const rowH = Math.max(o.header ? 16 : 15, Math.max(hDesc, hCor) + 6);
     if (doc.y + rowH > doc.page.height - 80) { doc.addPage(); }
     let x = x0; const y = doc.y;
@@ -411,9 +411,9 @@ export function pedidoGradeTabela(
 
   drawRow(headers, { header: true });
   for (const r of data.rows) {
-    drawRow([r.num, r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), r.vUnit, r.vTotal]);
+    drawRow([r.num, r.codigo ?? '—', r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), r.vUnit, r.vTotal]);
   }
-  drawRow(['', 'TOTAL', '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), String(data.totPecas), data.totValor], { total: true });
+  drawRow(['', '', 'TOTAL', '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), String(data.totPecas), data.totValor], { total: true });
   doc.x = x0; doc.moveDown(0.6);
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }

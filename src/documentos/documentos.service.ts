@@ -269,7 +269,7 @@ export class DocumentosService {
     }
     const sizes = ESCADA.filter((s) => presentes.has(s)).concat([...presentes].filter((s) => !ESCADA.includes(s)));
 
-    const rows: Array<{ num: string; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }> = [];
+    const rows: Array<{ num: string; codigo?: string | null; descricao: string; cor?: string | null; qtyBySize: Record<string, number>; vUnit: string; vTotal: string }> = [];
     const totBySize: Record<string, number> = {};
     let totPecas = 0;
     let totValor = new Prisma.Decimal(0);
@@ -296,7 +296,7 @@ export class DocumentosService {
         const linhaQtd = Object.values(q).reduce((a, b) => a + b, 0);
         const vt = unit.mul(linhaQtd);
         totValor = totValor.plus(vt);
-        rows.push({ num, descricao: i.descricao, cor, qtyBySize: q, vUnit: money(unit), vTotal: money(vt) });
+        rows.push({ num, codigo: prod?.codigo ?? null, descricao: i.descricao, cor, qtyBySize: q, vUnit: money(unit), vTotal: money(vt) });
       }
     });
     pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: money(totValor) });
