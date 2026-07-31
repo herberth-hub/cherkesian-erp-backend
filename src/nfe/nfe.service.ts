@@ -631,7 +631,7 @@ export class NfeService {
       const soma = ent.reduce((s, [, q]) => s + Number(q), 0);
       if (ent.length && soma === Number(it.quantidade)) {
         for (const [tam, qtd] of ent) {
-          out.push({ descricao: `${it.descricao} - TAM ${tam}`.slice(0, 120), quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
+          out.push({ descricao: `${it.descricao} | TAM ${tam}`.slice(0, 120), quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
         }
       } else {
         out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId });
