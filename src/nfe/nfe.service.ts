@@ -159,7 +159,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId: number; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number },
+    dto: { clienteId: number; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string },
     empresaId: number,
     usuario: string,
   ) {
