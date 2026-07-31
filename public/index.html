@@ -4012,6 +4012,8 @@ async function formNfeAvulsa(){
     <label class="fl" style="margin-top:6px">Itens</label>
     <div id="nfitens"></div>
     <button class="btn-sm" onclick="APP.nfAdd()" style="margin-top:6px">+ item</button>
+    <div class="mrow" style="margin-top:8px"><label class="fl">Observações (saem em "Informações Adicionais" do DANFE)</label>
+      <textarea id="nf_obs" class="inp" rows="2" placeholder="ex.: Venda Mercado Livre pedido nº …, mercadoria conferida, etc."></textarea></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveNfeAvulsa()">Emitir NF-e</button></div>`);
   nfRender();
@@ -4048,6 +4050,7 @@ async function saveNfeAvulsa(){
   const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
   const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
   const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
+  const nfobs=(($('nf_obs')&&$('nf_obs').value)||'').trim(); if(nfobs) body.observacoes=nfobs;
   const nfped=Number(val('nf_ped')); if(nfped>0) body.pedidoId=nfped;
   uiSpinnerOpen({nota:'NF-e avulsa'});
   try{

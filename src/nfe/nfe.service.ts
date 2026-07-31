@@ -232,6 +232,7 @@ export class NfeService {
       venctoTxt = `Vencimento: ${iso.split('-').reverse().join('/')} (${diasV} dias)`;
     }
     const infoAdic = [
+      (dto.observacoes || '').trim() || null,
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
       venctoTxt,
     ].filter(Boolean).join(' | ') || undefined;

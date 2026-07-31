@@ -52,4 +52,7 @@ export class CreateNfeAvulsaDto {
 
   /** Prazo de pagamento em dias a partir do faturamento (gera fatura/duplicata na NF). */
   @IsOptional() @IsInt() @IsPositive() diasVencimento?: number;
+
+  /** Observações livres → saem em "Informações Adicionais" do DANFE. */
+  @IsOptional() @IsString() @MaxLength(2000) observacoes?: string;
 }
