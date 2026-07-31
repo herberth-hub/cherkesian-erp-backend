@@ -814,7 +814,8 @@ export class NfeService {
       // Emitente (dados também configurados no painel do provedor)
       cnpj_emitente: digitos(emitente.cnpj),
       // Destinatário
-      nome_destinatario: cliente.nome,
+      // SEFAZ limita xNome (destinatário) a 60 caracteres — trunca p/ não rejeitar.
+      nome_destinatario: (cliente.nome || '').trim().slice(0, 60),
       [docDest.length === 11 ? 'cpf_destinatario' : 'cnpj_destinatario']: docDest,
       inscricao_estadual_destinatario: cliente.inscricaoEstadual || null,
       indicador_inscricao_estadual_destinatario: cliente.indicadorIE ?? 9,
