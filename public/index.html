@@ -1834,7 +1834,8 @@ async function viewPagar(c){
     list.map(t=>[
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" title="${esc(t.filial.cnpj||'')}">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
-      esc(t.categoria), esc(t.fornecedorId?(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—'),
+      esc(t.categoria),
+      (t.fornecedorId ? esc(nome[t.fornecedorId]||('#'+t.fornecedorId)) + ((window.__FORNPIX[t.fornecedorId]&&window.__FORNPIX[t.fornecedorId].pix)?` <button class="btn-sm" title="Copiar chave PIX" style="padding:1px 7px;margin-left:3px" onclick="APP.copiarPixForn(${t.fornecedorId})">🔑</button>`:'') : '—'),
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhum título a pagar.');
@@ -2176,13 +2177,14 @@ function baixar(tipo, id, saldo){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
 }
-function copiarPix(){
-  const el=document.getElementById('pixval'); const txt=el?el.textContent.trim():'';
+function _copiaTexto(txt){
   if(!txt) return;
   const done=()=>toast('Chave PIX copiada!','ok');
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done).catch(()=>_copiaFallback(txt,done)); }
   else _copiaFallback(txt,done);
 }
+function copiarPix(){ const el=document.getElementById('pixval'); _copiaTexto(el?el.textContent.trim():''); }
+function copiarPixForn(id){ const fp=(window.__FORNPIX||{})[id]; if(fp&&fp.pix) _copiaTexto(fp.pix); else toast('Sem chave PIX cadastrada.','info'); }
 function _copiaFallback(txt,done){ try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); done&&done(); }catch(e){ toast('Copie manualmente: '+txt,'info'); } }
 async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
@@ -4846,7 +4848,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
