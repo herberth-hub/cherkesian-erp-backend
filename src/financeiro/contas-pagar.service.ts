@@ -61,7 +61,7 @@ export class ContasPagarService {
     return this.comStatus(titulo);
   }
 
-  async baixar(id: number, empresaId: number, valorBaixa?: number): Promise<ContaPagarView> {
+  async baixar(id: number, empresaId: number, valorBaixa?: number, banco?: string): Promise<ContaPagarView> {
     const titulo = await this.prisma.contaPagar.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
       throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
@@ -77,11 +77,13 @@ export class ContasPagarService {
       );
     }
     const novoPago = titulo.pago.plus(baixa);
+    const bancoTxt = (banco || '').trim();
     const atualizado = await this.prisma.contaPagar.update({
       where: { id },
       data: {
         pago: novoPago,
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
+        ...(bancoTxt ? { bancoPagto: bancoTxt } : {}),
       },
     });
     return this.comStatus(atualizado);

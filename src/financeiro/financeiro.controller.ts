@@ -16,6 +16,8 @@ import { Response } from 'express';
 import { TituloStatus } from '@prisma/client';
 import { ContasReceberService } from './contas-receber.service';
 import { ContasPagarService } from './contas-pagar.service';
+import { ContasRecorrentesService } from './contas-recorrentes.service';
+import { CreateContaRecorrenteDto } from './dto/create-conta-recorrente.dto';
 import { FinanceiroService } from './financeiro.service';
 import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
@@ -34,6 +36,7 @@ export class FinanceiroController {
   constructor(
     private readonly receber: ContasReceberService,
     private readonly pagar: ContasPagarService,
+    private readonly recorrentes: ContasRecorrentesService,
     private readonly financeiro: FinanceiroService,
   ) {}
 
@@ -98,7 +101,43 @@ export class FinanceiroController {
     @Body() dto: BaixarDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.pagar.baixar(id, user.empresaId, dto.valor);
+    return this.pagar.baixar(id, user.empresaId, dto.valor, dto.banco);
+  }
+
+  // ===== Contas recorrentes (aluguel, luz, água, internet…) =====
+  @Areas('pagar')
+  @Get('recorrentes')
+  listarRecorrentes(@CurrentUser() user: AuthUser) {
+    return this.recorrentes.findAll(user.empresaId);
+  }
+
+  @Areas('pagar')
+  @Post('recorrentes')
+  criarRecorrente(@Body() dto: CreateContaRecorrenteDto, @CurrentUser() user: AuthUser) {
+    return this.recorrentes.create(dto, user.empresaId);
+  }
+
+  @Areas('pagar')
+  @Patch('recorrentes/:id')
+  toggleRecorrente(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { ativa: boolean },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.recorrentes.setAtiva(id, user.empresaId, !!body.ativa);
+  }
+
+  @Areas('pagar')
+  @Delete('recorrentes/:id')
+  removerRecorrente(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.recorrentes.remover(id, user.empresaId);
+  }
+
+  @Areas('pagar')
+  @Post('recorrentes/gerar')
+  @HttpCode(HttpStatus.OK)
+  gerarRecorrentes(@CurrentUser() user: AuthUser) {
+    return this.recorrentes.gerarDoMes(user.empresaId, new Date());
   }
 
   @Areas('pagar')

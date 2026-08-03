@@ -1857,6 +1857,7 @@ function receberPreset(kind){
   receberFiltrar();
 }
 async function viewPagar(c){
+  try{ await api('/financeiro/recorrentes/gerar',{method:'POST',silent:true}); }catch(_){}
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
   window.__PAGS = list;
   window.__PAGNOME = {}; window.__FORNPIX = {}; forn.forEach(f=>{ window.__PAGNOME[f.id]=f.nome; window.__FORNPIX[f.id]={nome:f.nome, pix:f.chavePix||''}; });
@@ -1869,11 +1870,53 @@ async function viewPagar(c){
         <button class="btn-sm" onclick="APP.pagarPreset('7')">Próx. 7 dias</button>
         <button class="btn-sm" onclick="APP.pagarPreset('venc')">Vencidos</button>
         <button class="btn-sm" onclick="APP.pagarPreset('')">Limpar</button>
+        <button class="btn-sm" style="margin-left:auto;border-color:#C9A227;color:#7a5c00" onclick="APP.formRecorrentes()">🔁 Contas recorrentes</button>
       </div>
       <div id="pagar_kpis" class="cards" style="margin-bottom:14px"></div>
       <div id="pagar_body"></div>`;
   pagarFiltrar();
 }
+async function formRecorrentes(){
+  let recs, forn, filiais;
+  try{ [recs,forn,filiais]=await Promise.all([api('/financeiro/recorrentes'),api('/fornecedores'),api('/filiais').catch(()=>[])]); }catch(e){ toast(e.message,'err'); return; }
+  window.__RECOR={recs,forn,filiais};
+  renderRecorrentes();
+}
+function renderRecorrentes(){
+  const R=window.__RECOR;
+  const filList=(R.filiais||[]); const matrizId=(filList.find(f=>f.matriz)||filList[0]||{}).id;
+  const filOpts=filList.map(f=>`<option value="${f.id}" ${f.id===matrizId?'selected':''}>${esc(f.nome)}</option>`).join('');
+  const fornOpts='<option value="">— sem fornecedor —</option>'+(R.forn||[]).map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
+  const rows=(R.recs||[]).map(r=>`<tr style="border-bottom:1px solid #eee">
+    <td style="padding:6px 4px">${esc(r.categoria)}${r.descricao?`<div style="font-size:11px;color:#6a675e">${esc(r.descricao)}</div>`:''}</td>
+    <td style="padding:6px 4px;text-align:right">${money(r.valor)}</td>
+    <td style="padding:6px 4px;text-align:center">dia ${r.diaVencimento}</td>
+    <td style="padding:6px 4px;text-align:center">${r.ativa?'<span class="pill green">ativa</span>':'<span class="pill gray">pausada</span>'}</td>
+    <td style="padding:6px 4px;text-align:right;white-space:nowrap"><button class="btn-sm" onclick="APP.recorToggle(${r.id},${r.ativa?'false':'true'})">${r.ativa?'Pausar':'Ativar'}</button> <button class="btn-sm" style="color:#c14a34" onclick="APP.recorDel(${r.id})">Excluir</button></td>
+  </tr>`).join('');
+  openModal(`<h3>🔁 Contas recorrentes</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Contas fixas que geram um título a pagar <b>todo mês automaticamente</b> (aluguel, luz, água, internet…). O título do mês aparece sozinho ao abrir "Contas a Pagar".</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px"><thead><tr style="border-bottom:2px solid #e0d9c4;color:#7a5c00;font-size:11px;text-align:left"><th style="padding:4px">CATEGORIA</th><th style="padding:4px;text-align:right">VALOR</th><th style="padding:4px;text-align:center">VENCE</th><th style="padding:4px;text-align:center">STATUS</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="muted" style="padding:8px">Nenhuma conta recorrente cadastrada.</td></tr>'}</tbody></table></div>
+    <div style="border-top:1px solid var(--line);padding-top:10px">
+      <label class="fl" style="font-weight:700;margin-bottom:6px">Nova conta recorrente</label>
+      <div class="grid2">${field('rc_cat','Categoria * (ex.: Aluguel, Energia)','')}${field('rc_desc','Descrição','placeholder="ex.: Aluguel galpão Barueri"')}</div>
+      <div class="grid3">${field('rc_val','Valor *','type="number" step="0.01"')}${field('rc_dia','Dia do vencimento *','type="number" min="1" max="31" placeholder="ex.: 1"')}
+        <div class="mrow"><label class="fl">Empresa pagadora</label><select id="rc_fil" class="inp">${filOpts}</select></div></div>
+      <div class="mrow"><label class="fl">Fornecedor (opcional)</label><select id="rc_forn" class="inp">${fornOpts}</select></div>
+      <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button><button class="btn-primary" onclick="APP.saveRecorrente()">Adicionar recorrente</button></div>
+    </div>`);
+}
+async function saveRecorrente(){
+  const body={ categoria:val('rc_cat'), valor:Number(val('rc_val')), diaVencimento:Number(val('rc_dia')) };
+  const desc=val('rc_desc'); if(desc) body.descricao=desc;
+  const fil=val('rc_fil'); if(fil) body.filialId=Number(fil);
+  const fn=val('rc_forn'); if(fn) body.fornecedorId=Number(fn);
+  if(!body.categoria||!(body.valor>0)||!(body.diaVencimento>=1&&body.diaVencimento<=31)){ toast('Preencha categoria, valor e dia do vencimento (1 a 31).','err'); return; }
+  try{ await api('/financeiro/recorrentes',{method:'POST',body}); await api('/financeiro/recorrentes/gerar',{method:'POST',silent:true}).catch(()=>{}); toast('Conta recorrente criada — o título do mês já foi gerado.','ok'); formRecorrentes(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function recorToggle(id,ativa){ try{ await api('/financeiro/recorrentes/'+id,{method:'PATCH',body:{ativa}}); formRecorrentes(); }catch(e){ toast(e.message,'err'); } }
+async function recorDel(id){ if(!(await uiConfirm({tipo:'err',titulo:'Excluir recorrente?',msg:'Os títulos já gerados continuam. Só para de gerar novos meses.',ok:'Excluir'})))return; try{ await api('/financeiro/recorrentes/'+id,{method:'DELETE'}); formRecorrentes(); }catch(e){ toast(e.message,'err'); } }
 function pagarFiltrar(){
   const list=window.__PAGS||[], nome=window.__PAGNOME||{};
   const de=val('pg_de'), ate=val('pg_ate'), st=val('pg_status');
@@ -1897,7 +1940,7 @@ function pagarFiltrar(){
       t.filial?`<span class="pill gray" title="${esc(t.filial.cnpj||'')}">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(t.categoria),
       (t.fornecedorId ? esc(nome[t.fornecedorId]||('#'+t.fornecedorId)) + ((window.__FORNPIX[t.fornecedorId]&&window.__FORNPIX[t.fornecedorId].pix)?` <button class="btn-sm" title="Copiar chave PIX" style="padding:1px 7px;margin-left:3px" onclick="APP.copiarPixForn(${t.fornecedorId})">🔑</button>`:'') : '—'),
-      esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
+      esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status)+(t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
@@ -2241,10 +2284,19 @@ function baixar(tipo, id, saldo){
       pixHtml=`<div class="muted" style="font-size:11px;margin-bottom:10px">Sem chave PIX cadastrada para este fornecedor (cadastre em Fornecedores → Editar).</div>`;
     }
   }
+  let bancoHtml='';
+  if(tipo==='pagar'){
+    const usados=[...new Set((window.__PAGS||[]).map(x=>x.bancoPagto).filter(Boolean))];
+    const sugest=[...new Set(usados.concat(['Cora','Itaú','Bradesco','Banco do Brasil','Santander','Caixa','Nubank','Inter','Sicoob','Sicredi']))];
+    bancoHtml=`<div class="mrow"><label class="fl">🏦 Banco de onde saiu o pagamento</label>
+      <input class="inp" id="f_banco" list="bancoslist" placeholder="ex.: Cora, Itaú, Bradesco…" autocomplete="off">
+      <datalist id="bancoslist">${sugest.map(b=>`<option value="${esc(b)}">`).join('')}</datalist></div>`;
+  }
   openModal(`<h3>${tipo==='receber'?'Receber':'Pagar'} título</h3>
     ${pixHtml}
     <div class="muted" style="font-size:12.5px;margin-bottom:12px">Saldo em aberto: <b>${money(saldo)}</b>. Deixe o valor em branco para quitar o total.</div>
     ${field('f_baixa','Valor da baixa','type="number" step="0.01" placeholder="'+saldo+'"')}
+    ${bancoHtml}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
 }
@@ -2259,6 +2311,7 @@ function copiarPixForn(id){ const fp=(window.__FORNPIX||{})[id]; if(fp&&fp.pix) 
 function _copiaFallback(txt,done){ try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); done&&done(); }catch(e){ toast('Copie manualmente: '+txt,'info'); } }
 async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
+  if(tipo==='pagar'){ const b=val('f_banco'); if(b) body.banco=b; }
   try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast('Baixa registrada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -4919,7 +4972,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
