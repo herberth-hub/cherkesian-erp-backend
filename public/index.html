@@ -1506,13 +1506,14 @@ async function formFornecedor(id){
   openModal(`<h3>${id?'Editar':'Novo'} fornecedor</h3>
     <div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(f.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjForn()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>
     <div class="grid2">${field('f_nome','Razão social *','value="'+esc(f.nome||'')+'"')}${field('f_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}</div>
-    <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
+    <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido, Facção)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
     <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
+    ${field('f_pix','🔑 Chave PIX (p/ pagamento)','placeholder="CPF/CNPJ, e-mail, celular ou chave aleatória" value="'+esc(f.chavePix||'')+'"')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveFornecedor(${id||0})">Salvar</button></div>`);
 }
 async function saveFornecedor(id){
-  const body = { nome:val('f_nome'), nomeFantasia:val('f_fant'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel') };
+  const body = { nome:val('f_nome'), nomeFantasia:val('f_fant'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel'), chavePix:val('f_pix') };
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/fornecedores/'+id):'/fornecedores',{method:id?'PATCH':'POST',body}); closeModal(); toast('Fornecedor salvo.','ok'); loadRoute(); }
@@ -1821,7 +1822,7 @@ async function viewReceber(c){
 async function viewPagar(c){
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
   window.__PAGS = list;
-  const nome = {}; forn.forEach(f=>nome[f.id]=f.nome);
+  const nome = {}; window.__FORNPIX = {}; forn.forEach(f=>{ nome[f.id]=f.nome; window.__FORNPIX[f.id]={nome:f.nome, pix:f.chavePix||''}; });
   const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
   // Total em aberto por empresa/CNPJ (quanto cada uma tem a pagar).
   const porEmp={}; list.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
@@ -2153,12 +2154,36 @@ async function savePagarEdit(id){
   catch(e){ toast(e.message,'err'); }
 }
 function baixar(tipo, id, saldo){
+  let pixHtml='';
+  if(tipo==='pagar'){
+    const t=(window.__PAGS||[]).find(x=>x.id===id);
+    const fp = t&&t.fornecedorId ? (window.__FORNPIX||{})[t.fornecedorId] : null;
+    if(fp && fp.pix){
+      pixHtml=`<div style="background:#eef6ee;border:1px solid #bfe0c4;border-radius:8px;padding:9px 11px;margin-bottom:12px">
+        <div style="font-size:11px;color:#4a7a54;margin-bottom:3px">🔑 Chave PIX de <b>${esc(fp.nome)}</b></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="pixval" class="mono" style="font-weight:700;font-size:14px;flex:1;word-break:break-all">${esc(fp.pix)}</span>
+          <button type="button" class="btn-sm" onclick="APP.copiarPix()">📋 Copiar</button>
+        </div></div>`;
+    } else if(t&&t.fornecedorId){
+      pixHtml=`<div class="muted" style="font-size:11px;margin-bottom:10px">Sem chave PIX cadastrada para este fornecedor (cadastre em Fornecedores → Editar).</div>`;
+    }
+  }
   openModal(`<h3>${tipo==='receber'?'Receber':'Pagar'} título</h3>
+    ${pixHtml}
     <div class="muted" style="font-size:12.5px;margin-bottom:12px">Saldo em aberto: <b>${money(saldo)}</b>. Deixe o valor em branco para quitar o total.</div>
     ${field('f_baixa','Valor da baixa','type="number" step="0.01" placeholder="'+saldo+'"')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
 }
+function copiarPix(){
+  const el=document.getElementById('pixval'); const txt=el?el.textContent.trim():'';
+  if(!txt) return;
+  const done=()=>toast('Chave PIX copiada!','ok');
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done).catch(()=>_copiaFallback(txt,done)); }
+  else _copiaFallback(txt,done);
+}
+function _copiaFallback(txt,done){ try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); done&&done(); }catch(e){ toast('Copie manualmente: '+txt,'info'); } }
 async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
   try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast('Baixa registrada.','ok'); loadRoute(); }
@@ -4821,7 +4846,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,

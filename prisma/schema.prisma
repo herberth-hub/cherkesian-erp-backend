@@ -238,6 +238,7 @@ model Fornecedor {
   contato   String?
   telefone  String?
   cidadeUf  String?
+  chavePix  String?   // chave PIX p/ pagamento (CPF/CNPJ, e-mail, celular ou aleatória)
   obs       String?
   ordensCompra OrdemCompra[]
   notasEntrada NotaEntrada[]

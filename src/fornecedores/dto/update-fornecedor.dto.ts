@@ -38,6 +38,11 @@ export class UpdateFornecedorDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(140)
+  chavePix?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(1000)
   obs?: string;
 }

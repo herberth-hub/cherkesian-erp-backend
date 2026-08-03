@@ -37,6 +37,12 @@ export class CreateFornecedorDto {
   @MaxLength(80)
   cidadeUf?: string;
 
+  /** Chave PIX p/ pagamento (CPF/CNPJ, e-mail, celular ou aleatória). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  chavePix?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(1000)
