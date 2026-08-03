@@ -2026,25 +2026,43 @@ async function saveReceber(){
 }
 async function formPagar(){
   const [forn, filiais] = await Promise.all([api('/fornecedores'), api('/filiais').catch(()=>[])]);
-  const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
+  window.__FORNPAG = forn;
+  const dl = `<datalist id="fornlist_pag">${forn.map(f=>`<option value="${esc(f.nome)}">`).join('')}</datalist>`;
   const filList=(filiais||[]); const matrizId=(filList.find(f=>f.matriz)||filList[0]||{}).id;
   const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Novo título a pagar</h3>
     ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador *</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
     ${field('f_cat','Categoria * (ex.: Facção, Aluguel)','')}
-    <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
+    <div class="mrow"><label class="fl">Fornecedor / Oficina / Facção <span class="muted" style="font-size:10px">(escolha um ou digite um novo p/ cadastrar)</span></label>
+      <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off">${dl}</div>
     ${field('f_ref','Referência','placeholder="ex.: OC-0001, NF 123"')}
     <div class="grid2">${field('f_venc','Vencimento *','type="date"')}${field('f_valor','Valor *','type="number" step="0.01"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePagar()">Salvar</button></div>`);
 }
+// Resolve o fornecedor pelo texto digitado: usa o existente (por nome) ou cadastra um novo na hora.
+async function resolverFornecedorId(inputId){
+  const texto=(val(inputId)||'').trim();
+  if(!texto) return null;
+  const lista=window.__FORNPAG||[];
+  const achou=lista.find(f=>String(f.nome||'').trim().toLowerCase()===texto.toLowerCase());
+  if(achou) return achou.id;
+  const catTxt=(val('f_cat')||'').trim();
+  const tipo=/fac|ofic/i.test(catTxt)?'Facção':(catTxt||undefined);
+  const nf=await api('/fornecedores',{method:'POST',body:{nome:texto, tipo}});
+  window.__FORNPAG=lista.concat([nf]);
+  toast('Fornecedor "'+esc(nf.nome)+'" cadastrado.','ok');
+  return nf.id;
+}
 async function savePagar(){
   const body = { categoria:val('f_cat'), vencimento:val('f_venc'), valor:Number(val('f_valor')) };
   const filid=val('f_filial'); if(filid) body.filialId=Number(filid);
-  const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
   const ref=val('f_ref'); if(ref) body.referencia=ref;
   if(!body.categoria||!body.vencimento||!body.valor){ toast('Preencha categoria, vencimento e valor.','err'); return; }
-  try{ await api('/financeiro/pagar',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
+  try{
+    const fid=await resolverFornecedorId('f_forn'); if(fid) body.fornecedorId=fid;
+    await api('/financeiro/pagar',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute();
+  }
   catch(e){ toast(e.message,'err'); }
 }
 function formReceberEdit(id){
@@ -2063,13 +2081,16 @@ async function saveReceberEdit(id){
 async function formPagarEdit(id){
   const t = (window.__PAGS||[]).find(x=>x.id===id); if(!t){ toast('Título não encontrado.','err'); return; }
   const [forn, filiais] = await Promise.all([api('/fornecedores'), api('/filiais').catch(()=>[])]);
-  const opts = ['<option value="">— sem fornecedor —</option>'].concat(forn.map(f=>`<option value="${f.id}" ${t.fornecedorId===f.id?'selected':''}>${esc(f.nome)}</option>`)).join('');
+  window.__FORNPAG = forn;
+  const curForn = t.fornecedorId ? forn.find(f=>f.id===t.fornecedorId) : null;
+  const dl = `<datalist id="fornlist_pag">${forn.map(f=>`<option value="${esc(f.nome)}">`).join('')}</datalist>`;
   const filList=(filiais||[]); const curFil=t.filial?t.filial.id:null;
   const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===curFil?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Editar título a pagar</h3>
     ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
     ${field('f_cat','Categoria','value="'+esc(t.categoria||'')+'"')}
-    <div class="mrow"><label class="fl">Fornecedor</label><select id="f_forn" class="inp">${opts}</select></div>
+    <div class="mrow"><label class="fl">Fornecedor / Oficina / Facção <span class="muted" style="font-size:10px">(escolha um ou digite um novo p/ cadastrar)</span></label>
+      <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off" value="${curForn?esc(curForn.nome):''}">${dl}</div>
     ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
     <div class="grid2">${field('f_venc','Vencimento','type="date" value="'+String(t.vencimento).slice(0,10)+'"')}${field('f_valor','Valor','type="number" step="0.01" value="'+Number(t.valor)+'"')}</div>
     <p class="muted" style="font-size:12px">Já pago: ${money(t.pago)} — o valor não pode ser menor.</p>
@@ -2123,10 +2144,12 @@ async function parcelarPagar(id){
 async function savePagarEdit(id){
   const body={ categoria:val('f_cat'), referencia:val('f_ref') };
   const filid=val('f_filial'); if(filid) body.filialId=Number(filid);
-  const fid=val('f_forn'); if(fid) body.fornecedorId=Number(fid);
   const v=val('f_venc'); if(v) body.vencimento=v; const vl=val('f_valor'); if(vl) body.valor=Number(vl);
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
-  try{ await api('/financeiro/pagar/'+id,{method:'PATCH',body}); closeModal(); toast('Título atualizado.','ok'); loadRoute(); }
+  try{
+    const fid=await resolverFornecedorId('f_forn'); if(fid) body.fornecedorId=fid;
+    await api('/financeiro/pagar/'+id,{method:'PATCH',body}); closeModal(); toast('Título atualizado.','ok'); loadRoute();
+  }
   catch(e){ toast(e.message,'err'); }
 }
 function baixar(tipo, id, saldo){
