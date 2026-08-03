@@ -1809,15 +1809,52 @@ function pct(v){ return (Number(v||0)*100).toFixed(2).replace('.',',')+'%'; }
 async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
   window.__RECS = list;
-  const nome = {}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
-  const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
-  c.innerHTML = toolbar('Contas a receber · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formReceber()', relBtn('receber')) + panelTable(
+  window.__RECNOME = {}; clientes.forEach(cl=>window.__RECNOME[cl.id]=cl.nome);
+  c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', relBtn('receber'))
+    + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" onchange="APP.receberFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="rc_ate" class="inp" type="date" style="padding:6px" onchange="APP.receberFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="rc_status" class="inp" style="padding:6px;width:auto" onchange="APP.receberFiltrar()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="pago">Recebidos</option></select></div>
+        <button class="btn-sm" onclick="APP.receberPreset('mes')">Este mês</button>
+        <button class="btn-sm" onclick="APP.receberPreset('7')">Próx. 7 dias</button>
+        <button class="btn-sm" onclick="APP.receberPreset('venc')">Vencidos</button>
+        <button class="btn-sm" onclick="APP.receberPreset('')">Limpar</button>
+      </div>
+      <div id="receber_kpis" class="cards" style="margin-bottom:14px"></div>
+      <div id="receber_body"></div>`;
+  receberFiltrar();
+}
+function receberFiltrar(){
+  const list=window.__RECS||[], nome=window.__RECNOME||{};
+  const de=val('rc_de'), ate=val('rc_ate'), st=val('rc_status');
+  const fil=list.filter(t=>{
+    const v=String(t.vencimento).slice(0,10);
+    if(de && v<de) return false;
+    if(ate && v>ate) return false;
+    if(st==='aberto' && t.status==='pago') return false;
+    if(st==='pago' && t.status!=='pago') return false;
+    return true;
+  });
+  const totalAberto=fil.filter(t=>t.status!=='pago').reduce((s,t)=>s+Number(t.saldo),0);
+  const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`;
+  const body=$('receber_body'); if(!body) return;
+  body.innerHTML = panelTable(
     ['Vencimento','Cliente','Valor','Pago','Saldo','Status','Ações'],
-    list.map(t=>[
+    fil.map(t=>[
       dfmt(t.vencimento), esc(nome[t.clienteId]||('#'+t.clienteId)),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
-    ]), list.length?null:'Nenhum título a receber.');
+    ]), fil.length?null:'Nenhum título no filtro selecionado.');
+}
+function receberPreset(kind){
+  const de=$('rc_de'), ate=$('rc_ate'), stt=$('rc_status');
+  const isoLocal=d=>{ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+  const hoje=new Date(); if(stt) stt.value='';
+  if(kind===''){ if(de)de.value=''; if(ate)ate.value=''; }
+  else if(kind==='mes'){ const y=hoje.getFullYear(),m=hoje.getMonth(); if(de)de.value=isoLocal(new Date(y,m,1)); if(ate)ate.value=isoLocal(new Date(y,m+1,0)); }
+  else if(kind==='7'){ if(de)de.value=isoLocal(hoje); const t2=new Date(hoje); t2.setDate(t2.getDate()+7); if(ate)ate.value=isoLocal(t2); }
+  else if(kind==='venc'){ if(de)de.value=''; if(ate)ate.value=isoLocal(hoje); if(stt)stt.value='aberto'; }
+  receberFiltrar();
 }
 async function viewPagar(c){
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
@@ -4882,7 +4919,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
