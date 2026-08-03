@@ -378,7 +378,7 @@ export function pedidoGradeTabela(
 ): void {
   const x0 = 50;
   const tableW = doc.page.width - 100;
-  const cItem = 18, cCod = 54, cCor = 56, cVU = 44, cVT = 58;
+  const cItem = 18, cCod = 76, cCor = 56, cVU = 44, cVT = 58;
   const nS = data.sizes.length;
   const cSize = Math.max(15, Math.min(30, Math.floor((tableW * 0.34) / Math.max(1, nS))));
   const cDesc = tableW - cItem - cCod - cCor - cVU - cVT - cSize * nS;
