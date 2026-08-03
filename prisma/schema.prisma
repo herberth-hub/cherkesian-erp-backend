@@ -551,9 +551,11 @@ model ContaRecorrente {
   empresaId     Int
   filialId      Int?     // CNPJ pagador
   fornecedorId  Int?
-  categoria     String   // ex.: Aluguel, Energia, Água, Internet
+  categoria     String   // ex.: Aluguel, Energia, Água, Internet, Salário, Vale-transporte
   descricao     String?  // ex.: "Aluguel galpão Barueri"
-  valor         Decimal  @db.Decimal(12,2)
+  valor         Decimal  @db.Decimal(12,2)   // usado no modo "fixo"
+  tipoCalculo   String   @default("fixo")     // fixo | dia_util (VT/VR = valorDia × dias úteis do mês)
+  valorDia      Decimal? @db.Decimal(12,2)    // usado no modo "dia_util"
   diaVencimento Int      // dia do mês (1-31); se o mês não tiver, usa o último dia
   ativa         Boolean  @default(true)
   criadoEm      DateTime @default(now())

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaRecorrenteDto } from './dto/create-conta-recorrente.dto';
@@ -26,6 +26,13 @@ export class ContasRecorrentesService {
       filialId = matriz?.id;
     }
     const dia = Math.min(31, Math.max(1, Math.round(dto.diaVencimento)));
+    const tipoCalculo = dto.tipoCalculo === 'dia_util' ? 'dia_util' : 'fixo';
+    if (tipoCalculo === 'dia_util' && !(dto.valorDia != null && dto.valorDia > 0)) {
+      throw new BadRequestException('Modo "por dia útil": informe o valor por dia.');
+    }
+    if (tipoCalculo === 'fixo' && !(dto.valor != null && dto.valor > 0)) {
+      throw new BadRequestException('Modo "fixo": informe o valor.');
+    }
     return this.prisma.contaRecorrente.create({
       data: {
         empresaId,
@@ -33,11 +40,24 @@ export class ContasRecorrentesService {
         fornecedorId: dto.fornecedorId,
         categoria: dto.categoria,
         descricao: dto.descricao,
-        valor: new Prisma.Decimal(dto.valor),
+        valor: new Prisma.Decimal(dto.valor ?? 0),
+        tipoCalculo,
+        valorDia: dto.valorDia != null ? new Prisma.Decimal(dto.valorDia) : null,
         diaVencimento: dia,
         ativa: dto.ativa ?? true,
       },
     });
+  }
+
+  /** Dias úteis (seg-sex) de um mês. Não desconta feriados (aproximação automática). */
+  private diasUteisDoMes(ano: number, mes0: number): number {
+    const ultimo = new Date(Date.UTC(ano, mes0 + 1, 0)).getUTCDate();
+    let n = 0;
+    for (let d = 1; d <= ultimo; d++) {
+      const dow = new Date(Date.UTC(ano, mes0, d)).getUTCDay();
+      if (dow >= 1 && dow <= 5) n++;
+    }
+    return n;
   }
 
   async setAtiva(id: number, empresaId: number, ativa: boolean) {
@@ -74,18 +94,26 @@ export class ContasRecorrentesService {
       if (jaTem) continue;
       const dia = Math.min(r.diaVencimento, ultimoDia);
       const vencimento = new Date(Date.UTC(ano, mes, dia));
+      // Modo "dia_util": valor = valor por dia × dias úteis (seg-sex) do mês.
+      let valor = r.valor;
+      let ref = r.descricao ?? undefined;
+      if (r.tipoCalculo === 'dia_util') {
+        const du = this.diasUteisDoMes(ano, mes);
+        valor = new Prisma.Decimal(r.valorDia ?? 0).mul(du);
+        ref = `${r.descricao ?? r.categoria} (${du} dias úteis × ${(r.valorDia ?? new Prisma.Decimal(0)).toFixed(2)})`;
+      }
       await this.prisma.contaPagar.create({
         data: {
           empresaId,
           filialId: r.filialId ?? undefined,
           fornecedorId: r.fornecedorId ?? undefined,
           categoria: r.categoria,
-          referencia: r.descricao ?? undefined,
+          referencia: ref,
           vencimento,
-          valor: r.valor,
+          valor,
           pago: 0,
           recorrenteId: r.id,
-          status: calcularStatusTitulo(r.valor, new Prisma.Decimal(0), vencimento),
+          status: calcularStatusTitulo(valor, new Prisma.Decimal(0), vencimento),
         },
       });
       criados++;
