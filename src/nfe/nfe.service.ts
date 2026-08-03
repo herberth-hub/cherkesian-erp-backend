@@ -803,6 +803,13 @@ export class NfeService {
     const totalPecasNf = itens.reduce((s, it) => s + Number(it.quantidade), 0);
     const pesoBrutoNf = Number((totalPecasNf * pesoMedio).toFixed(3));
 
+    // Inscrição Estadual do destinatário: a SEFAZ só aceita a tag IE com 2-14 dígitos.
+    // Se não houver IE válida, omite a tag e ajusta o indicador (contribuinte sem IE é inválido → 9).
+    const ieDigitos = digitos(cliente.inscricaoEstadual || '');
+    const ieValida = ieDigitos.length >= 2 && ieDigitos.length <= 14;
+    let indicadorIeDest = cliente.indicadorIE ?? 9;
+    if (!ieValida && indicadorIeDest === 1) indicadorIeDest = 9; // sem IE não pode ser "Contribuinte"
+
     return {
       natureza_operacao: 'Venda de mercadoria',
       data_emissao: new Date().toISOString(),
@@ -818,8 +825,8 @@ export class NfeService {
       // SEFAZ limita xNome (destinatário) a 60 caracteres — trunca p/ não rejeitar.
       nome_destinatario: (cliente.nome || '').trim().slice(0, 60),
       [docDest.length === 11 ? 'cpf_destinatario' : 'cnpj_destinatario']: docDest,
-      inscricao_estadual_destinatario: cliente.inscricaoEstadual || null,
-      indicador_inscricao_estadual_destinatario: cliente.indicadorIE ?? 9,
+      inscricao_estadual_destinatario: ieValida ? ieDigitos : null,
+      indicador_inscricao_estadual_destinatario: indicadorIeDest,
       logradouro_destinatario: cliente.logradouro,
       numero_destinatario: cliente.numeroEndereco,
       bairro_destinatario: cliente.bairro,
