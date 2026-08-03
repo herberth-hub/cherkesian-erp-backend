@@ -1556,9 +1556,44 @@ function tamsDoProduto(p){
 function tamsEspDoProduto(p){
   return (p&&p.tamsEspeciais)?String(p.tamsEspeciais).split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
 }
-// Cores cadastradas do produto (separadas por "·"). Ex.: "2187 Verde · 9158 Cinza".
+// Cores cadastradas do produto (separadas por "·", "|", ";" ou ","). Ex.: "2187 Verde · 9158 Cinza" ou "PRETO, CINZA, BRANCO".
 function coresDoProduto(p){
-  return (p&&p.cor)?String(p.cor).split(/\s*[·|;]\s*/).map(s=>s.trim()).filter(Boolean):[];
+  return (p&&p.cor)?String(p.cor).split(/\s*[·|;,]\s*/).map(s=>s.trim()).filter(Boolean):[];
+}
+// Mapeia o nome da cor (pt-BR, pode ter código/complemento) p/ um HEX de amostra.
+function corHex(nome){
+  const n=(nome||'').toLowerCase();
+  const map=[
+    ['preto','#111111'],['off white','#f3f0e6'],['offwhite','#f3f0e6'],['branco','#ffffff'],['cru','#efe8d6'],['gelo','#eef1f2'],
+    ['cinza chumbo','#4b4f54'],['chumbo','#3f4247'],['grafite','#3a3d40'],['cinza mescla','#b8bdc2'],['mescla','#b8bdc2'],['cinza','#9a9fa4'],['prata','#c8ccd0'],
+    ['azul marinho','#1b2a4a'],['marinho','#1b2a4a'],['azul royal','#1d4ed8'],['royal','#1d4ed8'],['azul claro','#7fb3e0'],['azul bebe','#a9cce8'],['azul','#2563a8'],['petroleo','#0f5b63'],['petróleo','#0f5b63'],['turquesa','#1ab0a5'],
+    ['verde musgo','#5a6b2f'],['musgo','#5a6b2f'],['verde bandeira','#0a7a3b'],['verde agua','#7fd0c0'],['verde água','#7fd0c0'],['verde limao','#8fce3f'],['verde','#2f8f4e'],
+    ['vermelho','#c0322b'],['vinho','#6d1f2b'],['bordo','#5e1a24'],['bordô','#5e1a24'],['coral','#f0765a'],['salmao','#f0a58f'],['salmão','#f0a58f'],['rosa','#e48aa8'],['pink','#e0328c'],
+    ['amarelo','#f2c318'],['ouro','#d4a017'],['dourado','#c9a227'],['mostarda','#c9971f'],['laranja','#e8792b'],
+    ['marrom','#6b4423'],['cafe','#4e342e'],['café','#4e342e'],['caqui','#a89a68'],['bege','#d9c6a5'],['areia','#cbb892'],['nude','#e3c4a8'],['terracota','#b5502f'],
+    ['roxo','#6b3fa0'],['lilas','#b39ddb'],['lilás','#b39ddb'],['violeta','#7a4fb5'],['lavanda','#c7b8e0'],
+  ];
+  for(const [k,v] of map){ if(n.includes(k)) return v; }
+  return null; // desconhecida → mostra amostra hachurada
+}
+function corClara(hex){ if(!hex) return true; const m=hex.replace('#',''); const r=parseInt(m.substr(0,2),16),g=parseInt(m.substr(2,2),16),b=parseInt(m.substr(4,2),16); return (0.299*r+0.587*g+0.114*b)>150; }
+function curProdItem(i){ return PITENS[i]&&PITENS[i].produtoId ? (window.__PROD||[]).find(p=>p.id===PITENS[i].produtoId):null; }
+// HTML dos quadradinhos de cor de um item.
+function coresSwatchHtml(i,cores,sel){
+  return cores.map((cc,ci)=>{
+    const hex=corHex(cc); const on=(sel===cc);
+    const fill = hex==null?'background:repeating-linear-gradient(45deg,#eee,#eee 4px,#ddd 4px,#ddd 8px);':('background:'+hex+';');
+    const brd = on?'#C9A227':'#d9d3c4';
+    const chk = on?('<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:'+(corClara(hex)?'#222':'#fff')+'">✓</span>'):'';
+    return '<button type="button" onclick="APP.itemCorPick('+i+','+ci+')" title="'+esc(cc)+'" style="display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;width:70px;padding:2px">'
+      +'<span style="position:relative;width:36px;height:36px;border-radius:8px;'+fill+'border:2px solid '+brd+';'+(on?'box-shadow:0 0 0 3px #f3e6b0;':'')+'">'+chk+'</span>'
+      +'<span style="font-size:9px;line-height:1.15;text-align:center;color:'+(on?'#3a2f08':'#6a675e')+';font-weight:'+(on?'700':'400')+'">'+esc(cc)+'</span></button>';
+  }).join('');
+}
+function itemCorPick(i,ci){
+  const cores=coresDoProduto(curProdItem(i));
+  PITENS[i].cor = (cores[ci]||'');
+  const box=$('it_cores_'+i); if(box) box.innerHTML=coresSwatchHtml(i,cores,PITENS[i].cor);
 }
 function renderItens(){
   const prods = window.__PROD||[];
@@ -1566,11 +1601,8 @@ function renderItens(){
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     const gr = it.grade || {};
     const cores = coresDoProduto(cur);
-    const corSel = cores.length ? `<div class="mrow" style="margin-bottom:6px"><label class="fl">Cor * <span class="muted" style="font-size:10px">(obrigatória)</span></label>
-        <select class="inp" id="it_cor_${i}" onchange="APP.itemCor(${i})" style="${!it.cor?'border-color:#e0a99b':''}">
-          <option value="">— escolha a cor —</option>
-          ${cores.map(cc=>'<option'+(it.cor===cc?' selected':'')+'>'+esc(cc)+'</option>').join('')}
-        </select></div>` : '';
+    const corSel = cores.length ? `<div class="mrow" style="margin-bottom:6px"><label class="fl">Cor * <span class="muted" style="font-size:10px">(obrigatória — clique no quadradinho)</span></label>
+        <div id="it_cores_${i}" style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0">${coresSwatchHtml(i,cores,it.cor||'')}</div></div>` : '';
     const tams = tamsDoProduto(cur);
     const esp = tamsEspDoProduto(cur);
     const temEsp = cur && cur.precoEspecial!=null && esp.length;
@@ -4715,7 +4747,7 @@ window.APP = {
   closeModal, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
+  formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
