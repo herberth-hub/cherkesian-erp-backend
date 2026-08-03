@@ -1822,23 +1822,57 @@ async function viewReceber(c){
 async function viewPagar(c){
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
   window.__PAGS = list;
-  const nome = {}; window.__FORNPIX = {}; forn.forEach(f=>{ nome[f.id]=f.nome; window.__FORNPIX[f.id]={nome:f.nome, pix:f.chavePix||''}; });
-  const totalAberto = list.reduce((s,t)=>s+Number(t.saldo),0);
-  // Total em aberto por empresa/CNPJ (quanto cada uma tem a pagar).
-  const porEmp={}; list.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
-  const chips = Object.keys(porEmp).sort().map(k=>`<div class="card" style="padding:10px 14px"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a pagar</div></div>`).join('');
-  c.innerHTML = toolbar('Contas a pagar · '+money(totalAberto)+' em aberto', 'Novo título', 'APP.formPagar()', relBtn('pagar'))
-    + (chips?`<div class="cards" style="margin-bottom:14px">${chips}</div>`:'')
-    + panelTable(
+  window.__PAGNOME = {}; window.__FORNPIX = {}; forn.forEach(f=>{ window.__PAGNOME[f.id]=f.nome; window.__FORNPIX[f.id]={nome:f.nome, pix:f.chavePix||''}; });
+  c.innerHTML = toolbar('Contas a pagar', 'Novo título', 'APP.formPagar()', relBtn('pagar'))
+    + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="pg_de" class="inp" type="date" style="padding:6px" onchange="APP.pagarFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="pg_ate" class="inp" type="date" style="padding:6px" onchange="APP.pagarFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="pg_status" class="inp" style="padding:6px;width:auto" onchange="APP.pagarFiltrar()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="pago">Pagos</option></select></div>
+        <button class="btn-sm" onclick="APP.pagarPreset('mes')">Este mês</button>
+        <button class="btn-sm" onclick="APP.pagarPreset('7')">Próx. 7 dias</button>
+        <button class="btn-sm" onclick="APP.pagarPreset('venc')">Vencidos</button>
+        <button class="btn-sm" onclick="APP.pagarPreset('')">Limpar</button>
+      </div>
+      <div id="pagar_kpis" class="cards" style="margin-bottom:14px"></div>
+      <div id="pagar_body"></div>`;
+  pagarFiltrar();
+}
+function pagarFiltrar(){
+  const list=window.__PAGS||[], nome=window.__PAGNOME||{};
+  const de=val('pg_de'), ate=val('pg_ate'), st=val('pg_status');
+  const fil=list.filter(t=>{
+    const v=String(t.vencimento).slice(0,10);
+    if(de && v<de) return false;
+    if(ate && v>ate) return false;
+    if(st==='aberto' && t.status==='pago') return false;
+    if(st==='pago' && t.status!=='pago') return false;
+    return true;
+  });
+  const porEmp={}; fil.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
+  const totalAberto=fil.filter(t=>t.status!=='pago').reduce((s,t)=>s+Number(t.saldo),0);
+  const chips=Object.keys(porEmp).sort().map(k=>`<div class="card" style="padding:10px 14px"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a pagar</div></div>`).join('');
+  const kp=$('pagar_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s)</div></div>`+chips;
+  const body=$('pagar_body'); if(!body) return;
+  body.innerHTML = panelTable(
     ['Vencimento','Empresa','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
-    list.map(t=>[
+    fil.map(t=>[
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" title="${esc(t.filial.cnpj||'')}">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(t.categoria),
       (t.fornecedorId ? esc(nome[t.fornecedorId]||('#'+t.fornecedorId)) + ((window.__FORNPIX[t.fornecedorId]&&window.__FORNPIX[t.fornecedorId].pix)?` <button class="btn-sm" title="Copiar chave PIX" style="padding:1px 7px;margin-left:3px" onclick="APP.copiarPixForn(${t.fornecedorId})">🔑</button>`:'') : '—'),
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
-    ]), list.length?null:'Nenhum título a pagar.');
+    ]), fil.length?null:'Nenhum título no filtro selecionado.');
+}
+function pagarPreset(kind){
+  const de=$('pg_de'), ate=$('pg_ate'), stt=$('pg_status');
+  const isoLocal=d=>{ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+  const hoje=new Date(); if(stt) stt.value='';
+  if(kind===''){ if(de)de.value=''; if(ate)ate.value=''; }
+  else if(kind==='mes'){ const y=hoje.getFullYear(),m=hoje.getMonth(); if(de)de.value=isoLocal(new Date(y,m,1)); if(ate)ate.value=isoLocal(new Date(y,m+1,0)); }
+  else if(kind==='7'){ if(de)de.value=isoLocal(hoje); const t2=new Date(hoje); t2.setDate(t2.getDate()+7); if(ate)ate.value=isoLocal(t2); }
+  else if(kind==='venc'){ if(de)de.value=''; if(ate)ate.value=isoLocal(hoje); if(stt)stt.value='aberto'; }
+  pagarFiltrar();
 }
 async function viewFluxo(c){
   const f = await api('/financeiro/fluxo');
@@ -4848,7 +4882,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
