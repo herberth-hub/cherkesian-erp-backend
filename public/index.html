@@ -3228,17 +3228,19 @@ async function etiquetasCaixasMaster(){
     .cx{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
     .cxh{font-size:8pt;font-weight:800;letter-spacing:.5px;color:#333}
     .cxrow{display:flex;align-items:center;gap:4mm;justify-content:center}
-    .cxn{font-size:30pt;font-weight:900;line-height:1} .cxqr{width:18mm;height:18mm}
-    .cxbc{height:9mm;max-width:90%} .cxc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
-    /* Zebra 100x50: 1 por etiqueta */
+    .cxn{font-size:30pt;font-weight:900;line-height:1;white-space:nowrap} .cxqr{width:18mm;height:18mm}
+    .cxbc{height:9mm;max-width:76mm} .cxc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+    /* Zebra 100x50: 1 por etiqueta — margem lateral p/ área não-imprimível (~10mm) */
     body.z50mode .wrap{display:block} body.z50mode{background:#eee}
-    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:1.5mm 6mm}
+    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:2mm 11mm}
     body.z50mode .page:last-child{page-break-after:auto}
-    /* Etiqueta 100x150: 1 por etiqueta (elementos maiores) */
+    body.z50mode .cxn{font-size:26pt} body.z50mode .cxqr{width:16mm;height:16mm} body.z50mode .cxbc{height:8mm}
+    /* Etiqueta 100x150: número EM CIMA, QR EMBAIXO (empilhado) p/ caber nos ~80mm úteis */
     body.z150mode .wrap{display:block} body.z150mode{background:#eee}
-    body.z150mode .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:6mm}
+    body.z150mode .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:12mm 11mm}
     body.z150mode .page:last-child{page-break-after:auto}
-    body.z150mode .cxn{font-size:52pt} body.z150mode .cxqr{width:34mm;height:34mm} body.z150mode .cxbc{height:16mm} body.z150mode .cxc{font-size:15pt} body.z150mode .cxh{font-size:11pt}
+    body.z150mode .cxrow{flex-direction:column;gap:6mm}
+    body.z150mode .cxn{font-size:46pt} body.z150mode .cxqr{width:34mm;height:34mm} body.z150mode .cxbc{height:15mm;max-width:76mm} body.z150mode .cxc{font-size:15pt} body.z150mode .cxh{font-size:11pt}
     /* A4 grade */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
     body.a4mode .page{border:1px solid #000;border-radius:6px;padding:4mm;break-inside:avoid;min-height:45mm;display:flex}
