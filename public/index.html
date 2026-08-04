@@ -3232,12 +3232,12 @@ async function etiquetasCaixasMaster(){
     .cxbc{height:9mm;max-width:76mm} .cxc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
     /* Zebra 100x50: 1 por etiqueta — margem lateral p/ área não-imprimível (~10mm) */
     body.z50mode .wrap{display:block} body.z50mode{background:#eee}
-    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:2mm 11mm}
+    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:2mm 9mm 2mm 15mm}
     body.z50mode .page:last-child{page-break-after:auto}
     body.z50mode .cxn{font-size:26pt} body.z50mode .cxqr{width:16mm;height:16mm} body.z50mode .cxbc{height:8mm}
     /* Etiqueta 100x150: número EM CIMA, QR EMBAIXO (empilhado) p/ caber nos ~80mm úteis */
     body.z150mode .wrap{display:block} body.z150mode{background:#eee}
-    body.z150mode .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:12mm 11mm}
+    body.z150mode .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm;padding:12mm 9mm 12mm 15mm}
     body.z150mode .page:last-child{page-break-after:auto}
     body.z150mode .cxrow{flex-direction:column;gap:6mm}
     body.z150mode .cxn{font-size:46pt} body.z150mode .cxqr{width:34mm;height:34mm} body.z150mode .cxbc{height:15mm;max-width:76mm} body.z150mode .cxc{font-size:15pt} body.z150mode .cxh{font-size:11pt}
