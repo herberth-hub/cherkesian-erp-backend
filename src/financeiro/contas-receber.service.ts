@@ -10,8 +10,9 @@ import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
 import { UpdateContaReceberDto } from './dto/update-conta-receber.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
+type FilialResumo = { id: number; nome: string; cnpj: string | null };
 /** Título a receber com status recalculado e saldo em aberto. */
-export type ContaReceberView = ContaReceber & { status: TituloStatus; saldo: string };
+export type ContaReceberView = ContaReceber & { status: TituloStatus; saldo: string; filial?: FilialResumo | null };
 
 @Injectable()
 export class ContasReceberService {
@@ -20,6 +21,7 @@ export class ContasReceberService {
   async findAll(empresaId: number, status?: TituloStatus): Promise<ContaReceberView[]> {
     const titulos = await this.prisma.contaReceber.findMany({
       where: { empresaId },
+      include: { filial: { select: { id: true, nome: true, cnpj: true } } },
       orderBy: { vencimento: 'asc' },
     });
     return titulos.map((t) => this.comStatus(t)).filter((t) => !status || t.status === status);
@@ -36,11 +38,18 @@ export class ContasReceberService {
         throw new NotFoundException(`Pedido ${dto.pedidoId} não encontrado.`);
       }
     }
+    let filialId = dto.filialId;
+    if (filialId) {
+      const fil = await this.prisma.filial.findUnique({ where: { id: filialId } });
+      if (!fil || fil.empresaId !== empresaId) throw new NotFoundException(`Filial ${filialId} não encontrada.`);
+    }
     const vencimento = new Date(dto.vencimento);
     const valor = new Prisma.Decimal(dto.valor);
     const titulo = await this.prisma.contaReceber.create({
       data: {
         empresaId,
+        filialId,
+        documento: dto.documento,
         clienteId: dto.clienteId,
         pedidoId: dto.pedidoId,
         vencimento,
@@ -48,6 +57,7 @@ export class ContasReceberService {
         pago: 0,
         status: calcularStatusTitulo(valor, new Prisma.Decimal(0), vencimento),
       },
+      include: { filial: { select: { id: true, nome: true, cnpj: true } } },
     });
     return this.comStatus(titulo);
   }

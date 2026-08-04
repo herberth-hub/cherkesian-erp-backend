@@ -151,6 +151,7 @@ model Filial {
   notasFiscais      NotaFiscal[]
   notasEntrada      NotaEntrada[]
   contasPagar       ContaPagar[]
+  contasReceber     ContaReceber[]
 }
 
 model Usuario {
@@ -520,9 +521,12 @@ model Expedicao {
 model ContaReceber {
   id            Int          @id @default(autoincrement())
   empresaId     Int
+  filialId      Int?         // CNPJ proprietário (HC Quality / Yerevan / Cherkesian) que emitiu
+  filial        Filial?      @relation(fields: [filialId], references: [id])
   pedidoId      Int?
   notaFiscalId  Int?         // NF que originou o título (cancelamento em cascata)
   clienteId     Int
+  documento     String?      // nº do documento/NF de origem (importação)
   vencimento    DateTime
   valor         Decimal      @db.Decimal(12,2)
   pago          Decimal      @default(0) @db.Decimal(12,2)

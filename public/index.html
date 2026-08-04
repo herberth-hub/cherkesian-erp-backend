@@ -1836,12 +1836,16 @@ function receberFiltrar(){
     return true;
   });
   const totalAberto=fil.filter(t=>t.status!=='pago').reduce((s,t)=>s+Number(t.saldo),0);
-  const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`;
+  const porEmp={}; fil.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
+  const chips=Object.keys(porEmp).sort().map(k=>`<div class="card" style="padding:10px 14px"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a receber</div></div>`).join('');
+  const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`+chips;
   const body=$('receber_body'); if(!body) return;
   body.innerHTML = panelTable(
-    ['Vencimento','Cliente','Valor','Pago','Saldo','Status','Ações'],
+    ['Vencimento','Empresa','Cliente','Doc.','Valor','Pago','Saldo','Status','Ações'],
     fil.map(t=>[
-      dfmt(t.vencimento), esc(nome[t.clienteId]||('#'+t.clienteId)),
+      dfmt(t.vencimento),
+      t.filial?`<span class="pill gray" title="${esc(t.filial.cnpj||'')}">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
+      esc(nome[t.clienteId]||('#'+t.clienteId)), esc(t.documento||'—'),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
@@ -2126,16 +2130,22 @@ async function viewImpostos(c){
 
 // Formulários financeiros
 async function formReceber(){
-  const clientes = await api('/clientes');
+  const [clientes, filiais] = await Promise.all([api('/clientes'), api('/filiais').catch(()=>[])]);
   const opts = clientes.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('');
+  const ativas=(filiais||[]).filter(f=>f.ativa!==false); const matrizId=(ativas.find(f=>f.matriz)||ativas[0]||{}).id;
+  const filOpts=ativas.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   openModal(`<h3>Novo título a receber</h3>
-    <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${opts||'<option>—</option>'}</select></div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp">${opts||'<option>—</option>'}</select></div>
+      ${ativas.length?`<div class="mrow"><label class="fl">Empresa / CNPJ proprietário</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
+    </div>
     <div class="grid2">${field('f_venc','Vencimento *','type="date"')}${field('f_valor','Valor *','type="number" step="0.01"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveReceber()">Salvar</button></div>`);
 }
 async function saveReceber(){
   const body = { clienteId:Number(val('f_cli')), vencimento:val('f_venc'), valor:Number(val('f_valor')) };
+  const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   if(!body.clienteId||!body.vencimento||!body.valor){ toast('Preencha cliente, vencimento e valor.','err'); return; }
   try{ await api('/financeiro/receber',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
