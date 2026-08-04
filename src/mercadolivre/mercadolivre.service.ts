@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { proximoSequencial } from '../common/utils/codigo.util';
 
 /**
  * Integração Mercado Livre (OAuth2).
@@ -165,5 +167,76 @@ export class MercadoLivreService {
     const res = await fetch(url, { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
     if (!res.ok) throw new BadRequestException(`Mercado Livre: erro ${res.status} em ${url}.`);
     return res.json();
+  }
+
+  // ===================== Fluxo de negócio: PEDIDOS =====================
+
+  /** Lista os pedidos pagos recentes da conta ML, marcando os já importados. */
+  async buscarPedidos(empresaId: number) {
+    const c = await this.conta(empresaId);
+    if (!c.accessToken || !c.mlUserId) throw new BadRequestException('Conecte a conta do Mercado Livre primeiro (aba Integrações).');
+    const token = await this.tokenValido(empresaId);
+    const url = `${this.API}/orders/search?seller=${c.mlUserId}&order.status=paid&sort=date_desc&limit=30`;
+    const data = await this.fetchJson(url, token);
+    const orders: any[] = Array.isArray(data?.results) ? data.results : [];
+    const refs = orders.map((o) => `ML ${o.id}`);
+    const jaImport = new Set(
+      (await this.prisma.pedido.findMany({ where: { empresaId, ordemCompraCliente: { in: refs } }, select: { ordemCompraCliente: true } }))
+        .map((p) => p.ordemCompraCliente),
+    );
+    return orders.map((o) => ({
+      id: String(o.id),
+      data: o.date_created,
+      status: o.status,
+      comprador: o.buyer?.nickname || `${o.buyer?.first_name || ''} ${o.buyer?.last_name || ''}`.trim() || 'Comprador ML',
+      total: Number(o.total_amount) || 0,
+      itens: (o.order_items || []).map((it: any) => ({
+        titulo: it.item?.title || 'Item', quantidade: Number(it.quantity) || 1, valorUnit: Number(it.unit_price) || 0,
+      })),
+      importado: jaImport.has(`ML ${o.id}`),
+    }));
+  }
+
+  /** Importa um pedido do ML: cria/acha o cliente e gera um Pedido de venda (orçamento). */
+  async importarPedido(empresaId: number, mlOrderId: string) {
+    const token = await this.tokenValido(empresaId);
+    const o = await this.fetchJson(`${this.API}/orders/${mlOrderId}`, token);
+    if (!o?.id) throw new BadRequestException('Pedido do Mercado Livre não encontrado.');
+    const ref = `ML ${o.id}`;
+    const existe = await this.prisma.pedido.findFirst({ where: { empresaId, ordemCompraCliente: ref } });
+    if (existe) throw new BadRequestException(`Pedido ${o.id} já foi importado (${existe.numero}).`);
+
+    // Comprador → cliente (tenta o documento via billing_info)
+    const nomeComprador = `${o.buyer?.first_name || ''} ${o.buyer?.last_name || ''}`.trim() || o.buyer?.nickname || 'Comprador Mercado Livre';
+    let doc: string | undefined;
+    const billing = await this.fetchJson(`${this.API}/orders/${o.id}/billing_info`, token).catch(() => null);
+    const bi = billing?.buyer?.billing_info || billing?.billing_info;
+    if (bi?.doc_number) doc = String(bi.doc_number).replace(/\D/g, '') || undefined;
+
+    let cliente = doc ? await this.prisma.cliente.findFirst({ where: { empresaId, cnpjCpf: { contains: doc } } }) : null;
+    if (!cliente) cliente = await this.prisma.cliente.findFirst({ where: { empresaId, nome: { equals: nomeComprador, mode: 'insensitive' } } });
+    if (!cliente) cliente = await this.prisma.cliente.create({ data: { empresaId, nome: nomeComprador, cnpjCpf: doc, obs: 'Importado do Mercado Livre' } });
+
+    const itens = (o.order_items || []).map((it: any) => ({
+      descricao: String(it.item?.title || 'Item Mercado Livre').slice(0, 200),
+      quantidade: Math.max(1, Number(it.quantity) || 1),
+      valorUnit: new Prisma.Decimal(Number(it.unit_price) || 0),
+    }));
+    if (!itens.length) throw new BadRequestException('Pedido do Mercado Livre sem itens.');
+    const total = itens.reduce((s: Prisma.Decimal, it: any) => s.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
+
+    const nums = (await this.prisma.pedido.findMany({ where: { empresaId }, select: { numero: true } })).map((p) => p.numero);
+    const numero = proximoSequencial('PV', nums, { pad: 2 });
+    const pedido = await this.prisma.pedido.create({
+      data: {
+        empresaId, numero, clienteId: cliente.id,
+        valorTotal: total, status: 'Orçamento', etapa: 'orcamento',
+        formaPagamento: 'À vista (Mercado Livre)',
+        ordemCompraCliente: ref,
+        obs: `Importado do Mercado Livre · Pedido ${o.id} · Comprador ${nomeComprador}`,
+        itens: { create: itens },
+      },
+    });
+    return { ok: true, numero: pedido.numero, cliente: cliente.nome, total: Number(total.toFixed(2)) };
   }
 }

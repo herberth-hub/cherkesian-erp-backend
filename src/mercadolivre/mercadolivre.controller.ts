@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { MercadoLivreService } from './mercadolivre.service';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -47,5 +47,17 @@ export class MercadoLivreController {
   desconectar(@CurrentUser() user: AuthUser) {
     this.soAdmin(user);
     return this.service.desconectar(user.empresaId);
+  }
+
+  // ===== Pedidos do Mercado Livre =====
+  @Get('pedidos')
+  pedidos(@CurrentUser() user: AuthUser) {
+    return this.service.buscarPedidos(user.empresaId);
+  }
+
+  @Post('pedidos/:id/importar')
+  @HttpCode(HttpStatus.OK)
+  importar(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.importarPedido(user.empresaId, id);
   }
 }

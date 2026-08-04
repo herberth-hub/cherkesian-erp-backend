@@ -4631,8 +4631,25 @@ async function viewMercadoLivre(c){
         </div>
       </div>
     </div>
-    ${st.conectado?`<div class="sect"><h3>Conta conectada</h3>${panelTable(['Conta ML','User ID','Conectado em','Token expira'],[[esc(st.nickname||'—'),esc(st.mlUserId||'—'),st.conectadoEm?new Date(st.conectadoEm).toLocaleString('pt-BR'):'—',st.tokenExpira?new Date(st.tokenExpira).toLocaleString('pt-BR'):'—']])}
-      <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:12.5px;margin-top:8px">Próximo passo: escolher o 1º fluxo (importar pedidos, sincronizar estoque ou publicar anúncios). A fundação (login/token) já está pronta.</div></div>`:''}`;
+    ${st.conectado?`<div class="sect"><h3>Conta conectada</h3>${panelTable(['Conta ML','User ID','Conectado em','Token expira'],[[esc(st.nickname||'—'),esc(st.mlUserId||'—'),st.conectadoEm?new Date(st.conectadoEm).toLocaleString('pt-BR'):'—',st.tokenExpira?new Date(st.tokenExpira).toLocaleString('pt-BR'):'—']])}</div>
+      <div class="sect"><h3 style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">📥 Pedidos do Mercado Livre <button class="btn-sm" onclick="APP.mlCarregarPedidos()">🔄 Buscar pedidos pagos</button></h3>
+      <div class="muted" style="font-size:12px;margin:-2px 0 8px">Traz os pedidos pagos recentes da sua conta. "Importar" cria o cliente e um pedido de venda no sistema (aí você emite a NF).</div>
+      <div id="ml_pedidos"><div class="muted" style="font-size:12px">Clique em "Buscar pedidos pagos".</div></div></div>`:''}`;
+}
+async function mlCarregarPedidos(){
+  const box=$('ml_pedidos'); if(box) box.innerHTML='<div class="muted" style="font-size:12px">Buscando pedidos no Mercado Livre…</div>';
+  let lista; try{ lista=await api('/mercadolivre/pedidos'); }catch(e){ if(box) box.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
+  if(!lista||!lista.length){ if(box) box.innerHTML='<div class="empty">Nenhum pedido pago recente na conta.</div>'; return; }
+  if(box) box.innerHTML = panelTable(['Pedido ML','Data','Comprador','Itens','Total','Ação'], lista.map(o=>[
+    '<span class="mono">'+esc(o.id)+'</span>', dfmt(o.data), esc(o.comprador),
+    (o.itens||[]).map(i=>esc(i.quantidade+'× '+i.titulo)).join('<br>')||'—',
+    money(o.total),
+    o.importado?'<span class="pill green">importado</span>':`<button class="btn-sm" onclick="APP.mlImportar('${esc(String(o.id))}')">Importar → pedido</button>`
+  ]));
+}
+async function mlImportar(id){
+  try{ const r=await api('/mercadolivre/pedidos/'+id+'/importar',{method:'POST'}); toast('Pedido '+esc(r.numero)+' criado · '+esc(r.cliente)+' · '+money(r.total),'ok'); mlCarregarPedidos(); }
+  catch(e){ toast(e.message,'err'); }
 }
 async function mlSalvarConfig(){
   const body={ appId:val('ml_appid').trim(), redirectUri:val('ml_redir').trim() };
@@ -5005,7 +5022,7 @@ window.APP = {
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
-  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar,
+  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar,
