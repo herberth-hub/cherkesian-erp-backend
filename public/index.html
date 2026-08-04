@@ -3581,12 +3581,13 @@ async function imprimirEtiquetasCaixas(expId){
   w.document.write(`<html><head><meta charset=utf-8><title>Etiquetas de caixa · ${esc(d.etiquetas&&d.etiquetas[0]?d.etiquetas[0].expedicao:'')}</title>
     <style id="psz">@page{size:100mm 150mm;margin:0}</style>
     <style>*{box-sizing:border-box;font-family:Arial}html,body{margin:0}body{color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .page{width:100mm;height:150mm;padding:6mm;display:flex;flex-direction:column;background:#fff}
-    .cxtop{display:flex;justify-content:space-between;align-items:flex-start}
-    .cxnum{font-size:26pt;font-weight:900;line-height:1} .cxexp{font-size:9pt;color:#333;margin-top:2mm}
-    .cxqr{width:26mm;height:26mm} .cxcli{font-size:11pt;font-weight:700;margin:3mm 0 2mm;border-top:1px solid #000;padding-top:2mm}
-    .cxt{width:100%;border-collapse:collapse;font-size:11pt} .cxt th,.cxt td{border:1px solid #999;padding:2mm 2.5mm;text-align:left} .cxt th{background:#eee;font-size:9pt}
-    .cxtot{font-size:11pt;margin-top:auto;padding-top:2mm} .cxbc{height:12mm;max-width:100%;margin-top:1mm} .cxcod{font-family:monospace;font-weight:700;font-size:10pt}
+    .page{width:100mm;height:150mm;padding:6mm 12mm 6mm 14mm;display:flex;flex-direction:column;background:#fff}
+    .cxtop{display:flex;justify-content:space-between;align-items:flex-start;gap:3mm}
+    .cxnum{font-size:24pt;font-weight:900;line-height:1} .cxexp{font-size:8.5pt;color:#333;margin-top:2mm;word-break:break-word}
+    .cxqr{width:24mm;height:24mm;flex:0 0 auto} .cxcli{font-size:10.5pt;font-weight:700;margin:3mm 0 2mm;border-top:1px solid #000;padding-top:2mm}
+    .cxt{width:100%;border-collapse:collapse;font-size:10.5pt;table-layout:fixed} .cxt th,.cxt td{border:1px solid #999;padding:1.6mm 2mm;text-align:left;overflow:hidden} .cxt th{background:#eee;font-size:8.5pt}
+    .cxt th:first-child,.cxt td:first-child{width:16mm} .cxt th:last-child,.cxt td:last-child{width:14mm;text-align:right}
+    .cxtot{font-size:10.5pt;margin-top:auto;padding-top:2mm} .cxbc{height:12mm;max-width:74mm;margin-top:1mm} .cxcod{font-family:monospace;font-weight:700;font-size:10pt}
     /* 100×150 (padrão): 1 etiqueta por página */
     body.z150mode{background:#eee} body.z150mode .wrap{display:block}
     body.z150mode .page{page-break-after:always;margin:0 auto 3mm} body.z150mode .page:last-child{page-break-after:auto}
