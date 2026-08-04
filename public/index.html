@@ -3934,7 +3934,8 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
       *{box-sizing:border-box} html,body{margin:0;padding:0}
       body{font-family:Arial,Helvetica,sans-serif;color:#000;background:#eee;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       /* Cada .page é EXATAMENTE 1 etiqueta física; overflow:hidden garante 1 folha por etiqueta. */
-      .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 4mm}
+      /* padding lateral p/ área não-imprimível da Zebra (~10mm); viés à direita (L14/R12) */
+      .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 4mm;padding:2mm 12mm 2mm 14mm}
       .page:last-child{page-break-after:auto}
       .lab{width:100%;height:100%;background:#fff;display:flex;flex-direction:column;overflow:hidden}
       @media print{ body{background:#fff} .page{margin:0} }
@@ -3961,7 +3962,7 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
       body.m50 .ci{font-size:7pt} body.m50 .bip{font-size:8.5pt} body.m50 .lbl{font-size:6pt}
       body.m50 .tot{font-size:8pt;padding-top:.4mm;margin-bottom:.4mm} body.m50 .bc img{height:8mm}
       /* Modo A4 (tamanho original / folha): tudo maior, ocupa a página */
-      body.ma4 .page{width:auto;height:auto;display:block;overflow:visible;margin:0 auto 6mm}
+      body.ma4 .page{width:auto;height:auto;display:block;overflow:visible;margin:0 auto 6mm;padding:0}
       body.ma4 .lab{width:265mm;height:auto;border:2.5px solid #000}
       body.ma4 .hd{padding:5mm 8mm} body.ma4 .hd .ttl{font-size:26pt} body.ma4 .hd .vol{font-size:24pt}
       body.ma4 .pad{padding:6mm 8mm} body.ma4 .line{font-size:13pt;margin-bottom:3mm} body.ma4 .destnome{font-size:19pt}
