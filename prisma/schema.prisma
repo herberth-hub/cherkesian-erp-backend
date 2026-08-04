@@ -748,6 +748,24 @@ model UnidadeEstoque {
 }
 
 // ===== Integração Mercado Livre (OAuth2 + tokens por empresa) =====
+/// Loja Tray conectada (a empresa pode ter várias — ex.: Consigaz e Copa Energia).
+model TrayConta {
+  id            Int       @id @default(autoincrement())
+  empresaId     Int
+  apelido       String    // nome amigável da loja (ex.: "Consigaz", "Copa Energia")
+  consumerKey   String?   // do app na Tray (developers)
+  consumerSecret String?
+  apiUrl        String?   // web_api da loja, ex.: https://loja.commercesuite.com.br/web_api
+  code          String?   // code de autorização (instalação do app na loja)
+  accessToken   String?
+  refreshToken  String?
+  tokenExpira   DateTime?
+  storeId       String?   // id da loja na Tray
+  conectadoEm   DateTime?
+  ativa         Boolean   @default(true)
+  atualizadoEm  DateTime  @updatedAt
+}
+
 model MercadoLivreConta {
   id            Int       @id @default(autoincrement())
   empresaId     Int       @unique
