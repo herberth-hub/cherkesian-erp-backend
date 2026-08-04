@@ -99,7 +99,10 @@ export class NfeService {
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
     const itensNf = this.explodirPorTamanho(itens.map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, grade: (it as { grade?: Record<string, number> | null }).grade })));
-    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas });
+    // Modalidade do frete pelo campo do pedido: CIF=0 (emitente), FOB=1 (destinatário), senão sem frete.
+    const freteTxt = (pedido?.frete || '').toLowerCase();
+    const modFrete = /cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : (exp.transportadora ? 0 : 9);
+    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas, frete: modFrete });
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
@@ -689,13 +692,13 @@ export class NfeService {
   private async montarPayload(
     emitente: Filial,
     cliente: Cliente,
-    exp: { pecas: number },
+    exp: { pecas: number; volumes?: number; transportadora?: string | null; caixas?: unknown },
     itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }>,
     serie: string,
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; frete?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -803,6 +806,14 @@ export class NfeService {
     const totalPecasNf = itens.reduce((s, it) => s + Number(it.quantidade), 0);
     const pesoBrutoNf = Number((totalPecasNf * pesoMedio).toFixed(3));
 
+    // Volumes/peso: usa as CAIXAS montadas (peso real pesado) quando houver; senão estima.
+    const caixasArr = Array.isArray(exp.caixas) ? (exp.caixas as Array<{ peso?: number | null }>) : [];
+    const pesoCaixas = caixasArr.reduce((s, c) => s + (Number(c?.peso) || 0), 0);
+    const pesoNota = pesoCaixas > 0 ? Number(pesoCaixas.toFixed(3)) : pesoBrutoNf;
+    const volumesNota = caixasArr.length || exp.volumes || extra?.volumes || 1;
+    const transportadoraNome = (exp.transportadora || '').toString().trim();
+    const modalidadeFrete = extra?.frete != null ? extra.frete : (transportadoraNome ? 0 : 9);
+
     // Inscrição Estadual do destinatário: a SEFAZ só aceita a tag IE com 2-14 dígitos.
     // Se não houver IE válida, omite a tag e ajusta o indicador (contribuinte sem IE é inválido → 9).
     const ieDigitos = digitos(cliente.inscricaoEstadual || '');
@@ -816,7 +827,8 @@ export class NfeService {
       tipo_documento: 1, // 1 = saída
       finalidade_emissao: 1, // 1 = normal
       presenca_comprador: 9,
-      modalidade_frete: 9, // 9 = sem ocorrência de transporte (SEFAZ exige o campo)
+      modalidade_frete: modalidadeFrete, // 0=emitente(CIF) 1=destinatário(FOB) 9=sem frete
+      ...(transportadoraNome ? { transportador_razao_social: transportadoraNome.slice(0, 60) } : {}),
       serie,
       numero,
       // Emitente (dados também configurados no painel do provedor)
@@ -835,10 +847,10 @@ export class NfeService {
       cep_destinatario: digitos(cliente.cep),
       valor_total: Number(valorTotal.toFixed(2)),
       // Volume e peso (importante p/ o cliente conferir no recebimento).
-      volumes_quantidade: extra?.volumes ?? exp.pecas,
+      volumes_quantidade: volumesNota,
       volumes_especie: 'Caixa',
-      volumes_peso_liquido: pesoBrutoNf,
-      volumes_peso_bruto: pesoBrutoNf,
+      volumes_peso_liquido: pesoNota,
+      volumes_peso_bruto: pesoNota,
       ...(extra?.duplicatas && extra.duplicatas.length
         ? {
             // Grupo de cobrança (fatura + duplicatas) — leva o vencimento p/ o cliente.
