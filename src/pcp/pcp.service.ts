@@ -55,7 +55,7 @@ export class PcpService {
     for (const op of ops) {
       porStatus[op.status] = (porStatus[op.status] ?? 0) + 1;
       porPrioridade[op.prioridade] = (porPrioridade[op.prioridade] ?? 0) + 1;
-      const setor = op.setorAtual ?? 'não definido';
+      const setor = op.setorAtual ?? 'N/D';
       porSetor[setor] = (porSetor[setor] ?? 0) + 1;
       pecasEmProducao += op.quantidade;
     }

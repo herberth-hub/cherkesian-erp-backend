@@ -1,6 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Ip, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { KitsService } from './kits.service';
-import { AlterarLoteKitDto, AtribuirCaixaDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, ExpedirKitDto, RetornarKitDto } from './dto/kits.dto';
+import { AlterarLoteKitDto, AtribuirCaixaDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, EnviarFaccaoDto, ExpedirKitDto, RetornarKitDto } from './dto/kits.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -78,6 +78,14 @@ export class KitsController {
   @HttpCode(HttpStatus.CREATED)
   criarDeOp(@Body() dto: CriarKitsDeOpDto, @CurrentUser() u: AuthUser) {
     return this.kits.criarDeOp(dto, u.empresaId, u.usuario);
+  }
+
+  /** Envio automatizado da OP p/ facção externa: gera controle + expede + vincula lote (PCP/master). */
+  @Areas('pcp', 'producao')
+  @Post('faccao-externa')
+  @HttpCode(HttpStatus.OK)
+  enviarFaccaoExterna(@Body() dto: EnviarFaccaoDto, @CurrentUser() u: AuthUser, @Ip() ip: string) {
+    return this.kits.enviarFaccaoExterna(dto, u.empresaId, u.usuario, ip);
   }
 
   @Areas('expedicao', 'pcp', 'producao', 'estoque')

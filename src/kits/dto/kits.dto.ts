@@ -76,3 +76,13 @@ export class AlterarLoteKitDto {
   @IsInt() @IsPositive() loteTecidoId!: number;
   @IsString() @IsNotEmpty({ message: 'Informe o motivo da alteração de lote.' }) @MaxLength(200) motivo!: string;
 }
+
+/** Envio automatizado da OP para uma facção externa (gera controle + expede + vincula lote). */
+export class EnviarFaccaoDto {
+  @IsInt() @IsPositive() opId!: number;
+  @IsOptional() @IsInt() @IsPositive() faccaoId?: number;
+  @IsOptional() @IsString() @MaxLength(120) faccaoNome?: string;
+  @IsString() @IsNotEmpty({ message: 'Informe a operação (ex.: Estamparia/Bordado, Costura).' }) @MaxLength(60) operacao!: string;
+  @IsOptional() @IsString() @MaxLength(80) loteTecidoNf?: string;
+  @IsOptional() @IsString() @MaxLength(120) transportador?: string;
+}

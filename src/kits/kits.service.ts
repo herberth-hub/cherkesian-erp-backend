@@ -451,4 +451,105 @@ export class KitsService {
     if (!d) return '—';
     return new Date(d).toLocaleString('pt-BR');
   }
+
+  /**
+   * Envio AUTOMATIZADO para facção externa (estamparia/bordado, costura, lavanderia…).
+   * Numa ação: gera um CÓDIGO DE CONTROLE automático, cria/expede os kits da OP para a
+   * facção e vincula o LOTE DO TECIDO — deixando o rastreio linear (uma operação puxa a
+   * próxima) sem digitação manual. Idempotente por OP+facção.
+   */
+  async enviarFaccaoExterna(
+    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string },
+    empresaId: number,
+    usuario: string,
+    ip?: string,
+  ) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id: dto.opId },
+      include: { pedido: { select: { empresaId: true, numero: true, cliente: { select: { nome: true } } } } },
+    });
+    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
+    const operacao = (dto.operacao ?? '').trim();
+    if (!operacao) throw new BadRequestException('Informe a operação da facção (ex.: Estamparia/Bordado, Costura).');
+
+    // Facção (fornecedor cadastrado ou nome avulso).
+    let faccaoNome = dto.faccaoNome?.trim();
+    if (dto.faccaoId) {
+      const f = await this.prisma.fornecedor.findUnique({ where: { id: dto.faccaoId } });
+      if (!f || f.empresaId !== empresaId) throw new NotFoundException('Facção não encontrada.');
+      faccaoNome = f.nome;
+    }
+    if (!faccaoNome) throw new BadRequestException('Informe a facção destino.');
+
+    // Kits da OP: reaproveita os existentes; se não houver, gera da grade cortada/planejada.
+    let kits = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id } });
+    if (!kits.length) {
+      const criados = await this.criarDeOp({ opId: op.id, faccaoId: dto.faccaoId, faccaoNome } as CriarKitsDeOpDto, empresaId, usuario);
+      kits = criados.kits;
+    }
+
+    // Lote do tecido: NF informada → lote vinculado (LoteTecido) → lotes do romaneio da OP.
+    let loteNf = dto.loteTecidoNf?.trim() || '';
+    if (!loteNf) {
+      const kitComLote = kits.find((k) => k.loteTecidoId);
+      if (kitComLote?.loteTecidoId) {
+        const lt = await this.prisma.loteTecido.findUnique({ where: { id: kitComLote.loteTecidoId } });
+        if (lt) loteNf = lt.nfCompra ? `${lt.codigoLote} · NF ${lt.nfCompra}` : lt.codigoLote;
+      }
+    }
+    if (!loteNf) {
+      const rom = (op.romaneioMateriais as Array<{ lotes?: string[] }> | null) ?? [];
+      const lotes = [...new Set(rom.flatMap((r) => r.lotes ?? []).filter(Boolean))];
+      if (lotes.length) loteNf = lotes.join(', ');
+    }
+
+    // Código de controle automático (por envio).
+    const agora = new Date();
+    const controle = await this.gerarControleFaccao(agora);
+
+    for (const k of kits) {
+      await this.prisma.kit.update({
+        where: { id: k.id },
+        data: {
+          faccaoId: dto.faccaoId ?? k.faccaoId,
+          faccaoNome,
+          operacaoFaccao: operacao,
+          controleFaccao: controle,
+          loteTecidoNf: loteNf || k.loteTecidoNf,
+          transportador: dto.transportador ?? k.transportador,
+          remessaNfNumero: k.remessaNfNumero ?? controle,
+          status: 'em_faccao',
+          expedidoEm: agora,
+          expedidoPor: usuario,
+        },
+      });
+      await this.prisma.kitEvento.create({
+        data: { empresaId, kitId: k.id, evento: 'expedido', detalhe: `Facção externa: ${faccaoNome} · ${operacao} · controle ${controle}${loteNf ? ' · lote ' + loteNf : ''}`, usuario, ip },
+      });
+    }
+
+    return {
+      controle,
+      operacao,
+      faccao: faccaoNome,
+      loteTecido: loteNf || null,
+      op: op.numero,
+      cliente: op.pedido?.cliente?.nome ?? null,
+      total: kits.length,
+      kits: kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecas: k.pecasTotal, cor: k.cor })),
+    };
+  }
+
+  /** Gera o próximo código de controle de facção do dia (CTRL-AAAAMMDD-NNNN). */
+  private async gerarControleFaccao(agora: Date): Promise<string> {
+    const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
+    const prefixo = `CTRL-${ymd}-`;
+    const ult = await this.prisma.kit.findFirst({
+      where: { controleFaccao: { startsWith: prefixo } },
+      orderBy: { controleFaccao: 'desc' },
+      select: { controleFaccao: true },
+    });
+    const n = ult?.controleFaccao ? Number(ult.controleFaccao.slice(prefixo.length)) + 1 : 1;
+    return `${prefixo}${String(n).padStart(4, '0')}`;
+  }
 }

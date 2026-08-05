@@ -2466,7 +2466,7 @@ async function viewProducao(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
-      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
@@ -2638,6 +2638,59 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
+}
+// ===== Envio automatizado p/ facção externa (gera controle + rastreio linear) =====
+async function opFaccaoExterna(o){
+  let forns=[]; try{ forns=await api('/fornecedores'); }catch(e){ forns=[]; }
+  const optForn='<option value="">— selecione a facção cadastrada —</option>'+(forns||[]).map(f=>{const c=String(f.cnpjCpf||'').replace(/\D/g,'');return `<option value="${f.id}">${esc(f.nome||('Forn '+f.id))}${c.length===14?' · CNPJ':(c?' · CPF':' · s/ doc')}</option>`;}).join('');
+  const OPER=['Estamparia/Bordado','Costura','Lavanderia','Beneficiamento','Corte terceirizado'];
+  const sug=OPER.find(x=>(o.setorAtual||'').toLowerCase().includes(x.toLowerCase().split('/')[0]))||'Costura';
+  const oper=OPER.map(x=>`<option ${x===sug?'selected':''}>${x}</option>`).join('');
+  openModal(`<h3>🏭 Enviar p/ facção externa · <span class="mono gold">${esc(o.numero)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Gera um <b>código de controle automático</b>, cria/expede os kits da OP e vincula o lote do tecido — o rastreio fica linear (uma operação puxa a próxima), sem digitar nada manual.</div>
+    <div class="mrow"><label class="fl">Facção destino *</label><select id="fx_forn" class="inp">${optForn}</select></div>
+    ${field('fx_nome','...ou nome da facção (se não cadastrada)','placeholder="ex.: Estamparia Rosa"')}
+    <div class="grid2"><div class="mrow"><label class="fl">Operação *</label><select id="fx_oper" class="inp">${oper}</select></div>${field('fx_lote','Lote/NF do tecido','placeholder="branco = puxa do romaneio"')}</div>
+    ${field('fx_transp','Transportador','placeholder="opcional"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.opFaccaoEnviar(${o.id})">Gerar controle + enviar</button></div>`);
+}
+async function opFaccaoEnviar(opId){
+  const body={ opId, operacao:val('fx_oper') };
+  const fid=Number(val('fx_forn')); if(fid>0) body.faccaoId=fid;
+  const nome=(val('fx_nome')||'').trim(); if(nome) body.faccaoNome=nome;
+  const lote=(val('fx_lote')||'').trim(); if(lote) body.loteTecidoNf=lote;
+  const t=(val('fx_transp')||'').trim(); if(t) body.transportador=t;
+  if(!body.faccaoId && !body.faccaoNome){ toast('Selecione ou digite a facção.','err'); return; }
+  try{
+    const r=await api('/kits/faccao-externa',{method:'POST',body});
+    closeModal();
+    toast('✅ Controle '+r.controle+' · '+r.total+' kit(s) enviados p/ '+r.faccao,'ok');
+    imprimirEtiquetaFaccao(r);
+    loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+function imprimirEtiquetaFaccao(d){
+  const w=window.open('','_blank','width=460,height=540'); if(!w){ toast('Libere o pop-up p/ imprimir a etiqueta.','err'); return; }
+  const kitsTxt=(d.kits||[]).map(k=>`${esc(k.tamanho)}·${k.pecas}p`).join('  ');
+  w.document.write(`<html><head><title>Controle ${esc(d.controle)}</title><meta charset=utf-8><style>
+    @page{size:100mm 80mm;margin:0} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
+    .lbl{width:100mm;height:80mm;box-sizing:border-box;padding:5mm;display:flex;flex-direction:column;gap:1.1mm}
+    .h{font-weight:800;font-size:12.5pt} .r{font-size:10pt} .big{font-size:12pt;font-weight:800;margin-top:.5mm}
+    .ctrl{margin-top:auto;text-align:center;font-family:'Courier New',monospace;font-weight:800;font-size:15pt;border:2px solid #000;padding:2mm;letter-spacing:1px}
+    .bar{position:fixed;top:4px;right:4px}@media print{.bar{display:none}}
+  </style></head><body><div class="bar"><button onclick="window.print()">Imprimir</button></div>
+    <div class="lbl">
+      <div class="h">GRUPO CHERKESIAN · REMESSA FACÇÃO</div>
+      <div class="r"><b>OP:</b> ${esc(d.op)} &nbsp; <b>Cliente:</b> ${esc(d.cliente||'—')}</div>
+      <div class="big">OPERAÇÃO: ${esc(d.operacao)}</div>
+      <div class="r"><b>Facção:</b> ${esc(d.faccao)}</div>
+      <div class="r"><b>Kits:</b> ${kitsTxt||'—'}</div>
+      <div class="r"><b>Lote tecido:</b> ${esc(d.loteTecido||'—')}</div>
+      <div class="r" style="font-size:8.5pt;color:#555">Controle de rastreio — retornar com a NF de retorno/OS.</div>
+      <div class="ctrl">${esc(d.controle)}</div>
+    </div></body></html>`);
+  w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
 }
 async function saveOp(id){
   try{
@@ -5159,7 +5212,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
