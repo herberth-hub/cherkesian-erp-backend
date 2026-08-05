@@ -2462,7 +2462,7 @@ async function viewProducao(c){
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
-      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} <button class="btn-sm" onclick='APP.formCorte(${JSON.stringify(o).replace(/'/g,"&#39;")})'>✂ Corte</button> <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
