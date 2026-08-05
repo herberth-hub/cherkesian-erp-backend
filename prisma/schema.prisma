@@ -241,6 +241,17 @@ model Fornecedor {
   cidadeUf  String?
   chavePix  String?   // chave PIX p/ pagamento (CPF/CNPJ, e-mail, celular ou aleatória)
   obs       String?
+  // ===== Dados fiscais (p/ NF-e de remessa para industrialização à facção) =====
+  faccao            Boolean @default(false) // marca fornecedor que é facção/oficina externa
+  inscricaoEstadual String?
+  indicadorIE       Int?    // 1=Contribuinte ICMS, 2=Isento, 9=Não contribuinte
+  logradouro        String?
+  numeroEndereco    String?
+  bairro            String?
+  municipio         String?
+  codMunicipio      String? // código IBGE (7 dígitos)
+  uf                String?
+  cep               String?
   ordensCompra OrdemCompra[]
   notasEntrada NotaEntrada[]
 }

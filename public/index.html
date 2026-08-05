@@ -1526,11 +1526,21 @@ async function formFornecedor(id){
     <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido, Facção)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
     <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     ${field('f_pix','🔑 Chave PIX (p/ pagamento)','placeholder="CPF/CNPJ, e-mail, celular ou chave aleatória" value="'+esc(f.chavePix||'')+'"')}
+    <div style="border-top:1px solid var(--line);margin:8px 0 4px;padding-top:8px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_faccao" ${f.faccao?'checked':''}> <b>É facção / oficina externa</b> <span class="muted">— dados fiscais abaixo p/ emitir NF-e de remessa</span></label></div>
+    <div class="grid3">${field('f_ie','Inscrição Estadual','value="'+esc(f.inscricaoEstadual||'')+'"')}
+      <div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${f.indicadorIE==1?'selected':''}>1 · Contribuinte</option><option value="2" ${f.indicadorIE==2?'selected':''}>2 · Isento</option><option value="9" ${f.indicadorIE==9?'selected':''}>9 · Não contribuinte</option></select></div>
+      ${field('f_cep','CEP','value="'+esc(f.cep||'')+'"')}</div>
+    <div class="grid3">${field('f_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('f_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
+    <div class="grid3">${field('f_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('f_uf','UF','value="'+esc(f.uf||'')+'"')}${field('f_ibge','Cód. IBGE município','value="'+esc(f.codMunicipio||'')+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveFornecedor(${id||0})">Salvar</button></div>`);
 }
 async function saveFornecedor(id){
-  const body = { nome:val('f_nome'), nomeFantasia:val('f_fant'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel'), chavePix:val('f_pix') };
+  const body = { nome:val('f_nome'), nomeFantasia:val('f_fant'), cnpjCpf:val('f_cnpj'), tipo:val('f_tipo'), cidadeUf:val('f_cidade'), contato:val('f_contato'), telefone:val('f_tel'), chavePix:val('f_pix'),
+    faccao: !!($('f_faccao')&&$('f_faccao').checked),
+    inscricaoEstadual:val('f_ie'), logradouro:val('f_log'), numeroEndereco:val('f_num'), bairro:val('f_bairro'),
+    municipio:val('f_mun'), uf:(val('f_uf')||'').toUpperCase(), cep:val('f_cep'), codMunicipio:val('f_ibge') };
+  const indie=val('f_indie'); if(indie) body.indicadorIE=Number(indie);
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/fornecedores/'+id):'/fornecedores',{method:id?'PATCH':'POST',body}); closeModal(); toast('Fornecedor salvo.','ok'); loadRoute(); }
