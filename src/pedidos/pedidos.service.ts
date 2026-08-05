@@ -323,38 +323,58 @@ export class PedidosService {
       }
     }
 
-    // 3b) Faltou material → cria Ordem(ns) de Compra e bloqueia
+    // 3b) Faltou material → cria Ordem(ns) de Compra e bloqueia.
+    //     IDEMPOTENTE: se o pedido já tem OC aberta (aguardando) para o mesmo
+    //     material, NÃO cria outra — evita duplicidade ao reprocessar "Gerar OP"
+    //     enquanto o pedido está em 'compra' esperando o material chegar.
     if (faltantes.length > 0) {
-      const ordensCompra = await this.prisma.$transaction(async (tx) => {
-        const fornecedor = await this.fornecedorPlaceholder(tx, empresaId);
-        const criadas = [];
-        for (const f of faltantes) {
-          const numero = await this.gerarNumeroOC(tx);
-          const oc = await tx.ordemCompra.create({
-            data: {
-              numero,
-              fornecedorId: fornecedor.id,
-              materialId: f.material.id,
-              descricao: f.material.descricao,
-              quantidade: f.faltam,
-              unidade: f.material.unidade,
-              valor: f.faltam.mul(f.material.custo),
-              status: 'aguardando',
-              motivo: `Reposição automática p/ pedido ${pedido.numero}`,
-            },
-          });
-          criadas.push(oc);
+      const motivoPedido = `Reposição automática p/ pedido ${pedido.numero}`;
+      const ocsAbertas = await this.prisma.ordemCompra.findMany({
+        where: { status: 'aguardando', motivo: motivoPedido, materialId: { in: faltantes.map((f) => f.material.id) } },
+      });
+      const jaComOC = new Set(ocsAbertas.map((o) => o.materialId));
+      const aCriar = faltantes.filter((f) => !jaComOC.has(f.material.id));
+
+      const novas = await this.prisma.$transaction(async (tx) => {
+        const criadas: Awaited<ReturnType<typeof tx.ordemCompra.create>>[] = [];
+        if (aCriar.length > 0) {
+          const fornecedor = await this.fornecedorPlaceholder(tx, empresaId);
+          for (const f of aCriar) {
+            const numero = await this.gerarNumeroOC(tx);
+            const oc = await tx.ordemCompra.create({
+              data: {
+                numero,
+                fornecedorId: fornecedor.id,
+                materialId: f.material.id,
+                descricao: f.material.descricao,
+                quantidade: f.faltam,
+                unidade: f.material.unidade,
+                valor: f.faltam.mul(f.material.custo),
+                status: 'aguardando',
+                motivo: motivoPedido,
+              },
+            });
+            criadas.push(oc);
+          }
         }
-        await tx.pedido.update({
-          where: { id },
-          data: { etapa: 'compra', status: 'Aguardando material' },
-        });
+        if (pedido.etapa !== 'compra') {
+          await tx.pedido.update({
+            where: { id },
+            data: { etapa: 'compra', status: 'Aguardando material' },
+          });
+        }
         return criadas;
       });
 
+      const todasOCs = [...ocsAbertas, ...novas];
       return {
         status: 'bloqueado_material' as const,
         pedido: { numero: pedido.numero, etapa: 'compra' },
+        ocsNovas: novas.length,
+        ocsExistentes: ocsAbertas.length,
+        message: novas.length
+          ? `Faltou material: ${novas.length} ordem(ns) de compra gerada(s)${ocsAbertas.length ? ` (${ocsAbertas.length} já existia(m), não duplicadas)` : ''}. Pedido aguardando material.`
+          : `Já existe(m) ${ocsAbertas.length} ordem(ns) de compra aberta(s) para este pedido — aguardando o material chegar. Nenhuma OC duplicada foi criada.`,
         faltantes: faltantes.map((f) => ({
           materialCodigo: f.material.codigo,
           descricao: f.material.descricao,
@@ -363,7 +383,7 @@ export class PedidosService {
           faltam: f.faltam.toFixed(3),
           unidade: f.material.unidade,
         })),
-        ordensCompra: ordensCompra.map((o) => ({
+        ordensCompra: todasOCs.map((o) => ({
           numero: o.numero,
           material: o.descricao,
           quantidade: o.quantidade.toFixed(3),
