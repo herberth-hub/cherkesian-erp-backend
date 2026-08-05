@@ -2599,7 +2599,8 @@ async function opConcluirEtiquetas(id){
         <option value="estoque">📦 Estocar (endereçar depois)</option>
         <option value="expedicao">🚚 Ir direto pra expedição (despachar pro cliente)</option>
       </select></div>
-    <div class="grid2">${field('oc_ref','Ref (código do produto)','value="'+esc(refProd)+'"')}${field('oc_cor','Cor','value="'+esc(d.cor&&d.cor!=='-'?d.cor:'')+'"')}</div>
+    <div class="grid2">${field('oc_ref','Ref (código do produto)','value="'+esc(refProd)+'"')}<div><label class="fl">Cor <span class="muted" style="font-weight:400">(puxada do pedido)</span></label><input id="oc_cor" class="inp" value="${esc(d.cor&&d.cor!=='-'?d.cor:'')}" readonly title="A cor vem do cadastro/pedido e não pode ser alterada aqui" style="background:#f4f2ed;color:#3a2f08;font-weight:600;cursor:not-allowed"></div></div>
+    ${(!d.cor||d.cor==='-')?'<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:11.5px;margin:-2px 0 8px">⚠️ Este produto está <b>sem cor</b> no cadastro. Cadastre a cor no produto para a etiqueta sair correta.</div>':''}
     ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
     <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>

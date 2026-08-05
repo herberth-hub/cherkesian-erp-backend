@@ -241,16 +241,17 @@ export class OpsService {
     });
     if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const produto = op.produtoId
-      ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } })
+      ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true, cor: true } })
       : null;
 
     const grade = (op.gradeTamanhos as Record<string, number> | null) ?? {};
     const gradeTxt = Object.keys(grade).length
       ? Object.entries(grade).map(([t, q]) => `${t}=${q}`).join('  ')
       : '-';
-    // Cor: não é campo estruturado — tenta extrair da observação do pedido ("Cor: X").
+    // Cor: prioriza a cor da OP (veio do item do pedido), depois a cor do
+    // cadastro do produto e, por último, a observação do pedido ("Cor: X").
     const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
-    const cor = corMatch ? corMatch[1].trim() : '-';
+    const cor = (op.cor ?? '').trim() || (produto?.cor ?? '').trim() || (corMatch ? corMatch[1].trim() : '') || '-';
     // Rastreio: lotes do fornecedor dos materiais conferidos no romaneio da OP.
     const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
     const lotes = [...new Set(rom.flatMap((r) => r.lotes ?? []).filter(Boolean))];
