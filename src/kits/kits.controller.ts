@@ -80,6 +80,13 @@ export class KitsController {
     return this.kits.criarDeOp(dto, u.empresaId, u.usuario);
   }
 
+  /** Lista os kits de um código de CONTROLE (para bipar o lote inteiro). */
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Get('controle/:controle')
+  porControle(@Param('controle') controle: string, @CurrentUser() u: AuthUser) {
+    return this.kits.porControle(u.empresaId, controle);
+  }
+
   /** Envio automatizado da OP p/ facção externa: gera controle + expede + vincula lote (PCP/master). */
   @Areas('pcp', 'producao')
   @Post('faccao-externa')

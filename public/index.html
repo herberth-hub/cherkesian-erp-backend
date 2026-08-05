@@ -5007,6 +5007,8 @@ async function viewKits(c){
 }
 async function kitBipar(acao){
   const codigo = val('kit_bip'); if(!codigo){ toast('Bipe ou digite o código do kit.','err'); return; }
+  // Se bipar um código de CONTROLE (CTRL-...), aplica a ação a TODOS os kits do controle.
+  if(/^CTRL-/i.test(codigo.trim())) return kitBiparControle(acao, codigo.trim());
   let body={codigo};
   if(acao==='expedir'){
     const f=prompt('Facção destino (deixe em branco p/ usar a do kit):',''); if(f===null) return; if(f) body.faccaoNome=f;
@@ -5023,6 +5025,24 @@ async function kitBipar(acao){
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 
+// Bipar um CONTROLE (CTRL-...): aplica a ação a todos os kits daquele controle de uma vez.
+async function kitBiparControle(acao, controle){
+  let kits=[]; try{ kits=await api('/kits/controle/'+encodeURIComponent(controle)); }catch(e){ toast(e.message,'err'); return; }
+  if(!kits.length){ toast('Nenhum kit encontrado para o controle '+controle+'.','err'); return; }
+  if(acao==='retornar'){
+    const nf=prompt('Controle '+controle+' ('+kits.length+' kit(s)). NF de retorno da facção (deixe em branco se for produção interna):','');
+    if(nf===null) return;
+    let ok=0,err=0;
+    for(const k of kits){ try{ await api('/kits/retornar',{method:'POST',body:{codigo:k.codigo, retornoNf:nf||('RET-'+controle)}}); ok++; }catch(e){ err++; } }
+    toast('Retorno · controle '+controle+' → '+ok+'/'+kits.length+' kit(s)'+(err?' ('+err+' falha)':''), err?'err':'ok');
+    $('kit_bip').value=''; loadRoute(); return;
+  }
+  const label={expedir:'Expedição',conferir:'Conferência',finalizar:'Finalização'}[acao]||acao;
+  let ok=0,err=0,lastMsg='';
+  for(const k of kits){ try{ const r=await api('/kits/'+acao,{method:'POST',body:{codigo:k.codigo}}); ok++; lastMsg=r.mensagem||''; }catch(e){ err++; } }
+  toast('✅ '+label+' · controle '+controle+' → '+ok+'/'+kits.length+' kit(s)'+(err?' ('+err+' falha)':''), err?'err':'ok');
+  $('kit_bip').value=''; loadRoute();
+}
 // ===== Retorno da facção: conferência obrigatória de faltas + reposição (OC) / senha PCP =====
 async function formRetornoFaccao(codigo){
   let forns=[];
@@ -5228,7 +5248,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
-  viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

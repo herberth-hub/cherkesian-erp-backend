@@ -560,6 +560,13 @@ export class KitsService {
     };
   }
 
+  /** Lista os kits de um código de CONTROLE de facção (para bipar o lote inteiro). */
+  async porControle(empresaId: number, controle: string) {
+    const c = (controle ?? '').trim();
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, controleFaccao: c }, orderBy: { id: 'asc' } });
+    return kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecasTotal: k.pecasTotal, status: k.status, faccaoNome: k.faccaoNome, operacaoFaccao: k.operacaoFaccao }));
+  }
+
   /** Gera o próximo código de controle de facção do dia (CTRL-AAAAMMDD-NNNN). */
   private async gerarControleFaccao(agora: Date): Promise<string> {
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
