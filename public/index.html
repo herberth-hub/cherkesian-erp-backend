@@ -2692,7 +2692,7 @@ function imprimirEtiquetaFaccao(d){
       <div class="r"><b>Kits:</b> ${kitsTxt||'—'}</div>
       <div class="r"><b>Lote tecido:</b> ${esc(d.loteTecido||'—')}</div>
       <div class="r" style="font-size:8.5pt;color:#555">Controle de rastreio — retornar com a NF de retorno/OS.</div>
-      <div class="ctrl">${esc(d.controle)}</div>
+      ${d.barcode?`<div style="margin-top:auto;text-align:center"><img src="${d.barcode}" style="height:12mm;max-width:92%"><div style="font-family:'Courier New',monospace;font-weight:800;font-size:13pt;letter-spacing:1px">${esc(d.controle)}</div></div>`:`<div class="ctrl">${esc(d.controle)}</div>`}
     </div></body></html>`);
   w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},400);
 }

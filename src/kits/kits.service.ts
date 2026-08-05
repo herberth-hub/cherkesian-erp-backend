@@ -3,6 +3,9 @@ import { Kit } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
+
+// bwip-js gera o código de barras (Code128) do controle de facção como PNG base64.
+const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
 import {
   AlterarLoteKitDto,
   AtribuirCaixaDto,
@@ -536,8 +539,16 @@ export class KitsService {
       });
     }
 
+    // Código de barras Code128 do controle (para bipar no retorno).
+    let barcode: string | null = null;
+    try {
+      const bc = await bwipjs.toBuffer({ bcid: 'code128', text: controle, scale: 3, height: 16, includetext: false, padding: 0 });
+      barcode = 'data:image/png;base64,' + bc.toString('base64');
+    } catch { /* fallback: só o texto do controle */ }
+
     return {
       controle,
+      barcode,
       operacao,
       interna,
       faccao: faccaoNome,
