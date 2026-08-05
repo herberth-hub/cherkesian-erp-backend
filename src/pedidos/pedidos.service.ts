@@ -285,7 +285,9 @@ export class PedidosService {
       const comps = item.produtoId ? compDe.get(item.produtoId) : null;
       const cor = (item as { cor?: string | null }).cor ?? null;
       if (comps && comps.length) {
-        for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade, cor });
+        // Conjunto: cada componente tem a SUA cor (camiseta e calça podem diferir).
+        // Deixa null p/ a OP herdar a cor do cadastro do próprio componente.
+        for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade, cor: null });
       } else {
         unidades.push({ chave: ch++, produtoId: item.produtoId ?? null, quantidade: item.quantidade, grade: item.grade, cor });
       }

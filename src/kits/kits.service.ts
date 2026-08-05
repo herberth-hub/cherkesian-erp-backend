@@ -180,7 +180,7 @@ export class KitsService {
       });
       criados.push(kit);
     }
-    return { op: op.numero, lote: lote.codigoLote, total: criados.length, kits: criados };
+    return { op: op.numero, lote: lote?.codigoLote ?? null, total: criados.length, kits: criados };
   }
 
   // ===================== EXPEDIÇÃO / RETORNO (idempotentes) =====================
