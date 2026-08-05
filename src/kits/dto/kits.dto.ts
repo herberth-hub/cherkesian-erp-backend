@@ -85,4 +85,6 @@ export class EnviarFaccaoDto {
   @IsString() @IsNotEmpty({ message: 'Informe a operação (ex.: Estamparia/Bordado, Costura).' }) @MaxLength(60) operacao!: string;
   @IsOptional() @IsString() @MaxLength(80) loteTecidoNf?: string;
   @IsOptional() @IsString() @MaxLength(120) transportador?: string;
+  /** true = operação feita INTERNAMENTE (não é remessa p/ terceiro; sem NF de retorno). */
+  @IsOptional() @IsBoolean() interna?: boolean;
 }

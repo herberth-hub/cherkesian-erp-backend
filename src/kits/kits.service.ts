@@ -459,7 +459,7 @@ export class KitsService {
    * próxima) sem digitação manual. Idempotente por OP+facção.
    */
   async enviarFaccaoExterna(
-    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string },
+    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean },
     empresaId: number,
     usuario: string,
     ip?: string,
@@ -472,14 +472,19 @@ export class KitsService {
     const operacao = (dto.operacao ?? '').trim();
     if (!operacao) throw new BadRequestException('Informe a operação da facção (ex.: Estamparia/Bordado, Costura).');
 
-    // Facção (fornecedor cadastrado ou nome avulso).
+    // Destino: PRODUÇÃO INTERNA (in-house) ou facção externa (fornecedor/nome avulso).
+    const interna = !!dto.interna;
     let faccaoNome = dto.faccaoNome?.trim();
-    if (dto.faccaoId) {
-      const f = await this.prisma.fornecedor.findUnique({ where: { id: dto.faccaoId } });
-      if (!f || f.empresaId !== empresaId) throw new NotFoundException('Facção não encontrada.');
-      faccaoNome = f.nome;
+    if (interna) {
+      faccaoNome = 'PRODUÇÃO INTERNA';
+    } else {
+      if (dto.faccaoId) {
+        const f = await this.prisma.fornecedor.findUnique({ where: { id: dto.faccaoId } });
+        if (!f || f.empresaId !== empresaId) throw new NotFoundException('Facção não encontrada.');
+        faccaoNome = f.nome;
+      }
+      if (!faccaoNome) throw new BadRequestException('Informe a facção destino.');
     }
-    if (!faccaoNome) throw new BadRequestException('Informe a facção destino.');
 
     // Kits da OP: reaproveita os existentes; se não houver, gera da grade cortada/planejada.
     let kits = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id } });
@@ -508,29 +513,33 @@ export class KitsService {
     const controle = await this.gerarControleFaccao(agora);
 
     for (const k of kits) {
-      await this.prisma.kit.update({
-        where: { id: k.id },
-        data: {
-          faccaoId: dto.faccaoId ?? k.faccaoId,
-          faccaoNome,
-          operacaoFaccao: operacao,
-          controleFaccao: controle,
-          loteTecidoNf: loteNf || k.loteTecidoNf,
-          transportador: dto.transportador ?? k.transportador,
-          remessaNfNumero: k.remessaNfNumero ?? controle,
-          status: 'em_faccao',
-          expedidoEm: agora,
-          expedidoPor: usuario,
-        },
-      });
+      const dataUpd: Record<string, unknown> = {
+        faccaoNome,
+        operacaoFaccao: operacao,
+        controleFaccao: controle,
+        loteTecidoNf: loteNf || k.loteTecidoNf,
+      };
+      if (interna) {
+        // Operação INTERNA: registra controle/operação, mas NÃO expede como remessa
+        // externa (não muda status p/ em_faccao, não exige NF de retorno).
+      } else {
+        dataUpd.faccaoId = dto.faccaoId ?? k.faccaoId;
+        dataUpd.transportador = dto.transportador ?? k.transportador;
+        dataUpd.remessaNfNumero = k.remessaNfNumero ?? controle;
+        dataUpd.status = 'em_faccao';
+        dataUpd.expedidoEm = agora;
+        dataUpd.expedidoPor = usuario;
+      }
+      await this.prisma.kit.update({ where: { id: k.id }, data: dataUpd });
       await this.prisma.kitEvento.create({
-        data: { empresaId, kitId: k.id, evento: 'expedido', detalhe: `Facção externa: ${faccaoNome} · ${operacao} · controle ${controle}${loteNf ? ' · lote ' + loteNf : ''}`, usuario, ip },
+        data: { empresaId, kitId: k.id, evento: interna ? 'operacao_interna' : 'expedido', detalhe: `${interna ? 'Operação INTERNA' : 'Facção externa: ' + faccaoNome} · ${operacao} · controle ${controle}${loteNf ? ' · lote ' + loteNf : ''}`, usuario, ip },
       });
     }
 
     return {
       controle,
       operacao,
+      interna,
       faccao: faccaoNome,
       loteTecido: loteNf || null,
       op: op.numero,
