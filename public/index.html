@@ -5045,14 +5045,16 @@ async function saveKitLote(){
 async function formKitsDaOp(){
   const [ops, lotes] = await Promise.all([api('/ops'), api('/kits/lotes')]);
   const comGrade = (ops||[]).filter(o=>o.gradeTamanhos && Object.keys(o.gradeTamanhos).length);
-  if(!comGrade.length){ toast('Nenhuma OP com grade de tamanhos. Defina a grade na OP primeiro.','err'); return; }
-  if(!lotes.length){ toast('Cadastre um lote de tecido antes (+ Lote de tecido).','err'); return; }
-  const oo=comGrade.map(o=>`<option value="${o.id}">${esc(o.numero)} · ${esc(o.pedido?o.pedido.numero:'')} · ${Object.entries(o.gradeTamanhos).map(([t,q])=>t+':'+q).join(' ')}</option>`).join('');
-  const lo=lotes.map(l=>`<option value="${l.id}">${esc(l.codigoLote)}${l.nfCompra?' · NF '+esc(l.nfCompra):''}${l.corTecido?' · '+esc(l.corTecido):''}</option>`).join('');
+  // Só OPs EM PRODUÇÃO (em corte / em produção / em facção) — não a_iniciar nem concluído.
+  const emProd = comGrade.filter(o=>['em_corte','em_producao','em_faccao'].includes(o.status));
+  const lista = emProd.length ? emProd : comGrade;
+  if(!lista.length){ toast('Nenhuma OP em produção com grade. Avance a OP para o Corte/Produção primeiro.','err'); return; }
+  const oo=lista.map(o=>`<option value="${o.id}">${esc(o.numero)} · ${esc(o.pedido?o.pedido.numero:'')} · [${(o.status||'').replace(/_/g,' ')}] · ${Object.entries(o.gradeTamanhos).map(([t,q])=>t+':'+q).join(' ')}</option>`).join('');
+  const lo='<option value="">— sem lote (vincular depois) —</option>'+(lotes||[]).map(l=>`<option value="${l.id}">${esc(l.codigoLote)}${l.nfCompra?' · NF '+esc(l.nfCompra):''}${l.corTecido?' · '+esc(l.corTecido):''}</option>`).join('');
   openModal(`<h3>Gerar kits da OP (um por tamanho)</h3>
-    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Cada tamanho da grade vira um kit com a quantidade cortada, ligado ao lote do tecido.</div>
-    <div class="mrow"><label class="fl">Ordem de Produção *</label><select id="kg_op" class="inp">${oo}</select></div>
-    <div class="mrow"><label class="fl">Lote do tecido (enfesto) *</label><select id="kg_lote" class="inp">${lo}</select></div>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Puxe uma OP <b>em produção</b>: cada tamanho da grade vira um kit. O lote do tecido é opcional (dá pra vincular depois).</div>
+    <div class="mrow"><label class="fl">Ordem de Produção * <span class="muted" style="font-weight:400">(só em produção)</span></label><select id="kg_op" class="inp">${oo}</select></div>
+    <div class="mrow"><label class="fl">Lote do tecido (enfesto) <span class="muted" style="font-weight:400">— opcional</span></label><select id="kg_lote" class="inp">${lo}</select></div>
     <div class="grid2">${field('kg_fac','Facção destino','placeholder="ex.: Facção Alfa"')}${field('kg_ppj','Peças por jogo','type="number" min="1" value="1"')}</div>
     <div class="grid3">${field('kg_enf','Enfesto','placeholder="EF-000184"')}${field('kg_oc','Ordem de corte','placeholder="OC-000241"')}${field('kg_mesa','Mesa de corte','')}</div>
     <div class="grid2">${field('kg_op2','Operador do corte','')}${field('kg_cor','Cor (se não vier do pedido)','')}</div>
@@ -5061,11 +5063,12 @@ async function formKitsDaOp(){
       <button class="btn-primary" onclick="APP.saveKitsDaOp()">Gerar kits</button></div>`);
 }
 async function saveKitsDaOp(){
-  const body={ opId:Number(val('kg_op')), loteTecidoId:Number(val('kg_lote')),
+  const body={ opId:Number(val('kg_op')),
     faccaoNome:val('kg_fac')||undefined, enfesto:val('kg_enf')||undefined, ordemCorte:val('kg_oc')||undefined,
     mesaCorte:val('kg_mesa')||undefined, operadorCorte:val('kg_op2')||undefined, cor:val('kg_cor')||undefined, caixa:val('kg_caixa')||undefined };
+  const loteId=Number(val('kg_lote')); if(loteId>0) body.loteTecidoId=loteId;
   const ppj=Number(val('kg_ppj')); if(ppj>0) body.pecasPorJogo=ppj;
-  if(!body.opId||!body.loteTecidoId){ toast('Selecione a OP e o lote.','err'); return; }
+  if(!body.opId){ toast('Selecione a OP.','err'); return; }
   try{ const r=await api('/kits/gerar-da-op',{method:'POST',body}); closeModal();
     toast(r.total+' kit(s) gerados da OP '+r.op+' (lote '+r.lote+').','ok');
     if(await uiConfirm({tipo:'ok', titulo:r.total+' kits criados', msg:'Imprimir todas as etiquetas dos kits agora?', ok:'Imprimir etiquetas', cancel:'Agora não'})){ for(const k of r.kits){ await APP.kitEtiqueta(k.id, true); } }

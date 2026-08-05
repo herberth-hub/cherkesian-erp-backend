@@ -16,8 +16,8 @@ export class CreateLoteDto {
 /** Gera os kits (um por tamanho) a partir da grade de uma OP. */
 export class CriarKitsDeOpDto {
   @IsInt() @IsPositive() opId!: number;
-  /** Lote do tecido usado no enfesto (obrigatório p/ rastreabilidade). */
-  @IsInt() @IsPositive() loteTecidoId!: number;
+  /** Lote do tecido usado no enfesto (opcional — pode ser vinculado depois). */
+  @IsOptional() @IsInt() @IsPositive() loteTecidoId?: number;
   @IsOptional() @IsString() @MaxLength(120) faccaoNome?: string;
   @IsOptional() @IsInt() @IsPositive() faccaoId?: number;
   @IsOptional() @IsString() @MaxLength(30) enfesto?: string;

@@ -122,8 +122,9 @@ export class KitsService {
     });
     if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
 
-    const lote = await this.prisma.loteTecido.findUnique({ where: { id: dto.loteTecidoId } });
-    if (!lote || lote.empresaId !== empresaId) throw new NotFoundException(`Lote ${dto.loteTecidoId} não encontrado.`);
+    // Lote de tecido é opcional: pode ser vinculado depois (rastreabilidade).
+    const lote = dto.loteTecidoId ? await this.prisma.loteTecido.findUnique({ where: { id: dto.loteTecidoId } }) : null;
+    if (dto.loteTecidoId && (!lote || lote.empresaId !== empresaId)) throw new NotFoundException(`Lote ${dto.loteTecidoId} não encontrado.`);
 
     // O kit nasce do que foi REALMENTE cortado (gradeCortada); se o corte ainda não
     // foi confirmado, usa a grade planejada da OP como base.
@@ -156,7 +157,7 @@ export class KitsService {
           codigo,
           pedidoId: op.pedidoId,
           opId: op.id,
-          loteTecidoId: lote.id,
+          loteTecidoId: lote?.id ?? undefined,
           clienteNome: op.pedido?.cliente?.nome,
           modelo: produto?.descricao,
           cor,
@@ -174,7 +175,7 @@ export class KitsService {
           caixa: dto.caixa,
           status: 'aguardando_expedicao',
           criadoPor: usuario,
-          eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s) · lote ${lote.codigoLote}`, usuario } },
+          eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s)${lote ? ' · lote ' + lote.codigoLote : ''}`, usuario } },
         },
       });
       criados.push(kit);
