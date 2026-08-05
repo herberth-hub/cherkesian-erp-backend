@@ -5,6 +5,9 @@ import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
+// bwip-js gera o código de barras (Code128) do número da OP como PNG base64.
+const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
+
 @Injectable()
 export class OpsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -268,7 +271,13 @@ export class OpsService {
       lote: loteTxt,
       destino: destino?.trim() || op.setorAtual || '-',
     };
-    return { dados, zpl: this.montarZpl(dados) };
+    // Código de barras Code128 do número da OP (para bipar o fardo).
+    let barcode: string | null = null;
+    try {
+      const bc = await bwipjs.toBuffer({ bcid: 'code128', text: op.numero, scale: 3, height: 16, includetext: false, padding: 0 });
+      barcode = 'data:image/png;base64,' + bc.toString('base64');
+    } catch { /* se falhar, a etiqueta cai no número em texto */ }
+    return { dados: { ...dados, barcode }, zpl: this.montarZpl(dados) };
   }
 
   /** ZPL para etiqueta ~100x80mm @203dpi (Code128 da OP). */

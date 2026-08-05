@@ -2560,7 +2560,7 @@ function imprimirEtiqueta(d, zpl){
       <div class="r"><b>Qtd:</b> ${d.quantidade} &nbsp; <b>Cor:</b> ${esc(d.cor)}</div>
       <div class="r"><b>Lote tecido:</b> ${esc(d.lote||'-')}</div>
       <div class="big">DESTINO: ${esc(d.destino)}</div>
-      <div class="op">${esc(d.op)}</div>
+      ${d.barcode?`<div style="margin-top:auto;text-align:center"><img src="${d.barcode}" style="height:13mm;max-width:92%"><div style="font-family:'Courier New',monospace;font-weight:800;font-size:13pt;letter-spacing:2px">${esc(d.op)}</div></div>`:`<div class="op">${esc(d.op)}</div>`}
     </div>
     <script>var ZPL=${JSON.stringify(zpl)};function baixarZpl(){var b=new Blob([ZPL],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='etiqueta-${esc(d.op)}.zpl';a.click();}<\/script>
   </body></html>`);
