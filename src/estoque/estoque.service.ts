@@ -127,7 +127,7 @@ export class EstoqueService {
         ] } : {}),
       },
       orderBy: { id: 'desc' },
-      take: 500,
+      take: 5000,
     });
   }
 
