@@ -214,8 +214,8 @@ export class OpsService {
         corteParcial: parcial,
         corteObs: obs?.trim() || null,
         status: 'em_producao',
-        setorAtual: parcial ? 'Costura · corte parcial' : 'Costura',
-        progresso: op.progresso < 25 ? 25 : op.progresso,
+        setorAtual: parcial ? 'Separação 1 · corte parcial' : 'Separação 1',
+        progresso: op.progresso < 30 ? 30 : op.progresso,
       },
     });
   }

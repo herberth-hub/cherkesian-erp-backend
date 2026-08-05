@@ -2423,6 +2423,10 @@ function opFaseBtn(o){
 async function opAvancarFase(o){
   const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
   if(!prox){ toast('OP já finalizada.','ok'); return; }
+  const atual = idx>=0 ? OP_FASES[idx].nome : null;
+  // Ao SAIR da fase "Corte", pergunta quantas peças foram realmente cortadas
+  // (permite corte parcial). Confirmar o corte já avança a OP para Separação 1.
+  if(atual==='Corte'){ return APP.formCorte(o); }
   if(prox.nome==='Finalizado'){ opConcluirEtiquetas(o.id); return; }
   try{
     await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:prox.status, setorAtual:prox.nome}});
