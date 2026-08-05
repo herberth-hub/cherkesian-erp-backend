@@ -2390,6 +2390,46 @@ async function excluirComissao(id){
 
 // ---------- Bloco Produção ----------
 const OP_STATUS = ['aguardando_material','a_iniciar','em_corte','em_producao','em_faccao','concluido'];
+// Fluxo guiado de produção: o sistema sugere a próxima fase, uma a uma.
+const OP_FASES = [
+  { nome:'Risco CAD',         status:'em_corte',    prog:5  },
+  { nome:'Corte',             status:'em_corte',    prog:15 },
+  { nome:'Separação 1',       status:'em_producao', prog:30 },
+  { nome:'Estamparia/Bordado',status:'em_producao', prog:45 },
+  { nome:'Separação 2',       status:'em_producao', prog:60 },
+  { nome:'Costura',           status:'em_producao', prog:75 },
+  { nome:'Acabamento',        status:'em_producao', prog:90 },
+  { nome:'Finalizado',        status:'concluido',   prog:100 },
+];
+// Descobre em qual fase a OP está, a partir do setor atual (ou do status, p/ OPs antigas).
+function opFaseIdx(o){
+  const s=(o.setorAtual||'').toLowerCase();
+  for(let i=OP_FASES.length-1;i>=0;i--){ if(s.includes(OP_FASES[i].nome.toLowerCase())) return i; }
+  if(o.status==='concluido') return 7;
+  if(s.includes('costura')) return 5;
+  if(s.includes('corte')||o.status==='em_corte') return 1;
+  if(o.status==='em_producao') return 5;
+  return -1; // a_iniciar / aguardando — ainda não entrou no fluxo
+}
+function opFaseBtn(o){
+  const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
+  if(!prox) return '<span class="pill green" style="font-weight:700">✓ Finalizado</span>';
+  const fim = prox.nome==='Finalizado';
+  const label = fim ? '✓ Finalizar (estoque/expedição)' : '▶ '+prox.nome;
+  const cor = fim ? 'background:#1e7a44;color:#fff' : 'background:var(--gold);color:#3a2f08';
+  return `<button class="btn-sm" style="${cor};font-weight:700" title="Avançar para a próxima fase da produção" onclick='APP.opAvancarFase(${JSON.stringify(o).replace(/'/g,"&#39;")})'>${label}</button>`;
+}
+// Avança a OP uma fase. Ao chegar em "Finalizado", abre o popup estoque/expedição + etiqueta.
+async function opAvancarFase(o){
+  const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
+  if(!prox){ toast('OP já finalizada.','ok'); return; }
+  if(prox.nome==='Finalizado'){ opConcluirEtiquetas(o.id); return; }
+  try{
+    await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:prox.status, setorAtual:prox.nome}});
+    await api('/ops/'+o.id+'/progresso',{method:'PATCH',body:{progresso:prox.prog}});
+    toast('OP '+o.numero+' avançou para: '+prox.nome,'ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 const PIL_STATUS = ['em_desenvolvimento','enviada_ao_cliente','aprovada','aprovada_c_ajustes','reprovada'];
 function opPill(s){ const c = s==='concluido'?'green':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
 function pilPill(s){ const c = (s==='aprovada'||s==='aprovada_c_ajustes')?'green':(s==='reprovada'?'red':(s==='enviada_ao_cliente'?'blue':'gold')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
@@ -2418,11 +2458,11 @@ async function viewPcp(c){
 async function viewProducao(c){
   const list = await api('/ops');
   c.innerHTML = toolbar('Ordens de produção', '', '', relBtn('ops')) + panelTable(
-    ['OP','Pedido','Qtd','Status','Progresso','Setor','Prioridade','Ações'],
+    ['OP','Pedido','Qtd','Status','Progresso','Fase atual','Prioridade','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
-      opPill(o.status), bar(o.progresso), esc(o.setorAtual||'—'), prioPill(o.prioridade),
-      `<button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>Atualizar</button> <button class="btn-sm" onclick='APP.formCorte(${JSON.stringify(o).replace(/'/g,"&#39;")})'>✂ Corte</button> <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button>`
+      opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} <button class="btn-sm" onclick='APP.formCorte(${JSON.stringify(o).replace(/'/g,"&#39;")})'>✂ Corte</button> <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
     ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
@@ -2582,8 +2622,10 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
       const r = await api('/estoque/entrada',{method:'POST',body});
       (r.pecas||[]).forEach(p=>todas.push(p));
     }
+    // Marca a OP como Finalizada (fase final + 100%).
+    try{ await api('/ops/'+id+'/status',{method:'PATCH',body:{status:'concluido', setorAtual:'Finalizado'}}); await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:100}}); }catch(_){}
     closeModal();
-    toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+').','ok');
+    toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+') · OP finalizada.','ok');
     imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
@@ -5105,7 +5147,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
