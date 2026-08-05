@@ -2588,7 +2588,11 @@ async function opConcluirEtiquetas(id){
   const refProd = (d.produto||'').split('·')[0].trim();
   // grade "P:10, M:20" -> [[P,10],[M,20]]; se não houver, usa a quantidade total.
   const pares = [];
-  (d.grade||'').split(/[,;]+/).forEach(par=>{ const [t,q]=par.split(':').map(s=>(s||'').trim()); if(t&&q&&Number(q)>0) pares.push([t.toUpperCase(),Number(q)]); });
+  if(d.gradeObj && typeof d.gradeObj==='object' && Object.keys(d.gradeObj).length){
+    for(const [t,q] of Object.entries(d.gradeObj)){ if(Number(q)>0) pares.push([String(t).toUpperCase(),Number(q)]); }
+  } else {
+    (d.grade||'').split(/[\s,;]+/).forEach(par=>{ const [t,q]=par.split(/[:=]/).map(s=>(s||'').trim()); if(t&&q&&Number(q)>0) pares.push([t.toUpperCase(),Number(q)]); });
+  }
   const totalGrade = pares.reduce((s,p)=>s+p[1],0);
   const linhas = pares.length ? pares.map(([t,q])=>`${t}: <b>${q}</b>`).join(' &nbsp;·&nbsp; ') : `<b>${d.quantidade}</b> peças (sem grade)`;
   openModal(`<h3>Finalizar OP ${esc(d.op)} · Etiquetas</h3>

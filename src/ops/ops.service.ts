@@ -263,6 +263,7 @@ export class OpsService {
       produto: produto ? `${produto.codigo} · ${produto.descricao}` : '-',
       quantidade: op.quantidade,
       grade: gradeTxt,
+      gradeObj: grade,
       cor,
       lote: loteTxt,
       destino: destino?.trim() || op.setorAtual || '-',
