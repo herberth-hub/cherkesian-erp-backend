@@ -828,7 +828,7 @@ export class NfeService {
       finalidade_emissao: 1, // 1 = normal
       presenca_comprador: 9,
       modalidade_frete: modalidadeFrete, // 0=emitente(CIF) 1=destinatário(FOB) 9=sem frete
-      ...(transportadoraNome ? { transportador_razao_social: transportadoraNome.slice(0, 60) } : {}),
+      ...(transportadoraNome ? { transportador_nome: transportadoraNome.slice(0, 60), transportador_razao_social: transportadoraNome.slice(0, 60) } : {}),
       serie,
       numero,
       // Emitente (dados também configurados no painel do provedor)
@@ -846,11 +846,15 @@ export class NfeService {
       uf_destinatario: cliente.uf,
       cep_destinatario: digitos(cliente.cep),
       valor_total: Number(valorTotal.toFixed(2)),
-      // Volume e peso (importante p/ o cliente conferir no recebimento).
-      volumes_quantidade: volumesNota,
-      volumes_especie: 'Caixa',
-      volumes_peso_liquido: pesoNota,
-      volumes_peso_bruto: pesoNota,
+      // Volume e peso no DANFE (Focus espera um ARRAY "volumes"; sem isso a caixa/peso não sai).
+      volumes: [
+        {
+          quantidade: volumesNota,
+          especie: 'Caixa',
+          peso_liquido: pesoNota,
+          peso_bruto: pesoNota,
+        },
+      ],
       ...(extra?.duplicatas && extra.duplicatas.length
         ? {
             // Grupo de cobrança (fatura + duplicatas) — leva o vencimento p/ o cliente.
