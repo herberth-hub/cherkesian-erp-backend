@@ -151,10 +151,13 @@ export class ExpedicoesService {
       orderBy: { id: 'desc' },
       omit: { canhotoImg: true },
     });
-    // Anexa o nome do cliente (o painel de TV/expedição não acessa /clientes).
+    // Anexa o nome do cliente e o nº do pedido de origem (identificação rápida na lista/TV).
     const clis = await this.prisma.cliente.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.clienteId))] } }, select: { id: true, nome: true } });
     const nome = new Map(clis.map((c) => [c.id, c.nome]));
-    return rows.map((r) => ({ ...r, clienteNome: nome.get(r.clienteId) ?? null }));
+    const pedIds = [...new Set(rows.map((r) => r.pedidoId).filter((x): x is number => !!x))];
+    const peds = pedIds.length ? await this.prisma.pedido.findMany({ where: { id: { in: pedIds } }, select: { id: true, numero: true } }) : [];
+    const pedNum = new Map(peds.map((p) => [p.id, p.numero]));
+    return rows.map((r) => ({ ...r, clienteNome: nome.get(r.clienteId) ?? null, pedidoNumero: r.pedidoId ? pedNum.get(r.pedidoId) ?? null : null }));
   }
 
   private async garantirExp(id: number, empresaId: number): Promise<Expedicao> {
@@ -421,10 +424,18 @@ export class ExpedicoesService {
 
   /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.
    *  A saída é liberada bipando a ETIQUETA MASTER da caixa (codigoMaster) — 2ª leitura da dupla conferência. */
-  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string) {
+  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false) {
     const exp = await this.getExp(id, empresaId);
     if (exp.conferenciaStatus === 'despachado') return { ja: true, mensagem: 'Expedição já despachada.', dataSaida: exp.dataSaida };
-    if (exp.conferenciaStatus !== 'conferida') throw new ConflictException(`Conclua a conferência (${exp.pecasConferidas}/${exp.pecas}) antes de despachar.`);
+    // Baixa direta do admin: marca tudo conferido e pula a 2ª leitura (etiqueta master).
+    if (forcar) {
+      if (exp.conferenciaStatus !== 'conferida') {
+        await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'conferida', pecasConferidas: exp.pecas } });
+      }
+      codigoMaster = undefined;
+    } else if (exp.conferenciaStatus !== 'conferida') {
+      throw new ConflictException(`Conclua a conferência (${exp.pecasConferidas}/${exp.pecas}) antes de despachar.`);
+    }
     // 2ª leitura: exige a etiqueta MASTER correta desta expedição.
     if (codigoMaster != null) {
       const master = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();

@@ -1,11 +1,14 @@
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
-import { ClienteFiscalDto } from './create-cliente.dto';
+import { Type } from 'class-transformer';
+import { ClienteFiscalDto, ClienteUnidadeDto } from './create-cliente.dto';
 
 export class UpdateClienteDto extends ClienteFiscalDto {
   @IsOptional()
@@ -61,4 +64,10 @@ export class UpdateClienteDto extends ClienteFiscalDto {
   @IsString()
   @MaxLength(1000)
   obs?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClienteUnidadeDto)
+  unidades?: ClienteUnidadeDto[];
 }

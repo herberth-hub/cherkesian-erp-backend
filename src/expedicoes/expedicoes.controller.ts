@@ -90,8 +90,15 @@ export class ExpedicoesController {
 
   @Post(':id/despachar')
   @HttpCode(HttpStatus.OK)
-  despachar(@Param('id', ParseIntPipe) id: number, @Body('codigoMaster') codigoMaster: string, @CurrentUser() user: AuthUser) {
-    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster);
+  despachar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('codigoMaster') codigoMaster: string,
+    @Body('forcar') forcar: boolean,
+    @CurrentUser() user: AuthUser,
+  ) {
+    // Baixa direta (sem conferir peça a peça) só para o administrador da conta.
+    const forcarAdmin = !!forcar && user.acesso === 'total';
+    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin);
   }
 
   /** Estorna a expedição (volta a operação pro pedido de venda p/ reexpedir/parcial). */

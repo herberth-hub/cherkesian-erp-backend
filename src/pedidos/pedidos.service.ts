@@ -120,6 +120,7 @@ export class PedidosService {
         empresaId,
         numero,
         clienteId: dto.clienteId,
+        clienteUnidadeId: dto.clienteUnidadeId ?? null,
         filialId,
         valorTotal,
         status: 'Orçamento',
@@ -178,6 +179,7 @@ export class PedidosService {
         where: { id },
         data: {
           clienteId: dto.clienteId,
+          clienteUnidadeId: dto.clienteUnidadeId ?? null,
           filialId,
           valorTotal,
           clienteNovo: cliente.clienteNovo,

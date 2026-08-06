@@ -59,6 +59,12 @@ export class CreatePedidoDto {
   @IsPositive()
   filialId?: number;
 
+  /** Unidade/filial do cliente destinatária (opcional). */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  clienteUnidadeId?: number;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'O pedido precisa de pelo menos um item.' })
   @ValidateNested({ each: true })

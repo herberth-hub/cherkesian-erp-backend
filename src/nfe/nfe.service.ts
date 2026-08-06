@@ -65,6 +65,30 @@ export class NfeService {
     const pedido = exp.pedidoId
       ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } })
       : null;
+
+    // Destinatário: por padrão é o cliente. Se o pedido aponta uma UNIDADE do cliente
+    // COM CNPJ próprio, a NF é emitida para essa unidade (nome + dados fiscais dela).
+    let destinatario = cliente;
+    if (pedido?.clienteUnidadeId) {
+      const uni = await this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } });
+      if (uni && uni.clienteId === cliente.id && uni.cnpjCpf) {
+        destinatario = {
+          ...cliente,
+          nome: uni.nome || cliente.nome,
+          cnpjCpf: uni.cnpjCpf,
+          inscricaoEstadual: uni.inscricaoEstadual ?? cliente.inscricaoEstadual,
+          indicadorIE: uni.indicadorIE ?? cliente.indicadorIE,
+          logradouro: uni.logradouro ?? cliente.logradouro,
+          numeroEndereco: uni.numeroEndereco ?? cliente.numeroEndereco,
+          bairro: uni.bairro ?? cliente.bairro,
+          municipio: uni.municipio ?? cliente.municipio,
+          codMunicipio: uni.codMunicipio ?? cliente.codMunicipio,
+          uf: uni.uf ?? cliente.uf,
+          cep: uni.cep ?? cliente.cep,
+          email: uni.email ?? cliente.email,
+        };
+      }
+    }
     // Expedição PARCIAL: a NF reflete só o que foi expedido (snapshot em exp.itens).
     const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
     let itens: Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: Prisma.Decimal; grade?: Record<string, number> | null }>;
@@ -89,7 +113,7 @@ export class NfeService {
 
     // Validação fiscal mínima só quando vai emitir DE VERDADE (com provedor).
     if (token) {
-      const faltas = this.validarFiscal(filial, cliente, itens.length);
+      const faltas = this.validarFiscal(filial, destinatario, itens.length);
       if (faltas.length) {
         throw new BadRequestException(
           'Dados fiscais incompletos para emissão real: ' + faltas.join('; ') + '.',
@@ -115,7 +139,7 @@ export class NfeService {
     // Modalidade do frete pelo campo do pedido: CIF=0 (emitente), FOB=1 (destinatário), senão sem frete.
     const freteTxt = (pedido?.frete || '').toLowerCase();
     const modFrete = /cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : (exp.transportadora ? 0 : 9);
-    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, {
+    const payload = await this.montarPayload(filial, destinatario, exp, itensNf, serie, numeroSeq, valor, infoAdic, {
       duplicatas: cobranca.duplicatas,
       frete: modFrete,
       volumes: transporte?.volumes,

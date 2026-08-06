@@ -1274,9 +1274,52 @@ async function formCliente(id){
     <div class="grid2"><div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${cl.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${cl.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${cl.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>${field('f_cep','CEP (preenche endereço)','value="'+esc(cl.cep||'')+'" onblur="APP.buscarCepCliente()"')}</div>
     <div class="grid3">${field('f_log','Logradouro','value="'+esc(cl.logradouro||'')+'"')}${field('f_numend','Número','value="'+esc(cl.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(cl.bairro||'')+'"')}</div>
     <div class="grid3">${field('f_mun','Município','value="'+esc(cl.municipio||'')+'"')}${field('f_codmun','Cód. IBGE','value="'+esc(cl.codMunicipio||'')+'"')}${field('f_uf','UF','value="'+esc(cl.uf||'')+'" maxlength="2"')}</div>
+    <div style="border-top:1px solid var(--line);margin:6px 0 10px;padding-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <b style="font-size:12px;color:var(--muted)">FILIAIS / UNIDADES <span class="muted" style="font-weight:400">(ex.: SACA — organiza a busca; com CNPJ próprio vira destinatário da NF)</span></b>
+      <button type="button" class="btn-sm" onclick="APP.cliUniAdd()">+ Adicionar unidade</button></div>
+    <div id="cli_unis"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCliente(${id||0})">Salvar</button></div>`);
+  CLIUNIS = (cl.unidades||[]).map(u=>({...u}));
+  renderCliUnis();
 }
+let CLIUNIS=[];
+function renderCliUnis(){
+  const box=$('cli_unis'); if(!box) return;
+  box.innerHTML = CLIUNIS.length ? CLIUNIS.map((u,i)=>`
+    <div style="border:1px solid #e7e3d8;border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">
+      <div class="grid3">
+        <div class="mrow"><label class="fl">Unidade/Filial *</label><input class="inp" id="cu_nome_${i}" value="${esc(u.nome||'')}" placeholder="ex.: SACA"></div>
+        <div class="mrow"><label class="fl">CNPJ/CPF <span class="muted" style="font-size:9px">(vazio = usa o do cliente)</span></label><input class="inp" id="cu_cnpj_${i}" value="${esc(u.cnpjCpf||'')}"></div>
+        <div class="mrow"><label class="fl">Inscr. Estadual</label><input class="inp" id="cu_ie_${i}" value="${esc(u.inscricaoEstadual||'')}"></div>
+      </div>
+      <div class="grid3">
+        <div class="mrow"><label class="fl">CEP</label><input class="inp" id="cu_cep_${i}" value="${esc(u.cep||'')}"></div>
+        <div class="mrow"><label class="fl">Logradouro</label><input class="inp" id="cu_log_${i}" value="${esc(u.logradouro||'')}"></div>
+        <div class="mrow"><label class="fl">Número</label><input class="inp" id="cu_num_${i}" value="${esc(u.numeroEndereco||'')}"></div>
+      </div>
+      <div class="grid3">
+        <div class="mrow"><label class="fl">Bairro</label><input class="inp" id="cu_bairro_${i}" value="${esc(u.bairro||'')}"></div>
+        <div class="mrow"><label class="fl">Município</label><input class="inp" id="cu_mun_${i}" value="${esc(u.municipio||'')}"></div>
+        <div class="mrow"><label class="fl">UF</label><input class="inp" id="cu_uf_${i}" maxlength="2" value="${esc(u.uf||'')}"></div>
+      </div>
+      <div class="grid2">
+        <div class="mrow"><label class="fl">Indicador IE</label><select class="inp" id="cu_indie_${i}"><option value="">—</option><option value="1" ${u.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${u.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${u.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>
+        <div class="mrow"><label class="fl">E-mail</label><input class="inp" id="cu_email_${i}" value="${esc(u.email||'')}"></div>
+      </div>
+      <div style="text-align:right"><button type="button" class="btn-sm danger" onclick="APP.cliUniDel(${i})">× remover</button></div>
+    </div>`).join('') : '<div class="muted" style="font-size:12px;padding:2px 0 8px">Nenhuma unidade cadastrada. Adicione filiais/nomes (ex.: SACA) para achar rápido no pedido.</div>';
+}
+function cliUniReadDom(){
+  CLIUNIS = CLIUNIS.map((_,i)=>({
+    nome:val('cu_nome_'+i), cnpjCpf:val('cu_cnpj_'+i), inscricaoEstadual:val('cu_ie_'+i),
+    cep:val('cu_cep_'+i), logradouro:val('cu_log_'+i), numeroEndereco:val('cu_num_'+i),
+    bairro:val('cu_bairro_'+i), municipio:val('cu_mun_'+i), uf:(val('cu_uf_'+i)||'').toUpperCase(),
+    email:val('cu_email_'+i), indicadorIE:Number(val('cu_indie_'+i))||undefined,
+  }));
+}
+function cliUniAdd(){ cliUniReadDom(); CLIUNIS.push({}); renderCliUnis(); }
+function cliUniDel(i){ cliUniReadDom(); CLIUNIS.splice(i,1); renderCliUnis(); }
 async function saveCliente(id){
   const body = { nome:val('f_nome'), fantasia:val('f_fant'), grupo:val('f_grupo'), cidadeUf:val('f_cidade'), segmento:val('f_seg'), contato:val('f_contato'), telefone:val('f_tel'), email:val('f_email'), clienteNovo:$('f_novo').checked,
     cnpjCpf:val('f_cnpj'), inscricaoEstadual:val('f_ie'), cep:val('f_cep'),
@@ -1284,6 +1327,17 @@ async function saveCliente(id){
     municipio:val('f_mun'), codMunicipio:val('f_codmun'), uf:(val('f_uf')||'').toUpperCase() };
   const ind=val('f_indie'); if(ind) body.indicadorIE=Number(ind);
   if(!body.nome){ toast('Informe o nome.','err'); return; }
+  // Unidades/filiais: lê do DOM, limpa vazios e valida nome obrigatório.
+  cliUniReadDom();
+  const unis=[];
+  for(const u of CLIUNIS){
+    const nome=(u.nome||'').trim(); if(!nome) continue;
+    const o={nome};
+    ['cnpjCpf','inscricaoEstadual','cep','logradouro','numeroEndereco','bairro','municipio','uf','email'].forEach(k=>{ if(u[k]) o[k]=u[k]; });
+    if(u.indicadorIE) o.indicadorIE=u.indicadorIE;
+    unis.push(o);
+  }
+  body.unidades = unis; // array (mesmo vazio) substitui a lista
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/clientes/'+id):'/clientes', {method:id?'PATCH':'POST', body}); closeModal(); toast('Cliente salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
@@ -1676,12 +1730,27 @@ async function formPedido(id){
   const selCli = ped?ped.clienteId:null;
   const selFil = ped?ped.filialId:null;
   window.__PEDNEW = !id; // pedido novo → habilita puxar condições do último pedido do cliente
-  const placeholderCli = id?'':'<option value="">— selecione o cliente —</option>';
-  const clientesOpts = placeholderCli + clientes.map(c=>`<option value="${c.id}" ${selCli===c.id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  // Entradas de busca: GRUPO › cliente › unidade (SACA). Cada entrada resolve p/ clienteId + unidadeId.
+  const cliEntries=[];
+  (clientes||[]).forEach(c=>{
+    const g=(c.grupo||'').trim();
+    const baseLabel = g ? (g+' › '+c.nome) : c.nome;
+    cliEntries.push({label:baseLabel, clienteId:c.id, unidadeId:'', filterKey:(g||c.nome)});
+    (c.unidades||[]).forEach(u=>{ cliEntries.push({label:baseLabel+' › '+u.nome, clienteId:c.id, unidadeId:u.id, filterKey:u.nome}); });
+  });
+  window.__CLIENTRIES = cliEntries;
+  window.__PEDFILTER = '';
+  let initLabel='';
+  if(id){ const e=cliEntries.find(x=>x.clienteId===selCli && (ped.clienteUnidadeId? x.unidadeId===ped.clienteUnidadeId : !x.unidadeId)); if(e){ initLabel=e.label; window.__PEDFILTER=e.filterKey; } }
+  const cliDatalist = `<datalist id="clidatalist">${cliEntries.map(e=>`<option value="${esc(e.label)}"></option>`).join('')}</datalist>`;
   const filialOpts = ativas.map(f=>`<option value="${f.id}" ${selFil?(selFil===f.id?'selected':''):(f.matriz?'selected':'')}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):'Novo pedido'}</h3>
     <div class="grid2">
-      <div class="mrow"><label class="fl">Cliente *</label><select id="f_cli" class="inp" onchange="APP.pedPrefillCliente()">${clientesOpts||'<option>—</option>'}</select></div>
+      <div class="mrow"><label class="fl">Cliente *</label>
+        <input id="f_cli_txt" class="inp" list="clidatalist" placeholder="digite grupo, cliente ou filial (ex.: SACA)…" value="${esc(initLabel)}" onchange="APP.pedCliPick()" autocomplete="off">
+        ${cliDatalist}
+        <input type="hidden" id="f_cli" value="${id?selCli:''}"><input type="hidden" id="f_cliuni" value="${id&&ped&&ped.clienteUnidadeId?ped.clienteUnidadeId:''}">
+        <div id="f_cli_hint" class="muted" style="font-size:10.5px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="f_filial" class="inp">${filialOpts||'<option value="">— matriz —</option>'}</select></div>
     </div>
     <label class="fl">Itens</label>
@@ -1782,9 +1851,33 @@ function itemCorPick(i,ci){
   PITENS[i].cor = (cores[ci]||'');
   const box=$('it_cores_'+i); if(box) box.innerHTML=coresSwatchHtml(i,cores,PITENS[i].cor);
 }
+// Resolve a entrada digitada (GRUPO › cliente › unidade) → clienteId + unidadeId + filtro de produtos.
+function pedCliPick(){
+  const txt=(val('f_cli_txt')||'').trim();
+  const e=(window.__CLIENTRIES||[]).find(x=>x.label===txt);
+  const hint=$('f_cli_hint');
+  if(e){
+    $('f_cli').value=e.clienteId; $('f_cliuni').value=e.unidadeId||'';
+    window.__PEDFILTER=e.filterKey||'';
+    const n=filtrarProdCli(window.__PROD||[]).length, tot=(window.__PROD||[]).length;
+    if(hint) hint.innerHTML = (e.unidadeId?'📍 Unidade selecionada. ':'')+(window.__PEDFILTER&&n<tot?('Produtos filtrados por <b>'+esc(e.filterKey)+'</b> ('+n+').'):'');
+    renderItens();
+    pedPrefillCliente();
+  } else {
+    $('f_cli').value=''; $('f_cliuni').value=''; window.__PEDFILTER='';
+    if(hint) hint.textContent = txt?'Selecione um cliente da lista.':'';
+  }
+}
+// Filtra os produtos pela filial/grupo escolhido (clienteGrupo). Sem correspondência → mostra todos.
+function filtrarProdCli(list){
+  const key=(window.__PEDFILTER||'').trim().toLowerCase();
+  if(!key) return list;
+  const match=(list||[]).filter(p=>{ const g=(p.clienteGrupo||'').toLowerCase(); return g && (g===key||g.includes(key)||key.includes(g)); });
+  return match.length? match : list;
+}
 function renderItens(){
   const prods = window.__PROD||[];
-  $('pitens').innerHTML = prodDatalist('prodlist',prods) + PITENS.map((it,i)=>{
+  $('pitens').innerHTML = prodDatalist('prodlist',filtrarProdCli(prods)) + PITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     const gr = it.grade || {};
     const cores = coresDoProduto(cur);
@@ -1892,6 +1985,7 @@ async function savePedido(id){
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
+  const uni=Number(val('f_cliuni')); if(uni) body.clienteUnidadeId=uni;
   const frete=val('f_frete'); if(frete) body.frete=frete;
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
@@ -3833,16 +3927,28 @@ async function verCanhoto(id){
 async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
-  c.innerHTML = toolbar('Expedições', 'Nova expedição', 'APP.formExpedicao()', relBtn('expedicoes')) + panelTable(
+  window.__EXPS=list; window.__EXPNOME=nome; window.__EXPC=c;
+  renderExpedicoes();
+}
+function expToggleDone(){ window.__expDone=!window.__expDone; renderExpedicoes(); }
+function renderExpedicoes(){
+  const c=window.__EXPC; if(!c) return;
+  const nome=window.__EXPNOME||{}; const all=window.__EXPS||[];
+  const done=!!window.__expDone;
+  const nPend=all.filter(e=>e.conferenciaStatus!=='despachado').length;
+  const nDone=all.filter(e=>e.conferenciaStatus==='despachado').length;
+  const arr=all.filter(e=> done ? e.conferenciaStatus==='despachado' : e.conferenciaStatus!=='despachado');
+  const toggle=`<button class="btn-sm" onclick="APP.expToggleDone()" title="Alternar entre a expedir e concluídas">${done?('📋 A expedir ('+nPend+')'):('✅ Concluídas ('+nDone+')')}</button>`;
+  c.innerHTML = toolbar('Expedições'+(done?' · concluídas':' · a expedir'), 'Nova expedição', 'APP.formExpedicao()', toggle+' '+relBtn('expedicoes')) + panelTable(
     ['Número','Cliente','Peças','NF-e','Conferência','Saída','Ações'],
-    list.map(e=>[
-      `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)),
+    arr.map(e=>[
+      `<span class="mono gold">${esc(e.numero)}</span>${e.pedidoNumero?`<div class="muted mono" style="font-size:10px">${esc(e.pedidoNumero)}</div>`:''}`, esc(e.clienteNome||nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
       `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
-    ]), list.length?null:'Nenhuma expedição.');
+    ]), arr.length?null:(done?'Nenhuma expedição concluída.':'Nada a expedir — tudo despachado ✨'));
 }
 
 // ===== Plano de embalagem por caixa (packing list + etiqueta de conteúdo) =====
@@ -4515,8 +4621,14 @@ async function formConferencia(id){
         <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>`}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`<button class="btn-sm" style="color:#8a5a00" title="Somente admin — despacha e conclui sem bipar peça a peça" onclick="APP.despacharDireto(${id})">✔ Dar baixa (sem conferir)</button>`}</div>`);
   const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+}
+// Baixa direta (admin): despacha sem a conferência peça a peça.
+async function despacharDireto(id){
+  if(!(await uiConfirm({tipo:'warn', titulo:'Dar baixa sem conferir?', ok:'Despachar', cancel:'Cancelar', msg:'Marca a expedição como DESPACHADA e conclui o pedido, sem bipar peça por peça. Use quando a conferência foi feita fora do sistema. (Somente admin.)'}))) return;
+  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{forcar:true}}); toast(r.mensagem||'Mercadoria despachada.','ok'); closeModal(); loadRoute(); }
+  catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function conferirBip(id, codigo){
   const cod=codigo||val('conf_bip'); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
@@ -5596,10 +5708,10 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
@@ -5614,7 +5726,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,

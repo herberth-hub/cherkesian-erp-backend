@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsIn,
@@ -6,7 +7,9 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /** Campos fiscais do destinatário (NF-e), reutilizados em create/update. */
 export class ClienteFiscalDto {
@@ -19,6 +22,13 @@ export class ClienteFiscalDto {
   @IsOptional() @IsString() @MaxLength(7) codMunicipio?: string;
   @IsOptional() @IsString() @MaxLength(2) uf?: string;
   @IsOptional() @IsString() @MaxLength(9) cep?: string;
+}
+
+/** Unidade/filial dentro do cliente (nome + dados fiscais próprios opcionais). */
+export class ClienteUnidadeDto extends ClienteFiscalDto {
+  @IsString() @IsNotEmpty({ message: 'Informe o nome da unidade.' }) @MaxLength(120) nome!: string;
+  @IsOptional() @IsString() @MaxLength(20) cnpjCpf?: string;
+  @IsOptional() @IsEmail({}, { message: 'E-mail da unidade inválido.' }) @MaxLength(150) email?: string;
 }
 
 export class CreateClienteDto extends ClienteFiscalDto {
@@ -76,4 +86,11 @@ export class CreateClienteDto extends ClienteFiscalDto {
   @IsString()
   @MaxLength(1000)
   obs?: string;
+
+  /** Unidades/filiais do cliente (substitui a lista inteira ao salvar). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClienteUnidadeDto)
+  unidades?: ClienteUnidadeDto[];
 }

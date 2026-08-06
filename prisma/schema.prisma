@@ -212,6 +212,31 @@ model Cliente {
   codMunicipio      String?
   uf                String?
   cep               String?
+
+  unidades          ClienteUnidade[]
+}
+
+// Filial / unidade DENTRO de um cliente (ex.: rede INTS → unidade "SACA").
+// Organiza a busca e, quando tem CNPJ/endereço próprios, vira o destinatário da NF.
+model ClienteUnidade {
+  id                Int      @id @default(autoincrement())
+  clienteId         Int
+  cliente           Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nome              String   // nome/apelido da unidade (ex.: "SACA")
+  cnpjCpf           String?
+  inscricaoEstadual String?
+  indicadorIE       Int?     // 1=Contribuinte, 2=Isento, 9=Não contribuinte
+  logradouro        String?
+  numeroEndereco    String?
+  bairro            String?
+  municipio         String?
+  codMunicipio      String?
+  uf                String?
+  cep               String?
+  email             String?
+  criadoEm          DateTime @default(now())
+
+  @@index([clienteId])
 }
 
 model ConsultaCredito { // Resultado de consulta de crédito/situação do cliente
@@ -386,6 +411,7 @@ model Pedido {
   numero         String       @unique // PV01
   clienteId      Int
   cliente        Cliente      @relation(fields: [clienteId], references: [id])
+  clienteUnidadeId Int?       // unidade/filial do cliente destinatária (opcional)
   filialId       Int?         // CNPJ emissor (matriz/filial); null = matriz
   filial         Filial?      @relation(fields: [filialId], references: [id])
   data           DateTime     @default(now())

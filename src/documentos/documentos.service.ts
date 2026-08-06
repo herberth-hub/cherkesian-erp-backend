@@ -679,10 +679,12 @@ export class DocumentosService {
       ['Data', dataBR(exp.data)],
     ]);
 
-    // Itens · grade de tamanhos (igual ao pedido, SEM valores) — melhor pra conferência.
-    const itens = pedido
-      ? (await this.prisma.pedido.findUnique({ where: { id: pedido.id }, include: { itens: true } }))?.itens ?? []
-      : [];
+    // Itens · grade de tamanhos, SEM valores. Mostra APENAS o que foi enviado NESTA
+    // expedição (snapshot exp.itens); só cai no pedido inteiro se não houver snapshot.
+    const snap = exp.itens as Array<{ descricao: string; cor?: string | null; quantidade: number; grade?: Record<string, number> | null }> | null;
+    const itens = (snap && snap.length)
+      ? snap
+      : (pedido ? (await this.prisma.pedido.findUnique({ where: { id: pedido.id }, include: { itens: true } }))?.itens ?? [] : []);
     if (itens.length) {
       const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'ÚNICO'];
       const presentes = new Set<string>();
