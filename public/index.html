@@ -4971,6 +4971,20 @@ function kitPill(s){
   const m={aguardando_expedicao:['blue','aguardando exp.'],em_faccao:['red','em facção'],retornado:['green','retornado'],em_conferencia:['gold','conferência'],finalizado:['gray','finalizado'],criado:['gray','criado'],em_corte:['blue','em corte']};
   const x=m[s]||['gray',s]; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`;
 }
+// Botões de ação por linha (contextuais ao status) — evita ter que bipar o código.
+function kitRowAcoes(k){
+  const st=k.status||''; const cod=esc(k.codigo); const interna=(k.faccaoNome||'')==='PRODUÇÃO INTERNA';
+  let b='';
+  if(st==='aguardando_expedicao'||st==='criado'||st==='em_corte'){
+    if(interna) b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitAcao('${cod}','finalizar')">✓ Finalizar</button> `;
+    else b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitAcao('${cod}','expedir')">▶ Expedir</button> `;
+  } else if(st==='em_faccao'){ b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitAcao('${cod}','retornar')">↩ Retorno</button> `; }
+  else if(st==='retornado'){ b+=`<button class="btn-sm" onclick="APP.kitAcao('${cod}','conferir')">🔎 Conferir</button> `; }
+  else if(st==='em_conferencia'){ b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitAcao('${cod}','finalizar')">✓ Finalizar</button> `; }
+  return b;
+}
+// Preenche o campo de bip com o código do kit e dispara a ação (mesmo fluxo do leitor).
+function kitAcao(codigo, acao){ const i=$('kit_bip'); if(i) i.value=codigo; kitBipar(acao); }
 async function viewKits(c){
   const [db, kits] = await Promise.all([api('/kits/dashboard'), api('/kits')]);
   const rows = kits.map(k=>[
@@ -4982,7 +4996,7 @@ async function viewKits(c){
     esc(k.faccaoNome||'—'),
     k.caixa?`<span class="pill gray">${esc(k.caixa)}</span>`:'<span class="muted">—</span>',
     kitPill(k.status),
-    `<button class="btn-sm" onclick="APP.kitEtiqueta(${k.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.kitDetalhe(${k.id})">Histórico</button>`
+    `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${kitRowAcoes(k)}<button class="btn-sm" onclick="APP.kitEtiqueta(${k.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.kitDetalhe(${k.id})">Histórico</button></div>`
   ]);
   c.innerHTML = `
     <div class="cards">
@@ -5248,7 +5262,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
-  viewKits, kitBipar, kitBiparControle, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, kitAcao, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
