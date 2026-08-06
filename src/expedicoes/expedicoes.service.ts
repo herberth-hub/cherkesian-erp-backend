@@ -146,11 +146,15 @@ export class ExpedicoesService {
   async findAll(empresaId: number) {
     const clienteIds = await this.clienteIdsDaEmpresa(empresaId);
     // Omite a imagem do canhoto na listagem (pesada); canhotoEm indica que há canhoto.
-    return this.prisma.expedicao.findMany({
+    const rows = await this.prisma.expedicao.findMany({
       where: { clienteId: { in: clienteIds } },
       orderBy: { id: 'desc' },
       omit: { canhotoImg: true },
     });
+    // Anexa o nome do cliente (o painel de TV/expedição não acessa /clientes).
+    const clis = await this.prisma.cliente.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.clienteId))] } }, select: { id: true, nome: true } });
+    const nome = new Map(clis.map((c) => [c.id, c.nome]));
+    return rows.map((r) => ({ ...r, clienteNome: nome.get(r.clienteId) ?? null }));
   }
 
   private async garantirExp(id: number, empresaId: number): Promise<Expedicao> {

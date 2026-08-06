@@ -4146,7 +4146,21 @@ async function saveAviamento(){
 
 async function viewTv(c){
   async function render(){
-    const [d, painel] = await Promise.all([api('/dashboard'), api('/pcp/painel')]);
+    const [d, painel, exps, clientes] = await Promise.all([api('/dashboard'), api('/pcp/painel'), api('/expedicoes').catch(()=>[]), api('/clientes').catch(()=>[])]);
+    const nomeCli={}; (clientes||[]).forEach(x=>nomeCli[x.id]=x.nome);
+    const pend=(exps||[]).filter(e=>e.conferenciaStatus!=='despachado');
+    const totPend=pend.reduce((s,e)=>s+(e.pecas||0),0);
+    const expRows=pend.map(e=>{
+      const st=e.conferenciaStatus||'pendente';
+      const stCor=st==='conferida'?'#8fd39a':(st==='conferindo'?'#e6c34a':'#e08a6a');
+      return `<div style="display:grid;grid-template-columns:110px 1fr 120px 130px 130px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07)">
+        <div class="mono" style="color:var(--gold-l);font-size:16px;font-weight:600">${esc(e.numero)}</div>
+        <div style="font-size:15px;color:#e8e4d8">${esc(nomeCli[e.clienteId]||('#'+e.clienteId))}</div>
+        <div style="font-size:16px;color:#fff;text-align:right;font-weight:600">${e.pecasConferidas||0}/${e.pecas} pçs</div>
+        <div style="text-align:right;font-size:13px">${e.nf?('<span style="color:#8fd39a">NF '+esc(e.nf)+'</span>'):'<span style="color:#e08a6a;font-weight:700">SEM NF</span>'}</div>
+        <div style="text-align:right;font-size:12px;color:${stCor};font-weight:700;text-transform:uppercase">${esc(st)}</div>
+      </div>`;
+    }).join('');
     const hora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     const rows = painel.map(o=>`
       <div style="display:grid;grid-template-columns:110px 1fr 90px 140px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07)">
@@ -4172,6 +4186,13 @@ async function viewTv(c){
         </div>
         <div style="border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden">
           ${rows || '<div style="padding:40px;text-align:center;color:#a8a396">Nenhuma OP em aberto — produção em dia ✨</div>'}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:26px 0 12px">
+          <div style="font-family:'Sora';font-weight:700;font-size:22px;color:var(--ivory)">📦 Expedição — a faturar / separar</div>
+          <div style="font-size:14px;color:#e6c34a;font-weight:700">${pend.length} pedido(s) · ${totPend} peça(s)</div>
+        </div>
+        <div style="border:1px solid rgba(255,255,255,.09);border-radius:12px;overflow:hidden">
+          ${expRows || '<div style="padding:34px;text-align:center;color:#a8a396">Nada na expedição — tudo faturado ✨</div>'}
         </div>
         <div style="margin-top:14px;font-size:11px;color:#6d6857;text-align:right">atualiza a cada 30s</div>
       </div>`;
