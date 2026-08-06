@@ -268,13 +268,31 @@ export class KitsService {
       ? ` · FALTAS: ${faltas}${ocReposicao ? ' · Reposição OC ' + ocReposicao.numero : autorizacaoPcp ? ' · Reposição DISPENSADA (PCP: ' + autorizacaoPcp + ')' : ''}`
       : ' · conferência OK (sem faltas)';
 
-    const atualizado = await this.prisma.$transaction(async (tx) => {
+    const { k: atualizado, contaPagar } = await this.prisma.$transaction(async (tx) => {
       const k = await tx.kit.update({
         where: { id: kit.id },
         data: { status: 'retornado', retornadoEm: new Date(), retornadoPor: usuario, qtdRetornada, retornoNfNumero: dto.retornoNf, obs: dto.obs ?? kit.obs },
       });
-      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `NF retorno: ${dto.retornoNf} · Qtd: ${qtdRetornada}${detFaltas}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
-      return k;
+      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'retornado', detalhe: `Retorno (${dto.retornoNf}) · Qtd: ${qtdRetornada}${detFaltas}${dto.obs ? ' · ' + dto.obs : ''}`, usuario, ip } });
+
+      // Ao dar entrada, gera a CONTA A PAGAR da mão de obra do terceiro (interno não gera),
+      // vinculada à OS/OP. Idempotente pela referência (não duplica ao reprocessar).
+      let contaPagar: { referencia: string; valor: number } | null = null;
+      const custoUnit = k.custoMaoObra != null ? Number(k.custoMaoObra) : 0;
+      const ehInterno = (k.faccaoNome || '').toUpperCase() === 'PRODUÇÃO INTERNA' || !k.faccaoId;
+      if (custoUnit > 0 && !ehInterno) {
+        const ref = `Facção ${k.controleFaccao ?? '—'} · OP ${k.ordemProducao ?? '—'} · Kit ${k.codigo} · doc ${dto.retornoNf}`;
+        const jaTem = await tx.contaPagar.findFirst({ where: { empresaId, referencia: ref } });
+        if (!jaTem) {
+          const venc = new Date(); venc.setDate(venc.getDate() + 30);
+          const valor = Number((custoUnit * k.pecasTotal).toFixed(2));
+          await tx.contaPagar.create({
+            data: { empresaId, fornecedorId: k.faccaoId ?? undefined, categoria: 'Facção / Mão de obra', referencia: ref, vencimento: venc, valor, status: 'a_vencer' },
+          });
+          contaPagar = { referencia: ref, valor };
+        }
+      }
+      return { k, contaPagar };
     });
 
     const msg = faltas > 0
@@ -282,7 +300,8 @@ export class KitsService {
         ? `Kit ${kit.codigo} retornado com ${faltas} falta(s). OC de reposição ${ocReposicao.numero} gerada.`
         : `Kit ${kit.codigo} retornado com ${faltas} falta(s). Reposição dispensada (autorizada pelo PCP: ${autorizacaoPcp}).`)
       : `Kit ${kit.codigo} retornado da facção — conferência OK.`;
-    return { ja: false, mensagem: msg, kit: atualizado, faltas, ocReposicao, autorizacaoPcp };
+    const msgFinal = contaPagar ? `${msg} Conta a pagar gerada: R$ ${contaPagar.valor.toFixed(2)}.` : msg;
+    return { ja: false, mensagem: msgFinal, kit: atualizado, faltas, ocReposicao, autorizacaoPcp, contaPagar };
   }
 
   /** Próximo número de OC (mesmo padrão do módulo de compras: OC-0001). */
@@ -462,7 +481,7 @@ export class KitsService {
    * próxima) sem digitação manual. Idempotente por OP+facção.
    */
   async enviarFaccaoExterna(
-    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean },
+    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean; custoMaoObra?: number },
     empresaId: number,
     usuario: string,
     ip?: string,
@@ -521,6 +540,8 @@ export class KitsService {
         operacaoFaccao: operacao,
         controleFaccao: controle,
         loteTecidoNf: loteNf || k.loteTecidoNf,
+        // Custo de mão de obra por peça (interno fica em branco/null).
+        custoMaoObra: (!dto.interna && dto.custoMaoObra != null && dto.custoMaoObra > 0) ? dto.custoMaoObra : null,
       };
       if (interna) {
         // Operação INTERNA: registra controle/operação, mas NÃO expede como remessa
@@ -600,18 +621,20 @@ export class KitsService {
     const medidasTam = medidas
       .map((m) => { const v = (m.valores as Record<string, string> | null) || {}; return { descricao: m.descricao, tolerancia: m.tolerancia, valor: v[tam] ?? '' }; })
       .filter((m) => m.valor !== '');
+    const custoUnit = kit.custoMaoObra != null ? Number(kit.custoMaoObra) : null;
+    const interno = (kit.faccaoNome || '').toUpperCase() === 'PRODUÇÃO INTERNA';
     return {
-      kit: { codigo: kit.codigo, tamanho: tam, jogos: kit.jogos, pecas: kit.pecasTotal, cor: kit.cor, modelo: kit.modelo, cliente: kit.clienteNome, faccao: kit.faccaoNome, operacao: kit.operacaoFaccao, controle: kit.controleFaccao, op: kit.ordemProducao, lote: kit.loteTecidoNf },
+      kit: { codigo: kit.codigo, tamanho: tam, jogos: kit.jogos, pecas: kit.pecasTotal, cor: kit.cor, modelo: kit.modelo, cliente: kit.clienteNome, faccao: kit.faccaoNome, operacao: kit.operacaoFaccao, os: kit.controleFaccao, controle: kit.controleFaccao, op: kit.ordemProducao, lote: kit.loteTecidoNf, interno, custoMaoObraUnit: custoUnit, custoMaoObraTotal: custoUnit != null ? Number((custoUnit * kit.pecasTotal).toFixed(2)) : null },
       produto: produto ? { descricao: produto.descricao, tecido: produto.tecido, composicao: produto.composicao, modelagem: produto.modelagem, especificacoes: produto.especificacoes, ncm: produto.ncm } : null,
       bom: bomLinhas,
       medidas: medidasTam,
     };
   }
 
-  /** Gera o próximo código de controle de facção do dia (CTRL-AAAAMMDD-NNNN). */
+  /** Gera o próximo nº de OS/controle da facção do dia (OS-AAAAMMDD-NNNN). */
   private async gerarControleFaccao(agora: Date): Promise<string> {
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
-    const prefixo = `CTRL-${ymd}-`;
+    const prefixo = `OS-${ymd}-`;
     const ult = await this.prisma.kit.findFirst({
       where: { controleFaccao: { startsWith: prefixo } },
       orderBy: { controleFaccao: 'desc' },

@@ -2661,7 +2661,8 @@ async function opFaccaoExterna(o){
     <div class="mrow"><label class="fl">Facção destino *</label><select id="fx_forn" class="inp">${optForn}</select></div>
     ${field('fx_nome','...ou nome da facção (se não cadastrada)','placeholder="ex.: Estamparia Rosa"')}
     <div class="grid2"><div class="mrow"><label class="fl">Operação *</label><select id="fx_oper" class="inp">${oper}</select></div>${field('fx_lote','Lote/NF do tecido','placeholder="branco = puxa do romaneio"')}</div>
-    ${field('fx_transp','Transportador','placeholder="opcional"')}
+    <div class="grid2">${field('fx_transp','Transportador','placeholder="opcional"')}${field('fx_custo','💰 Mão de obra por peça (R$)','type="number" min="0" step="0.01" placeholder="terceiro; interno = branco"')}</div>
+    <div class="muted" style="font-size:11px;margin:-2px 0 6px">O custo × peças aparece na <b>Ordem de Serviço</b> e vira <b>conta a pagar</b> automática no retorno (produção interna: deixe em branco).</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.opFaccaoEnviar(${o.id})">Gerar controle + enviar</button></div>`);
 }
@@ -2676,6 +2677,7 @@ async function opFaccaoEnviar(opId){
     if(!body.faccaoId && !body.faccaoNome){ toast('Selecione o destino (interna ou facção).','err'); return; }
   }
   const lote=(val('fx_lote')||'').trim(); if(lote) body.loteTecidoNf=lote;
+  const custo=Number(val('fx_custo')); if(!interna && custo>0) body.custoMaoObra=custo;
   try{
     const r=await api('/kits/faccao-externa',{method:'POST',body});
     closeModal();
@@ -5013,7 +5015,7 @@ function imprimirFichaTecnicaKit(f){
   </style></head><body><div class="bar"><button onclick="window.print()">Imprimir</button></div>
     <div class="wrap">
       <div class="hd"><div><h1>GRUPO CHERKESIAN</h1><div class="sub">ORDEM DE SERVIÇO — OS · romaneio + ficha técnica · para a costureira / oficina</div></div>
-        <div><div class="cod">${esc(k.codigo)}</div><div class="sub" style="text-align:right">${k.controle?('Controle '+esc(k.controle)):''}</div></div></div>
+        <div><div class="cod">${esc(k.os||k.codigo)}</div><div class="sub" style="text-align:right">${(k.os&&k.os!==k.codigo)?('Kit '+esc(k.codigo)):''}</div></div></div>
       <div class="big">${esc(p.descricao||k.modelo||'—')}</div>
       <div class="grid">
         <div><span class="lbl">Facção / Oficina</span><b>${esc(k.faccao||'—')}</b></div>
@@ -5027,6 +5029,7 @@ function imprimirFichaTecnicaKit(f){
         <div><span class="lbl">Composição</span>${esc(p.composicao||'—')}</div>
         <div><span class="lbl">Lote do tecido</span>${esc(k.lote||'—')}</div>
       </div>
+      ${(!k.interno && k.custoMaoObraTotal!=null)?`<div style="margin-top:10px;border:1.5px solid #caa53d;background:#fbf7e8;border-radius:6px;padding:9px 11px;font-size:13px">💰 <b>Mão de obra (a pagar ao terceiro):</b> R$ ${Number(k.custoMaoObraUnit).toFixed(2)}/peça × ${k.pecas} peça(s) = <b style="font-size:16px;color:#3a2f08">R$ ${Number(k.custoMaoObraTotal).toFixed(2)}</b></div>`:(k.interno?'<div style="margin-top:10px;font-size:12px;color:#888">Produção interna — sem custo de mão de obra de terceiro.</div>':'')}
       ${p.modelagem?`<h3>Modelagem</h3><div class="spec">${esc(p.modelagem)}</div>`:''}
       ${p.especificacoes?`<h3>Especificações / instruções</h3><div class="spec">${esc(p.especificacoes)}</div>`:''}
       ${medBlock}
@@ -5073,7 +5076,7 @@ async function viewKits(c){
 async function kitBipar(acao){
   const codigo = val('kit_bip'); if(!codigo){ toast('Bipe ou digite o código do kit.','err'); return; }
   // Se bipar um código de CONTROLE (CTRL-...), aplica a ação a TODOS os kits do controle.
-  if(/^CTRL-/i.test(codigo.trim())) return kitBiparControle(acao, codigo.trim());
+  if(/^(CTRL|OS)-\d/i.test(codigo.trim())) return kitBiparControle(acao, codigo.trim());
   let body={codigo};
   if(acao==='expedir'){
     const f=prompt('Facção destino (deixe em branco p/ usar a do kit):',''); if(f===null) return; if(f) body.faccaoNome=f;
@@ -5115,6 +5118,7 @@ async function formRetornoFaccao(codigo){
   let forns=[];
   try{ forns = await api('/fornecedores'); }catch(e){ forns=[]; }
   const optForn = '<option value="">— usar a facção do kit —</option>'+(forns||[]).map(f=>`<option value="${f.id}">${esc(f.nome||f.razaoSocial||('Forn '+f.id))}</option>`).join('');
+  let ficha=null; try{ ficha=await api('/kits/'+encodeURIComponent(codigo)+'/ficha'); }catch(e){}
   openModal(`<h3>Retorno da facção · <span class="mono gold">${esc(codigo)}</span></h3>
     <div class="muted" style="font-size:12px;margin:-6px 0 8px">Confira o que voltou. Um documento de retorno (NF-e OU OS) é obrigatório para dar entrada.</div>
     <div class="mrow"><label class="fl">Documento de retorno *</label>
@@ -5153,6 +5157,13 @@ async function formRetornoFaccao(codigo){
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.retornoFaccaoSubmit('${esc(codigo)}')">Dar entrada</button></div>`);
+  // Pré-preenche com a OS gerada na expedição (o mesmo nº que foi junto com o fardo).
+  const os = ficha && ficha.kit && ficha.kit.os;
+  const custoT = ficha && ficha.kit && ficha.kit.custoMaoObraTotal;
+  setTimeout(()=>{
+    if(os){ const t=$('rf_tipo'); if(t) t.value='os'; const i=$('rf_nf'); if(i) i.value=os; retornoTipoToggle(); }
+    if(custoT!=null){ const box=$('rf_nf_lbl'); if(box&&box.parentElement) box.insertAdjacentHTML('afterend','<div class="muted" style="font-size:11px;color:#8a5a00;margin-top:2px">💰 Ao dar entrada, será gerada conta a pagar de R$ '+Number(custoT).toFixed(2)+' (mão de obra).</div>'); }
+  },40);
 }
 function retornoFaltasToggle(){
   const tem = val('rf_conf')==='falta';

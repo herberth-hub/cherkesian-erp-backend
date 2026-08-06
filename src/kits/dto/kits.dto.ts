@@ -87,4 +87,6 @@ export class EnviarFaccaoDto {
   @IsOptional() @IsString() @MaxLength(120) transportador?: string;
   /** true = operação feita INTERNAMENTE (não é remessa p/ terceiro; sem NF de retorno). */
   @IsOptional() @IsBoolean() interna?: boolean;
+  /** Custo de mão de obra POR PEÇA a pagar ao terceiro (interno = deixe em branco). */
+  @IsOptional() @IsNumber() @Min(0) custoMaoObra?: number;
 }
