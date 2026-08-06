@@ -704,7 +704,19 @@ export class DocumentosService {
         else add('ÚNICO', i.quantidade);
         return { num: String(idx + 1).padStart(2, '0'), codigo: null as string | null, descricao: i.descricao, cor: (i as { cor?: string | null }).cor ?? null, qtyBySize: q, vUnit: '', vTotal: '' };
       });
-      secao(doc, 'Itens · grade de tamanhos');
+      // Instrução clara de SEPARAÇÃO: mostra a quantidade DESTA remessa (evita
+      // confundir o separador com o total do pedido em expedições parciais).
+      let pedidoTotalPecas = 0;
+      if (pedido) {
+        const pit = await this.prisma.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true } });
+        pedidoTotalPecas = pit.reduce((s, i) => s + i.quantidade, 0);
+      }
+      secao(doc, `Separar para esta expedição · ${totPecas} peça(s)`);
+      if (pedidoTotalPecas > totPecas) {
+        doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9.5).text(`ATENÇÃO — Expedição PARCIAL: separe ${totPecas} de ${pedidoTotalPecas} peças do pedido. Não envie o restante nesta remessa.`, 50, doc.y, { width: doc.page.width - 100 });
+        doc.moveDown(0.4);
+        doc.fillColor('#222222').font('Helvetica').fontSize(10);
+      }
       pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: '' }, { semValor: true });
     }
 
