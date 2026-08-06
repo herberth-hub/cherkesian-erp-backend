@@ -4981,7 +4981,7 @@ function kitRowAcoes(k){
   } else if(st==='em_faccao'){ b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitAcao('${cod}','retornar')">↩ Retorno</button> `; }
   else if(st==='retornado'){ b+=`<button class="btn-sm" onclick="APP.kitAcao('${cod}','conferir')">🔎 Conferir</button> `; }
   else if(st==='em_conferencia'){ b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitAcao('${cod}','finalizar')">✓ Finalizar</button> `; }
-  b+=`<button class="btn-sm" title="Reimprimir romaneio + ficha técnica" onclick="APP.kitFicha('${cod}')">📄 Romaneio</button> `;
+  b+=`<button class="btn-sm" title="Reimprimir Ordem de Serviço (romaneio + ficha técnica)" onclick="APP.kitFicha('${cod}')">📄 Ordem de Serviço</button> `;
   return b;
 }
 // Preenche o campo de bip com o código do kit e dispara a ação (mesmo fluxo do leitor).
@@ -4998,7 +4998,7 @@ function imprimirFichaTecnicaKit(f){
   const medBlock=med.length?`<h3>Ficha técnica de medidas — tamanho ${esc(k.tamanho)}</h3>
     <table><thead><tr><th>Medida</th><th class="c">Valor</th><th class="c">Tolerância</th></tr></thead>
     <tbody>${med.map(m=>`<tr><td>${esc(m.descricao)}</td><td class="c"><b>${esc(m.valor)}</b></td><td class="c">${esc(m.tolerancia||'—')}</td></tr>`).join('')}</tbody></table>`:'';
-  w.document.write(`<html><head><title>Romaneio ${esc(k.codigo)}</title><meta charset=utf-8><style>
+  w.document.write(`<html><head><title>Ordem de Serviço ${esc(k.codigo)}</title><meta charset=utf-8><style>
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0} .wrap{max-width:760px;margin:0 auto;padding:22px}
     .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #caa53d;padding-bottom:8px}
     .hd h1{font-size:18px;margin:0;letter-spacing:1px} .hd .sub{color:#666;font-size:11px} .hd .cod{font-family:'Courier New',monospace;font-weight:800;color:#caa53d;font-size:16px;text-align:right}
@@ -5012,7 +5012,7 @@ function imprimirFichaTecnicaKit(f){
     .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
   </style></head><body><div class="bar"><button onclick="window.print()">Imprimir</button></div>
     <div class="wrap">
-      <div class="hd"><div><h1>GRUPO CHERKESIAN</h1><div class="sub">ROMANEIO / FICHA TÉCNICA · para a costureira / oficina</div></div>
+      <div class="hd"><div><h1>GRUPO CHERKESIAN</h1><div class="sub">ORDEM DE SERVIÇO — OS · romaneio + ficha técnica · para a costureira / oficina</div></div>
         <div><div class="cod">${esc(k.codigo)}</div><div class="sub" style="text-align:right">${k.controle?('Controle '+esc(k.controle)):''}</div></div></div>
       <div class="big">${esc(p.descricao||k.modelo||'—')}</div>
       <div class="grid">
