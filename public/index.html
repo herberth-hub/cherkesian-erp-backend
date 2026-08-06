@@ -122,6 +122,19 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 #modal{position:fixed;inset:0;background:rgba(10,10,10,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
 #modal.on{display:flex}
 .modal-box{background:#fff;border-radius:14px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;padding:24px}
+/* ===== Janelas internas (multi-janela, minimizar, ESC) ===== */
+#winbg{position:fixed;inset:0;background:rgba(10,10,10,.14);display:none;z-index:49;pointer-events:none}
+#winlayer{position:fixed;inset:0;z-index:50;pointer-events:none}
+.win{position:absolute;pointer-events:auto;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.28);width:min(560px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #e7e3d8}
+.win-hd{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;background:#f4f2ed;border-bottom:1px solid #e7e3d8;cursor:move;user-select:none}
+.win-hd .t{flex:1;font-weight:700;font-size:13.5px;color:#3a2f08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.win-hd button{border:none;background:transparent;font-size:15px;line-height:1;cursor:pointer;padding:3px 8px;border-radius:6px;color:#6a5f38}
+.win-hd button:hover{background:#e7e0cc}
+.win-body{padding:20px;overflow-y:auto}
+#windock{position:fixed;left:0;right:0;bottom:0;display:flex;gap:6px;padding:6px 10px;z-index:53;pointer-events:none;flex-wrap:wrap}
+#windock .chip{pointer-events:auto;background:#3a2f08;color:#f4f2ed;border-radius:9px;padding:6px 11px;font-size:12px;cursor:pointer;display:flex;gap:9px;align-items:center;box-shadow:0 6px 16px rgba(0,0,0,.3);max-width:240px}
+#windock .chip .cn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#windock .chip .cx{opacity:.65;font-weight:700}#windock .chip .cx:hover{opacity:1}
 .modal-box h3{font-size:17px;margin-bottom:16px}
 .mrow{margin-bottom:12px}
 .mactions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
@@ -154,6 +167,9 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 <body>
 <div id="app"><div class="spin"></div></div>
 <div id="modal"><div class="modal-box" id="modal-box"></div></div>
+<div id="winbg"></div>
+<div id="winlayer"></div>
+<div id="windock"></div>
 <div id="toast"></div>
 
 <script>
@@ -966,8 +982,38 @@ function panelTable(cols, rows, emptyMsg){
 }
 
 // ---------- Modais / Formulários ----------
-function openModal(html){ $('modal-box').innerHTML=html; $('modal').classList.add('on'); }
-function closeModal(){ $('modal').classList.remove('on'); }
+// ===== Gerenciador de JANELAS internas (multi-janela, minimizar, ESC) =====
+window.__wins = window.__wins || []; let __winSeq = 0;
+function _winTitle(html){ const m=/<h3[^>]*>([\s\S]*?)<\/h3>/i.exec(html||''); return m?m[1].replace(/<[^>]+>/g,'').trim():'Janela'; }
+function _winStripTitle(html){ return String(html||'').replace(/<h3[^>]*>[\s\S]*?<\/h3>/i,''); }
+function _winTop(){ const v=__wins.filter(w=>!w.minimized); return v[v.length-1]||null; }
+function _winFocus(w){ const mx=Math.max(50,...__wins.map(x=>Number(x.el.style.zIndex||50))); w.el.style.zIndex=mx+1; _winBg(); }
+function _winBg(){ const bg=$('winbg'); const v=__wins.filter(w=>!w.minimized); if(!bg)return; bg.style.display=v.length?'block':'none'; if(v.length){ bg.style.zIndex=Number(v[v.length-1].el.style.zIndex||50)-1; } }
+function _winDock(){ const d=$('windock'); if(!d)return; d.innerHTML=__wins.filter(w=>w.minimized).map(w=>`<div class="chip" onclick="APP._winRestore(${w.id})"><span class="cn">🗕 ${esc(w.title)}</span><span class="cx" onclick="event.stopPropagation();APP._winClose(${w.id})">✕</span></div>`).join(''); }
+function _winDrag(el){ const hd=el.querySelector('.win-hd'); let sx,sy,ox,oy,d=false;
+  hd.addEventListener('mousedown',e=>{ if(e.target.tagName==='BUTTON')return; d=true; sx=e.clientX;sy=e.clientY; const r=el.getBoundingClientRect(); ox=r.left;oy=r.top; el.style.left=ox+'px';el.style.top=oy+'px';el.style.transform='none'; document.body.style.userSelect='none'; });
+  document.addEventListener('mousemove',e=>{ if(!d)return; el.style.left=Math.max(0,ox+e.clientX-sx)+'px'; el.style.top=Math.max(0,oy+e.clientY-sy)+'px'; });
+  document.addEventListener('mouseup',()=>{ if(d){d=false; document.body.style.userSelect='';} }); }
+function openModal(html){
+  const title=_winTitle(html), body=_winStripTitle(html);
+  // Re-render da mesma janela (mesmo título) substitui o conteúdo em vez de empilhar.
+  const ex=__wins.find(w=>w.title===title && !w.minimized);
+  if(ex){ ex.el.querySelector('.win-body').innerHTML=body; _winFocus(ex); return ex.el; }
+  const id=++__winSeq; const el=document.createElement('div'); el.className='win'; el.dataset.id=id;
+  el.innerHTML=`<div class="win-hd"><span class="t">${esc(title)}</span><button title="Minimizar" onclick="APP._winMin(${id})">—</button><button title="Fechar (Esc)" onclick="APP._winClose(${id})">✕</button></div><div class="win-body">${body}</div>`;
+  $('winlayer').appendChild(el);
+  const off=(__wins.length%6)*26;
+  el.style.left=`calc(50% - min(280px,47vw) + ${off}px)`; el.style.top=`calc(7vh + ${off}px)`;
+  const w={id,el,title,minimized:false}; __wins.push(w); _winDrag(el); _winFocus(w);
+  const inp=el.querySelector('input,select,textarea'); if(inp) setTimeout(()=>{try{inp.focus();}catch(e){}},50);
+  return el;
+}
+function closeModal(){ const w=_winTop(); if(w) _winClose(w.id); }
+function _winClose(id){ const i=__wins.findIndex(w=>w.id===id); if(i<0)return; __wins[i].el.remove(); __wins.splice(i,1); _winBg(); _winDock(); }
+function _winMin(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=true; w.el.style.display='none'; _winBg(); _winDock(); }
+function _winRestore(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=false; w.el.style.display=''; _winDock(); _winFocus(w); }
+// ESC fecha a janela ativa (a não ser que haja um diálogo de confirmação aberto).
+document.addEventListener('keydown',e=>{ if(e.key!=='Escape')return; if(document.querySelector('.uidlg-ov.on'))return; const w=_winTop(); if(w){ e.preventDefault(); _winClose(w.id); } });
 
 // ===== Pop-up padrão do sistema (substitui alert/confirm do navegador) =====
 function _uiCss(){
@@ -5361,7 +5407,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
