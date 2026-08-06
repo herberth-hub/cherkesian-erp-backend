@@ -858,7 +858,7 @@ async function viewPedidos(c){
 }
 function pedToggleView(){ window.__pedKanban=!window.__pedKanban; const b=$('ped_view_btn'); if(b) b.textContent=window.__pedKanban?'☰ Lista':'🔲 Kanban'; renderPedidos(); }
 function pedidosKanban(arr){
-  const COLS=[['orcamento','Orçamento'],['aprovado','Aprovado'],['producao','Produção'],['compra','Compra'],['estoque','Estoque'],['expedicao','Expedição'],['concluido','Concluído']];
+  const COLS=[['orcamento','Orçamento'],['aprovado','Aprovado'],['producao','Produção'],['compra','Compra'],['estoque','Estoque'],['expedicao','Expedição'],['parcial','Parcial'],['concluido','Concluído']];
   const known=COLS.map(c=>c[0]);
   const extra=[...new Set(arr.map(p=>p.etapa).filter(e=>!known.includes(e)))].map(e=>[e,e]);
   const cols=[...COLS,...extra];
@@ -889,13 +889,29 @@ function renderPedidos(){
       esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
-      `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`,
+      etapaCell(p),
       pedNfCol(p.nfs),
       pedProdCol(p.opsNumeros, p.ocsNumeros),
       pedidoAcoes(p)
     ]), arr.length?null:'Nenhum pedido no filtro.');
 }
 function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='concluido'||e==='faturado')return'gold'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
+// Quanto ainda falta expedir do pedido (soma dos residuais por item/tamanho).
+function pedFaltaExpedir(p){
+  return (p.itens||[]).reduce((s,it)=>{
+    const g = it.grade && Object.keys(it.grade).length ? it.grade : null;
+    if(g){ const ja=it.gradeExpedida||{}; return s + Object.entries(g).reduce((a,[t,q])=>a+Math.max(0,Number(q)-Number(ja[t]||0)),0); }
+    return s + Math.max(0,(Number(it.quantidade)||0)-(Number(it.quantidadeExpedida)||0));
+  },0);
+}
+// Célula de etapa: 'parcial' vira pill âmbar clicável mostrando o que falta expedir.
+function etapaCell(p){
+  if(p.etapa==='parcial'){
+    const f=pedFaltaExpedir(p);
+    return `<span class="pill" style="background:#f6ad3722;color:#9a5a00;border:1px solid #e0a94a;cursor:pointer" title="Abrir o que falta expedir" onclick="APP.formExpParcial(${p.id})">parcial</span>${f>0?`<div style="font-size:10.5px;color:#9a5a00;margin-top:3px;cursor:pointer" onclick="APP.formExpParcial(${p.id})">faltam ${f} pç</div>`:''}`;
+  }
+  return `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`;
+}
 function pedNfCol(nfs){
   if(!nfs||!nfs.length) return '<span class="muted">—</span>';
   const cor={autorizada:'green',pendente:'blue',rejeitada:'red',cancelada:'gray',simulada:'gray'};

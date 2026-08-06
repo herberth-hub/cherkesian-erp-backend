@@ -30,6 +30,7 @@ enum PedidoEtapa {
   producao
   estoque
   expedicao
+  parcial
   concluido
 }
 

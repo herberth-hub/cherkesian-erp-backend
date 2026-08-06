@@ -434,11 +434,17 @@ export class ExpedicoesService {
     }
     const now = new Date();
     await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
-    // Saiu pra entrega: se não há mais expedições pendentes do pedido, marca CONCLUÍDO.
+    // Saiu pra entrega: define a etapa do pedido conforme o que já foi expedido.
+    // Só marca CONCLUÍDO quando TODOS os itens foram totalmente expedidos e não há
+    // mais expedições pendentes; caso contrário fica PARCIAL (falta expedir o resto).
     if (exp.pedidoId) {
       const pendentes = await this.prisma.expedicao.count({ where: { pedidoId: exp.pedidoId, id: { not: id }, conferenciaStatus: { not: 'despachado' } } });
-      if (pendentes === 0) {
+      const itens = await this.prisma.pedidoItem.findMany({ where: { pedidoId: exp.pedidoId }, select: { quantidade: true, quantidadeExpedida: true } });
+      const tudoExpedido = itens.length > 0 && itens.every((i) => (i.quantidadeExpedida ?? 0) >= i.quantidade);
+      if (pendentes === 0 && tudoExpedido) {
         await this.prisma.pedido.update({ where: { id: exp.pedidoId }, data: { etapa: 'concluido', status: 'Concluído' } }).catch(() => undefined);
+      } else {
+        await this.prisma.pedido.update({ where: { id: exp.pedidoId }, data: { etapa: 'parcial', status: 'Expedição parcial' } }).catch(() => undefined);
       }
     }
     return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
