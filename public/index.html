@@ -135,6 +135,16 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 #windock .chip{pointer-events:auto;background:#3a2f08;color:#f4f2ed;border-radius:9px;padding:6px 11px;font-size:12px;cursor:pointer;display:flex;gap:9px;align-items:center;box-shadow:0 6px 16px rgba(0,0,0,.3);max-width:240px}
 #windock .chip .cn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #windock .chip .cx{opacity:.65;font-weight:700}#windock .chip .cx:hover{opacity:1}
+/* ===== Kanban ===== */
+.kanban{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 12px;align-items:flex-start}
+.kcol{min-width:210px;max-width:250px;flex:0 0 auto;background:#f4f2ed;border:1px solid #e7e3d8;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px}
+.kcol h4{margin:0;font-size:11.5px;color:#6a5f38;display:flex;justify-content:space-between;align-items:center;padding:2px 4px;text-transform:uppercase;letter-spacing:.4px}
+.kcol h4 .n{background:#e7dcc0;color:#5a4d1f;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:800}
+.kcard{background:#fff;border:1px solid #e7e3d8;border-left:3px solid #caa53d;border-radius:8px;padding:8px 10px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:12px}
+.kcard .kt{font-weight:800;color:#3a2f08;display:flex;justify-content:space-between;gap:6px;align-items:center}
+.kcard .kmuted{color:#8a7f57;font-size:11px;margin-top:2px;line-height:1.3}
+.kcard .kbar{height:5px;background:#eee;border-radius:4px;margin-top:6px;overflow:hidden}.kcard .kbar > i{display:block;height:100%;background:var(--gold)}
+.kcol .kempty{color:#b3a878;font-size:11px;text-align:center;padding:6px 0}
 .modal-box h3{font-size:17px;margin-bottom:16px}
 .mrow{margin-bottom:12px}
 .mactions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
@@ -841,9 +851,25 @@ async function viewPedidos(c){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px">
       <input id="ped_q" class="inp" placeholder="🔎 Buscar pedido: nº, cliente ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
       <select id="ped_etapa" class="inp" style="width:auto;font-size:13px" onchange="APP.renderPedidos()"><option value="">Todas as etapas</option>${etapas.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select>
+      <button class="btn-sm" id="ped_view_btn" onclick="APP.pedToggleView()">${window.__pedKanban?'☰ Lista':'🔲 Kanban'}</button>
     </div>
     <div id="ped_tbl"></div>`;
   renderPedidos();
+}
+function pedToggleView(){ window.__pedKanban=!window.__pedKanban; const b=$('ped_view_btn'); if(b) b.textContent=window.__pedKanban?'☰ Lista':'🔲 Kanban'; renderPedidos(); }
+function pedidosKanban(arr){
+  const COLS=[['orcamento','Orçamento'],['aprovado','Aprovado'],['producao','Produção'],['compra','Compra'],['estoque','Estoque'],['expedicao','Expedição'],['concluido','Concluído']];
+  const known=COLS.map(c=>c[0]);
+  const extra=[...new Set(arr.map(p=>p.etapa).filter(e=>!known.includes(e)))].map(e=>[e,e]);
+  const cols=[...COLS,...extra];
+  return `<div class="kanban">${cols.map(([et,lbl])=>{
+    const items=arr.filter(p=>p.etapa===et);
+    return `<div class="kcol"><h4>${esc(lbl)} <span class="n">${items.length}</span></h4>${items.length?items.map(p=>`<div class="kcard" style="cursor:pointer" title="Abrir PDF do pedido" onclick="APP.gerarDoc('pedido',${p.id})">
+        <div class="kt"><span class="mono gold">${esc(p.numero)}</span><span>${money(p.valorTotal)}</span></div>
+        <div class="kmuted">${esc(p.cliente?p.cliente.nome:'—')}</div>
+        <div class="kmuted">${(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0)} pç${p.nfs&&p.nfs.length?(' · NF '+esc(p.nfs[0].numero)):''}</div>
+      </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
+  }).join('')}</div>`;
 }
 function renderPedidos(){
   const list = window.__PEDIDOS||[];
@@ -854,7 +880,9 @@ function renderPedidos(){
   const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório');
-  const tbl=$('ped_tbl'); if(tbl) tbl.innerHTML = panelTable(
+  const tbl=$('ped_tbl'); if(!tbl) return;
+  if(window.__pedKanban){ tbl.innerHTML = pedidosKanban(arr); return; }
+  tbl.innerHTML = panelTable(
     ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>`,
@@ -2535,6 +2563,19 @@ async function viewPcp(c){
         o.atrasada?'<span class="pill red">atrasada</span>':(o.diasParaEntrega!=null?(o.diasParaEntrega+'d'):'—')
       ]), painel.length?null:'Nenhuma OP em aberto.') + `</div>`;
 }
+// Kanban de produção: colunas por fase (A iniciar → Risco CAD → … → Finalizado).
+function opsKanban(arr){
+  const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
+  return `<div class="kanban">${cols.map(col=>{
+    const items=arr.filter(col.t);
+    return `<div class="kcol"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard">
+      <div class="kt"><span class="mono gold">${esc(o.numero)}</span><span>${o.quantidade} pç</span></div>
+      <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
+      <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
+    </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
+  }).join('')}</div>`;
+}
+function opToggleView(){ window.__opKanban=!window.__opKanban; loadRoute(); }
 async function viewProducao(c){
   const list = await api('/ops');
   const fin = list.filter(o=>o.status==='concluido');
@@ -2544,13 +2585,14 @@ async function viewProducao(c){
   const btnFin = verFin
     ? `<button class="btn-sm" onclick="APP.opToggleFin(false)">← Voltar às ativas (${ativas.length})</button>`
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnFin+' '+relBtn('ops')) + panelTable(
+  const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : panelTable(
     ['OP','Pedido','Qtd','Status','Progresso','Fase atual','Prioridade','Ações'],
     mostra.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
       `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
-    ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".'));
+    ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".')));
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
 async function formRomaneio(id){
@@ -5466,12 +5508,12 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  renderPedidos, formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
