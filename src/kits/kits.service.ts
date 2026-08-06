@@ -195,6 +195,8 @@ export class KitsService {
     if (kit.status !== 'aguardando_expedicao') {
       throw new ConflictException(`Kit ${kit.codigo} não pode ser expedido (status atual: ${kit.status}).`);
     }
+    // Gera o nº de OS automático (sequencial) se o kit ainda não tiver um.
+    const osNum = kit.controleFaccao || (await this.gerarControleFaccao(new Date()));
     const atualizado = await this.prisma.$transaction(async (tx) => {
       const k = await tx.kit.update({
         where: { id: kit.id },
@@ -203,15 +205,16 @@ export class KitsService {
           expedidoEm: new Date(),
           expedidoPor: usuario,
           faccaoNome: dto.faccaoNome ?? kit.faccaoNome,
+          controleFaccao: osNum,
           transportador: dto.transportador,
           remessaNfNumero: dto.remessaNf ?? kit.remessaNfNumero,
           obs: dto.obs ?? kit.obs,
         },
       });
-      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'expedido', detalhe: `Facção: ${k.faccaoNome ?? '—'}${dto.remessaNf ? ' · NF remessa: ' + dto.remessaNf : ''}${dto.transportador ? ' · Transp.: ' + dto.transportador : ''}`, usuario, ip } });
+      await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'expedido', detalhe: `Facção: ${k.faccaoNome ?? '—'} · OS ${osNum}${dto.remessaNf ? ' · NF remessa: ' + dto.remessaNf : ''}${dto.transportador ? ' · Transp.: ' + dto.transportador : ''}`, usuario, ip } });
       return k;
     });
-    return { ja: false, mensagem: `Kit ${kit.codigo} expedido para ${atualizado.faccaoNome ?? 'facção'}.`, kit: atualizado };
+    return { ja: false, mensagem: `Kit ${kit.codigo} expedido (OS ${osNum}) para ${atualizado.faccaoNome ?? 'facção'}.`, kit: atualizado };
   }
 
   async retornar(dto: RetornarKitDto, empresaId: number, usuario: string, ip?: string) {
