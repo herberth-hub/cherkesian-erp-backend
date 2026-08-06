@@ -156,7 +156,18 @@ export class OpsService {
     if (dto.status === 'concluido') {
       data.progresso = 100;
     }
-    return this.prisma.oP.update({ where: { id }, data });
+    const atualizada = await this.prisma.oP.update({ where: { id }, data });
+    // Ao concluir a última OP do pedido, avança o pedido para EXPEDIÇÃO (libera a NF).
+    if (dto.status === 'concluido' && atualizada.pedidoId) {
+      const irmas = await this.prisma.oP.findMany({ where: { pedidoId: atualizada.pedidoId }, select: { status: true } });
+      if (irmas.length && irmas.every((o) => o.status === 'concluido')) {
+        const ped = await this.prisma.pedido.findUnique({ where: { id: atualizada.pedidoId }, select: { etapa: true } });
+        if (ped && !['expedicao', 'faturado', 'concluido'].includes(ped.etapa)) {
+          await this.prisma.pedido.update({ where: { id: atualizada.pedidoId }, data: { etapa: 'expedicao', status: 'Expedição' } }).catch(() => undefined);
+        }
+      }
+    }
+    return atualizada;
   }
 
   /** Define a grade de tamanhos da OP, ex.: {"P":10,"M":20,"G":8}. {} limpa. */

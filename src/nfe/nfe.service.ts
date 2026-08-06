@@ -34,8 +34,15 @@ export class NfeService {
     private readonly email: EmailService,
   ) {}
 
-  listar(empresaId: number): Promise<NotaFiscal[]> {
-    return this.prisma.notaFiscal.findMany({ where: { empresaId }, orderBy: { id: 'desc' } });
+  async listar(empresaId: number) {
+    const notas = await this.prisma.notaFiscal.findMany({ where: { empresaId }, orderBy: { id: 'desc' } });
+    // Anexa o e-mail do cliente (do cadastro/pedido) p/ pré-preencher o envio da NF.
+    const pedidoIds = [...new Set(notas.map((n) => n.pedidoId).filter((x): x is number => x != null))];
+    const peds = pedidoIds.length
+      ? await this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, select: { id: true, cliente: { select: { email: true } } } })
+      : [];
+    const emailPorPedido = new Map(peds.map((p) => [p.id, p.cliente?.email ?? null]));
+    return notas.map((n) => ({ ...n, clienteEmail: n.pedidoId ? emailPorPedido.get(n.pedidoId) ?? null : null }));
   }
 
   async emitir(expedicaoId: number, empresaId: number, usuario: string) {

@@ -48,6 +48,13 @@ export class EstoqueController {
     return this.estoqueService.etiquetasUnidades(body?.codigos ?? [], user.empresaId);
   }
 
+  /** Reimprime as etiquetas de todas as unidades de um lote (ex.: OP-123). */
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('lote/:lote/etiquetas')
+  etiquetasPorLote(@Param('lote') lote: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.etiquetasPorLote(lote, user.empresaId);
+  }
+
   @Areas('estoque', 'producao', 'expedicao')
   @Get('unidade/:codigo')
   consultarUnidade(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {

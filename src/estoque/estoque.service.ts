@@ -23,7 +23,7 @@ export class EstoqueService {
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
-    pedidoId?: number; origem?: string; loteFornecedor?: string;
+    pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
   }, empresaId: number, usuario: string) {
     const qtd = Math.floor(Number(dto.quantidade));
     if (!qtd || qtd < 1) throw new BadRequestException('Informe a quantidade (>= 1).');
@@ -50,7 +50,8 @@ export class EstoqueService {
     const agora = new Date();
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
     const base = await this.prisma.unidadeEstoque.count({ where: { codigo: { startsWith: `UN-${ymd}-` } } });
-    const loteEntrada = `ENT-${ymd}-${String(base + 1).padStart(4, '0')}`;
+    // Etiqueta de lote: usa a informada (ex.: OP-123 p/ reimpressão por OP) ou gera automática.
+    const loteEntrada = (dto.loteEntrada || '').trim() || `ENT-${ymd}-${String(base + 1).padStart(4, '0')}`;
 
     const criadas: Array<{ codigo: string }> = [];
     for (let i = 0; i < qtd; i++) {
@@ -226,6 +227,15 @@ export class EstoqueService {
       pecas.push({ codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
     }
     return { total: pecas.length, pecas };
+  }
+
+  /** Reimprime as etiquetas de todas as unidades de um lote de entrada (ex.: OP-123). */
+  async etiquetasPorLote(lote: string, empresaId: number) {
+    const l = (lote ?? '').trim();
+    if (!l) throw new BadRequestException('Informe o lote.');
+    const uns = await this.prisma.unidadeEstoque.findMany({ where: { empresaId, loteEntrada: l }, select: { codigo: true }, orderBy: { id: 'asc' } });
+    if (!uns.length) throw new NotFoundException(`Nenhuma etiqueta encontrada para o lote ${l}.`);
+    return this.etiquetasUnidades(uns.map((u) => u.codigo), empresaId);
   }
 
   // ===================== CAIXAS MASTER (etiqueta + conteúdo) =====================

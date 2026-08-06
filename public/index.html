@@ -2471,13 +2471,20 @@ async function viewPcp(c){
 }
 async function viewProducao(c){
   const list = await api('/ops');
-  c.innerHTML = toolbar('Ordens de produção', '', '', relBtn('ops')) + panelTable(
+  const fin = list.filter(o=>o.status==='concluido');
+  const ativas = list.filter(o=>o.status!=='concluido');
+  const verFin = !!window.__opVerFin;
+  const mostra = verFin ? fin : ativas;
+  const btnFin = verFin
+    ? `<button class="btn-sm" onclick="APP.opToggleFin(false)">← Voltar às ativas (${ativas.length})</button>`
+    : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnFin+' '+relBtn('ops')) + panelTable(
     ['OP','Pedido','Qtd','Status','Progresso','Fase atual','Prioridade','Ações'],
-    list.map(o=>[
+    mostra.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
-      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
-    ]), list.length?null:'Nenhuma OP gerada. Gere uma OP a partir de um pedido em Vendas.');
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
+    ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".'));
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
 async function formRomaneio(id){
@@ -2636,7 +2643,7 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     const todas = [];
     for(const l of lotes){
       const body = { tipo:'produto', descricao, ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
-        quantidade:l.quantidade, origem:'producao', destino };
+        quantidade:l.quantidade, origem:'producao', destino, loteEntrada:'OP-'+id };
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
       (r.pecas||[]).forEach(p=>{ p.qtdLote=l.quantidade; todas.push(p); });
@@ -2647,6 +2654,16 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+') · OP finalizada.','ok');
     imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
     loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+// Alterna entre OPs ativas e finalizadas (declutter da lista).
+function opToggleFin(v){ window.__opVerFin=v; loadRoute(); }
+// Reimprime as etiquetas de expedição (unidades) de uma OP finalizada.
+async function opReimprimir(id){
+  try{
+    const r=await api('/estoque/lote/OP-'+id+'/etiquetas');
+    if(!r.pecas||!r.pecas.length){ toast('Sem etiquetas de expedição p/ esta OP.','err'); return; }
+    imprimirEtqUnidades(r.pecas,{loteEntrada:'OP-'+id});
   }catch(e){ toast(e.message,'err'); }
 }
 // ===== Envio automatizado p/ facção externa (gera controle + rastreio linear) =====
@@ -4328,7 +4345,7 @@ function nfAcoes(n){
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'xml')">XML</button>`);
   }
   if(n.status==='autorizada'){
-    b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id})">✉ E-mail</button>`);
+    b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id},'${esc(n.clienteEmail||'')}')">✉ E-mail</button>`);
     b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
     b.push(`<button class="btn-sm" onclick="APP.baixarCartaCorrecao(${n.id})">🖨 CC-e</button>`);
     b.push(`<button class="btn-sm danger" onclick="APP.cancelarNfe(${n.id},'${esc(n.numero)}')">Cancelar</button>`);
@@ -4388,8 +4405,8 @@ async function cartaPdfNaJanela(id, w, tentativas){
     w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">'+esc(m)+'</div>';
   }catch(e){ try{ w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">Falha: '+esc(e.message||e)+'</div>'; }catch(_){} }
 }
-async function enviarNfeEmail(id){
-  const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (deixe em branco p/ usar o e-mail do cliente do pedido)');
+async function enviarNfeEmail(id, sugerido){
+  const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (já preenchido com o cadastro do cliente — pode alterar)', sugerido||'');
   if(email===null) return;
   try{ const r=await api('/nfe/'+id+'/email',{method:'POST',body: email.trim()?{email:email.trim()}:{}});
     toast((r.simulado?'[SIMULADO] ':'')+'NF enviada para '+r.para+' ('+r.anexos+' anexo(s)).', r.simulado?'err':'ok'); }
@@ -5352,7 +5369,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
   viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
