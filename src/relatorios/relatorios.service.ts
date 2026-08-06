@@ -167,18 +167,40 @@ export class RelatoriosService {
         titulo: 'Relatório de Notas Fiscais',
         build: async (empresaId, f) => {
           const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId, ...periodo('emitidaEm', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
-          const total = regs.reduce((s, nf) => s + n(nf.valor), 0);
+          const filialIds = [...new Set(regs.map((r) => r.filialId).filter((x): x is number => x != null))];
+          const pedidoIds = [...new Set(regs.map((r) => r.pedidoId).filter((x): x is number => x != null))];
+          const [filiais, pedidos, exps] = await Promise.all([
+            this.prisma.filial.findMany({ where: { id: { in: filialIds } } }),
+            this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, include: { cliente: true, itens: true } }),
+            this.prisma.expedicao.findMany({ where: { pedidoId: { in: pedidoIds } }, select: { pedidoId: true, volumes: true } }),
+          ]);
+          const fMap = new Map(filiais.map((x) => [x.id, x]));
+          const pMap = new Map(pedidos.map((x) => [x.id, x]));
+          const volMap = new Map<number, number>();
+          exps.forEach((e) => { if (e.pedidoId != null) volMap.set(e.pedidoId, (volMap.get(e.pedidoId) ?? 0) + (e.volumes ?? 0)); });
+          let totValor = 0, totVol = 0, totPecas = 0;
+          const linhas = regs.map((nf) => {
+            const fil = nf.filialId != null ? fMap.get(nf.filialId) : undefined;
+            const ped = nf.pedidoId != null ? pMap.get(nf.pedidoId) : undefined;
+            const cli = ped?.cliente;
+            const pecas = (ped?.itens ?? []).reduce((s, i) => s + (i.quantidade ?? 0), 0);
+            const vol = nf.pedidoId != null ? (volMap.get(nf.pedidoId) || 1) : 1;
+            const val = n(nf.valor);
+            totValor += val; totVol += vol; totPecas += pecas;
+            return [
+              fil?.nome ?? '—', fil?.cnpj ?? '—', fil?.municipio ?? '—', fil?.uf ?? '—', fil?.cep ?? '—',
+              cli?.nome ?? '—', cli?.cnpjCpf ?? '—', cli?.municipio ?? cli?.cidadeUf ?? '—', cli?.uf ?? '—', cli?.cep ?? '—',
+              nf.numero, dataBR(nf.emitidaEm), String(vol), money(val), String(pecas),
+            ];
+          });
+          linhas.push([`TOTAIS · ${regs.length} nota(s)`, '', '', '', '', '', '', '', '', '', '', '', String(totVol), money(totValor), String(totPecas)]);
           return {
             colunas: [
-              { titulo: 'Número', largura: 90 },
-              { titulo: 'Série', largura: 45 },
-              { titulo: 'Status', largura: 90 },
-              { titulo: 'Valor', largura: 85, alinhamento: 'right' },
-              { titulo: 'Provedor', largura: 75 },
-              { titulo: 'Data', largura: 55 },
+              { titulo: 'REMETENTE', largura: 110 }, { titulo: 'CNPJ', largura: 92 }, { titulo: 'CIDADE', largura: 78 }, { titulo: 'UF', largura: 26 }, { titulo: 'CEP', largura: 58 },
+              { titulo: 'DESTINATÁRIO', largura: 120 }, { titulo: 'CNPJ/CPF', largura: 92 }, { titulo: 'CIDADE', largura: 78 }, { titulo: 'UF', largura: 26 }, { titulo: 'CEP', largura: 58 },
+              { titulo: 'NF', largura: 58 }, { titulo: 'EMISSÃO', largura: 58 }, { titulo: 'VOLUME', largura: 48, alinhamento: 'right' }, { titulo: 'VALOR MERC.', largura: 80, alinhamento: 'right' }, { titulo: 'QTD PEÇAS', largura: 58, alinhamento: 'right' },
             ],
-            linhas: regs.map((nf) => [nf.numero, nf.serie, nf.status, money(nf.valor), nf.provedor, dataBR(nf.emitidaEm)]),
-            total: { rotulo: 'Total emitido', valor: money(total) },
+            linhas,
           };
         },
       },
