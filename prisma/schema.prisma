@@ -525,6 +525,9 @@ model Expedicao {
   conferidoEm       DateTime?
   despachadoPor     String?
   dataSaida         DateTime? // data de saída/despacho ao cliente
+  // Canhoto assinado da NF (foto/arquivo em base64) arquivado após entrega.
+  canhotoImg        String?   @db.Text
+  canhotoEm         DateTime?
   data           DateTime @default(now())
 }
 

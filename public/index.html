@@ -3690,6 +3690,36 @@ async function verLotes(codigo){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Canhoto assinado da NF: anexa foto (câmera/arquivo, comprimida) ou visualiza o arquivado.
+function canhotoExp(id, tem){
+  if(tem) return verCanhoto(id);
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{ const img=new Image();
+      img.onload=async()=>{
+        const max=1600; let w=img.width,h=img.height;
+        if(w>max||h>max){ if(w>=h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
+        const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h);
+        const data=cv.toDataURL('image/jpeg',0.82);
+        try{ toast('Enviando canhoto…','ok'); await api('/expedicoes/'+id+'/canhoto',{method:'POST',body:{img:data}}); toast('Canhoto arquivado ✅','ok'); loadRoute(); }
+        catch(e){ toast('Falha: '+(e.message||e),'err'); }
+      };
+      img.onerror=()=>toast('Arquivo não é uma imagem válida.','err');
+      img.src=rd.result;
+    };
+    rd.readAsDataURL(f);
+  };
+  inp.click();
+}
+async function verCanhoto(id){
+  try{ const r=await api('/expedicoes/'+id+'/canhoto');
+    const w=window.open('','_blank','width=680,height=820'); if(!w){ toast('Libere o pop-up p/ ver o canhoto.','err'); return; }
+    w.document.write('<html><head><meta charset=utf-8><title>Canhoto assinado</title></head><body style="margin:0;background:#222;text-align:center">'
+      +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(r.canhotoEm?(' — '+new Date(r.canhotoEm).toLocaleString("pt-BR")):'')+' &nbsp; <button onclick="window.print()">Imprimir</button></div>'
+      +'<img src="'+r.img+'" style="max-width:100%;height:auto"></body></html>'); w.document.close();
+  }catch(e){ toast(e.message,'err'); }
+}
 async function viewExpedicao(c){
   const [list, clientes] = await Promise.all([api('/expedicoes'), api('/clientes')]);
   const nome={}; clientes.forEach(cl=>nome[cl.id]=cl.nome);
@@ -3698,7 +3728,7 @@ async function viewExpedicao(c){
     list.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
-      e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`,
+      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
@@ -5425,7 +5455,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,

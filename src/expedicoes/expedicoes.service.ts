@@ -143,12 +143,39 @@ export class ExpedicoesService {
     };
   }
 
-  async findAll(empresaId: number): Promise<Expedicao[]> {
+  async findAll(empresaId: number) {
     const clienteIds = await this.clienteIdsDaEmpresa(empresaId);
+    // Omite a imagem do canhoto na listagem (pesada); canhotoEm indica que há canhoto.
     return this.prisma.expedicao.findMany({
       where: { clienteId: { in: clienteIds } },
       orderBy: { id: 'desc' },
+      omit: { canhotoImg: true },
     });
+  }
+
+  private async garantirExp(id: number, empresaId: number): Promise<Expedicao> {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id } });
+    if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    const cli = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId }, select: { empresaId: true } });
+    if (!cli || cli.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+    return exp;
+  }
+
+  /** Arquiva a foto do canhoto assinado da NF (base64). */
+  async salvarCanhoto(id: number, empresaId: number, img: string) {
+    await this.garantirExp(id, empresaId);
+    const s = (img ?? '').trim();
+    if (!/^data:image\/[a-zA-Z+]+;base64,/.test(s)) throw new BadRequestException('Envie uma imagem (foto do canhoto).');
+    if (s.length > 8_000_000) throw new BadRequestException('Imagem muito grande. Tire a foto com resolução menor (máx ~6 MB).');
+    await this.prisma.expedicao.update({ where: { id }, data: { canhotoImg: s, canhotoEm: new Date() } });
+    return { ok: true, canhotoEm: new Date() };
+  }
+
+  /** Retorna a foto do canhoto arquivado. */
+  async getCanhoto(id: number, empresaId: number) {
+    const exp = await this.garantirExp(id, empresaId);
+    if (!exp.canhotoImg) throw new NotFoundException('Nenhum canhoto arquivado para esta expedição.');
+    return { img: exp.canhotoImg, canhotoEm: exp.canhotoEm };
   }
 
   async create(dto: CreateExpedicaoDto, empresaId: number): Promise<Expedicao> {

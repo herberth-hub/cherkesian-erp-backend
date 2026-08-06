@@ -15,6 +15,19 @@ export class ExpedicoesController {
     return this.expedicoesService.findAll(user.empresaId);
   }
 
+  /** Arquiva a foto do canhoto assinado da NF. */
+  @Post(':id/canhoto')
+  @HttpCode(HttpStatus.OK)
+  salvarCanhoto(@Param('id', ParseIntPipe) id: number, @Body('img') img: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.salvarCanhoto(id, user.empresaId, img);
+  }
+
+  /** Retorna a foto do canhoto arquivado. */
+  @Get(':id/canhoto')
+  getCanhoto(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.getCanhoto(id, user.empresaId);
+  }
+
   @Post()
   create(@Body() dto: CreateExpedicaoDto, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.create(dto, user.empresaId);
