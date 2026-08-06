@@ -80,6 +80,13 @@ export class KitsController {
     return this.kits.criarDeOp(dto, u.empresaId, u.usuario);
   }
 
+  /** Ficha técnica + romaneio do kit (para a costureira/oficina). */
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Get(':codigo/ficha')
+  fichaTecnica(@Param('codigo') codigo: string, @CurrentUser() u: AuthUser) {
+    return this.kits.fichaTecnica(u.empresaId, codigo);
+  }
+
   /** Lista os kits de um código de CONTROLE (para bipar o lote inteiro). */
   @Areas('pcp', 'producao', 'expedicao', 'estoque')
   @Get('controle/:controle')

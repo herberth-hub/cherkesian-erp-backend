@@ -567,6 +567,34 @@ export class KitsService {
     return kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecasTotal: k.pecasTotal, status: k.status, faccaoNome: k.faccaoNome, operacaoFaccao: k.operacaoFaccao }));
   }
 
+  /**
+   * Ficha técnica + romaneio do kit (para a costureira/oficina): specs do produto,
+   * BOM (materiais e consumo do tamanho) e a tabela de medidas daquele tamanho.
+   */
+  async fichaTecnica(empresaId: number, codigoRaw: string) {
+    const kit = await this.acharPorCodigo(codigoRaw, empresaId);
+    const op = kit.opId ? await this.prisma.oP.findUnique({ where: { id: kit.opId } }) : null;
+    const produtoId = op?.produtoId ?? null;
+    const produto = produtoId ? await this.prisma.produto.findUnique({ where: { id: produtoId } }) : null;
+    const tam = kit.tamanho;
+    const bom = produtoId ? await this.prisma.consumo.findMany({ where: { produtoId }, include: { material: true } }) : [];
+    const bomLinhas = bom.map((b) => {
+      const porTam = (b.porTamanho as Record<string, number> | null) || null;
+      const q = porTam && porTam[tam] != null ? Number(porTam[tam]) : Number(b.quantidade);
+      return { codigo: b.material.codigo, descricao: b.material.descricao.split(' · ')[0], consumoUnit: q, unidade: b.unidade, total: Number((q * kit.pecasTotal).toFixed(3)) };
+    });
+    const medidas = produtoId ? await this.prisma.produtoMedida.findMany({ where: { produtoId }, orderBy: { ordem: 'asc' } }) : [];
+    const medidasTam = medidas
+      .map((m) => { const v = (m.valores as Record<string, string> | null) || {}; return { descricao: m.descricao, tolerancia: m.tolerancia, valor: v[tam] ?? '' }; })
+      .filter((m) => m.valor !== '');
+    return {
+      kit: { codigo: kit.codigo, tamanho: tam, jogos: kit.jogos, pecas: kit.pecasTotal, cor: kit.cor, modelo: kit.modelo, cliente: kit.clienteNome, faccao: kit.faccaoNome, operacao: kit.operacaoFaccao, controle: kit.controleFaccao, op: kit.ordemProducao, lote: kit.loteTecidoNf },
+      produto: produto ? { descricao: produto.descricao, tecido: produto.tecido, composicao: produto.composicao, modelagem: produto.modelagem, especificacoes: produto.especificacoes, ncm: produto.ncm } : null,
+      bom: bomLinhas,
+      medidas: medidasTam,
+    };
+  }
+
   /** Gera o próximo código de controle de facção do dia (CTRL-AAAAMMDD-NNNN). */
   private async gerarControleFaccao(agora: Date): Promise<string> {
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');

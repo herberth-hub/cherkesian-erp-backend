@@ -4981,10 +4981,61 @@ function kitRowAcoes(k){
   } else if(st==='em_faccao'){ b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitAcao('${cod}','retornar')">↩ Retorno</button> `; }
   else if(st==='retornado'){ b+=`<button class="btn-sm" onclick="APP.kitAcao('${cod}','conferir')">🔎 Conferir</button> `; }
   else if(st==='em_conferencia'){ b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitAcao('${cod}','finalizar')">✓ Finalizar</button> `; }
+  b+=`<button class="btn-sm" title="Reimprimir romaneio + ficha técnica" onclick="APP.kitFicha('${cod}')">📄 Romaneio</button> `;
   return b;
 }
 // Preenche o campo de bip com o código do kit e dispara a ação (mesmo fluxo do leitor).
 function kitAcao(codigo, acao){ const i=$('kit_bip'); if(i) i.value=codigo; kitBipar(acao); }
+// Romaneio + ficha técnica do kit (p/ a costureira/oficina). Abre a impressão.
+async function kitFicha(codigo){
+  let f; try{ f=await api('/kits/'+encodeURIComponent(codigo)+'/ficha'); }catch(e){ toast(e.message,'err'); return; }
+  imprimirFichaTecnicaKit(f);
+}
+function imprimirFichaTecnicaKit(f){
+  const k=f.kit||{}, p=f.produto||{}, bom=f.bom||[], med=f.medidas||[];
+  const w=window.open('','_blank','width=840,height=1000'); if(!w){ toast('Libere o pop-up p/ imprimir o romaneio.','err'); return; }
+  const bomRows=bom.length?bom.map(b=>`<tr><td>${esc(b.codigo)}</td><td>${esc(b.descricao)}</td><td class="r">${b.consumoUnit} ${esc(b.unidade)}</td><td class="r"><b>${b.total} ${esc(b.unidade)}</b></td></tr>`).join(''):'<tr><td colspan=4 style="text-align:center;color:#999;padding:8px">Sem ficha de materiais (BOM) cadastrada para este produto.</td></tr>';
+  const medBlock=med.length?`<h3>Ficha técnica de medidas — tamanho ${esc(k.tamanho)}</h3>
+    <table><thead><tr><th>Medida</th><th class="c">Valor</th><th class="c">Tolerância</th></tr></thead>
+    <tbody>${med.map(m=>`<tr><td>${esc(m.descricao)}</td><td class="c"><b>${esc(m.valor)}</b></td><td class="c">${esc(m.tolerancia||'—')}</td></tr>`).join('')}</tbody></table>`:'';
+  w.document.write(`<html><head><title>Romaneio ${esc(k.codigo)}</title><meta charset=utf-8><style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0} .wrap{max-width:760px;margin:0 auto;padding:22px}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #caa53d;padding-bottom:8px}
+    .hd h1{font-size:18px;margin:0;letter-spacing:1px} .hd .sub{color:#666;font-size:11px} .hd .cod{font-family:'Courier New',monospace;font-weight:800;color:#caa53d;font-size:16px;text-align:right}
+    h3{font-size:13px;margin:16px 0 6px;color:#3a2f08;border-left:4px solid #caa53d;padding-left:8px}
+    table{width:100%;border-collapse:collapse;margin-top:4px} th,td{border:1px solid #ccc;padding:6px 8px;font-size:12px;text-align:left} th{background:#f4f2ed;font-size:11px}
+    .r{text-align:right} .c{text-align:center}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 18px;font-size:12.5px;margin-top:8px} .grid div{padding:2px 0} .lbl{color:#666;font-size:10.5px;display:block}
+    .big{font-size:15px;font-weight:800;margin-top:4px}
+    .spec{font-size:12px;white-space:pre-wrap;border:1px solid #eee;background:#fafafa;border-radius:6px;padding:8px;margin-top:4px}
+    .assin{margin-top:36px;display:flex;justify-content:space-between;gap:24px} .assin div{flex:1;border-top:1px solid #333;text-align:center;padding-top:6px;font-size:11px}
+    .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
+  </style></head><body><div class="bar"><button onclick="window.print()">Imprimir</button></div>
+    <div class="wrap">
+      <div class="hd"><div><h1>GRUPO CHERKESIAN</h1><div class="sub">ROMANEIO / FICHA TÉCNICA · para a costureira / oficina</div></div>
+        <div><div class="cod">${esc(k.codigo)}</div><div class="sub" style="text-align:right">${k.controle?('Controle '+esc(k.controle)):''}</div></div></div>
+      <div class="big">${esc(p.descricao||k.modelo||'—')}</div>
+      <div class="grid">
+        <div><span class="lbl">Facção / Oficina</span><b>${esc(k.faccao||'—')}</b></div>
+        <div><span class="lbl">Operação</span>${esc(k.operacao||'—')}</div>
+        <div><span class="lbl">Cliente</span>${esc(k.cliente||'—')}</div>
+        <div><span class="lbl">OP</span>${esc(k.op||'—')}</div>
+        <div><span class="lbl">Tamanho</span><b>${esc(k.tamanho)}</b></div>
+        <div><span class="lbl">Quantidade</span><b>${k.jogos} jogo(s) · ${k.pecas} peça(s)</b></div>
+        <div><span class="lbl">Tecido</span>${esc(p.tecido||'—')}</div>
+        <div><span class="lbl">Cor</span>${esc(k.cor||'—')}</div>
+        <div><span class="lbl">Composição</span>${esc(p.composicao||'—')}</div>
+        <div><span class="lbl">Lote do tecido</span>${esc(k.lote||'—')}</div>
+      </div>
+      ${p.modelagem?`<h3>Modelagem</h3><div class="spec">${esc(p.modelagem)}</div>`:''}
+      ${p.especificacoes?`<h3>Especificações / instruções</h3><div class="spec">${esc(p.especificacoes)}</div>`:''}
+      ${medBlock}
+      <h3>Romaneio de materiais (por peça × ${k.pecas} peças)</h3>
+      <table><thead><tr><th>Cód.</th><th>Material</th><th class="r">Consumo/peça</th><th class="r">Total</th></tr></thead><tbody>${bomRows}</tbody></table>
+      <div class="assin"><div>Entregue por (Cherkesian)</div><div>Recebido por (Facção/Costureira)</div></div>
+    </div></body></html>`);
+  w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);
+}
 async function viewKits(c){
   const [db, kits] = await Promise.all([api('/kits/dashboard'), api('/kits')]);
   const rows = kits.map(k=>[
@@ -5035,6 +5086,8 @@ async function kitBipar(acao){
   }
   try{ const r=await api('/kits/'+acao,{method:'POST',body});
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
+    // Expedição OBRIGA a impressão do romaneio + ficha técnica p/ a costureira/oficina.
+    if(acao==='expedir' && !r.ja) await kitFicha(codigo);
     $('kit_bip').value=''; loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
@@ -5262,7 +5315,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
-  viewKits, kitBipar, kitBiparControle, kitAcao, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
