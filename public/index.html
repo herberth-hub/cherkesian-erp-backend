@@ -2639,7 +2639,7 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
         quantidade:l.quantidade, origem:'producao', destino };
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
-      (r.pecas||[]).forEach(p=>todas.push(p));
+      (r.pecas||[]).forEach(p=>{ p.qtdLote=l.quantidade; todas.push(p); });
     }
     // Marca a OP como Finalizada (fase final + 100%).
     try{ await api('/ops/'+id+'/status',{method:'PATCH',body:{status:'concluido', setorAtual:'Finalizado'}}); await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:100}}); }catch(_){}
@@ -3454,13 +3454,19 @@ async function saveEntradaEstoque(){
     loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
+// Abrevia a descrição p/ caber na etiqueta (tira o tecido após " - "/" — " e encurta palavras longas).
+function abrevEtq(d){
+  let s=String(d||'').split(' - ')[0].split(' — ')[0];
+  [['Conjunto','CJ.'],['Operacional','OP.'],['Profissional','Prof.'],['Manga Curta','M.C.'],['Manga Longa','M.L.'],['Manga Japonesa','M.Jap.'],['Gola Careca','Gola Car.'],['Gola Italiana','Gola Ital.'],['Elástico','Elást.'],['Elastico','Elást.'],['Faixa Refletiva','Faixa Reflet.'],['Total','Tot.'],['Hospitalar','Hosp.'],['Unissex','Unis.'],['c/ Bolso','c/Bolso'],['s/ Bolso','s/Bolso']].forEach(([a,b])=>{ s=s.split(a).join(b); });
+  return s.replace(/\s{2,}/g,' ').trim();
+}
 function imprimirEtqUnidades(pecas, meta){
   meta = meta||{};
   const n = (pecas||[]).length;
   const pages=(pecas||[]).map(p=>`<div class="page"><div class="ul">
       ${p.ref?`<div class="ulref">REF ${esc(p.ref)}</div>`:''}
-      <div class="ulp">${esc(p.descricao)}</div>
-      <div class="uld">${p.cor?esc(p.cor):''}${p.tamanho?((p.cor?' · ':'')+'TAM '+esc(p.tamanho)):''}</div>
+      <div class="ulp">${esc(abrevEtq(p.descricao))}</div>
+      <div class="uld"><b>${p.tamanho?('TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+p.qtdLote+' un'):''}</b>${p.cor?((p.tamanho||p.qtdLote?' · ':'')+esc(p.cor)):''}</div>
       ${p.loteFornecedor?`<div class="ullote">LOTE ${esc(p.loteFornecedor)}</div>`:''}
       <img src="${p.barcode}">
       <div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
