@@ -45,7 +45,12 @@ export class NfeService {
     return notas.map((n) => ({ ...n, clienteEmail: n.pedidoId ? emailPorPedido.get(n.pedidoId) ?? null : null }));
   }
 
-  async emitir(expedicaoId: number, empresaId: number, usuario: string) {
+  async emitir(
+    expedicaoId: number,
+    empresaId: number,
+    usuario: string,
+    transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; dimensoes?: string },
+  ) {
     const exp = await this.prisma.expedicao.findUnique({ where: { id: expedicaoId } });
     if (!exp) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
     const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
@@ -101,6 +106,7 @@ export class NfeService {
       pedido?.obs ? pedido.obs.trim() : null,
       pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
       pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
+      transporte?.dimensoes ? `Dimensoes (C x L x A): ${transporte.dimensoes.trim()}` : null,
       cobranca.venctoTxt,
     ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
@@ -109,7 +115,14 @@ export class NfeService {
     // Modalidade do frete pelo campo do pedido: CIF=0 (emitente), FOB=1 (destinatário), senão sem frete.
     const freteTxt = (pedido?.frete || '').toLowerCase();
     const modFrete = /cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : (exp.transportadora ? 0 : 9);
-    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, { duplicatas: cobranca.duplicatas, frete: modFrete });
+    const payload = await this.montarPayload(filial, cliente, exp, itensNf, serie, numeroSeq, valor, infoAdic, {
+      duplicatas: cobranca.duplicatas,
+      frete: modFrete,
+      volumes: transporte?.volumes,
+      especie: transporte?.especie,
+      pesoLiquido: transporte?.pesoLiquido,
+      pesoBruto: transporte?.pesoBruto,
+    });
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
@@ -705,7 +718,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; frete?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -813,11 +826,17 @@ export class NfeService {
     const totalPecasNf = itens.reduce((s, it) => s + Number(it.quantidade), 0);
     const pesoBrutoNf = Number((totalPecasNf * pesoMedio).toFixed(3));
 
-    // Volumes/peso: usa as CAIXAS montadas (peso real pesado) quando houver; senão estima.
+    // Volumes/peso: prioridade p/ o que foi INFORMADO na hora de emitir; senão usa as
+    // CAIXAS montadas (peso real pesado); senão estima pelo peso médio.
     const caixasArr = Array.isArray(exp.caixas) ? (exp.caixas as Array<{ peso?: number | null }>) : [];
     const pesoCaixas = caixasArr.reduce((s, c) => s + (Number(c?.peso) || 0), 0);
-    const pesoNota = pesoCaixas > 0 ? Number(pesoCaixas.toFixed(3)) : pesoBrutoNf;
-    const volumesNota = caixasArr.length || exp.volumes || extra?.volumes || 1;
+    const pesoBase = pesoCaixas > 0 ? Number(pesoCaixas.toFixed(3)) : pesoBrutoNf;
+    const pesoBrutoInf = extra?.pesoBruto != null && extra.pesoBruto > 0 ? Number(extra.pesoBruto.toFixed(3)) : null;
+    const pesoLiqInf = extra?.pesoLiquido != null && extra.pesoLiquido > 0 ? Number(extra.pesoLiquido.toFixed(3)) : null;
+    const pesoBrutoNota = pesoBrutoInf ?? pesoLiqInf ?? pesoBase;
+    const pesoLiqNota = pesoLiqInf ?? pesoBrutoInf ?? pesoBase;
+    const especieNota = (extra?.especie || '').toString().trim() || 'Caixa';
+    const volumesNota = extra?.volumes || caixasArr.length || exp.volumes || 1;
     const transportadoraNome = (exp.transportadora || '').toString().trim();
     const modalidadeFrete = extra?.frete != null ? extra.frete : (transportadoraNome ? 0 : 9);
 
@@ -857,9 +876,9 @@ export class NfeService {
       volumes: [
         {
           quantidade: volumesNota,
-          especie: 'Caixa',
-          peso_liquido: pesoNota,
-          peso_bruto: pesoNota,
+          especie: especieNota,
+          peso_liquido: pesoLiqNota,
+          peso_bruto: pesoBrutoNota,
         },
       ],
       ...(extra?.duplicatas && extra.duplicatas.length

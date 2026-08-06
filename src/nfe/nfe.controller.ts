@@ -13,7 +13,7 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { IsEmail, IsInt, IsOptional, IsPositive, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min, MinLength } from 'class-validator';
 import { NfeService } from './nfe.service';
 import { CreateNfeAvulsaDto } from './dto/create-nfe-avulsa.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -24,6 +24,21 @@ class EmitirNfeDto {
   @IsInt()
   @IsPositive()
   expedicaoId!: number;
+
+  /** Quantidade de volumes/caixas declarada no transporte da NF. */
+  @IsOptional() @IsInt() @IsPositive() volumes?: number;
+
+  /** Espécie dos volumes (Caixa, Fardo, Pacote…). */
+  @IsOptional() @IsString() @MaxLength(30) especie?: string;
+
+  /** Peso líquido total (kg). */
+  @IsOptional() @IsNumber() @Min(0) pesoLiquido?: number;
+
+  /** Peso bruto total (kg). */
+  @IsOptional() @IsNumber() @Min(0) pesoBruto?: number;
+
+  /** Dimensões (C x L x A) — vai nas informações complementares. */
+  @IsOptional() @IsString() @MaxLength(60) dimensoes?: string;
 }
 
 class CancelarNfeDto {
@@ -54,7 +69,13 @@ export class NfeController {
   @Post('emitir')
   @HttpCode(HttpStatus.CREATED)
   emitir(@Body() dto: EmitirNfeDto, @CurrentUser() user: AuthUser) {
-    return this.nfeService.emitir(dto.expedicaoId, user.empresaId, user.usuario);
+    return this.nfeService.emitir(dto.expedicaoId, user.empresaId, user.usuario, {
+      volumes: dto.volumes,
+      especie: dto.especie,
+      pesoLiquido: dto.pesoLiquido,
+      pesoBruto: dto.pesoBruto,
+      dimensoes: dto.dimensoes,
+    });
   }
 
   /** NF-e avulsa: cliente + itens, sem expedição. Comercial também emite. */

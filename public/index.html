@@ -3822,7 +3822,7 @@ async function viewExpedicao(c){
     list.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>`, esc(nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
-      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
+      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
@@ -4236,10 +4236,38 @@ async function gerarDoc(tipo, refId){
 }
 
 // ---------- Integrações (Fase 4): NF-e e e-mail ----------
-async function emitirNfe(expedicaoId){
+// Popup que pergunta volumes/espécie/peso/dimensões antes de emitir a NF.
+function emitirNfePrompt(expedicaoId, pecas){
+  const volSug = Math.max(1, Number(pecas)||1) >= 1 ? 1 : 1;
+  openModal(`<h3>Emitir NF-e · transporte</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 12px">Informe os dados dos volumes que vão na nota (aparecem no DANFE). Deixe o peso em branco para o sistema estimar.</div>
+    <div class="grid3">
+      ${field('nfv_vol','Volumes *','type="number" min="1" value="'+volSug+'"')}
+      ${field('nfv_esp','Espécie','value="Caixa"')}
+      ${field('nfv_dim','Dimensões (C x L x A cm)','placeholder="ex.: 60 x 40 x 30"')}
+    </div>
+    <div class="grid2">
+      ${field('nfv_pl','Peso líquido (kg)','type="number" min="0" step="0.001" placeholder="opcional"')}
+      ${field('nfv_pb','Peso bruto (kg)','type="number" min="0" step="0.001" placeholder="opcional"')}
+    </div>
+    <div class="row-end" style="margin-top:14px"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.emitirNfeConfirmar(${expedicaoId})">Emitir NF-e</button></div>`);
+}
+async function emitirNfeConfirmar(expedicaoId){
+  const vol=Number(val('nfv_vol'))||1;
+  if(vol<1){ toast('Informe ao menos 1 volume.','err'); return; }
+  const transporte={ volumes:vol };
+  const esp=val('nfv_esp'); if(esp) transporte.especie=esp;
+  const dim=val('nfv_dim'); if(dim) transporte.dimensoes=dim;
+  const pl=Number(val('nfv_pl')); if(pl>0) transporte.pesoLiquido=pl;
+  const pb=Number(val('nfv_pb')); if(pb>0) transporte.pesoBruto=pb;
+  closeModal();
+  await emitirNfe(expedicaoId, transporte);
+}
+async function emitirNfe(expedicaoId, transporte){
   uiSpinnerOpen({nota:'NF-e de venda · expedição'});
   try{
-    const n = await api('/nfe/emitir',{method:'POST',body:{expedicaoId}});
+    const n = await api('/nfe/emitir',{method:'POST',body:Object.assign({expedicaoId}, transporte||{})});
     uiSpinnerClose();
     if(n.status==='rejeitada'){ await uiAlert({tipo:'err', titulo:'NF-e rejeitada', msg:'Motivo: '+(n.motivo||'ver detalhe')+'. Corrija e reemita.'}); loadRoute(); return; }
     if(n.status==='autorizada' || n.status==='simulada'){
@@ -5570,7 +5598,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
