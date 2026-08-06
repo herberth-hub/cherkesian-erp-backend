@@ -3710,6 +3710,12 @@ async function verLotes(codigo){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// Estorna a expedição, voltando a operação para o pedido de venda (reexpedir parcial/total).
+async function estornarExp(id, numero){
+  if(!(await uiConfirm({tipo:'warn', titulo:'Voltar expedição '+numero+' pro pedido?', ok:'Voltar pro pedido', cancel:'Cancelar', msg:'A expedição será estornada: as peças voltam pro pedido e você poderá reexpedir só uma parte (parcial) ou o total. Só funciona se ainda NÃO foi despachada.'}))) return;
+  try{ const r=await api('/expedicoes/'+id+'/estornar',{method:'POST'}); toast(r.mensagem||'Expedição estornada.','ok'); loadRoute(); }
+  catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
 // Canhoto assinado da NF: anexa foto (câmera/arquivo, comprimida) ou visualiza o arquivado.
 function canhotoExp(id, tem){
   if(tem) return verCanhoto(id);
@@ -3751,7 +3757,7 @@ async function viewExpedicao(c){
       `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfe(${e.id})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
-      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>`
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
     ]), list.length?null:'Nenhuma expedição.');
 }
 
@@ -5475,7 +5481,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
+  emitirNfe, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,

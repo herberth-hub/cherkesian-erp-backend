@@ -93,4 +93,11 @@ export class ExpedicoesController {
   despachar(@Param('id', ParseIntPipe) id: number, @Body('codigoMaster') codigoMaster: string, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster);
   }
+
+  /** Estorna a expedição (volta a operação pro pedido de venda p/ reexpedir/parcial). */
+  @Post(':id/estornar')
+  @HttpCode(HttpStatus.OK)
+  estornar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.estornar(id, user.empresaId);
+  }
 }

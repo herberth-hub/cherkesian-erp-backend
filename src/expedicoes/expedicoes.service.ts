@@ -440,6 +440,46 @@ export class ExpedicoesService {
     return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
   }
 
+  /**
+   * ESTORNA a expedição (volta a operação pro pedido de venda): reverte as
+   * quantidades expedidas dos itens, apaga a expedição e devolve o pedido para
+   * ser reexpedido (ex.: mandar só parcial). Bloqueia se já despachada.
+   */
+  async estornar(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') {
+      throw new ConflictException(`Expedição ${exp.numero} já foi despachada — não é possível voltar pro pedido.`);
+    }
+    const itens = (exp.itens as Array<{ pedidoItemId?: number; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
+    await this.prisma.$transaction(async (tx) => {
+      for (const s of itens) {
+        if (!s.pedidoItemId) continue;
+        const it = await tx.pedidoItem.findUnique({ where: { id: s.pedidoItemId } });
+        if (!it) continue;
+        let novaGrade: Record<string, number> | undefined;
+        if (s.grade) {
+          const jaG = (it.gradeExpedida as Record<string, number> | null) ?? {};
+          novaGrade = { ...jaG };
+          for (const [t, q] of Object.entries(s.grade)) novaGrade[t] = Math.max(0, Number(novaGrade[t] ?? 0) - Number(q));
+        }
+        const novaQtd = Math.max(0, (it.quantidadeExpedida ?? 0) - Number(s.quantidade || 0));
+        await tx.pedidoItem.update({
+          where: { id: s.pedidoItemId },
+          data: { quantidadeExpedida: novaQtd, ...(novaGrade ? { gradeExpedida: novaGrade as unknown as Prisma.InputJsonValue } : {}) },
+        });
+      }
+      await tx.expedicao.delete({ where: { id } });
+      if (exp.pedidoId) {
+        const restam = await tx.expedicao.count({ where: { pedidoId: exp.pedidoId } });
+        await tx.pedido.update({
+          where: { id: exp.pedidoId },
+          data: restam ? { status: 'Expedição parcial' } : { etapa: 'estoque', status: 'Pronto para expedição' },
+        });
+      }
+    });
+    return { ok: true, mensagem: `Expedição ${exp.numero} estornada — pedido liberado para reexpedir (parcial ou total).` };
+  }
+
   /** Gera uma etiqueta UNITÁRIA por peça (código único + código de barras) p/ bipagem 1-a-1. */
   async etiquetasUnitarias(id: number, empresaId: number) {
     const exp = await this.getExp(id, empresaId);
