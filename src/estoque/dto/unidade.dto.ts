@@ -16,6 +16,8 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
   @IsOptional() @IsInt() @IsPositive() pedidoId?: number;
   @IsOptional() @IsIn(['entrada', 'producao']) origem?: string;
+  /** Etiqueta de lote personalizada (ex.: OP-123) p/ reimpressão por OP. */
+  @IsOptional() @IsString() @MaxLength(40) loteEntrada?: string;
 }
 
 export class EnderecarDto {
