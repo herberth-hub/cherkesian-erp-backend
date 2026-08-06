@@ -7,7 +7,7 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsString() @MaxLength(160) descricao?: string;
   @IsOptional() @IsString() @MaxLength(40) ref?: string;
   @IsOptional() @IsString() @MaxLength(40) cor?: string;
-  @IsOptional() @IsString() @MaxLength(10) tamanho?: string;
+  @IsOptional() @IsString() @MaxLength(40) tamanho?: string;
   @IsInt() @Min(1) @Max(500) quantidade!: number;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
