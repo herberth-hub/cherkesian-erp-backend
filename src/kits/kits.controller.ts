@@ -80,6 +80,13 @@ export class KitsController {
     return this.kits.criarDeOp(dto, u.empresaId, u.usuario);
   }
 
+  /** Próximo número de OS para retorno sem NF (produção interna / facção sem CNPJ). */
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Get('proximo-os')
+  proximoOs() {
+    return this.kits.proximoOs();
+  }
+
   /** Ficha técnica + romaneio do kit (para a costureira/oficina). */
   @Areas('pcp', 'producao', 'expedicao', 'estoque')
   @Get(':codigo/ficha')

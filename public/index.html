@@ -5116,8 +5116,17 @@ async function formRetornoFaccao(codigo){
   try{ forns = await api('/fornecedores'); }catch(e){ forns=[]; }
   const optForn = '<option value="">— usar a facção do kit —</option>'+(forns||[]).map(f=>`<option value="${f.id}">${esc(f.nome||f.razaoSocial||('Forn '+f.id))}</option>`).join('');
   openModal(`<h3>Retorno da facção · <span class="mono gold">${esc(codigo)}</span></h3>
-    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Confira o que voltou. A NF de retorno é obrigatória para dar entrada.</div>
-    <div class="grid2">${field('rf_nf','NF de retorno *','placeholder="nº da NF da facção"')}${field('rf_qtd','Qtd retornada','type="number" min="0" placeholder="branco = total"')}</div>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Confira o que voltou. Um documento de retorno (NF-e OU OS) é obrigatório para dar entrada.</div>
+    <div class="mrow"><label class="fl">Documento de retorno *</label>
+      <select id="rf_tipo" class="inp" onchange="APP.retornoTipoToggle()">
+        <option value="nf">NF-e de retorno (facção com CNPJ)</option>
+        <option value="os">OS — Ordem de Serviço (produção interna / facção sem CNPJ)</option>
+      </select></div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl" id="rf_nf_lbl">Nº da NF de retorno *</label>
+        <div style="display:flex;gap:6px"><input id="rf_nf" class="inp" style="flex:1" placeholder="nº da NF da facção">
+          <button type="button" class="btn-sm" id="rf_os_btn" style="display:none;white-space:nowrap" onclick="APP.gerarOsRetorno()">Gerar nº OS</button></div></div>
+      ${field('rf_qtd','Qtd retornada','type="number" min="0" placeholder="branco = total"')}</div>
     <div class="mrow"><label class="fl">As peças voltaram corretas ou com falta/anomalia? *</label>
       <select id="rf_conf" class="inp" onchange="APP.retornoFaltasToggle()">
         <option value="ok">✅ Tudo certo — sem faltas</option>
@@ -5153,6 +5162,19 @@ function retornoReporToggle(){
   const repor = val('rf_repor')==='sim';
   $('rf_bloco_repor').style.display = repor?'block':'none';
   $('rf_bloco_pcp').style.display = repor?'none':'block';
+}
+// Alterna o rótulo/botão do documento de retorno entre NF-e e OS.
+function retornoTipoToggle(){
+  const os = val('rf_tipo')==='os';
+  const lbl=$('rf_nf_lbl'), btn=$('rf_os_btn'), inp=$('rf_nf');
+  if(lbl) lbl.textContent = os ? 'Nº da OS *' : 'Nº da NF de retorno *';
+  if(btn) btn.style.display = os ? '' : 'none';
+  if(inp) inp.placeholder = os ? 'clique "Gerar nº OS" ou digite' : 'nº da NF da facção';
+}
+// Gera o próximo número de OS (retorno sem NF) e preenche o campo.
+async function gerarOsRetorno(){
+  try{ const r=await api('/kits/proximo-os'); const i=$('rf_nf'); if(i){ i.value=r.numero; i.focus(); } }
+  catch(e){ toast(e.message,'err'); }
 }
 async function retornoFaccaoSubmit(codigo){
   const nf = val('rf_nf').trim();
@@ -5315,7 +5337,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
-  viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

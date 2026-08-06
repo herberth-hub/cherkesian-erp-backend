@@ -560,6 +560,19 @@ export class KitsService {
     };
   }
 
+  /** Próximo número de OS (Ordem de Serviço) do dia — retorno sem NF (interno / sem CNPJ). */
+  async proximoOs(): Promise<{ numero: string }> {
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const prefixo = `OS-${ymd}-`;
+    const ult = await this.prisma.kit.findFirst({
+      where: { retornoNfNumero: { startsWith: prefixo } },
+      orderBy: { retornoNfNumero: 'desc' },
+      select: { retornoNfNumero: true },
+    });
+    const n = ult?.retornoNfNumero ? Number(ult.retornoNfNumero.slice(prefixo.length)) + 1 : 1;
+    return { numero: `${prefixo}${String(n).padStart(4, '0')}` };
+  }
+
   /** Lista os kits de um código de CONTROLE de facção (para bipar o lote inteiro). */
   async porControle(empresaId: number, controle: string) {
     const c = (controle ?? '').trim();
