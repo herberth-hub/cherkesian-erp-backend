@@ -49,7 +49,14 @@ export class EstoqueService {
     const status = paraExpedicao ? 'reservado' : (dto.coluna && dto.andar != null && dto.caixaMaster ? 'em_estoque' : 'aguardando_endereco');
     const agora = new Date();
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
-    const base = await this.prisma.unidadeEstoque.count({ where: { codigo: { startsWith: `UN-${ymd}-` } } });
+    // Base = MAIOR sequencial do dia (não a contagem) — evita colisão de código
+    // quando alguma unidade do dia foi excluída (count < máximo existente).
+    const ultimo = await this.prisma.unidadeEstoque.findFirst({
+      where: { codigo: { startsWith: `UN-${ymd}-` } },
+      orderBy: { codigo: 'desc' },
+      select: { codigo: true },
+    });
+    const base = ultimo ? Number(ultimo.codigo.slice(-6)) || 0 : 0;
     // Etiqueta de lote: usa a informada (ex.: OP-123 p/ reimpressão por OP) ou gera automática.
     const loteEntrada = (dto.loteEntrada || '').trim() || `ENT-${ymd}-${String(base + 1).padStart(4, '0')}`;
 
