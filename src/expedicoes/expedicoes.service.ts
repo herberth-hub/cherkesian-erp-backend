@@ -430,6 +430,13 @@ export class ExpedicoesService {
     }
     const now = new Date();
     await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
+    // Saiu pra entrega: se não há mais expedições pendentes do pedido, marca CONCLUÍDO.
+    if (exp.pedidoId) {
+      const pendentes = await this.prisma.expedicao.count({ where: { pedidoId: exp.pedidoId, id: { not: id }, conferenciaStatus: { not: 'despachado' } } });
+      if (pendentes === 0) {
+        await this.prisma.pedido.update({ where: { id: exp.pedidoId }, data: { etapa: 'concluido', status: 'Concluído' } }).catch(() => undefined);
+      }
+    }
     return { ja: false, mensagem: 'Mercadoria DESPACHADA. Data de saída registrada.', dataSaida: now };
   }
 

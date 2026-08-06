@@ -833,10 +833,30 @@ async function viewFornecedores(c){
 }
 async function viewPedidos(c){
   const list = await api('/pedidos');
+  window.__PEDIDOS = list;
   const canCreate = canAccess('vendas');
-  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos')) + panelTable(
+  const etapas = [...new Set(list.map(p=>p.etapa))];
+  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos'))
+    + `<div class="cards" id="ped_kpis" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px">
+      <input id="ped_q" class="inp" placeholder="🔎 Buscar pedido: nº, cliente ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
+      <select id="ped_etapa" class="inp" style="width:auto;font-size:13px" onchange="APP.renderPedidos()"><option value="">Todas as etapas</option>${etapas.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select>
+    </div>
+    <div id="ped_tbl"></div>`;
+  renderPedidos();
+}
+function renderPedidos(){
+  const list = window.__PEDIDOS||[];
+  const q=(val('ped_q')||'').toLowerCase(), et=val('ped_etapa');
+  let arr=list;
+  if(et) arr=arr.filter(p=>p.etapa===et);
+  if(q) arr=arr.filter(p=>[p.numero, p.cliente&&p.cliente.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].some(x=>String(x||'').toLowerCase().includes(q)));
+  const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
+  const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
+  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório');
+  const tbl=$('ped_tbl'); if(tbl) tbl.innerHTML = panelTable(
     ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
-    list.map(p=>[
+    arr.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>`,
       esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
@@ -845,9 +865,9 @@ async function viewPedidos(c){
       pedNfCol(p.nfs),
       pedProdCol(p.opsNumeros, p.ocsNumeros),
       pedidoAcoes(p)
-    ]), list.length?null:'Nenhum pedido ainda.');
+    ]), arr.length?null:'Nenhum pedido no filtro.');
 }
-function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
+function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='concluido'||e==='faturado')return'gold'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
 function pedNfCol(nfs){
   if(!nfs||!nfs.length) return '<span class="muted">—</span>';
   const cor={autorizada:'green',pendente:'blue',rejeitada:'red',cancelada:'gray',simulada:'gray'};
@@ -5440,7 +5460,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
-  formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
+  renderPedidos, formPedido, pedPrefillCliente, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
