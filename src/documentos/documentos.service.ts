@@ -681,7 +681,7 @@ export class DocumentosService {
 
     // Itens · grade de tamanhos, SEM valores. Mostra APENAS o que foi enviado NESTA
     // expedição (snapshot exp.itens); só cai no pedido inteiro se não houver snapshot.
-    const snap = exp.itens as Array<{ descricao: string; cor?: string | null; quantidade: number; grade?: Record<string, number> | null }> | null;
+    const snap = exp.itens as Array<{ descricao: string; cor?: string | null; quantidade: number; grade?: Record<string, number> | null; pedidoItemId?: number }> | null;
     const itens = (snap && snap.length)
       ? snap
       : (pedido ? (await this.prisma.pedido.findUnique({ where: { id: pedido.id }, include: { itens: true } }))?.itens ?? [] : []);
@@ -706,18 +706,48 @@ export class DocumentosService {
       });
       // Instrução clara de SEPARAÇÃO: mostra a quantidade DESTA remessa (evita
       // confundir o separador com o total do pedido em expedições parciais).
-      let pedidoTotalPecas = 0;
-      if (pedido) {
-        const pit = await this.prisma.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true } });
-        pedidoTotalPecas = pit.reduce((s, i) => s + i.quantidade, 0);
-      }
+      const pedItens = pedido
+        ? await this.prisma.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { id: true, descricao: true, quantidade: true, quantidadeExpedida: true } })
+        : [];
+      const pedidoTotalPecas = pedItens.reduce((s, i) => s + i.quantidade, 0);
+      const parcial = pedidoTotalPecas > totPecas;
       secao(doc, `Separar para esta expedição · ${totPecas} peça(s)`);
-      if (pedidoTotalPecas > totPecas) {
+      if (parcial) {
         doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9.5).text(`ATENÇÃO — Expedição PARCIAL: separe ${totPecas} de ${pedidoTotalPecas} peças do pedido. Não envie o restante nesta remessa.`, 50, doc.y, { width: doc.page.width - 100 });
         doc.moveDown(0.4);
         doc.fillColor('#222222').font('Helvetica').fontSize(10);
       }
       pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: '' }, { semValor: true });
+
+      // Rastro do parcial: por item — Pedido / Esta remessa / Já expedido / Falta.
+      if (parcial && pedItens.length) {
+        const porItem = new Map(pedItens.map((i) => [i.id, i]));
+        // Esta remessa por pedidoItemId (do snapshot); fallback: casa por descrição.
+        const remessaPorItem = new Map<number, number>();
+        (snap ?? []).forEach((s) => { if (s.pedidoItemId) remessaPorItem.set(s.pedidoItemId, (remessaPorItem.get(s.pedidoItemId) ?? 0) + Number(s.quantidade || 0)); });
+        let tPed = 0, tRem = 0, tExp = 0, tFalta = 0;
+        const linhas = pedItens.map((i, idx) => {
+          const rem = remessaPorItem.get(i.id) ?? 0;
+          const jaExp = i.quantidadeExpedida ?? 0;
+          const falta = Math.max(0, i.quantidade - jaExp);
+          tPed += i.quantidade; tRem += rem; tExp += jaExp; tFalta += falta;
+          return [String(idx + 1).padStart(2, '0'), i.descricao, String(i.quantidade), String(rem), String(jaExp), String(falta)];
+        });
+        linhas.push(['', 'TOTAL', String(tPed), String(tRem), String(tExp), String(tFalta)]);
+        secao(doc, 'Rastreio do pedido (parcial)');
+        tabela(
+          doc,
+          [
+            { titulo: '#', largura: 26 },
+            { titulo: 'Descrição', largura: 209 },
+            { titulo: 'Pedido', largura: 60, alinhamento: 'right' },
+            { titulo: 'Esta remessa', largura: 80, alinhamento: 'right' },
+            { titulo: 'Já expedido', largura: 70, alinhamento: 'right' },
+            { titulo: 'Falta', largura: 50, alinhamento: 'right' },
+          ],
+          linhas,
+        );
+      }
     }
 
     secao(doc, 'Transporte');
