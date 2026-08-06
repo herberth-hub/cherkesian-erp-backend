@@ -678,6 +678,34 @@ export class DocumentosService {
       ['Lote consumido', lote?.codigoLote ?? '—'],
       ['Data', dataBR(exp.data)],
     ]);
+
+    // Itens · grade de tamanhos (igual ao pedido, SEM valores) — melhor pra conferência.
+    const itens = pedido
+      ? (await this.prisma.pedido.findUnique({ where: { id: pedido.id }, include: { itens: true } }))?.itens ?? []
+      : [];
+    if (itens.length) {
+      const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'ÚNICO'];
+      const presentes = new Set<string>();
+      for (const i of itens) {
+        const g = i.grade as Record<string, number> | null;
+        if (g && Object.keys(g).length) Object.entries(g).forEach(([t, q]) => { if (Number(q) > 0) presentes.add(t.toUpperCase()); });
+        else presentes.add('ÚNICO');
+      }
+      const sizes = ESCADA.filter((s) => presentes.has(s)).concat([...presentes].filter((s) => !ESCADA.includes(s)));
+      const totBySize: Record<string, number> = {};
+      let totPecas = 0;
+      const rows = itens.map((i, idx) => {
+        const g = (i.grade as Record<string, number> | null) ?? null;
+        const q: Record<string, number> = {};
+        const add = (t: string, v: number) => { if (v > 0) { q[t] = (q[t] || 0) + v; totBySize[t] = (totBySize[t] || 0) + v; totPecas += v; } };
+        if (g && Object.keys(g).length) Object.entries(g).forEach(([t, v]) => add(t.toUpperCase(), Number(v) || 0));
+        else add('ÚNICO', i.quantidade);
+        return { num: String(idx + 1).padStart(2, '0'), codigo: null as string | null, descricao: i.descricao, cor: (i as { cor?: string | null }).cor ?? null, qtyBySize: q, vUnit: '', vTotal: '' };
+      });
+      secao(doc, 'Itens · grade de tamanhos');
+      pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: '' }, { semValor: true });
+    }
+
     secao(doc, 'Transporte');
     camposDuplos(doc, [
       ['Transportadora', exp.transportadora ?? '—'],

@@ -375,19 +375,21 @@ export function pedidoGradeTabela(
     totPecas: number;
     totValor: string;
   },
+  opts: { semValor?: boolean } = {},
 ): void {
+  const sv = !!opts.semValor;
   const x0 = 50;
   const tableW = doc.page.width - 100;
-  const cItem = 18, cCod = 76, cCor = 56, cVU = 44, cVT = 58;
+  const cItem = 18, cCod = 76, cCor = 56, cVU = sv ? 0 : 44, cVT = sv ? 0 : 58;
   const nS = data.sizes.length;
   const cSize = Math.max(15, Math.min(30, Math.floor((tableW * 0.34) / Math.max(1, nS))));
   const cDesc = tableW - cItem - cCod - cCor - cVU - cVT - cSize * nS;
   const cols: Array<{ w: number; a: 'left' | 'center' | 'right' }> = [
     { w: cItem, a: 'center' }, { w: cCod, a: 'left' }, { w: cDesc, a: 'left' }, { w: cCor, a: 'left' },
     ...data.sizes.map(() => ({ w: cSize, a: 'center' as const })),
-    { w: cVU, a: 'right' }, { w: cVT, a: 'right' },
+    ...(sv ? [] : [{ w: cVU, a: 'right' as const }, { w: cVT, a: 'right' as const }]),
   ];
-  const headers = ['#', 'CÓDIGO', 'DESCRIÇÃO', 'COR', ...data.sizes, 'V.UN', 'V.TOTAL'];
+  const headers = ['#', 'CÓDIGO', 'DESCRIÇÃO', 'COR', ...data.sizes, ...(sv ? [] : ['V.UN', 'V.TOTAL'])];
 
   const drawRow = (cells: string[], o: { header?: boolean; total?: boolean } = {}) => {
     const fs = o.header ? 6.8 : 7.4;
@@ -411,9 +413,9 @@ export function pedidoGradeTabela(
 
   drawRow(headers, { header: true });
   for (const r of data.rows) {
-    drawRow([r.num, r.codigo ?? '—', r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), r.vUnit, r.vTotal]);
+    drawRow([r.num, r.codigo ?? '—', r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), ...(sv ? [] : [r.vUnit, r.vTotal])]);
   }
-  drawRow(['', '', 'TOTAL', '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), String(data.totPecas), data.totValor], { total: true });
+  drawRow(['', '', 'TOTAL', sv ? `${data.totPecas} pç` : '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), ...(sv ? [] : [String(data.totPecas), data.totValor])], { total: true });
   doc.x = x0; doc.moveDown(0.6);
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
