@@ -208,6 +208,17 @@ export class EstoqueService {
     return { removido: true, codigo };
   }
 
+  /** Exclusão em massa de unidades (não remove despachadas). */
+  async excluirUnidades(codigos: string[], empresaId: number) {
+    const lista = [...new Set((codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean))].slice(0, 1000);
+    if (!lista.length) throw new BadRequestException('Selecione ao menos uma unidade.');
+    const uns = await this.prisma.unidadeEstoque.findMany({ where: { empresaId, codigo: { in: lista } }, select: { codigo: true, status: true } });
+    const excluir = uns.filter((u) => u.status !== 'despachado').map((u) => u.codigo);
+    const bloqueadas = uns.length - excluir.length;
+    if (excluir.length) await this.prisma.unidadeEstoque.deleteMany({ where: { empresaId, codigo: { in: excluir } } });
+    return { removidas: excluir.length, bloqueadasDespachadas: bloqueadas, naoEncontradas: lista.length - uns.length };
+  }
+
   /** Regenera as etiquetas (código de barras) de unidades já existentes, para reimpressão. */
   async etiquetasUnidades(codigos: string[], empresaId: number) {
     const lista = (codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean).slice(0, 500);

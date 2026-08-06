@@ -70,6 +70,17 @@ export class EstoqueController {
     return this.estoqueService.excluirUnidade(codigo, user.empresaId);
   }
 
+  /** Exclusão em massa (admin) de unidades selecionadas. */
+  @Areas('estoque', 'producao')
+  @Post('unidades/excluir')
+  @HttpCode(HttpStatus.OK)
+  excluirUnidades(@Body() body: { codigos: string[] }, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') {
+      throw new ForbiddenException('Apenas o administrador da conta pode excluir etiquetas.');
+    }
+    return this.estoqueService.excluirUnidades(body?.codigos ?? [], user.empresaId);
+  }
+
   @Areas('estoque', 'producao')
   @Post('enderecar')
   @HttpCode(HttpStatus.OK)

@@ -3370,6 +3370,7 @@ function renderUnidades(){
   if(tipo) arr=arr.filter(u=>u.tipo===tipo);
   if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.areaMotivo].some(x=>String(x||'').toLowerCase().includes(q)));
   window.__UNIDS=arr.slice(0,300);
+  if(!window.__UNSEL) window.__UNSEL=new Set();
   const uRows=window.__UNIDS.map(u=>{
     const ender=(u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`
       : (u.status==='quarentena'&&u.areaMotivo)?`<span style="color:#c14a34;font-size:11px">⚠ ${esc(u.areaMotivo)}</span>`:'<span class="muted">—</span>';
@@ -3378,6 +3379,7 @@ function renderUnidades(){
     else if(u.status!=='despachado') acoes+=` <button class="btn-sm" style="color:#b5731a" title="Enviar p/ quarentena" onclick="APP.enviarQuarentena('${esc(u.codigo)}')">⚠</button>`;
     if(_admin) acoes+=` <button class="btn-sm" style="color:#c14a34" title="Excluir etiqueta (admin)" onclick="APP.excluirUnidade('${esc(u.codigo)}')">Excluir</button>`;
     return [
+      `<input type="checkbox" class="unchk" ${window.__UNSEL.has(u.codigo)?'checked':''} onchange="APP.unSel('${esc(u.codigo)}',this.checked)">`,
       `<span class="mono gold">${esc(u.codigo)}</span>`,
       unidTipoPill(u.tipo),
       esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
@@ -3386,8 +3388,32 @@ function renderUnidades(){
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${acoes}</div>`
     ];
   });
-  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
-    + panelTable(['Código','Tipo','Item','Status','Endereço / Motivo','Ações'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
+  box.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <label style="font-size:12px;cursor:pointer"><input type="checkbox" id="un_all" onchange="APP.unSelAll(this.checked)"> Selecionar todos (visíveis)</label>
+      <span id="un_selc" style="font-size:12px;color:#8a5a00;font-weight:700"></span>
+      <button class="btn-sm" onclick="APP.unBulkReimprimir()">🖨 Reimprimir selecionadas</button>
+      ${_admin?`<button class="btn-sm" style="color:#c14a34" onclick="APP.unBulkExcluir()">🗑 Excluir selecionadas</button>`:''}
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
+    + panelTable(['Sel','Código','Tipo','Item','Status','Endereço / Motivo','Ações'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
+  unSelCount();
+}
+function unSel(cod, ck){ if(!window.__UNSEL) window.__UNSEL=new Set(); if(ck) window.__UNSEL.add(cod); else window.__UNSEL.delete(cod); unSelCount(); }
+function unSelAll(ck){ if(!window.__UNSEL) window.__UNSEL=new Set(); (window.__UNIDS||[]).forEach(u=>{ if(ck) window.__UNSEL.add(u.codigo); else window.__UNSEL.delete(u.codigo); }); document.querySelectorAll('.unchk').forEach(c=>{ c.checked=ck; }); unSelCount(); }
+function unSelCount(){ const n=window.__UNSEL?window.__UNSEL.size:0; const e=$('un_selc'); if(e) e.textContent=n?(n+' selecionada(s)'):''; }
+function unSelVisiveis(){ const vis=new Set((window.__UNIDS||[]).map(u=>u.codigo)); return [...(window.__UNSEL||[])].filter(c=>vis.has(c)); }
+async function unBulkReimprimir(){
+  const cods=unSelVisiveis(); if(!cods.length){ toast('Selecione ao menos uma unidade.','err'); return; }
+  try{ const r=await api('/estoque/unidades/etiquetas',{method:'POST',body:{codigos:cods}}); if(!r.pecas||!r.pecas.length){ toast('Nada para reimprimir.','err'); return; } imprimirEtqUnidades(r.pecas,{loteEntrada:'REIMPRESSAO'}); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function unBulkExcluir(){
+  const cods=unSelVisiveis(); if(!cods.length){ toast('Selecione ao menos uma unidade.','err'); return; }
+  if(!(await uiConfirm({tipo:'warn', titulo:'Excluir '+cods.length+' unidade(s)?', ok:'Excluir '+cods.length, cancel:'Cancelar', msg:'As etiquetas selecionadas serão removidas do estoque. Despachadas não são excluídas. Ação de administrador.'}))) return;
+  try{ const r=await api('/estoque/unidades/excluir',{method:'POST',body:{codigos:cods}});
+    window.__UNSEL=new Set();
+    toast(r.removidas+' excluída(s)'+(r.bloqueadasDespachadas?(' · '+r.bloqueadasDespachadas+' despachada(s) mantida(s)'):''),'ok'); loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // Envia/resolve quarentena (por bipagem ou clique).
 async function enviarQuarentena(codigo){
@@ -5519,7 +5545,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
