@@ -416,10 +416,12 @@ export class ExpedicoesService {
 
     // Alocação por caixa (montagem via bipagem): a peça bipada entra na CAIXA ATUAL,
     // agregando conteúdo (descrição · cor · tamanho) e somando as peças da caixa.
-    const nCaixa = Math.floor(Number(caixaAtual) || 0);
-    if (nCaixa > 0 && !/-CX\d+$/i.test(codigo)) {
+    // Toda peça contada SEMPRE cai numa caixa — se o nº não vier, usa a caixa atual
+    // (a última existente) ou a 1 — assim a soma das caixas nunca diverge do total.
+    if (!/-CX\d+$/i.test(codigo)) {
       type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; peso?: number | null; conferida?: boolean; viaBip?: boolean };
       const cx = ((exp.caixas as Cx[] | null) ?? []).slice();
+      const nCaixa = Math.floor(Number(caixaAtual) || 0) || (cx.length ? Math.max(...cx.map((c) => c.numero)) : 1);
       let box = cx.find((c) => c.numero === nCaixa);
       if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], viaBip: true }; cx.push(box); }
       box.conteudo = box.conteudo ?? [];
@@ -447,6 +449,21 @@ export class ExpedicoesService {
       mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
       conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
     };
+  }
+
+  /** Zera a conferência: reverte as unidades bipadas (voltam ao estoque) e limpa as
+   *  caixas montadas por bipagem — p/ recomeçar a conferência do zero. */
+  async zerarConferencia(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível zerar a conferência.');
+    await this.prisma.unidadeEstoque.updateMany({ where: { expedicaoId: id, status: 'despachado' }, data: { status: 'reservado', expedicaoId: null, saidaEm: null } });
+    // Mantém caixas montadas MANUALMENTE (não via bipagem); as viaBip são recriadas ao rebipar.
+    const caixas = ((exp.caixas as Array<{ viaBip?: boolean }> | null) ?? []).filter((c) => !c.viaBip);
+    await this.prisma.expedicao.update({
+      where: { id },
+      data: { pecasConferidas: 0, conferidos: [], conferenciaStatus: 'pendente', conferidoPor: null, conferidoEm: null, caixas: caixas as unknown as Prisma.InputJsonValue },
+    });
+    return { ok: true, mensagem: 'Conferência zerada. Bipe novamente do início.' };
   }
 
   /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.

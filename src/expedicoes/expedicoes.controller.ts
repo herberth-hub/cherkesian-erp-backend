@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ExpedicoesService } from './expedicoes.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -86,6 +86,15 @@ export class ExpedicoesController {
   @HttpCode(HttpStatus.OK)
   conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @Body('caixa') caixa: number, @CurrentUser() user: AuthUser) {
     return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa);
+  }
+
+  @Post(':id/zerar-conferencia')
+  @HttpCode(HttpStatus.OK)
+  zerarConferencia(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') {
+      throw new ForbiddenException('Apenas o administrador da conta pode zerar a conferência.');
+    }
+    return this.expedicoesService.zerarConferencia(id, user.empresaId);
   }
 
   @Post(':id/despachar')
