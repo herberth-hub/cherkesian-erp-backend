@@ -4633,6 +4633,7 @@ async function etiquetasUnitariasExp(id){
 }
 // ---------- Dupla conferência + despacho ----------
 async function formConferencia(id){
+  if(window.__confCaixa==null) window.__confCaixa=1;
   let c; try{ c=await api('/expedicoes/'+id+'/conferencia'); }catch(e){ toast(e.message,'err'); return; }
   const pct=c.esperadas?Math.min(100,Math.round((c.conferidas/c.esperadas)*100)):0;
   const conferida=c.status==='conferida'||c.status==='despachado';
@@ -4640,7 +4641,7 @@ async function formConferencia(id){
   openModal(`<h3>Conferência · Expedição ${esc(c.numero)}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe cada peça, kit${c.totalCaixas?' ou <b>a caixa</b> (o QR da caixa confere todas as peças dela de uma vez)':''}. O despacho só libera após conferir tudo.</div>
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
-    ${c.totalCaixas?`<div style="font-size:12px;color:#6a675e;margin:4px 0 2px">📦 Caixas conferidas: <b>${c.caixasConferidas}/${c.totalCaixas}</b> ${(c.caixas||[]).map(cx=>'<span class="pill" style="font-size:10px;background:'+(cx.conferida?'#e6f4ea':'#f2f2f2')+';color:'+(cx.conferida?'#1e7a44':'#8a8674')+'">CX'+cx.numero+(cx.conferida?' ✓':'')+' ('+cx.pecas+')</span>').join(' ')}</div>`:''}
+    ${c.totalCaixas?`<div style="font-size:12px;color:#6a675e;margin:4px 0 2px">📦 Caixas: <b>${c.totalCaixas}</b>${c.caixasConferidas?(' · '+c.caixasConferidas+' conferida(s)'):''} ${(c.caixas||[]).map(cx=>{const tip=(cx.conteudo||[]).map(l=>[l.descricao,l.cor,l.tamanho].filter(Boolean).join(' · ')+': '+l.qtd).join(' | ')||(cx.pecas+' pç');const on=cx.conferida;return '<span class="pill" title="'+esc(tip)+'" style="font-size:10px;background:'+(on?'#e6f4ea':'#eef3ff')+';color:'+(on?'#1e7a44':'#2b4a8b')+'">CX'+cx.numero+(on?' ✓':'')+' ('+cx.pecas+' pç)</span>';}).join(' ')}</div>`:''}
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`
@@ -4651,7 +4652,13 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('master_bip').value=code;APP.despacharExp(${id})})">📷</button>
       </div>
       <div style="margin-bottom:2px"><button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Reimprimir etiqueta master</button></div>`
-      :`<div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+      :`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px">
+        <label class="fl" style="margin:0">📦 Caixa atual</label>
+        <input id="conf_caixa" type="number" min="1" value="${window.__confCaixa||1}" onchange="APP.confSetCaixa()" style="width:64px;text-align:center;padding:5px;font-weight:800;font-size:15px">
+        <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha a caixa atual e começa a próxima">➕ Nova caixa</button>
+        <span class="muted" style="font-size:11px">tudo que bipar entra <b>nesta caixa</b> — mude o número ao trocar de caixa</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
         <div style="flex:1"><label class="fl">Bipe a PEÇA, o KIT ou a CAIXA${c.totalCaixas?' (📦 QR da caixa)':''}</label><input id="conf_bip" class="inp" placeholder="Bipe peça, kit ou caixa (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
         <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
@@ -4665,9 +4672,13 @@ async function despacharDireto(id){
   try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{forcar:true}}); toast(r.mensagem||'Mercadoria despachada.','ok'); closeModal(); loadRoute(); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
+// Caixa atual da bipagem (montagem da caixa conforme se bipa).
+function confSetCaixa(){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; }
+function confNovaCaixa(id){ confSetCaixa(); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
 async function conferirBip(id, codigo){
   const cod=codigo||val('conf_bip'); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
-  try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod}});
+  const caixa=Math.floor(Number(val('conf_caixa'))||window.__confCaixa||1);
+  try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod, caixa}});
     if(r.ja) beepErro(); else beepOk();
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     formConferencia(id);
@@ -5761,7 +5772,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,

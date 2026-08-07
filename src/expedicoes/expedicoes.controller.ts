@@ -84,8 +84,8 @@ export class ExpedicoesController {
 
   @Post(':id/conferir')
   @HttpCode(HttpStatus.OK)
-  conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @CurrentUser() user: AuthUser) {
-    return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario);
+  conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @Body('caixa') caixa: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa);
   }
 
   @Post(':id/despachar')
