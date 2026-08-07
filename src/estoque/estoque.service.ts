@@ -15,6 +15,23 @@ const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>)
 export class EstoqueService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Estoque DISPONÍVEL (não despachado) por produto — usado na expedição parcial
+   * p/ o operador expedir conforme o que realmente tem. Agrupa por tamanho e cor.
+   */
+  async disponivelProdutos(empresaId: number, produtoIds: number[]) {
+    const ids = [...new Set(produtoIds.filter((x) => Number.isInteger(x) && x > 0))];
+    if (!ids.length) return [] as Array<{ produtoId: number; tamanho: string | null; cor: string | null; quantidade: number }>;
+    const grupos = await this.prisma.unidadeEstoque.groupBy({
+      by: ['produtoId', 'tamanho', 'cor'],
+      where: { empresaId, produtoId: { in: ids }, status: { not: 'despachado' } },
+      _count: { _all: true },
+    });
+    return grupos
+      .filter((g) => g.produtoId != null)
+      .map((g) => ({ produtoId: g.produtoId as number, tamanho: g.tamanho, cor: g.cor, quantidade: g._count._all }));
+  }
+
   // ===================== ESTOQUE UNITÁRIO (etiqueta por peça + endereço) =====================
   /**
    * ENTRADA: cria N unidades (uma etiqueta única por peça) para estocar ou ir

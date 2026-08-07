@@ -34,6 +34,14 @@ export class EstoqueController {
     return this.estoqueService.listarUnidades(user.empresaId, status, q);
   }
 
+  /** Estoque disponível (não despachado) por produto — p/ a expedição parcial. */
+  @Areas('estoque', 'producao', 'expedicao', 'vendas')
+  @Get('disponivel')
+  disponivel(@Query('produtos') produtos: string, @CurrentUser() user: AuthUser) {
+    const ids = (produtos ?? '').split(',').map((x) => parseInt(x.trim(), 10)).filter((x) => x > 0);
+    return this.estoqueService.disponivelProdutos(user.empresaId, ids);
+  }
+
   @Areas('estoque', 'producao', 'compras')
   @Post('entrada')
   @HttpCode(HttpStatus.CREATED)
