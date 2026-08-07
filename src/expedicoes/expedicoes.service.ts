@@ -351,6 +351,27 @@ export class ExpedicoesService {
     return exp;
   }
 
+  /** Normaliza o tamanho p/ casar grade x etiqueta (ex.: "G1 (FRISO VERMELHO)" -> "G1"). */
+  private normTamanho(s?: string | null): string {
+    return String(s ?? '').trim().toUpperCase().split(/[\s(]/)[0];
+  }
+
+  /** Casa a cor da linha do pedido (ex.: "9158 Cinza Chumbo Mescla") com a cor da
+   *  etiqueta (ex.: "9158 CINZA CHUMBO MESCLA LOTE: x" ou só "CINZA"). Código numérico
+   *  tem prioridade; sem código, casa pela 1ª palavra de cor. */
+  private corCombina(itemCor?: string | null, stockCor?: string | null): boolean {
+    if (!itemCor) return true;
+    const ic = String(itemCor).toUpperCase().replace(/\s+/g, ' ').trim();
+    const sc = String(stockCor ?? '').toUpperCase().replace(/\s+/g, ' ').trim();
+    if (!sc) return false;
+    const itok = (ic.match(/^\d+/) || [])[0];
+    const stok = (sc.match(/^\d+/) || [])[0];
+    if (stok) return itok ? itok === stok : sc.includes(ic.split(' ')[0]);
+    const iw = ic.replace(/^\d+\s*/, '').replace(/\bLOTE.*$/, '').trim().split(' ').filter(Boolean);
+    const sw = sc.replace(/^\d+\s*/, '').replace(/\bLOTE.*$/, '').trim().split(' ').filter(Boolean);
+    return !!(iw[0] && sw[0] && iw[0] === sw[0]);
+  }
+
   private extrairCodigo(input: string): string {
     let t = (input ?? '').trim();
     if (t.startsWith('{')) { try { t = String(JSON.parse(t).kit ?? '').trim() || t; } catch { /* mantém t */ } }
@@ -425,6 +446,26 @@ export class ExpedicoesService {
         // fragmento ou código digitado errado (que antes viravam "peça fantasma").
         const un = await tx.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
         if (!un) throw new BadRequestException(`Etiqueta "${codigo}" não reconhecida. Bipe a etiqueta da peça, do kit ou da caixa.`);
+
+        // ===== NÃO deixa bipar peça FORA do pedido (evita retrabalho) =====
+        const snapItens = (exp.itens as Array<{ produtoId: number | null; cor: string | null; grade?: Record<string, number> | null }> | null) ?? [];
+        if (snapItens.length) {
+          const linha = snapItens.find((it) => it.produtoId === un.produtoId && this.corCombina(it.cor, un.cor));
+          if (!linha) {
+            throw new BadRequestException(`"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}). Não bipe peças de fora.`);
+          }
+          // Trava de EXCESSO por tamanho: não deixa passar do que o pedido pede.
+          const tNorm = this.normTamanho(un.tamanho);
+          const pedidoQtd = Object.entries(linha.grade ?? {}).reduce((acc, [k, v]) => (this.normTamanho(k) === tNorm ? acc + Number(v || 0) : acc), 0);
+          if (pedidoQtd > 0) {
+            const jaTam = (await tx.unidadeEstoque.findMany({ where: { expedicaoId: id, status: 'despachado', produtoId: un.produtoId }, select: { cor: true, tamanho: true } }))
+              .filter((x) => this.corCombina(linha.cor, x.cor) && this.normTamanho(x.tamanho) === tNorm).length;
+            if (jaTam >= pedidoQtd) {
+              throw new BadRequestException(`Tamanho ${tNorm} de "${un.descricao ?? ''}${un.cor ? ' · ' + un.cor : ''}" já está completo (pedido: ${pedidoQtd}). Não bipe a mais.`);
+            }
+          }
+        }
+
         if (un.status !== 'despachado') {
           await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
           detalhe = `${codigo} (baixa estoque)`;
