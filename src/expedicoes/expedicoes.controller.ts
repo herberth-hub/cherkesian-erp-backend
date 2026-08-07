@@ -97,6 +97,13 @@ export class ExpedicoesController {
     return this.expedicoesService.zerarConferencia(id, user.empresaId);
   }
 
+  /** Zera UMA caixa específica (devolve só as peças dela ao estoque). */
+  @Post(':id/zerar-caixa')
+  @HttpCode(HttpStatus.OK)
+  zerarCaixa(@Param('id', ParseIntPipe) id: number, @Body('caixa') caixa: number, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.zerarCaixa(id, user.empresaId, Math.floor(Number(caixa) || 0));
+  }
+
   @Post(':id/despachar')
   @HttpCode(HttpStatus.OK)
   despachar(

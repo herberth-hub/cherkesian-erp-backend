@@ -374,81 +374,91 @@ export class ExpedicoesService {
    *  Quando `caixaAtual` é informado, a peça bipada é alocada NESSA caixa — o sistema
    *  monta o conteúdo/quantidade de cada caixa conforme a bipagem, sem digitar manualmente. */
   async conferir(id: number, empresaId: number, codigoRaw: string, usuario: string, caixaAtual?: number) {
-    const exp = await this.getExp(id, empresaId);
-    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível conferir.');
     const codigo = this.extrairCodigo(codigoRaw);
     if (!codigo) throw new BadRequestException('Bipe um código válido.');
-    const esperadas = exp.pecas;
-    const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
-    // Idempotência: cada código único (etiqueta unitária ou kit) conta uma vez.
-    if (conferidos.includes(codigo)) {
-      return { ja: true, mensagem: `${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
-    }
-    let add = 1;
-    let detalhe = codigo;
-    let caixasUpd: Prisma.InputJsonValue | undefined;
-    let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
-    if (/-CX\d+$/i.test(codigo)) {
-      // Bipou uma CAIXA: confere todas as peças dela de uma vez.
-      const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? []).slice();
-      const prefixo = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-      const n = Number(/-CX(\d+)$/i.exec(codigo)?.[1] ?? 0);
-      const box = caixas.find((c) => c.numero === n && codigo.toUpperCase() === `${prefixo}-CX${c.numero}`);
-      if (!box) throw new NotFoundException(`Caixa ${codigo} não pertence a esta expedição.`);
-      add = box.pecas || 0;
-      detalhe = `Caixa ${n} (${add} pç)`;
-      box.conferida = true;
-      caixasUpd = caixas as unknown as Prisma.InputJsonValue;
-    } else if (/^KIT-/i.test(codigo)) {
-      const kit = await this.prisma.kit.findUnique({ where: { codigo } });
-      if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
-      add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
-      itemInfo = { descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null };
-    } else {
-      // Baixa automática: se o código for uma unidade de estoque, marca como despachada.
-      const un = await this.prisma.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
-      if (un && un.status !== 'despachado') {
-        await this.prisma.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
-        detalhe = `${codigo} (baixa estoque)`;
+    await this.getExp(id, empresaId); // valida posse (empresa) antes de travar a linha
+    // Tudo dentro de uma transação com LOCK da linha da expedição (FOR UPDATE): dois
+    // bips concorrentes do MESMO código são serializados — o 2º já vê o 1º gravado e é
+    // recusado ("já conferido"), em vez de contar duas vezes.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Expedicao" WHERE id = ${id} FOR UPDATE`;
+      const exp = await tx.expedicao.findUnique({ where: { id } });
+      if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+      if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível conferir.');
+      const esperadas = exp.pecas;
+      const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
+      // Idempotência: cada código único (etiqueta unitária ou kit) conta uma vez.
+      if (conferidos.includes(codigo)) {
+        return { ja: true, mensagem: `${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
       }
-      if (un) itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
-    }
+      let add = 1;
+      let detalhe = codigo;
+      let caixasUpd: Prisma.InputJsonValue | undefined;
+      let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
+      if (/-CX\d+$/i.test(codigo)) {
+        // Bipou uma CAIXA: confere todas as peças dela de uma vez.
+        const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? []).slice();
+        const prefixo = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const n = Number(/-CX(\d+)$/i.exec(codigo)?.[1] ?? 0);
+        const box = caixas.find((c) => c.numero === n && codigo.toUpperCase() === `${prefixo}-CX${c.numero}`);
+        if (!box) throw new NotFoundException(`Caixa ${codigo} não pertence a esta expedição.`);
+        add = box.pecas || 0;
+        detalhe = `Caixa ${n} (${add} pç)`;
+        box.conferida = true;
+        caixasUpd = caixas as unknown as Prisma.InputJsonValue;
+      } else if (/^KIT-/i.test(codigo)) {
+        const kit = await tx.kit.findUnique({ where: { codigo } });
+        if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
+        add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
+        itemInfo = { descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null };
+      } else {
+        // Baixa automática: se o código for uma unidade de estoque, marca como despachada.
+        const un = await tx.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
+        if (un && un.status !== 'despachado') {
+          await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
+          detalhe = `${codigo} (baixa estoque)`;
+        }
+        if (un) itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
+      }
 
-    // Alocação por caixa (montagem via bipagem): a peça bipada entra na CAIXA ATUAL,
-    // agregando conteúdo (descrição · cor · tamanho) e somando as peças da caixa.
-    // Toda peça contada SEMPRE cai numa caixa — se o nº não vier, usa a caixa atual
-    // (a última existente) ou a 1 — assim a soma das caixas nunca diverge do total.
-    if (!/-CX\d+$/i.test(codigo)) {
-      type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; peso?: number | null; conferida?: boolean; viaBip?: boolean };
-      const cx = ((exp.caixas as Cx[] | null) ?? []).slice();
-      const nCaixa = Math.floor(Number(caixaAtual) || 0) || (cx.length ? Math.max(...cx.map((c) => c.numero)) : 1);
-      let box = cx.find((c) => c.numero === nCaixa);
-      if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], viaBip: true }; cx.push(box); }
-      box.conteudo = box.conteudo ?? [];
-      const d = itemInfo?.descricao ?? codigo;
-      const co = itemInfo?.cor ?? null;
-      const ta = itemInfo?.tamanho ?? null;
-      const linha = box.conteudo.find((l) => (l.descricao ?? '') === (d ?? '') && (l.cor ?? '') === (co ?? '') && (l.tamanho ?? '') === (ta ?? ''));
-      if (linha) linha.qtd = (linha.qtd ?? 0) + add; else box.conteudo.push({ descricao: d, cor: co, tamanho: ta, qtd: add });
-      box.pecas = (box.pecas ?? 0) + add;
-      box.viaBip = true;
-      cx.sort((a, b) => a.numero - b.numero);
-      caixasUpd = cx as unknown as Prisma.InputJsonValue;
-      detalhe += ` → Caixa ${nCaixa}`;
-    }
+      // Alocação por caixa (montagem via bipagem): a peça bipada entra na CAIXA ATUAL,
+      // agregando conteúdo (descrição · cor · tamanho) e somando as peças da caixa.
+      // Toda peça contada SEMPRE cai numa caixa — se o nº não vier, usa a caixa atual
+      // (a última existente) ou a 1 — assim a soma das caixas nunca diverge do total.
+      if (!/-CX\d+$/i.test(codigo)) {
+        type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; codigos?: string[]; peso?: number | null; conferida?: boolean; viaBip?: boolean };
+        const cx = ((exp.caixas as Cx[] | null) ?? []).slice();
+        const nCaixa = Math.floor(Number(caixaAtual) || 0) || (cx.length ? Math.max(...cx.map((c) => c.numero)) : 1);
+        let box = cx.find((c) => c.numero === nCaixa);
+        if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], codigos: [], viaBip: true }; cx.push(box); }
+        box.conteudo = box.conteudo ?? [];
+        box.codigos = box.codigos ?? [];
+        const d = itemInfo?.descricao ?? codigo;
+        const co = itemInfo?.cor ?? null;
+        const ta = itemInfo?.tamanho ?? null;
+        const linha = box.conteudo.find((l) => (l.descricao ?? '') === (d ?? '') && (l.cor ?? '') === (co ?? '') && (l.tamanho ?? '') === (ta ?? ''));
+        if (linha) linha.qtd = (linha.qtd ?? 0) + add; else box.conteudo.push({ descricao: d, cor: co, tamanho: ta, qtd: add });
+        box.pecas = (box.pecas ?? 0) + add;
+        box.codigos.push(codigo);
+        box.viaBip = true;
+        cx.sort((a, b) => a.numero - b.numero);
+        caixasUpd = cx as unknown as Prisma.InputJsonValue;
+        detalhe += ` → Caixa ${nCaixa}`;
+      }
 
-    conferidos.push(codigo);
-    const novas = Math.min(esperadas, exp.pecasConferidas + add);
-    const completou = novas >= esperadas;
-    await this.prisma.expedicao.update({
-      where: { id },
-      data: { pecasConferidas: novas, conferidos, conferenciaStatus: completou ? 'conferida' : 'conferindo', conferidoPor: usuario, ...(completou ? { conferidoEm: new Date() } : {}), ...(caixasUpd ? { caixas: caixasUpd } : {}) },
+      conferidos.push(codigo);
+      const novas = Math.min(esperadas, exp.pecasConferidas + add);
+      const completou = novas >= esperadas;
+      await tx.expedicao.update({
+        where: { id },
+        data: { pecasConferidas: novas, conferidos, conferenciaStatus: completou ? 'conferida' : 'conferindo', conferidoPor: usuario, ...(completou ? { conferidoEm: new Date() } : {}), ...(caixasUpd ? { caixas: caixasUpd } : {}) },
+      });
+      return {
+        ja: false,
+        mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
+        conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
+      };
     });
-    return {
-      ja: false,
-      mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
-      conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
-    };
   }
 
   /** Zera a conferência: reverte as unidades bipadas (voltam ao estoque) e limpa as
@@ -464,6 +474,43 @@ export class ExpedicoesService {
       data: { pecasConferidas: 0, conferidos: [], conferenciaStatus: 'pendente', conferidoPor: null, conferidoEm: null, caixas: caixas as unknown as Prisma.InputJsonValue },
     });
     return { ok: true, mensagem: 'Conferência zerada. Bipe novamente do início.' };
+  }
+
+  /** Zera UMA caixa: devolve só as peças dela ao estoque e some com a caixa, mantendo as demais. */
+  async zerarCaixa(id: number, empresaId: number, numeroCaixa: number) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível alterar as caixas.');
+    type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; codigos?: string[]; viaBip?: boolean; conferida?: boolean };
+    const caixas = ((exp.caixas as Cx[] | null) ?? []).slice().sort((a, b) => a.numero - b.numero);
+    const idx = caixas.findIndex((c) => c.numero === numeroCaixa);
+    if (idx < 0) throw new NotFoundException(`Caixa ${numeroCaixa} não encontrada nesta expedição.`);
+    const box = caixas[idx];
+    const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
+    // Códigos da caixa: usa os gravados; caixa antiga (sem `codigos`) → reconstrói pela
+    // fatia sequencial de `conferidos` (assume que as caixas foram preenchidas em ordem).
+    let codigos = box.codigos ?? [];
+    if (!codigos.length && (box.pecas || 0) > 0) {
+      const offset = caixas.slice(0, idx).reduce((s, c) => s + (c.pecas || 0), 0);
+      codigos = conferidos.slice(offset, offset + (box.pecas || 0));
+    }
+    if (codigos.length) {
+      await this.prisma.unidadeEstoque.updateMany({ where: { codigo: { in: codigos }, expedicaoId: id, status: 'despachado' }, data: { status: 'reservado', expedicaoId: null, saidaEm: null } });
+    }
+    const rem = new Set(codigos);
+    const novosConferidos = conferidos.filter((c) => !rem.has(c));
+    const novasCaixas = caixas.filter((c) => c.numero !== numeroCaixa);
+    const novasPecas = Math.max(0, (exp.pecasConferidas || 0) - (box.pecas || 0));
+    await this.prisma.expedicao.update({
+      where: { id },
+      data: {
+        caixas: novasCaixas as unknown as Prisma.InputJsonValue,
+        conferidos: novosConferidos,
+        pecasConferidas: novasPecas,
+        conferenciaStatus: novasPecas >= exp.pecas ? 'conferida' : novasPecas > 0 ? 'conferindo' : 'pendente',
+        ...(novasPecas < exp.pecas ? { conferidoEm: null } : {}),
+      },
+    });
+    return { ok: true, mensagem: `Caixa ${numeroCaixa} zerada — ${box.pecas || 0} peça(s) devolvida(s) ao estoque.`, conferidas: novasPecas };
   }
 
   /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.
