@@ -425,6 +425,10 @@ export class ExpedicoesService {
       let detalhe = codigo;
       let caixasUpd: Prisma.InputJsonValue | undefined;
       let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
+      // Conteúdo da caixa CASADO com a linha do pedido (p/ o "Montar caixas" já vir preenchido).
+      let boxDescricao: string | null = null;
+      let boxCor: string | null = null;
+      let boxTam: string | null = null;
       if (/-CX\d+$/i.test(codigo)) {
         // Bipou uma CAIXA: confere todas as peças dela de uma vez.
         const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? []).slice();
@@ -448,14 +452,17 @@ export class ExpedicoesService {
         if (!un) throw new BadRequestException(`Etiqueta "${codigo}" não reconhecida. Bipe a etiqueta da peça, do kit ou da caixa.`);
 
         // ===== NÃO deixa bipar peça FORA do pedido (evita retrabalho) =====
-        const snapItens = (exp.itens as Array<{ produtoId: number | null; cor: string | null; grade?: Record<string, number> | null }> | null) ?? [];
+        const snapItens = (exp.itens as Array<{ produtoId: number | null; descricao?: string; cor: string | null; grade?: Record<string, number> | null }> | null) ?? [];
         if (snapItens.length) {
           const linha = snapItens.find((it) => it.produtoId === un.produtoId && this.corCombina(it.cor, un.cor));
           if (!linha) {
             throw new BadRequestException(`"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}). Não bipe peças de fora.`);
           }
-          // Trava de EXCESSO por tamanho: não deixa passar do que o pedido pede.
+          // Casa o conteúdo da caixa com a linha do pedido (descrição/cor do pedido + tamanho normalizado).
           const tNorm = this.normTamanho(un.tamanho);
+          boxDescricao = linha.descricao ?? un.descricao ?? codigo;
+          boxCor = linha.cor ?? un.cor ?? null;
+          boxTam = tNorm;
           const pedidoQtd = Object.entries(linha.grade ?? {}).reduce((acc, [k, v]) => (this.normTamanho(k) === tNorm ? acc + Number(v || 0) : acc), 0);
           if (pedidoQtd > 0) {
             const jaTam = (await tx.unidadeEstoque.findMany({ where: { expedicaoId: id, status: 'despachado', produtoId: un.produtoId }, select: { cor: true, tamanho: true } }))
@@ -485,9 +492,10 @@ export class ExpedicoesService {
         if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], codigos: [], viaBip: true }; cx.push(box); }
         box.conteudo = box.conteudo ?? [];
         box.codigos = box.codigos ?? [];
-        const d = itemInfo?.descricao ?? codigo;
-        const co = itemInfo?.cor ?? null;
-        const ta = itemInfo?.tamanho ?? null;
+        // Preferir a descrição/cor/tamanho da LINHA DO PEDIDO (casa com o "Montar caixas").
+        const d = boxDescricao ?? itemInfo?.descricao ?? codigo;
+        const co = boxCor ?? itemInfo?.cor ?? null;
+        const ta = boxTam ?? (itemInfo ? this.normTamanho(itemInfo.tamanho) : null);
         const linha = box.conteudo.find((l) => (l.descricao ?? '') === (d ?? '') && (l.cor ?? '') === (co ?? '') && (l.tamanho ?? '') === (ta ?? ''));
         if (linha) linha.qtd = (linha.qtd ?? 0) + add; else box.conteudo.push({ descricao: d, cor: co, tamanho: ta, qtd: add });
         box.pecas = (box.pecas ?? 0) + add;
