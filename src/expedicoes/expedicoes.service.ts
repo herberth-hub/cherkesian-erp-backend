@@ -352,8 +352,17 @@ export class ExpedicoesService {
   }
 
   private extrairCodigo(input: string): string {
-    const t = (input ?? '').trim();
-    if (t.startsWith('{')) { try { return String(JSON.parse(t).kit ?? '').trim() || t; } catch { return t; } }
+    let t = (input ?? '').trim();
+    if (t.startsWith('{')) { try { t = String(JSON.parse(t).kit ?? '').trim() || t; } catch { /* mantém t */ } }
+    // O leitor às vezes GRUDA a mesma etiqueta 2x ("UN-...589UN-...589") ou vem com lixo
+    // em volta. Extrai o PRIMEIRO código canônico — assim a leitura dupla normaliza para o
+    // mesmo código e a idempotência recusa (não conta em dobro).
+    const un = t.match(/UN-\d{8}-\d{6}/i);
+    if (un) return un[0].toUpperCase();
+    const kit = t.match(/KIT-\d{8}-\d{6}/i);
+    if (kit) return kit[0].toUpperCase();
+    const cx = t.match(/[A-Za-z0-9]+-CX\d+/i);
+    if (cx) return cx[0].toUpperCase();
     return t;
   }
 
@@ -412,13 +421,15 @@ export class ExpedicoesService {
         add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
         itemInfo = { descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null };
       } else {
-        // Baixa automática: se o código for uma unidade de estoque, marca como despachada.
+        // Só conta se a etiqueta resolver numa UNIDADE real — bloqueia leitura grudada,
+        // fragmento ou código digitado errado (que antes viravam "peça fantasma").
         const un = await tx.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
-        if (un && un.status !== 'despachado') {
+        if (!un) throw new BadRequestException(`Etiqueta "${codigo}" não reconhecida. Bipe a etiqueta da peça, do kit ou da caixa.`);
+        if (un.status !== 'despachado') {
           await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
           detalhe = `${codigo} (baixa estoque)`;
         }
-        if (un) itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
+        itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
       }
 
       // Alocação por caixa (montagem via bipagem): a peça bipada entra na CAIXA ATUAL,
