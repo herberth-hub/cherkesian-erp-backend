@@ -946,43 +946,55 @@ function pedidoAcoes(p){
 
 // Normaliza o tamanho p/ casar grade x estoque (ex.: "G1 (FRISO VERMELHO)" -> "G1").
 function normTam(s){ return String(s||'').trim().toUpperCase().split(/[\s(]/)[0]; }
+// Nome do produto sem o sufixo "- Linha N Cores".
+function nomeProdLimpo(d){ return String(d||'').replace(/\s*-\s*Linha\s+\d+\s+Cores/ig,'').trim(); }
+// Casa a cor do item (ex.: "5143 Vermelho") com a cor do estoque (ex.: "5143 VERMELHO LOTE: 668657").
+function corNorm(s){ return String(s||'').toUpperCase().replace(/\s+/g,' ').trim(); }
+function corMatch(itemCor, stockCor){
+  if(!itemCor) return true; // item sem cor definida → considera todo o estoque do produto
+  const ic=corNorm(itemCor), sc=corNorm(stockCor); if(!sc) return false;
+  const tok=ic.split(' ')[0];
+  if(/^\d+$/.test(tok)) return sc.includes(tok);      // casa pelo código numérico (ex.: 5143)
+  return sc.startsWith(ic) || sc.includes(ic);
+}
 async function formExpParcial(pedidoId){
   let ped; try{ ped=await api('/pedidos/'+pedidoId); }catch(e){ toast(e.message,'err'); return; }
   const itens = ped.itens||[];
-  // Estoque disponível (não despachado) dos produtos vendidos, por tamanho normalizado.
+  // Estoque disponível (não despachado) dos produtos vendidos.
   const pids=[...new Set(itens.map(it=>it.produtoId).filter(Boolean))];
   let disp=[]; if(pids.length){ try{ disp=await api('/estoque/disponivel?produtos='+pids.join(',')); }catch(_){ disp=[]; } }
-  const dmap={}; // produtoId -> { TAM -> {qtd, cores:{cor:qtd}} }
-  (disp||[]).forEach(d=>{ const t=normTam(d.tamanho); if(!dmap[d.produtoId]) dmap[d.produtoId]={}; if(!dmap[d.produtoId][t]) dmap[d.produtoId][t]={qtd:0,cores:{}}; dmap[d.produtoId][t].qtd+=d.quantidade; if(d.cor) dmap[d.produtoId][t].cores[d.cor]=(dmap[d.produtoId][t].cores[d.cor]||0)+d.quantidade; });
-  const dispTam=(pid,t)=>{ const o=dmap[pid]&&dmap[pid][normTam(t)]; return o?o.qtd:0; };
-  const dispTot=(pid)=>{ const o=dmap[pid]; return o?Object.values(o).reduce((s,x)=>s+x.qtd,0):0; };
-  const coresTip=(pid,t)=>{ const o=dmap[pid]&&dmap[pid][normTam(t)]; if(!o)return''; return Object.entries(o.cores).map(([c,q])=>c+': '+q).join(' · '); };
+  // Disponível DESTE item = estoque do produto NA COR selecionada, por tamanho.
+  const itemDisp=(it)=>{ const byTam={}, tips={}; let total=0;
+    (disp||[]).forEach(d=>{ if(d.produtoId!==it.produtoId) return; if(!corMatch(it.cor,d.cor)) return; const t=normTam(d.tamanho); byTam[t]=(byTam[t]||0)+d.quantidade; total+=d.quantidade; if(d.cor){ (tips[t]=tips[t]||[]).push(d.cor+': '+d.quantidade); } });
+    return { byTam, total, tips };
+  };
   const estColor=(avail,res)=> avail<=0?'#b03a2e':(avail<res?'#9a5a00':'#1e7a44');
   const corTag = it => it.cor?`<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px;margin-left:6px">🎨 ${esc(it.cor)}</span>`:'';
   const cards = itens.map(it=>{
+    const dd = itemDisp(it);
     const grade = it.grade && Object.keys(it.grade).length ? it.grade : null;
     if(grade){
       const jaG = it.gradeExpedida||{};
       const sizes = Object.entries(grade).map(([t,q])=>{
         const res = Number(q) - Number(jaG[t]||0);
-        const avail = dispTam(it.produtoId,t);
+        const avail = dd.byTam[normTam(t)]||0;
         const val0 = Math.min(res>0?res:0, avail);
         const ec = estColor(avail,res);
         return `<div style="display:inline-flex;flex-direction:column;align-items:center;margin:0 10px 8px 0">
           <span style="font-size:9px;letter-spacing:.5px;color:#6b6b72;text-transform:uppercase">${esc(t)} · resid ${res}</span>
           <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expg" data-item="${it.id}" data-tam="${esc(t)}" style="width:56px;text-align:center;padding:4px;margin-top:2px;${res>0?'':'background:#f2f2f2'}">
-          <span title="${esc(coresTip(it.produtoId,t)||'sem estoque')}" style="font-size:9px;margin-top:2px;font-weight:700;color:${ec}">📦 ${avail}</span>
+          <span title="${esc((dd.tips[normTam(t)]||[]).join(' · ')||'sem estoque nesta cor')}" style="font-size:9px;margin-top:2px;font-weight:700;color:${ec}">📦 ${avail}</span>
         </div>`;
       }).join('');
       const totalRes = Object.entries(grade).reduce((s,[t,q])=>s+(Number(q)-Number(jaG[t]||0)),0);
       return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff">
-        <div style="font-weight:700;font-size:13px">${esc(it.descricao)}${corTag(it)} <span class="muted" style="font-weight:400;font-size:11px">· residual ${totalRes} · <span style="color:#1e7a44">estoque ${dispTot(it.produtoId)}</span></span></div>
+        <div style="font-weight:700;font-size:13px">${esc(nomeProdLimpo(it.descricao))}${corTag(it)} <span class="muted" style="font-weight:400;font-size:11px">· residual ${totalRes} · <span style="color:#1e7a44">estoque ${dd.total}</span></span></div>
         <div style="margin-top:6px;display:flex;flex-wrap:wrap">${sizes}</div></div>`;
     }
     const exp = it.quantidadeExpedida||0; const res = it.quantidade-exp;
-    const avail = dispTot(it.produtoId); const val0=Math.min(res>0?res:0, avail); const ec=estColor(avail,res);
+    const avail = dd.total; const val0=Math.min(res>0?res:0, avail); const ec=estColor(avail,res);
     return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <div><div style="font-weight:700;font-size:13px">${esc(it.descricao)}${corTag(it)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade} · <span style="font-weight:700;color:${ec}">📦 estoque ${avail}</span></div></div>
+      <div><div style="font-weight:700;font-size:13px">${esc(nomeProdLimpo(it.descricao))}${corTag(it)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade} · <span style="font-weight:700;color:${ec}">📦 estoque ${avail}</span></div></div>
       <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expq" data-item="${it.id}" style="width:74px;text-align:center;padding:5px"></div>`;
   }).join('');
   const temEstoque=(disp||[]).length>0;
