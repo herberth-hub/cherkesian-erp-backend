@@ -27,7 +27,7 @@ export class ProdutosService {
       where: { produto: { empresaId } },
       include: { material: { select: { descricao: true, saldo: true, unidade: true } } },
     });
-    const porProd = new Map<number, { rende: number | null; tecido: string | null; maiorQtd: number }>();
+    const porProd = new Map<number, { rende: number | null; tecido: string | null; maiorQtd: number; consumoMedio: number | null; unidade: string | null }>();
     for (const c of consumos) {
       const q = Number(c.quantidade);
       const saldo = Number(c.material.saldo);
@@ -36,14 +36,21 @@ export class ProdutosService {
       // maior tamanho e subestima quantas peças o estoque rende).
       const qEstim = this.consumoEstimado(c.porTamanho, q);
       const rende = qEstim > 0 ? Math.floor(saldo / qEstim) : null;
-      const cur = porProd.get(c.produtoId) ?? { rende: null, tecido: null, maiorQtd: -1 };
+      const cur = porProd.get(c.produtoId) ?? { rende: null, tecido: null, maiorQtd: -1, consumoMedio: null, unidade: null };
       if (rende != null) cur.rende = cur.rende == null ? rende : Math.min(cur.rende, rende);
-      if (q > cur.maiorQtd) { cur.maiorQtd = q; cur.tecido = c.material.descricao; }
+      // Guarda o consumo médio/unidade do tecido principal (maior consumo).
+      if (q > cur.maiorQtd) { cur.maiorQtd = q; cur.tecido = c.material.descricao; cur.consumoMedio = qEstim > 0 ? qEstim : null; cur.unidade = c.material.unidade; }
       porProd.set(c.produtoId, cur);
     }
     return produtos.map((p) => {
       const r = porProd.get(p.id);
-      return { ...p, rendePecas: r?.rende ?? null, tecidoPrincipal: r?.tecido ?? null };
+      return {
+        ...p,
+        rendePecas: r?.rende ?? null,
+        tecidoPrincipal: r?.tecido ?? null,
+        consumoMedio: r?.consumoMedio != null ? Number(r.consumoMedio.toFixed(2)) : null,
+        consumoUnidade: r?.unidade ?? null,
+      };
     });
   }
 
