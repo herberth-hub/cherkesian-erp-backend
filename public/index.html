@@ -1665,6 +1665,14 @@ function tecTamToggle(){
   box.style.display='';
 }
 function tecLerPorTam(){ const pt={}; document.querySelectorAll('#f_tectam .tectam').forEach(inp=>{ const v=Number(inp.value); if(v>0) pt[(inp.dataset.tam||'').toUpperCase()]=v; }); return pt; }
+// Valores de consumo por tamanho (dos inputs abertos ou do que está salvo) — p/ estimar a peça média.
+function tecPorTamValues(){
+  const inputs=document.querySelectorAll('#f_tectam .tectam');
+  let src;
+  if(inputs.length){ src={}; inputs.forEach(inp=>{ const v=Number(inp.value); if(v>0) src[inp.dataset.tam]=v; }); }
+  else src=window.__tecPorTam||{};
+  return Object.values(src).map(Number).filter(n=>isFinite(n)&&n>0);
+}
 // Resolve o tecido homologado escolhido e mostra quantas peças o estoque rende.
 function tecPick(){
   const txt=(val('f_tec')||'').trim(); const mats=window.__MATLIST||[];
@@ -1674,8 +1682,13 @@ function tecPick(){
     if(hid) hid.value=m.id;
     const fu=$('f_tecun'); if(fu && !fu.value) fu.value=m.unidade||'m';
     const cons=Number(val('f_teccons'))||0, saldo=Number(m.saldo)||0;
-    const rende = cons>0 ? Math.floor(saldo/cons) : null;
-    if(hint) hint.innerHTML = '📦 Estoque: <b>'+saldo.toLocaleString('pt-BR')+' '+esc(m.unidade||'')+'</b>'+(rende!=null?(' · rende <b style="color:#1e7a44">~'+rende.toLocaleString('pt-BR')+' peças</b>'):' · informe o consumo p/ calcular o rendimento');
+    // Estimativa REAL: usa a MÉDIA do consumo por tamanho (peça média) quando houver;
+    // senão, o consumo fixo. Assim o rendimento não fica preso ao maior tamanho.
+    const ptVals=tecPorTamValues();
+    const consEstim = ptVals.length ? (ptVals.reduce((a,b)=>a+b,0)/ptVals.length) : cons;
+    const rende = consEstim>0 ? Math.floor(saldo/consEstim) : null;
+    const mediaTxt = ptVals.length ? (' (média '+consEstim.toLocaleString('pt-BR',{maximumFractionDigits:2})+' '+esc(m.unidade||'m')+'/peça)') : '';
+    if(hint) hint.innerHTML = '📦 Estoque: <b>'+saldo.toLocaleString('pt-BR')+' '+esc(m.unidade||'')+'</b>'+(rende!=null?(' · rende <b style="color:#1e7a44">~'+rende.toLocaleString('pt-BR')+' peças</b>'+mediaTxt):' · informe o consumo p/ calcular o rendimento');
   } else {
     if(hid) hid.value='';
     if(hint) hint.textContent = txt?'Tecido não cadastrado em Materiais — cadastre p/ vincular e ter baixa automática.':'';

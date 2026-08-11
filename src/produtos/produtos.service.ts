@@ -31,7 +31,11 @@ export class ProdutosService {
     for (const c of consumos) {
       const q = Number(c.quantidade);
       const saldo = Number(c.material.saldo);
-      const rende = q > 0 ? Math.floor(saldo / q) : null;
+      // Estimativa REAL do rendimento: se há consumo por tamanho cadastrado, usa a
+      // MÉDIA por tamanho (a peça média), não o consumo fixo (que costuma ser o do
+      // maior tamanho e subestima quantas peças o estoque rende).
+      const qEstim = this.consumoEstimado(c.porTamanho, q);
+      const rende = qEstim > 0 ? Math.floor(saldo / qEstim) : null;
       const cur = porProd.get(c.produtoId) ?? { rende: null, tecido: null, maiorQtd: -1 };
       if (rende != null) cur.rende = cur.rende == null ? rende : Math.min(cur.rende, rende);
       if (q > cur.maiorQtd) { cur.maiorQtd = q; cur.tecido = c.material.descricao; }
@@ -41,6 +45,18 @@ export class ProdutosService {
       const r = porProd.get(p.id);
       return { ...p, rendePecas: r?.rende ?? null, tecidoPrincipal: r?.tecido ?? null };
     });
+  }
+
+  /** Consumo médio por peça para estimar o rendimento: média dos valores de
+   *  consumo por tamanho (quando cadastrados); senão, o consumo fixo. */
+  private consumoEstimado(porTamanho: unknown, fixo: number): number {
+    if (porTamanho && typeof porTamanho === 'object') {
+      const vals = Object.values(porTamanho as Record<string, unknown>)
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (vals.length) return vals.reduce((s, n) => s + n, 0) / vals.length;
+    }
+    return fixo;
   }
 
   async findOne(id: number, empresaId: number) {
