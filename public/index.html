@@ -1465,6 +1465,11 @@ async function formProduto(id){
   // Carrega clientes p/ os seletores de grupo/cliente (padrão do produto acabado).
   if(!window.__CLILIST){ try{ window.__CLILIST=await api('/clientes'); }catch(e){ window.__CLILIST=[]; } }
   window.__GRUPOSCLI=[...new Set((window.__CLILIST||[]).map(c=>c.grupo).filter(Boolean))].sort();
+  // Tecidos homologados (materiais) + receita atual, p/ vincular o tecido principal.
+  try{ window.__MATLIST=await api('/materiais'); }catch(e){ window.__MATLIST=window.__MATLIST||[]; }
+  let __tecMat=null, __tecCons='', __tecUn='m';
+  if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){ const c=cs.slice().sort((a,b)=>Number(b.quantidade)-Number(a.quantidade))[0]; __tecMat=(window.__MATLIST||[]).find(m=>m.id===c.materialId)||null; __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; } }catch(_){} }
+  const tecInit = __tecMat ? (__tecMat.descricao+' · '+__tecMat.codigo) : (p.tecido||'');
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
@@ -1481,7 +1486,16 @@ async function formProduto(id){
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
-    <div class="grid3">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}${field('f_tec','Tecido principal','value="'+esc(p.tecido||'')+'"')}</div>
+    <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
+    <div class="grid2" style="align-items:start">
+      <div class="mrow"><label class="fl">Tecido principal <span class="muted">(homologado do estoque)</span></label>
+        <input id="f_tec" class="inp" list="tecidoslist" value="${esc(tecInit)}" placeholder="digite p/ escolher o tecido cadastrado" oninput="APP.tecPick()" autocomplete="off">
+        <datalist id="tecidoslist">${(window.__MATLIST||[]).map(m=>'<option value="'+esc(m.descricao+' · '+m.codigo)+'">').join('')}</datalist>
+        <input type="hidden" id="f_tecmat" value="${__tecMat?__tecMat.id:''}">
+        <div id="f_tec_hint" class="muted" style="font-size:10.5px;margin-top:3px"></div></div>
+      <div class="mrow"><label class="fl">Consumo por peça <span class="muted">(p/ baixa automática)</span></label>
+        <div style="display:flex;gap:6px"><input id="f_teccons" class="inp" type="number" step="0.001" min="0" value="${__tecCons}" placeholder="ex.: 1.80" oninput="APP.tecPick()" style="flex:1"><input id="f_tecun" class="inp" value="${esc(__tecUn)}" style="width:64px" placeholder="m/kg"></div></div>
+    </div>
     <div class="grid2">${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
       <div class="mrow"><label class="fl">Tipo * <span class="muted">(gera OP?)</span></label><select id="f_tipo" class="inp">
         <option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>Produção própria (gera OP)</option>
@@ -1520,12 +1534,29 @@ async function formProduto(id){
   if(p.especificacoes) $('f_espec').value=p.especificacoes;
   if(p.observacoes) $('f_obs').value=p.observacoes;
   pmedRender();
+  tecPick();
+}
+// Resolve o tecido homologado escolhido e mostra quantas peças o estoque rende.
+function tecPick(){
+  const txt=(val('f_tec')||'').trim(); const mats=window.__MATLIST||[];
+  const m=mats.find(x=>(x.descricao+' · '+x.codigo)===txt) || mats.find(x=>x.descricao===txt) || mats.find(x=>x.codigo===((txt.split('·').pop()||'').trim()));
+  const hint=$('f_tec_hint'), hid=$('f_tecmat');
+  if(m){
+    if(hid) hid.value=m.id;
+    const fu=$('f_tecun'); if(fu && !fu.value) fu.value=m.unidade||'m';
+    const cons=Number(val('f_teccons'))||0, saldo=Number(m.saldo)||0;
+    const rende = cons>0 ? Math.floor(saldo/cons) : null;
+    if(hint) hint.innerHTML = '📦 Estoque: <b>'+saldo.toLocaleString('pt-BR')+' '+esc(m.unidade||'')+'</b>'+(rende!=null?(' · rende <b style="color:#1e7a44">~'+rende.toLocaleString('pt-BR')+' peças</b>'):' · informe o consumo p/ calcular o rendimento');
+  } else {
+    if(hid) hid.value='';
+    if(hint) hint.textContent = txt?'Tecido não cadastrado em Materiais — cadastre p/ vincular e ter baixa automática.':'';
+  }
 }
 async function saveProduto(id){
   pmedSync();
   const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), grade:val('f_grade'),
     referencia:val('f_ref'), marca:val('f_marca'), linha:val('f_linha'), grupo:val('f_grupo'),
-    modelagem:val('f_model'), tecido:val('f_tec'), composicao:val('f_comp'),
+    modelagem:val('f_model'), tecido:(val('f_tec')||'').split(' · ')[0].trim(), composicao:val('f_comp'),
     especificacoes:val('f_espec'), observacoes:val('f_obs'),
     ncm:val('f_ncm'), cfop:val('f_cfop'), unidadeComercial:val('f_un'), cest:val('f_cest'),
     icmsCst:val('f_icst'), pisCst:val('f_piscof'), cofinsCst:val('f_piscof') };
@@ -1536,6 +1567,9 @@ async function saveProduto(id){
   const cliId = val('f_cliid'); if(cliId) body.clienteId = Number(cliId);
   const setor = val('f_setor'); if(setor) body.setor = setor;
   const custo = val('f_custo'); if(custo!=='') body.custo = Number(custo);
+  // Tecido homologado vinculado (cria/atualiza a receita BOM p/ baixa automática na OP).
+  const tecMat=Number(val('f_tecmat')); const tecCons=Number(val('f_teccons'));
+  if(tecMat){ body.tecidoMaterialId=tecMat; if(tecCons>0){ body.tecidoConsumo=tecCons; body.tecidoUnidade=val('f_tecun')||'m'; } }
   const tipo = val('f_tipo'); if(tipo) body.tipo = tipo;
   const orig = val('f_orig'); if(orig!=='') body.origem = Number(orig);
   const ialq = val('f_ialq'); if(ialq) body.icmsAliquota = Number(ialq);
@@ -5788,7 +5822,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,

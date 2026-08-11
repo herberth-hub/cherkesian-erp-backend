@@ -37,30 +37,53 @@ export class ProdutosService {
   async create(dto: CreateProdutoDto, empresaId: number): Promise<Produto> {
     const codigo = dto.codigo?.trim() || (await this.gerarCodigo(dto.categoria, empresaId));
     try {
-      return await this.prisma.produto.create({
-        data: {
-          empresaId,
-          codigo,
-          categoria: dto.categoria,
-          descricao: dto.descricao,
-          cor: dto.cor,
-          grade: dto.grade,
-          precoBase: dto.precoBase,
-          precoEspecial: dto.precoEspecial,
-          tamsEspeciais: dto.tamsEspeciais,
-          clienteGrupo: dto.clienteGrupo,
-          clienteId: dto.clienteId,
-          setor: dto.setor,
-          custo: dto.custo,
-          tipo: dto.tipo,
-          componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
-          ...this.dadosFicha(dto),
-          ...this.dadosFiscais(dto),
-          medidas: dto.medidas?.length ? { create: this.medidasCreate(dto.medidas) } : undefined,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        const produto = await tx.produto.create({
+          data: {
+            empresaId,
+            codigo,
+            categoria: dto.categoria,
+            descricao: dto.descricao,
+            cor: dto.cor,
+            grade: dto.grade,
+            precoBase: dto.precoBase,
+            precoEspecial: dto.precoEspecial,
+            tamsEspeciais: dto.tamsEspeciais,
+            clienteGrupo: dto.clienteGrupo,
+            clienteId: dto.clienteId,
+            setor: dto.setor,
+            custo: dto.custo,
+            tipo: dto.tipo,
+            componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
+            ...this.dadosFicha(dto),
+            ...this.dadosFiscais(dto),
+            medidas: dto.medidas?.length ? { create: this.medidasCreate(dto.medidas) } : undefined,
+          },
+        });
+        await this.upsertTecidoBom(tx, produto.id, dto);
+        return produto;
       });
     } catch (err) {
       throw this.tratarErroUnico(err, codigo);
+    }
+  }
+
+  /** Vincula o tecido homologado (material) à receita BOM do produto — 1 linha
+   *  por material. A OP usa a receita p/ baixar o saldo automaticamente. */
+  private async upsertTecidoBom(
+    tx: Prisma.TransactionClient,
+    produtoId: number,
+    dto: CreateProdutoDto | UpdateProdutoDto,
+  ) {
+    if (!dto.tecidoMaterialId || !(Number(dto.tecidoConsumo) > 0)) return;
+    const materialId = dto.tecidoMaterialId;
+    const quantidade = new Prisma.Decimal(Number(dto.tecidoConsumo).toFixed(4));
+    const unidade = (dto.tecidoUnidade || 'm').slice(0, 8);
+    const existente = await tx.consumo.findFirst({ where: { produtoId, materialId } });
+    if (existente) {
+      await tx.consumo.update({ where: { id: existente.id }, data: { quantidade, unidade } });
+    } else {
+      await tx.consumo.create({ data: { produtoId, materialId, quantidade, unidade } });
     }
   }
 
@@ -99,6 +122,7 @@ export class ProdutosService {
           });
         }
       }
+      await this.upsertTecidoBom(tx, id, dto);
       return produto;
     });
   }

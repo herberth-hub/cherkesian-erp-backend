@@ -56,6 +56,10 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(80) modelagem?: string;
   @IsOptional() @IsString() @MaxLength(120) tecido?: string;
   @IsOptional() @IsString() @MaxLength(160) composicao?: string;
+  /** Tecido homologado do estoque vinculado (cria/atualiza a receita BOM). */
+  @IsOptional() @IsInt() tecidoMaterialId?: number;
+  @IsOptional() @IsNumber() tecidoConsumo?: number;
+  @IsOptional() @IsString() @MaxLength(8) tecidoUnidade?: string;
   @IsOptional() @IsString() @MaxLength(6000) especificacoes?: string;
   @IsOptional() @IsString() @MaxLength(4000) observacoes?: string;
   // Fotos em data URI base64 (comprimidas no cliente). Limite alto p/ imagens.
