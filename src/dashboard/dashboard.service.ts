@@ -75,7 +75,8 @@ export class DashboardService {
     // Mesmo radar, no nível do PEDIDO (prazo combinado com o cliente).
     // Mostra pedidos ainda não expedidos com prazo em até 15 dias (inclui atrasados).
     const pedidosPrazo = await this.prisma.pedido.findMany({
-      where: { empresaId, etapa: { not: 'expedicao' }, prazoEntrega: { not: null, lte: limite } },
+      // Radar = pedidos ainda NÃO entregues (exclui os concluídos/entregues).
+      where: { empresaId, etapa: { notIn: ['concluido'] }, prazoEntrega: { not: null, lte: limite } },
       select: { numero: true, valorTotal: true, etapa: true, prazoEntrega: true, cliente: { select: { nome: true } } },
       orderBy: { prazoEntrega: 'asc' },
     });
