@@ -885,7 +885,7 @@ async function viewPedidos(c){
   window.__PEDIDOS = list;
   const canCreate = canAccess('vendas');
   const etapas = [...new Set(list.map(p=>p.etapa))];
-  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', relBtn('pedidos'))
+  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', `<button class="btn-sm" onclick="APP.relatorio('bonificacao')" title="Relatório de bonificações (total por cliente/mês)">🎁 Bonificações</button> `+relBtn('pedidos'))
     + `<div class="cards" id="ped_kpis" style="margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px">
       <input id="ped_q" class="inp" placeholder="🔎 Buscar pedido: nº, cliente ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
@@ -1068,6 +1068,7 @@ function toolbar(title, btn, action, extra){
 function relBtn(tipo){ return `<button class="btn-sm" onclick="APP.relatorio('${tipo}')">📄 Relatório</button>`; }
 const REL_FILTROS = {
   pedidos:{periodo:true, status:{label:'Etapa', opts:['orcamento','aprovado']}},
+  bonificacao:{periodo:true},
   ops:{periodo:true, status:{label:'Status', opts:['aguardando_material','a_iniciar','em_corte','em_producao','em_faccao','concluido']}},
   nfs:{periodo:true, status:{label:'Status', opts:['pendente','autorizada','rejeitada','cancelada','simulada']}},
   clientes:{periodo:true},

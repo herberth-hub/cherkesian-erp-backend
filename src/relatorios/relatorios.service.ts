@@ -144,6 +144,34 @@ export class RelatoriosService {
           };
         },
       },
+      bonificacao: {
+        area: 'vendas',
+        titulo: 'Relatório de Bonificações',
+        build: async (empresaId, f) => {
+          const regs = await this.prisma.pedido.findMany({
+            where: { empresaId, bonificacao: true, ...periodo('data', f) },
+            include: { cliente: { select: { nome: true } }, itens: { select: { quantidade: true } } },
+            orderBy: { data: 'desc' }, take: 1000,
+          });
+          const mesAno = (d: Date) => { const x = new Date(d); return `${String(x.getMonth() + 1).padStart(2, '0')}/${x.getFullYear()}`; };
+          const pecasDe = (p: { itens: { quantidade: number }[] }) => p.itens.reduce((a, i) => a + i.quantidade, 0);
+          const total = regs.reduce((s, p) => s + n(p.valorTotal), 0);
+          const pecas = regs.reduce((s, p) => s + pecasDe(p), 0);
+          return {
+            colunas: [
+              { titulo: 'Número', largura: 55 },
+              { titulo: 'Cliente', largura: 160 },
+              { titulo: 'Mês', largura: 55 },
+              { titulo: 'Peças', largura: 45, alinhamento: 'right' },
+              { titulo: 'Valor bonificado', largura: 90, alinhamento: 'right' },
+              { titulo: 'Etapa', largura: 60 },
+              { titulo: 'Data', largura: 55 },
+            ],
+            linhas: regs.map((p) => [p.numero, p.cliente?.nome ?? '—', mesAno(p.data), String(pecasDe(p)), money(p.valorTotal), p.etapa, dataBR(p.data)]),
+            total: { rotulo: `Total bonificado · ${regs.length} pedido(s) · ${pecas} peças`, valor: money(total) },
+          };
+        },
+      },
       ops: {
         area: 'producao',
         titulo: 'Relatório de Ordens de Produção',
