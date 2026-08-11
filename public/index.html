@@ -2937,13 +2937,27 @@ async function viewProducao(c){
     ? `<button class="btn-sm" onclick="APP.opToggleFin(false)">← Voltar às ativas (${ativas.length})</button>`
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
   const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : panelTable(
-    ['OP','Pedido','Qtd','Status','Progresso','Fase atual','Prioridade','Ações'],
-    mostra.map(o=>[
-      `<span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
-      opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
-      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} ${o.pedidoId?`<button class="btn-sm" style="color:#2a6a2a;border-color:#bfe0bf" title="Documento único com TODAS as OPs deste pedido (clean p/ produção)" onclick="APP.gerarDoc('op_pedido',${o.pedidoId})">📄 OP do Pedido</button>`:''} <button class="btn-sm" title="Ordem de Serviço p/ oficina (selecionar produto/tamanho)" onclick="APP.formOS(${o.pedidoId||0})">📋 OS oficina</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
-    ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".')));
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+}
+// Lista de OPs AGRUPADA por pedido: um cabeçalho por pedido (com OP do Pedido / OS
+// oficina) e as OPs do pedido embaixo — evita poluir com OPs soltas do mesmo pedido.
+function opsAgrupadas(arr, verFin){
+  if(!arr.length) return `<div class="panel"><div class="empty">${verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".'}</div></div>`;
+  const groups=new Map();
+  arr.forEach(o=>{ const k=o.pedidoId||('sem'+o.id); if(!groups.has(k)) groups.set(k,{ped:o.pedido?o.pedido.numero:null, pedidoId:o.pedidoId||0, ops:[]}); groups.get(k).ops.push(o); });
+  const opAcoes=o=>`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+  return [...groups.values()].map(g=>{
+    const totPecas=g.ops.reduce((s,o)=>s+(o.quantidade||0),0);
+    const head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:#faf6ea;border-bottom:1px solid var(--line);flex-wrap:wrap">
+      <div style="font-family:'Sora';font-weight:700;font-size:13px">${g.pedidoId?('Pedido '+esc(g.ped)):'Sem pedido'} <span class="muted" style="font-weight:400;font-size:12px">· ${g.ops.length} OP(s) · ${totPecas} peças</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${g.pedidoId?`<button class="btn-sm" style="color:#2a6a2a;border-color:#bfe0bf" title="Documento único com TODAS as OPs deste pedido (clean p/ produção)" onclick="APP.gerarDoc('op_pedido',${g.pedidoId})">📄 OP do Pedido</button> <button class="btn-sm" title="Ordem de Serviço p/ oficina (selecionar produto/tamanho)" onclick="APP.formOS(${g.pedidoId})">📋 OS oficina</button>`:''}</div>
+    </div>`;
+    const rows=g.ops.map(o=>`<tr>
+      <td><span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</td>
+      <td>${o.quantidade}</td><td>${opPill(o.status)}</td><td style="min-width:110px">${bar(o.progresso)}</td>
+      <td><b>${esc(o.setorAtual||'—')}</b></td><td>${prioPill(o.prioridade)}</td><td>${opAcoes(o)}</td></tr>`).join('');
+    return `<div class="panel" style="margin-bottom:14px;overflow:hidden">${head}<div style="overflow-x:auto"><table><thead><tr><th>OP</th><th>Qtd</th><th>Status</th><th>Progresso</th><th>Fase atual</th><th>Prioridade</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
 async function formRomaneio(id){
