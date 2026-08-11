@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsNotEmpty,
@@ -92,6 +93,11 @@ export class CreatePedidoDto {
   @IsString()
   @MaxLength(60)
   ordemCompraCliente?: string;
+
+  /** Pedido de bonificação: sem conta a receber; NF sai como remessa de bonificação. */
+  @IsOptional()
+  @IsBoolean()
+  bonificacao?: boolean;
 
   @IsOptional()
   @IsString()

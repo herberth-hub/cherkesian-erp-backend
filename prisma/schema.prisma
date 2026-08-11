@@ -422,6 +422,7 @@ model Pedido {
   frete          String?      // condição de frete (ex.: "CIF — incluso" / "FOB — por conta do cliente")
   etapa          PedidoEtapa  @default(orcamento)
   clienteNovo    Boolean      @default(false)
+  bonificacao    Boolean      @default(false) // pedido de bonificação: sem conta a receber; NF em remessa de bonificação
   ordemCompraCliente String?  // nº do pedido de compra do cliente (SAP/PO) — sai na NF
   obs            String?
   itens          PedidoItem[]

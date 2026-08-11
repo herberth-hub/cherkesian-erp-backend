@@ -124,8 +124,13 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    // BONIFICAÇÃO: pedido de brinde/doação — NF sai como REMESSA DE BONIFICAÇÃO
+    // (CFOP 5910/6910, sem cobrança) e NÃO gera conta a receber.
+    const bonificacao = !!pedido?.bonificacao;
     // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
-    const cobranca = this.duplicatasDePedido(pedido?.formaPagamento, Number(valor));
+    const cobranca = bonificacao
+      ? { duplicatas: undefined, primeiroVenc: new Date(), venctoTxt: undefined as string | undefined }
+      : this.duplicatasDePedido(pedido?.formaPagamento, Number(valor));
     const infoAdic = [
       pedido?.obs ? pedido.obs.trim() : null,
       pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
@@ -146,6 +151,7 @@ export class NfeService {
       especie: transporte?.especie,
       pesoLiquido: transporte?.pesoLiquido,
       pesoBruto: transporte?.pesoBruto,
+      bonificacao,
     });
 
     const emissao = token
@@ -190,10 +196,12 @@ export class NfeService {
       });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
-      // Vencimento = mesmo prazo enviado na duplicata da NF (forma de pagamento do pedido).
-      await tx.contaReceber.create({
-        data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
-      });
+      // BONIFICAÇÃO não gera cobrança — não lança a receber.
+      if (!bonificacao) {
+        await tx.contaReceber.create({
+          data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
+        });
+      }
       return criada;
     });
 
@@ -900,7 +908,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -940,7 +948,7 @@ export class NfeService {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
-        cfop: this.ajustarCfop(p?.cfop ?? '5101', mesmaUf),
+        cfop: extra?.bonificacao ? (mesmaUf ? '5910' : '6910') : this.ajustarCfop(p?.cfop ?? '5101', mesmaUf),
         // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
         codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
         unidade_comercial: unidade,
@@ -1030,7 +1038,7 @@ export class NfeService {
     if (!ieValida && indicadorIeDest === 1) indicadorIeDest = 9; // sem IE não pode ser "Contribuinte"
 
     return {
-      natureza_operacao: 'Venda de mercadoria',
+      natureza_operacao: extra?.bonificacao ? 'Remessa em bonificacao, doacao ou brinde' : 'Venda de mercadoria',
       data_emissao: new Date().toISOString(),
       tipo_documento: 1, // 1 = saída
       finalidade_emissao: 1, // 1 = normal

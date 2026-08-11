@@ -918,13 +918,14 @@ function renderPedidos(){
   if(q) arr=arr.filter(p=>[p.numero, p.cliente&&p.cliente.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].some(x=>String(x||'').toLowerCase().includes(q)));
   const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
-  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório');
+  const bonif=arr.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
+  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
   const tbl=$('ped_tbl'); if(!tbl) return;
   if(window.__pedKanban){ tbl.innerHTML = pedidosKanban(arr); return; }
   tbl.innerHTML = panelTable(
     ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
-      `<span class="mono gold">${esc(p.numero)}</span>`,
+      `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}`,
       esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
@@ -1873,6 +1874,7 @@ async function formPedido(id){
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
       <div class="mrow"><label class="fl">Frete</label><input id="f_frete" class="inp" list="fretes" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}"><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
+    <div class="mrow" style="margin-top:6px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_bonif" ${ped&&ped.bonificacao?'checked':''}> <b>🎁 Pedido de bonificação</b> <span class="muted">— sem conta a receber; a NF sai como <b>remessa de bonificação</b> (CFOP 5910/6910), não gera cobrança</span></label></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
   renderItens();
@@ -2094,6 +2096,7 @@ async function savePedido(id){
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
   const uni=Number(val('f_cliuni')); if(uni) body.clienteUnidadeId=uni;
+  if($('f_bonif')&&$('f_bonif').checked) body.bonificacao=true;
   const frete=val('f_frete'); if(frete) body.frete=frete;
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
