@@ -317,10 +317,16 @@ export class DocumentosService {
       textoBloco(doc, 'Cliente novo: produção liberada após aprovação da peça-piloto.');
     }
 
-    // Dados bancários para pagamento (da filial emissora).
-    if (pedido.filial?.dadosBancarios?.trim()) {
+    // Dados bancários para pagamento (da filial emissora; se o pedido não tiver
+    // filial, usa a matriz da empresa como padrão).
+    let dadosBancarios = pedido.filial?.dadosBancarios?.trim() || '';
+    if (!dadosBancarios) {
+      const matriz = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, select: { dadosBancarios: true } });
+      dadosBancarios = matriz?.dadosBancarios?.trim() || '';
+    }
+    if (dadosBancarios) {
       secao(doc, 'Dados bancários para pagamento');
-      textoBloco(doc, pedido.filial.dadosBancarios);
+      textoBloco(doc, dadosBancarios);
     }
 
     if (tipo === 'proposta') {
