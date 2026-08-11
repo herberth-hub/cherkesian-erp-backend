@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Filial, NFeStatus, NotaFiscal, Prisma } from '@prisma/client';
+import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 
@@ -731,6 +731,164 @@ export class NfeService {
     const primeiroVenc = new Date(hoje); primeiroVenc.setDate(primeiroVenc.getDate() + dias[0]);
     const venctoTxt = `Vencimento: ${duplicatas.map((x) => x.data_vencimento.split('-').reverse().join('/')).join(', ')}`;
     return { duplicatas, venctoTxt, primeiroVenc };
+  }
+
+  /**
+   * NF de REMESSA para industrialização (facção COM CNPJ). CFOP 5901 (mesma UF) / 6901,
+   * ICMS suspenso (CST 50 / CSOSN 090), sem faturamento. Facção sem CNPJ vai por OS.
+   * Emite SIMULADO enquanto não houver token — p/ a contabilidade validar o DANFE.
+   */
+  async emitirRemessa(controleFaccao: string, empresaId: number, usuario: string) {
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, controleFaccao } });
+    if (!kits.length) throw new NotFoundException(`Nenhum kit no controle ${controleFaccao}.`);
+    const faccaoId = kits[0].faccaoId;
+    if (!faccaoId) throw new BadRequestException('Controle sem facção externa — produção interna não gera NF de remessa.');
+    const faccao = await this.prisma.fornecedor.findUnique({ where: { id: faccaoId } });
+    if (!faccao || faccao.empresaId !== empresaId) throw new NotFoundException('Facção não encontrada.');
+    const cnpj = digitos(faccao.cnpjCpf || '');
+    if (cnpj.length !== 14) throw new BadRequestException(`A facção "${faccao.nome}" não tem CNPJ — este envio segue por OS, não por NF de remessa.`);
+
+    const ja = await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'remessa', controleFaccao, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
+    if (ja) throw new ConflictException(`O controle ${controleFaccao} já tem a NF de remessa ${ja.numero}.`);
+
+    const filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
+    const token = this.tokenDaFilial(filial);
+
+    // Produto/NCM/custo via OP de cada kit.
+    const opIds = [...new Set(kits.map((k) => k.opId).filter((x): x is number => !!x))];
+    const ops = opIds.length ? await this.prisma.oP.findMany({ where: { id: { in: opIds } }, select: { id: true, produtoId: true } }) : [];
+    const prodDeOp = new Map(ops.map((o) => [o.id, o.produtoId]));
+    const prodIds = [...new Set(ops.map((o) => o.produtoId).filter((x): x is number => !!x))];
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } } }) : [];
+    const prodMap = new Map(produtos.map((p) => [p.id, p]));
+
+    const itens = kits.map((k, idx) => {
+      const pid = k.opId ? prodDeOp.get(k.opId) : null;
+      const p = pid ? prodMap.get(pid) : undefined;
+      const desc = [k.modelo, k.cor, k.tamanho ? 'TAM ' + k.tamanho : ''].filter(Boolean).join(' · ') || `Kit ${k.codigo}`;
+      const valorUnit = p?.custo != null ? Number(p.custo) : 0;
+      return {
+        numero_item: idx + 1,
+        codigo_produto: p?.codigo ?? k.codigo,
+        descricao: desc.slice(0, 120),
+        ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
+        unidade: p?.unidadeComercial ?? 'UN',
+        quantidade: k.pecasTotal,
+        valorUnit,
+        origem: p?.origem ?? 0,
+      };
+    });
+    const valorTotal = itens.reduce((s, i) => s + i.valorUnit * i.quantidade, 0);
+
+    if (token) {
+      const faltas: string[] = [];
+      if (!faccao.logradouro) faltas.push('logradouro');
+      if (!faccao.municipio) faltas.push('município');
+      if (!faccao.uf) faltas.push('UF');
+      if (!faccao.cep) faltas.push('CEP');
+      if (faltas.length) throw new BadRequestException(`Dados fiscais da facção incompletos para emissão real: ${faltas.join('; ')}.`);
+    }
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, controleFaccao);
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEREM-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      : this.emitirSimulada();
+
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          empresaId, filialId: filial.id, tipo: 'remessa', fornecedorId: faccao.id, controleFaccao,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      await tx.kit.updateMany({ where: { empresaId, controleFaccao }, data: { remessaNfNumero: criada.numero } });
+      return criada;
+    });
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /** Payload da NF de remessa p/ industrialização (CFOP 5901/6901, ICMS suspenso). */
+  private montarPayloadRemessa(
+    emitente: Filial,
+    faccao: Fornecedor,
+    itens: Array<{ numero_item: number; codigo_produto: string; descricao: string; ncm: string; unidade: string; quantidade: number; valorUnit: number; origem: number }>,
+    serie: string,
+    numero: number,
+    valorTotal: number,
+    controle: string,
+  ) {
+    const mesmaUf = (emitente.uf ?? '').toUpperCase() === (faccao.uf ?? '').toUpperCase();
+    const cfop = mesmaUf ? '5901' : '6901';
+    const regime = (emitente.regimeTributario ?? (emitente.crt === 1 ? 'simples' : 'lucro_presumido')) as string;
+    const simples = regime === 'simples';
+    const docDest = digitos(faccao.cnpjCpf || '');
+    const ieDig = digitos(faccao.inscricaoEstadual || '');
+    const ieValida = ieDig.length >= 2 && ieDig.length <= 14;
+    const items = itens.map((it) => {
+      const bruto = Number((it.valorUnit * it.quantidade).toFixed(2));
+      const item: Record<string, unknown> = {
+        numero_item: it.numero_item,
+        codigo_produto: it.codigo_produto,
+        descricao: it.descricao,
+        cfop,
+        codigo_ncm: it.ncm,
+        unidade_comercial: it.unidade,
+        quantidade_comercial: it.quantidade,
+        valor_unitario_comercial: it.valorUnit,
+        unidade_tributavel: it.unidade,
+        quantidade_tributavel: it.quantidade,
+        valor_unitario_tributavel: it.valorUnit,
+        valor_bruto: bruto,
+        icms_origem: it.origem,
+      };
+      if (simples) {
+        item.icms_situacao_tributaria = '090'; // CSOSN — remessa (Simples)
+      } else {
+        item.icms_situacao_tributaria = '50'; // CST 50 = suspensão
+        item.icms_modalidade_base_calculo = 3;
+        item.icms_aliquota = 0;
+        item.icms_base_calculo = 0;
+        item.icms_valor = 0;
+      }
+      // PIS/COFINS sem incidência (remessa não é faturamento).
+      item.pis_situacao_tributaria = simples ? '49' : '08';
+      item.cofins_situacao_tributaria = simples ? '49' : '08';
+      return item;
+    });
+    return {
+      natureza_operacao: 'Remessa para industrializacao por conta e ordem',
+      data_emissao: new Date().toISOString(),
+      tipo_documento: 1,
+      finalidade_emissao: 1,
+      presenca_comprador: 9,
+      modalidade_frete: 9,
+      serie,
+      numero,
+      cnpj_emitente: digitos(emitente.cnpj),
+      nome_destinatario: (faccao.nome || '').trim().slice(0, 60),
+      cnpj_destinatario: docDest,
+      inscricao_estadual_destinatario: ieValida ? ieDig : null,
+      indicador_inscricao_estadual_destinatario: ieValida ? 1 : 9,
+      logradouro_destinatario: faccao.logradouro,
+      numero_destinatario: faccao.numeroEndereco,
+      bairro_destinatario: faccao.bairro,
+      municipio_destinatario: faccao.municipio,
+      uf_destinatario: faccao.uf,
+      cep_destinatario: digitos(faccao.cep),
+      valor_total: Number(valorTotal.toFixed(2)),
+      informacoes_adicionais_contribuinte: `Remessa para industrializacao - controle ${controle}. ICMS suspenso conforme RICMS. Retorno previsto em ate 180 dias.`.slice(0, 5000),
+      items,
+    };
   }
 
   private async montarPayload(

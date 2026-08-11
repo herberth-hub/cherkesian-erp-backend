@@ -5504,8 +5504,24 @@ async function viewKits(c){
         <button class="btn-sm" onclick="APP.kitBipar('finalizar')">Finalizar</button>
       </div>
     </div>
-    ${toolbar('Kits · '+kits.length, 'Gerar kits da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" onclick="APP.kitCaixas()">📦 Por caixa</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
+    ${toolbar('Kits · '+kits.length, 'Gerar kits da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" onclick="APP.kitCaixas()">📦 Por caixa</button> <button class="btn-sm" onclick="APP.emitirRemessaFaccao()" title="NF de remessa p/ industrializacao (facção com CNPJ)">🏭 NF Remessa</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
     ${panelTable(['Código','Tam·Qtd','Modelo','Cliente','Lote','Facção','Caixa','Status','Ações'], rows, kits.length?null:'Nenhum kit. Gere os kits a partir de uma OP com grade de tamanhos.')}`;
+}
+// NF de remessa p/ industrialização (facção com CNPJ). Facção sem CNPJ → segue por OS.
+async function emitirRemessaFaccao(){
+  const controle = prompt('Controle / OS da facção (ex.: OS-20260811-0001):',''); if(!controle) return;
+  uiSpinnerOpen({nota:'NF de remessa · industrialização'});
+  try{
+    const n = await api('/nfe/remessa',{method:'POST',body:{controleFaccao:controle.trim()}});
+    uiSpinnerClose();
+    if(n.status==='rejeitada'){ await uiAlert({tipo:'err', titulo:'NF de remessa rejeitada', msg:'Motivo: '+(n.motivo||'ver detalhe')}); return; }
+    if(n.status==='simulada'){
+      await uiAlert({tipo:'info', titulo:'NF de remessa '+n.numero+' — SIMULADA', msg:'Emitida em MODO SIMULADO (sem valor fiscal). Confira o DANFE com a contabilidade (CFOP, natureza, ICMS suspenso) antes de emitir de verdade. Configure o token da Focus + dados fiscais da facção p/ valer.', ok:'Entendi'});
+    } else {
+      toast('NF de remessa '+n.numero+' '+n.status+'.','ok');
+    }
+    loadRoute();
+  }catch(e){ uiSpinnerClose(); toast('Falha: '+(e.message||e),'err'); }
 }
 async function kitBipar(acao){
   const codigo = val('kit_bip'); if(!codigo){ toast('Bipe ou digite o código do kit.','err'); return; }
@@ -5782,7 +5798,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
-  viewKits, kitBipar, kitBiparControle, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,

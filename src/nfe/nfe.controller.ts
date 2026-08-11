@@ -78,6 +78,14 @@ export class NfeController {
     });
   }
 
+  /** NF de REMESSA p/ industrialização (facção com CNPJ). Produção/expedição emitem. */
+  @Post('remessa')
+  @Areas('producao', 'expedicao')
+  @HttpCode(HttpStatus.CREATED)
+  remessa(@Body('controleFaccao') controleFaccao: string, @CurrentUser() user: AuthUser) {
+    return this.nfeService.emitirRemessa(String(controleFaccao || '').trim(), user.empresaId, user.usuario);
+  }
+
   /** NF-e avulsa: cliente + itens, sem expedição. Comercial também emite. */
   @Post('avulsa')
   @Areas('vendas', 'expedicao', 'receber')
