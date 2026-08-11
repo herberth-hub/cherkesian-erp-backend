@@ -34,6 +34,13 @@ export class ComprasController {
     return this.comprasService.create(dto, user.empresaId);
   }
 
+  /** Gera OCs sugeridas do tecido/insumo faltante (demanda em aberto x estoque). */
+  @Post('sugerir-tecido')
+  @HttpCode(HttpStatus.CREATED)
+  sugerirTecido(@CurrentUser() user: AuthUser) {
+    return this.comprasService.sugerirCompraTecido(user.empresaId);
+  }
+
   @Post(':id/receber')
   @HttpCode(HttpStatus.OK)
   receber(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

@@ -646,6 +646,19 @@ function entregaBadge(dias){
   if(dias<=10)return {txt:'Faltam '+dias+'d', cor:'#C9A227'};
   return {txt:'Faltam '+dias+'d', cor:'#3a8f4f'};
 }
+// Gera as OCs sugeridas do tecido faltante e mostra o resultado.
+async function sugerirCompraTecido(){
+  if(!(await uiConfirm({tipo:'info', titulo:'Gerar sugestão de compra?', ok:'Gerar OCs', cancel:'Cancelar', msg:'Cria ordens de compra (status aguardando) do tecido/insumo faltante p/ atender os pedidos em aberto. Depois é só ajustar fornecedor/preço em Compras. Não duplica se já houver sugestão aberta.'}))) return;
+  try{
+    const r = await api('/compras/sugerir-tecido',{method:'POST'});
+    if(r.criadas && r.criadas.length){
+      await uiAlert({tipo:'ok', titulo:r.criadas.length+' OC(s) criada(s)', msg:r.mensagem+'\n\n'+r.criadas.map(c=>'• '+c.numero+' — '+c.descricao+': '+c.quantidade+' '+c.unidade).join('\n')});
+    } else {
+      await uiAlert({tipo:'info', titulo:'Sugestão de compra', msg:r.mensagem||'Nada a comprar.'});
+    }
+    loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
 // Alerta de tecido/insumo insuficiente p/ produzir os pedidos em aberto.
 function tecidoSec(list){
   if(!list || !list.length) return '';
@@ -656,8 +669,9 @@ function tecidoSec(list){
     <td style="padding:7px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:800;color:#c14a34">${a.falta.toLocaleString('pt-BR')}</td>
     <td style="padding:7px 10px;border-top:1px solid #f0e7d0;font-size:11px">${(a.pedidos||[]).map(esc).join(', ')}</td>
   </tr>`).join('');
-  return `<div class="sect"><h3>🧵 Tecido insuficiente p/ os pedidos em aberto (${list.length})</h3>
-    <div class="panel" style="overflow-x:auto;border-left:4px solid #c14a34">
+  return `<div class="sect"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h3 style="margin:0">🧵 Tecido insuficiente p/ os pedidos em aberto (${list.length})</h3>
+    <button class="btn-primary" onclick="APP.sugerirCompraTecido()" title="Cria ordens de compra do tecido faltante">🛒 Gerar sugestão de compra</button></div>
+    <div class="panel" style="overflow-x:auto;border-left:4px solid #c14a34;margin-top:8px">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#faf6ea;color:#9a5a00">
           <th style="padding:7px 10px;text-align:left">Produto</th>
@@ -5874,7 +5888,7 @@ window.APP = {
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
-  relatorio, relGerar,
+  relatorio, relGerar, sugerirCompraTecido,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 // PWA: registra o service worker (torna o app instalável no celular).
