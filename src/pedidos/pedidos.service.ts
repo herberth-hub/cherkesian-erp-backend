@@ -141,23 +141,24 @@ export class PedidosService {
     return { ...pedido, exigePiloto: pedido.clienteNovo };
   }
 
-  /** Edita um pedido enquanto está em ORÇAMENTO (substitui itens e recalcula). */
+  /**
+   * Edita/RETIFICA um pedido. Em orçamento/aprovado/piloto substitui os itens.
+   * Se o pedido JÁ tem produção/expedição, faz uma retificação SEGURA: preserva o
+   * que já foi expedido (não reduz abaixo do enviado nem remove item já expedido).
+   * Nunca edita com NF ativa — cancele a NF antes.
+   */
   async update(id: number, dto: CreatePedidoDto, empresaId: number) {
-    const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
+    const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true, itens: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
-    // Pode editar até a produção começar (antes de gerar OP e sem NF ativa).
-    if (pedido.ops.length > 0 || ['material', 'compra', 'producao', 'estoque', 'expedicao'].includes(pedido.etapa)) {
-      throw new ConflictException(`Não é possível editar: o pedido já entrou em produção (etapa ${pedido.etapa}).`);
-    }
     const nfAtiva = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
-    if (nfAtiva) throw new ConflictException(`Não é possível editar: já existe a nota fiscal ${nfAtiva.numero} para este pedido.`);
+    if (nfAtiva) throw new ConflictException(`Não é possível retificar: existe a nota fiscal ${nfAtiva.numero} ATIVA. Cancele a NF antes de editar.`);
 
     const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
 
     // Recalcula itens e total (mesma validação da criação).
     let valorTotal = new Prisma.Decimal(0);
-    const itensData: Prisma.PedidoItemCreateWithoutPedidoInput[] = [];
+    const novos: Array<{ produtoId: number | null; descricao: string; cor: string | null; quantidade: number; valorUnit: Prisma.Decimal; grade: Prisma.InputJsonValue | null }> = [];
     for (const item of dto.itens) {
       let descricao = item.descricao;
       let produto: Produto | null = null;
@@ -170,30 +171,71 @@ export class PedidosService {
       const valorUnit = new Prisma.Decimal(item.valorUnit);
       const { grade, quantidade } = this.normalizarGrade(item);
       valorTotal = valorTotal.plus(this.subtotalItem(produto, valorUnit, grade, quantidade));
-      itensData.push({ produtoId: item.produtoId, descricao, cor: item.cor?.trim() || null, quantidade, valorUnit, grade });
+      novos.push({ produtoId: item.produtoId ?? null, descricao, cor: item.cor?.trim() || null, quantidade, valorUnit, grade: (grade ?? null) as Prisma.InputJsonValue | null });
     }
 
     const filialId = await this.resolverFilial(empresaId, dto.filialId);
-    return this.prisma.$transaction(async (tx) => {
-      await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
-      return tx.pedido.update({
-        where: { id },
-        data: {
-          clienteId: dto.clienteId,
-          clienteUnidadeId: dto.clienteUnidadeId ?? null,
-          filialId,
-          valorTotal,
-          bonificacao: dto.bonificacao ?? false,
-          clienteNovo: cliente.clienteNovo,
-          prazoEntrega: dto.prazoEntrega ? new Date(dto.prazoEntrega) : null,
-          formaPagamento: dto.formaPagamento,
-        frete: dto.frete,
-          ordemCompraCliente: dto.ordemCompraCliente,
-          obs: dto.obs,
-          itens: { create: itensData },
-        },
-        include: { itens: true },
+    const dadosPedido = {
+      clienteId: dto.clienteId,
+      clienteUnidadeId: dto.clienteUnidadeId ?? null,
+      filialId,
+      valorTotal,
+      bonificacao: dto.bonificacao ?? false,
+      clienteNovo: cliente.clienteNovo,
+      prazoEntrega: dto.prazoEntrega ? new Date(dto.prazoEntrega) : null,
+      formaPagamento: dto.formaPagamento,
+      frete: dto.frete,
+      ordemCompraCliente: dto.ordemCompraCliente,
+      obs: dto.obs,
+    };
+
+    const temExpedido = pedido.itens.some((i) => (i.quantidadeExpedida ?? 0) > 0);
+    const emProducao = pedido.ops.length > 0 || ['material', 'compra', 'producao', 'estoque', 'expedicao', 'parcial', 'concluido'].includes(pedido.etapa);
+
+    // Caminho simples: sem produção/expedição → substitui os itens (orçamento/aprovado/piloto).
+    if (!temExpedido && !emProducao) {
+      return this.prisma.$transaction(async (tx) => {
+        await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
+        return tx.pedido.update({ where: { id }, data: { ...dadosPedido, itens: { create: novos.map((n) => ({ produtoId: n.produtoId ?? undefined, descricao: n.descricao, cor: n.cor, quantidade: n.quantidade, valorUnit: n.valorUnit, grade: n.grade ?? Prisma.JsonNull })) } }, include: { itens: true } });
       });
+    }
+
+    // ===== RETIFICAÇÃO SEGURA (pedido já em produção/expedido) =====
+    const norm = (s?: string | null) => String(s ?? '').trim().toUpperCase();
+    const chave = (produtoId: number | null, cor: string | null) => `${produtoId ?? 0}|${norm(cor)}`;
+    const porChave = new Map(pedido.itens.map((i) => [chave(i.produtoId, i.cor), i]));
+    const usados = new Set<number>();
+    return this.prisma.$transaction(async (tx) => {
+      for (const nv of novos) {
+        const ex = porChave.get(chave(nv.produtoId, nv.cor));
+        if (ex) {
+          usados.add(ex.id);
+          const jaExp = ex.quantidadeExpedida ?? 0;
+          if (nv.quantidade < jaExp) throw new ConflictException(`"${nv.descricao}": não pode reduzir para ${nv.quantidade} — já foram expedidas ${jaExp} peça(s).`);
+          const gExp = (ex.gradeExpedida as Record<string, number> | null) ?? {};
+          if (nv.grade && typeof nv.grade === 'object') {
+            for (const [t, q] of Object.entries(gExp)) {
+              if (Number((nv.grade as Record<string, number>)[t] ?? 0) < Number(q)) throw new ConflictException(`"${nv.descricao}" TAM ${t}: não pode ficar abaixo do já expedido (${q}).`);
+            }
+          }
+          await tx.pedidoItem.update({ where: { id: ex.id }, data: { descricao: nv.descricao, valorUnit: nv.valorUnit, quantidade: nv.quantidade, grade: nv.grade ?? Prisma.JsonNull } });
+        } else {
+          await tx.pedidoItem.create({ data: { pedidoId: id, produtoId: nv.produtoId ?? undefined, descricao: nv.descricao, cor: nv.cor, quantidade: nv.quantidade, valorUnit: nv.valorUnit, grade: nv.grade ?? Prisma.JsonNull } });
+        }
+      }
+      // Remoções: só itens que NÃO foram expedidos.
+      for (const ex of pedido.itens) {
+        if (usados.has(ex.id)) continue;
+        if ((ex.quantidadeExpedida ?? 0) > 0) throw new ConflictException(`Não é possível remover "${ex.descricao}" — já tem ${ex.quantidadeExpedida} peça(s) expedida(s).`);
+        await tx.pedidoItem.delete({ where: { id: ex.id } });
+      }
+      // Reavalia a etapa pela expedição real dos itens finais.
+      const finais = await tx.pedidoItem.findMany({ where: { pedidoId: id } });
+      const tot = finais.reduce((s, i) => s + i.quantidade, 0);
+      const exp = finais.reduce((s, i) => s + (i.quantidadeExpedida ?? 0), 0);
+      const etapaNova = exp <= 0 ? pedido.etapa : exp >= tot ? 'concluido' : 'parcial';
+      const statusNovo = exp <= 0 ? pedido.status : exp >= tot ? 'Concluído' : 'Expedição parcial';
+      return tx.pedido.update({ where: { id }, data: { ...dadosPedido, etapa: etapaNova, status: statusNovo }, include: { itens: true } });
     });
   }
 
