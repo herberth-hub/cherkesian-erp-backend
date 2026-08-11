@@ -298,8 +298,59 @@ export class NotasEntradaService {
       body: JSON.stringify({ tipo: 'ciencia' }),
     }).catch(() => null);
     const res = await fetch(`https://${host}/v2/nfes_recebidas/${ch}.json?completa=1`, { headers });
-    const body = await res.json().catch(() => ({}));
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) throw new BadRequestException(`Focus HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+    // O JSON de notas recebidas NÃO traz os itens — eles só vêm no XML completo.
+    // Se não houver itens, baixa o XML e extrai os produtos (descrição, qtd, un, valor).
+    const temItens = Array.isArray(body.itens) && (body.itens as unknown[]).length > 0;
+    if (!temItens) {
+      const xmlPath = (body.caminho_xml_nota_fiscal || body.caminho_xml || body.caminho_completo_xml) as string | undefined;
+      if (xmlPath) {
+        try {
+          const xres = await fetch(xmlPath.startsWith('http') ? xmlPath : `https://${host}${xmlPath}`, { headers });
+          const xml = await xres.text();
+          const itens = this.extrairItensXml(xml);
+          if (itens.length) body.itens = itens;
+          // Emitente/número pelo XML (reforço), caso o resumo não tenha.
+          const cnpjXml = /<emit>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1];
+          const nomeXml = /<emit>[\s\S]*?<xNome>([\s\S]*?)<\/xNome>/.exec(xml)?.[1];
+          if (cnpjXml && !body.cnpj_emitente) body.cnpj_emitente = cnpjXml;
+          if (nomeXml && !body.nome_emitente) body.nome_emitente = this.decodeXml(nomeXml.trim());
+          const nNF = /<ide>[\s\S]*?<nNF>(\d+)<\/nNF>/.exec(xml)?.[1];
+          if (nNF && !body.numero) body.numero = nNF;
+          const serieX = /<ide>[\s\S]*?<serie>(\d+)<\/serie>/.exec(xml)?.[1];
+          if (serieX && !body.serie) body.serie = serieX;
+        } catch { /* mantém o resumo se o XML falhar */ }
+      }
+    }
     return body;
+  }
+
+  /** Extrai os itens (produtos) de um XML de NF-e: descrição, qtd, unidade, valor, NCM. */
+  private extrairItensXml(xml: string): Array<{ codigo?: string; descricao: string; ncm?: string; quantidade: number; unidade: string; valorUnit: number; valorTotal?: number }> {
+    const dets = [...xml.matchAll(/<det\b[^>]*>([\s\S]*?)<\/det>/g)];
+    const tag = (seg: string, t: string) => new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(seg)?.[1]?.trim();
+    return dets.map((m) => {
+      const seg = m[1];
+      const prodMatch = /<prod>([\s\S]*?)<\/prod>/.exec(seg);
+      const prod = prodMatch ? prodMatch[1] : seg;
+      return {
+        codigo: tag(prod, 'cProd'),
+        descricao: this.decodeXml(tag(prod, 'xProd') || 'Item'),
+        ncm: tag(prod, 'NCM'),
+        quantidade: Number(tag(prod, 'qCom') || tag(prod, 'qTrib') || 1),
+        unidade: (tag(prod, 'uCom') || tag(prod, 'uTrib') || 'un').slice(0, 6),
+        valorUnit: Number(tag(prod, 'vUnCom') || tag(prod, 'vUnTrib') || 0),
+        valorTotal: Number(tag(prod, 'vProd') || 0) || undefined,
+      };
+    }).filter((it) => it.descricao);
+  }
+
+  /** Decodifica entidades XML comuns (&amp; &lt; &gt; &quot; &#39;). */
+  private decodeXml(s: string): string {
+    return s
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   }
 }
