@@ -13,13 +13,33 @@ import { proximoCodigo } from '../common/utils/codigo.util';
 export class ProdutosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number) {
+  async findAll(empresaId: number) {
     // Omite os campos base64 pesados (foto/arquivo) — a lista não precisa deles
     // e isso mantém o payload leve. Eles voltam no findOne (edição).
-    return this.prisma.produto.findMany({
+    const produtos = await this.prisma.produto.findMany({
       where: { empresaId },
       omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true },
       orderBy: { codigo: 'asc' },
+    });
+    // Rendimento: quantas peças o estoque de material rende (limitado pelo material
+    // mais escasso da receita). Tecido principal = o material de maior consumo.
+    const consumos = await this.prisma.consumo.findMany({
+      where: { produto: { empresaId } },
+      include: { material: { select: { descricao: true, saldo: true, unidade: true } } },
+    });
+    const porProd = new Map<number, { rende: number | null; tecido: string | null; maiorQtd: number }>();
+    for (const c of consumos) {
+      const q = Number(c.quantidade);
+      const saldo = Number(c.material.saldo);
+      const rende = q > 0 ? Math.floor(saldo / q) : null;
+      const cur = porProd.get(c.produtoId) ?? { rende: null, tecido: null, maiorQtd: -1 };
+      if (rende != null) cur.rende = cur.rende == null ? rende : Math.min(cur.rende, rende);
+      if (q > cur.maiorQtd) { cur.maiorQtd = q; cur.tecido = c.material.descricao; }
+      porProd.set(c.produtoId, cur);
+    }
+    return produtos.map((p) => {
+      const r = porProd.get(p.id);
+      return { ...p, rendePecas: r?.rende ?? null, tecidoPrincipal: r?.tecido ?? null };
     });
   }
 

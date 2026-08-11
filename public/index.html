@@ -800,13 +800,14 @@ async function viewProdutos(c){
 }
 function prodTabela(list){
   const admin = S.user.acesso==='total';
-  const cols = ['Código','Descrição','Grupo cliente','Categoria','Cor', ...(admin?['Custo']:[]), 'Preço base','NCM','Ações'];
+  const cols = ['Código','Descrição','Grupo cliente','Categoria','Cor','Tecido · rende', ...(admin?['Custo']:[]), 'Preço base','NCM','Ações'];
   return panelTable(cols,
     list.map(p=>[
       `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao),
       p.clienteGrupo?`<span class="pill gray">${esc(p.clienteGrupo)}</span>${p.setor?'<div class="muted" style="font-size:10px">'+esc(p.setor)+'</div>':''}`:'<span class="muted">—</span>',
       esc(p.categoria),
       esc(p.cor||'—'),
+      p.tecidoPrincipal?`<div style="font-size:11px">${esc(String(p.tecidoPrincipal).split(' - ')[0].slice(0,22))}</div>${p.rendePecas!=null?`<div style="font-size:11px;font-weight:700;color:${p.rendePecas>0?'#1e7a44':'#c14a34'}">rende ${p.rendePecas.toLocaleString('pt-BR')} pç</div>`:'<div class="muted" style="font-size:10px">sem consumo</div>'}`:'<span class="muted">—</span>',
       ...(admin?[p.custo!=null?`<span class="muted">${money(p.custo)}</span>`:'—']:[]),
       p.precoEspecial?`${money(p.precoBase)}<div class="muted" style="font-size:10px">esp. ${money(p.precoEspecial)}</div>`:(p.precoBase?money(p.precoBase):'—'),
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
