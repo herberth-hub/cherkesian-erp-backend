@@ -3915,9 +3915,18 @@ async function etiquetasCaixasMaster(){
 function checkDeepLink(){
   try{
     const p=new URLSearchParams(location.search);
-    // Callback do OAuth do Mercado Livre: ?mlcb=1&code=...
+    // Callback do OAuth da Tray: ?traycb=1&code=...&api_address=... (checa ANTES do ML,
+    // senão o handler do ML sequestra o code da Tray).
+    if(p.get('traycb') && S.user){
+      const code=p.get('code'); const api=p.get('api_address')||p.get('url')||'';
+      history.replaceState(null,'',location.pathname);
+      if(code){ window.__trayCb={ code, apiUrl:String(api).replace(/\/+$/,'') }; try{ sessionStorage.setItem('trayCb', JSON.stringify(window.__trayCb)); }catch(_){}
+        toast('Tray autorizou! Code capturado — abrindo Integrações → Tray…','ok'); go('tray'); }
+      return;
+    }
+    // Callback do OAuth do Mercado Livre: EXIGE mlcb=1 (não pode ser qualquer code solto).
     const mlcode=p.get('code');
-    if((p.get('mlcb')||mlcode) && S.user){
+    if(p.get('mlcb') && S.user){
       history.replaceState(null,'',location.pathname);
       if(mlcode){
         toast('Conectando ao Mercado Livre…','ok');
@@ -5551,16 +5560,25 @@ async function viewTray(c){
         <div class="mactions"><button class="btn-primary" onclick="APP.trayNova()">Adicionar loja</button></div>
       </div>
     </div>`;
-  // Callback da Tray: ao autorizar o app, a loja volta com ?code=...&api_address=...
-  // — pré-preenche a "Nova loja" pra você só informar Key/Secret e conectar.
+  // Callback da Tray: o code capturado no deep-link fica em window.__trayCb (ou
+  // sessionStorage). Se houver, mostra um banner e pré-preenche o campo Code —
+  // na loja já cadastrada (se só houver uma) ou na "Nova loja".
   try{
-    const q=new URLSearchParams(location.search);
-    if(q.get('traycb') && q.get('code')){
-      const code=q.get('code'); const api=q.get('api_address')||q.get('url')||'';
-      if($('tr_new_code')) $('tr_new_code').value=code;
-      if($('tr_new_url')&&api) $('tr_new_url').value=String(api).replace(/\/+$/,'');
-      toast('Tray autorizou! Code capturado — informe Key/Secret e clique em Adicionar loja.','ok');
-      history.replaceState(null,'',location.pathname);
+    let cb=window.__trayCb; if(!cb){ const s=sessionStorage.getItem('trayCb'); if(s) cb=JSON.parse(s); }
+    if(cb && cb.code){
+      const uma=(contas&&contas.length===1)?contas[0]:null;
+      if(uma){
+        if($('tr_code_'+uma.id)) $('tr_code_'+uma.id).value=cb.code;
+        if($('tr_url_'+uma.id)&&cb.apiUrl && !$('tr_url_'+uma.id).value) $('tr_url_'+uma.id).value=cb.apiUrl;
+      } else {
+        if($('tr_new_code')) $('tr_new_code').value=cb.code;
+        if($('tr_new_url')&&cb.apiUrl) $('tr_new_url').value=cb.apiUrl;
+      }
+      const banner=document.createElement('div');
+      banner.className='panel'; banner.style.cssText='padding:12px 14px;max-width:820px;margin-bottom:14px;background:#eafaef;border:1px solid #bfe0bf';
+      banner.innerHTML='✅ <b>Code da Tray capturado!</b> Já preenchi o campo <b>Code de autorização</b>'+(uma?(' da loja <b>'+esc(uma.apelido)+'</b>. Cole o <b>Consumer Secret</b> (se ainda não colou) e clique <b>Conectar loja</b>.'):'. Complete os dados e clique <b>Adicionar loja</b>.')+'<div class="muted" style="font-size:11px;margin-top:4px">code: <span class="mono">'+esc(String(cb.code).slice(0,10))+'…</span></div>';
+      c.insertBefore(banner, c.firstChild);
+      window.__trayCb=null; try{ sessionStorage.removeItem('trayCb'); }catch(_){}
     }
   }catch(e){}
 }
