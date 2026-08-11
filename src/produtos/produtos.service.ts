@@ -99,11 +99,21 @@ export class ProdutosService {
     const materialId = dto.tecidoMaterialId;
     const quantidade = new Prisma.Decimal(Number(dto.tecidoConsumo).toFixed(4));
     const unidade = (dto.tecidoUnidade || 'm').slice(0, 8);
+    // Consumo por tamanho (opcional): mantém só os tamanhos com valor > 0.
+    let porTamanho: Prisma.InputJsonValue | undefined;
+    if (dto.tecidoConsumoPorTamanho && typeof dto.tecidoConsumoPorTamanho === 'object') {
+      const limpo: Record<string, number> = {};
+      for (const [k, v] of Object.entries(dto.tecidoConsumoPorTamanho)) {
+        const n = Number(v);
+        if (k && Number.isFinite(n) && n > 0) limpo[String(k).toUpperCase()] = n;
+      }
+      porTamanho = Object.keys(limpo).length ? limpo : ({} as Prisma.InputJsonValue);
+    }
     const existente = await tx.consumo.findFirst({ where: { produtoId, materialId } });
     if (existente) {
-      await tx.consumo.update({ where: { id: existente.id }, data: { quantidade, unidade } });
+      await tx.consumo.update({ where: { id: existente.id }, data: { quantidade, unidade, ...(porTamanho !== undefined ? { porTamanho } : {}) } });
     } else {
-      await tx.consumo.create({ data: { produtoId, materialId, quantidade, unidade } });
+      await tx.consumo.create({ data: { produtoId, materialId, quantidade, unidade, ...(porTamanho !== undefined ? { porTamanho } : {}) } });
     }
   }
 
