@@ -549,6 +549,7 @@ async function viewDashboard(c){
       ${kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas')}
       ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
     </div>
+    ${tecidoSec(d.alertasTecido)}
     ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
     ${empresasSec(d.porEmpresa)}
@@ -644,6 +645,29 @@ function entregaBadge(dias){
   if(dias<=5) return {txt:'Faltam '+dias+'d', cor:'#e08a2b'};
   if(dias<=10)return {txt:'Faltam '+dias+'d', cor:'#C9A227'};
   return {txt:'Faltam '+dias+'d', cor:'#3a8f4f'};
+}
+// Alerta de tecido/insumo insuficiente p/ produzir os pedidos em aberto.
+function tecidoSec(list){
+  if(!list || !list.length) return '';
+  const rows = list.map(a=>`<tr>
+    <td style="padding:7px 10px;border-top:1px solid #f0e7d0"><span class="mono gold">${esc(a.codigo)}</span><div style="font-size:11px">${esc(String(a.descricao).split(' - ')[0].slice(0,40))}</div></td>
+    <td style="padding:7px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:700">${a.demanda.toLocaleString('pt-BR')}</td>
+    <td style="padding:7px 10px;border-top:1px solid #f0e7d0;text-align:right">${a.rende.toLocaleString('pt-BR')}</td>
+    <td style="padding:7px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:800;color:#c14a34">${a.falta.toLocaleString('pt-BR')}</td>
+    <td style="padding:7px 10px;border-top:1px solid #f0e7d0;font-size:11px">${(a.pedidos||[]).map(esc).join(', ')}</td>
+  </tr>`).join('');
+  return `<div class="sect"><h3>🧵 Tecido insuficiente p/ os pedidos em aberto (${list.length})</h3>
+    <div class="panel" style="overflow-x:auto;border-left:4px solid #c14a34">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#faf6ea;color:#9a5a00">
+          <th style="padding:7px 10px;text-align:left">Produto</th>
+          <th style="padding:7px 10px;text-align:right">Demanda</th>
+          <th style="padding:7px 10px;text-align:right">Estoque rende</th>
+          <th style="padding:7px 10px;text-align:right">Falta produzir</th>
+          <th style="padding:7px 10px;text-align:left">Pedidos</th>
+        </tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">Comprar tecido/insumo desses produtos ou o estoque não cobre a produção. "Rende" = peças que o material mais escasso da receita permite.</div></div>`;
 }
 function pedidosSec(e){
   if(!e) return '';

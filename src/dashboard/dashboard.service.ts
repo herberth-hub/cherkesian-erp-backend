@@ -153,6 +153,46 @@ export class DashboardService {
       });
     };
 
+    // ===== Alerta de TECIDO/INSUMO insuficiente p/ os pedidos em aberto =====
+    // Demanda residual (por produto) dos pedidos ainda não concluídos x quantas peças
+    // o estoque de material rende (limitado pelo material mais escasso da receita).
+    const itensAbertos = await this.prisma.pedidoItem.findMany({
+      where: { pedido: { empresaId, etapa: { notIn: ['concluido', 'orcamento'] } }, produtoId: { not: null } },
+      select: { produtoId: true, quantidade: true, quantidadeExpedida: true, pedido: { select: { numero: true } } },
+    });
+    const demandaProd = new Map<number, { demanda: number; pedidos: Set<string> }>();
+    for (const it of itensAbertos) {
+      const pid = it.produtoId as number;
+      const resid = Math.max(0, it.quantidade - (it.quantidadeExpedida ?? 0));
+      if (resid <= 0) continue;
+      const cur = demandaProd.get(pid) ?? { demanda: 0, pedidos: new Set<string>() };
+      cur.demanda += resid;
+      if (it.pedido?.numero) cur.pedidos.add(it.pedido.numero);
+      demandaProd.set(pid, cur);
+    }
+    const consumosDash = await this.prisma.consumo.findMany({ where: { produto: { empresaId } }, include: { material: { select: { saldo: true } } } });
+    const rendeProd = new Map<number, number>();
+    for (const c of consumosDash) {
+      const q = Number(c.quantidade);
+      if (q <= 0) continue;
+      const r = Math.floor(Number(c.material.saldo) / q);
+      const cur = rendeProd.get(c.produtoId);
+      rendeProd.set(c.produtoId, cur == null ? r : Math.min(cur, r));
+    }
+    const prodsAlerta = demandaProd.size
+      ? await this.prisma.produto.findMany({ where: { id: { in: [...demandaProd.keys()] } }, select: { id: true, codigo: true, descricao: true } })
+      : [];
+    const nomeAlerta = new Map(prodsAlerta.map((p) => [p.id, p]));
+    const alertasTecido = [...demandaProd.entries()]
+      .filter(([pid]) => rendeProd.has(pid))
+      .map(([pid, d]) => {
+        const rende = rendeProd.get(pid) ?? 0;
+        const p = nomeAlerta.get(pid);
+        return { produtoId: pid, codigo: p?.codigo ?? '', descricao: p?.descricao ?? '', demanda: d.demanda, rende, falta: Math.max(0, d.demanda - rende), pedidos: [...d.pedidos] };
+      })
+      .filter((a) => a.falta > 0)
+      .sort((a, b) => b.falta - a.falta);
+
     // ===== Visibilidade financeira por perfil =====
     const admin = acesso === 'total';
     const verFinanceiro = admin || acesso === 'financeiro' || acesso === 'contabilidade';
@@ -173,6 +213,7 @@ export class DashboardService {
         materiaisAbaixoMinimo,
       },
       cadastros: { clientes, produtos },
+      alertasTecido,
       entregas: { janela: JANELA, faixas, lista: listaEntrega },
       // Sem visão financeira, o valor R$ dos pedidos é omitido (mantém o anti-atraso).
       pedidosEntrega: {
