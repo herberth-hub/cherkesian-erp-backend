@@ -756,8 +756,8 @@ export class NfeService {
     const cnpj = digitos(faccao.cnpjCpf || '');
     if (cnpj.length !== 14) throw new BadRequestException(`A facção "${faccao.nome}" não tem CNPJ — este envio segue por OS, não por NF de remessa.`);
 
-    const ja = await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'remessa', controleFaccao, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
-    if (ja) throw new ConflictException(`O controle ${controleFaccao} já tem a NF de remessa ${ja.numero}.`);
+    const ja = await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'remessa', controleFaccao, retornadaEm: null, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
+    if (ja) throw new ConflictException(`O controle ${controleFaccao} já tem a NF de remessa ${ja.numero} em aberto (aguardando retorno).`);
 
     const filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
     if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');

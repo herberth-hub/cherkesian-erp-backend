@@ -226,6 +226,15 @@ export class KitsService {
       throw new ConflictException(`Retorno sem saída: o kit ${kit.codigo} não está em facção (status: ${kit.status}).`);
     }
 
+    // ===== Trava por NF de retorno: se o controle saiu com NF de REMESSA (facção com
+    // CNPJ), o retorno EXIGE o nº da NF de retorno da industrialização. =====
+    const remessaAberta = kit.controleFaccao
+      ? await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'remessa', controleFaccao: kit.controleFaccao, retornadaEm: null, status: { in: ['pendente', 'autorizada', 'simulada'] } } })
+      : null;
+    if (remessaAberta && !(dto.retornoNf ?? '').trim()) {
+      throw new BadRequestException(`Este controle saiu com a NF de remessa ${remessaAberta.numero}. Informe o nº da NF de RETORNO da industrialização para dar entrada.`);
+    }
+
     // ===== Conferência de faltas / anomalia =====
     const faltas = Math.max(0, Math.floor(Number(dto.qtdFaltas ?? 0)));
     const qtdRetornada = dto.qtd ?? kit.jogos;
@@ -297,6 +306,14 @@ export class KitsService {
       }
       return { k, contaPagar };
     });
+
+    // Fecha a NF de remessa quando NÃO há mais kits do controle em facção (todos voltaram).
+    if (remessaAberta && kit.controleFaccao) {
+      const aindaFora = await this.prisma.kit.count({ where: { empresaId, controleFaccao: kit.controleFaccao, status: 'em_faccao' } });
+      if (aindaFora === 0) {
+        await this.prisma.notaFiscal.update({ where: { id: remessaAberta.id }, data: { retornoNf: (dto.retornoNf ?? '').trim() || remessaAberta.retornoNf, retornadaEm: new Date() } }).catch(() => undefined);
+      }
+    }
 
     const msg = faltas > 0
       ? (ocReposicao

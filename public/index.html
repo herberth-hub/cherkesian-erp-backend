@@ -550,6 +550,7 @@ async function viewDashboard(c){
       ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
     </div>
     ${tecidoSec(d.alertasTecido)}
+    ${remessaSec(d.remessasPendentes)}
     ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
     ${empresasSec(d.porEmpresa)}
@@ -658,6 +659,29 @@ async function sugerirCompraTecido(){
     }
     loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+// Remessas de facção (industrialização) aguardando NF de retorno.
+function remessaSec(list){
+  if(!list || !list.length) return '';
+  const rows = list.map(r=>{ const alerta=r.dias>=150; return `<tr>
+    <td style="padding:7px 10px;border-top:1px solid #eee"><span class="mono gold">${esc(r.numero)}</span>${r.controle?'<div class="muted" style="font-size:10px">'+esc(r.controle)+'</div>':''}</td>
+    <td style="padding:7px 10px;border-top:1px solid #eee">${esc(r.faccao||'—')}</td>
+    <td style="padding:7px 10px;border-top:1px solid #eee">${esc(r.emitida)}</td>
+    <td style="padding:7px 10px;border-top:1px solid #eee;text-align:right;font-weight:700;color:${alerta?'#c14a34':(r.dias>=90?'#9a5a00':'#333')}">${r.dias} dia(s)${alerta?' ⚠️':''}</td>
+    <td style="padding:7px 10px;border-top:1px solid #eee;text-align:right">${money(r.valor)}</td>
+  </tr>`; }).join('');
+  return `<div class="sect"><h3>🏭 Remessas de facção aguardando retorno (${list.length})</h3>
+    <div class="panel" style="overflow-x:auto;border-left:4px solid #9a5a00">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#faf6ea;color:#9a5a00">
+          <th style="padding:7px 10px;text-align:left">NF remessa</th>
+          <th style="padding:7px 10px;text-align:left">Facção</th>
+          <th style="padding:7px 10px;text-align:left">Emitida</th>
+          <th style="padding:7px 10px;text-align:right">Dias fora</th>
+          <th style="padding:7px 10px;text-align:right">Valor</th>
+        </tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">A NF de remessa fecha ao dar o <b>retorno da facção</b> com o nº da NF de retorno. ⚠️ = perto do prazo legal de 180 dias.</div></div>`;
 }
 // Alerta de tecido/insumo insuficiente p/ produzir os pedidos em aberto.
 function tecidoSec(list){

@@ -672,6 +672,8 @@ model NotaFiscal {
   tipo        String    @default("venda")    // venda | remessa (remessa p/ industrialização)
   fornecedorId Int?      // facção destinatária (nas NFs de remessa)
   controleFaccao String? // OS/controle de facção vinculado à remessa
+  retornoNf   String?    // nº da NF de retorno da industrialização (fecha a remessa)
+  retornadaEm DateTime?  // quando a remessa foi baixada pelo retorno
   ordemCompraCliente String? // nº do pedido de compra do cliente (sai nos dados adicionais)
   emitidaEm   DateTime  @default(now())
   emitidaPor  String?

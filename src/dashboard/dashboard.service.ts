@@ -193,6 +193,19 @@ export class DashboardService {
       .filter((a) => a.falta > 0)
       .sort((a, b) => b.falta - a.falta);
 
+    // ===== Remessas de facção (industrialização) aguardando RETORNO =====
+    const remessasFacc = await this.prisma.notaFiscal.findMany({
+      where: { empresaId, tipo: 'remessa', retornadaEm: null, status: { in: ['pendente', 'autorizada', 'simulada'] } },
+      orderBy: { emitidaEm: 'asc' },
+    });
+    const fornIds = [...new Set(remessasFacc.map((r) => r.fornecedorId).filter((x): x is number => !!x))];
+    const forns = fornIds.length ? await this.prisma.fornecedor.findMany({ where: { id: { in: fornIds } }, select: { id: true, nome: true } }) : [];
+    const fornMap = new Map(forns.map((f) => [f.id, f.nome]));
+    const remessasPendentes = remessasFacc.map((r) => {
+      const dias = Math.floor((hojeMid.getTime() - new Date(r.emitidaEm).setHours(0, 0, 0, 0)) / 86400000);
+      return { numero: r.numero, controle: r.controleFaccao, faccao: r.fornecedorId ? fornMap.get(r.fornecedorId) ?? null : null, valor: Number(r.valor), emitida: new Date(r.emitidaEm).toISOString().slice(0, 10), dias };
+    });
+
     // ===== Visibilidade financeira por perfil =====
     const admin = acesso === 'total';
     const verFinanceiro = admin || acesso === 'financeiro' || acesso === 'contabilidade';
@@ -214,6 +227,7 @@ export class DashboardService {
       },
       cadastros: { clientes, produtos },
       alertasTecido,
+      remessasPendentes,
       entregas: { janela: JANELA, faixas, lista: listaEntrega },
       // Sem visão financeira, o valor R$ dos pedidos é omitido (mantém o anti-atraso).
       pedidosEntrega: {
