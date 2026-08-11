@@ -17,6 +17,7 @@ import {
   dataBR,
   gradeTabela,
   imagem,
+  imagemMini,
   itemPedido,
   pedidoGradeTabela,
   money,
@@ -553,7 +554,7 @@ export class DocumentosService {
     const ops = await this.prisma.oP.findMany({ where: { pedidoId }, orderBy: { id: 'asc' } });
     if (!ops.length) throw new BadRequestException('Este pedido ainda não tem OP gerada.');
     const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
-    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true } }) : [];
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true, fotoModelo: true } }) : [];
     const prodMap = new Map(produtos.map((p) => [p.id, p]));
     const totalPecas = ops.reduce((s, o) => s + o.quantidade, 0);
 
@@ -579,6 +580,8 @@ export class DocumentosService {
         ['Cor', op.cor ?? prod?.cor ?? '—'],
         ['Quantidade', `${op.quantidade} peças`],
       ]);
+      // Miniatura da peça para a produção identificar o modelo.
+      imagemMini(doc, prod?.fotoModelo ?? null);
       const grade = op.gradeTamanhos as Record<string, number> | null;
       if (grade && Object.keys(grade).length) {
         gradeTabela(doc, Object.entries(grade).map(([t, q]) => [t, String(Number(q) || 0)] as [string, string]));
@@ -633,11 +636,11 @@ export class DocumentosService {
     if (!ops.length) throw new BadRequestException('Nenhuma OP corresponde ao filtro selecionado.');
 
     const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
-    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true } }) : [];
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true, fotoModelo: true } }) : [];
     const prodMap = new Map(produtos.map((p) => [p.id, p]));
 
     // Recorta a grade de cada OP pelos tamanhos escolhidos e soma o total da OS.
-    const linhas: Array<{ op: string; codigo: string; descricao: string; cor: string; grade: Array<[string, string]>; total: number }> = [];
+    const linhas: Array<{ op: string; codigo: string; descricao: string; cor: string; foto: string | null; grade: Array<[string, string]>; total: number }> = [];
     let totalOS = 0;
     for (const op of ops) {
       const prod = op.produtoId ? prodMap.get(op.produtoId) : null;
@@ -648,7 +651,7 @@ export class DocumentosService {
       const total = entradas.reduce((s, [, q]) => s + (Number(q) || 0), 0);
       if (!total) continue;
       totalOS += total;
-      linhas.push({ op: op.numero, codigo: prod?.codigo ?? '—', descricao: prod?.descricao ?? op.numero, cor: op.cor ?? prod?.cor ?? '—', grade: entradas, total });
+      linhas.push({ op: op.numero, codigo: prod?.codigo ?? '—', descricao: prod?.descricao ?? op.numero, cor: op.cor ?? prod?.cor ?? '—', foto: prod?.fotoModelo ?? null, grade: entradas, total });
     }
     if (!linhas.length) throw new BadRequestException('Nenhuma peça corresponde ao filtro (produto/tamanho).');
 
@@ -669,8 +672,9 @@ export class DocumentosService {
     ]);
 
     for (const l of linhas) {
-      if (doc.y > doc.page.height - 170) doc.addPage();
+      if (doc.y > doc.page.height - 200) doc.addPage();
       secao(doc, `${l.codigo} — ${l.descricao}  ·  ${l.cor}  (${l.total} peças)`);
+      imagemMini(doc, l.foto);
       gradeTabela(doc, l.grade);
     }
     assinaturas(doc, 'Entregue à oficina', 'Recebido na oficina');

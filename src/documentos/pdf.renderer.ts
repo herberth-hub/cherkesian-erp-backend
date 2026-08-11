@@ -261,6 +261,28 @@ export function textoBloco(doc: Pdf, texto: string): void {
  * Insere uma imagem a partir de um data URI base64 (foto do modelo/modelagem).
  * Tolerante a erros: imagem inválida apenas registra um aviso e não quebra o PDF.
  */
+/** Miniatura da peça (compacta, alinhada à esquerda) para documentos com vários
+ *  produtos — a produção enxerga o modelo sem estourar páginas. */
+export function imagemMini(doc: Pdf, dataUri: string | null | undefined, lado = 92): void {
+  const x = 50, y = doc.y + 2;
+  const m = dataUri ? /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(dataUri.trim()) : null;
+  if (y + lado > doc.page.height - 80) { doc.addPage(); }
+  const yy = doc.y + 2;
+  if (m) {
+    try {
+      doc.image(Buffer.from(m[1], 'base64'), x, yy, { fit: [lado, lado], align: 'center', valign: 'center' });
+    } catch {
+      // ignora imagem inválida
+    }
+  } else {
+    doc.roundedRect(x, yy, lado, lado, 5).lineWidth(0.8).dash(3, { space: 3 }).strokeColor('#C9A227').stroke().undash();
+    doc.fillColor('#a99a63').font('Helvetica').fontSize(7).text('SEM FOTO', x, yy + lado / 2 - 4, { width: lado, align: 'center' });
+  }
+  doc.y = yy + lado + 8;
+  doc.x = 50;
+  doc.fillColor(TINTA).font('Helvetica').fontSize(10);
+}
+
 export function imagem(doc: Pdf, dataUri: string | null | undefined, alturaMax = 210): void {
   if (!dataUri) return;
   const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(dataUri.trim());
