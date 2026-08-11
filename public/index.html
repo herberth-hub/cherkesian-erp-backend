@@ -5551,6 +5551,18 @@ async function viewTray(c){
         <div class="mactions"><button class="btn-primary" onclick="APP.trayNova()">Adicionar loja</button></div>
       </div>
     </div>`;
+  // Callback da Tray: ao autorizar o app, a loja volta com ?code=...&api_address=...
+  // — pré-preenche a "Nova loja" pra você só informar Key/Secret e conectar.
+  try{
+    const q=new URLSearchParams(location.search);
+    if(q.get('traycb') && q.get('code')){
+      const code=q.get('code'); const api=q.get('api_address')||q.get('url')||'';
+      if($('tr_new_code')) $('tr_new_code').value=code;
+      if($('tr_new_url')&&api) $('tr_new_url').value=String(api).replace(/\/+$/,'');
+      toast('Tray autorizou! Code capturado — informe Key/Secret e clique em Adicionar loja.','ok');
+      history.replaceState(null,'',location.pathname);
+    }
+  }catch(e){}
 }
 async function trayNova(){
   const body={ apelido:val('tr_new_apelido'), apiUrl:val('tr_new_url'), consumerKey:val('tr_new_ck'), consumerSecret:val('tr_new_cs'), code:val('tr_new_code') };
