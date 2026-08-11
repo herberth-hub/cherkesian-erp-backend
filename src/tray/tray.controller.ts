@@ -54,6 +54,16 @@ export class TrayController {
     return this.service.buscarPedidos(user.empresaId, id);
   }
 
+  @Get('contas/:id/categorias')
+  categorias(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.service.buscarCategorias(user.empresaId, id);
+  }
+
+  @Get('contas/:id/produtos')
+  produtos(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.service.buscarProdutos(user.empresaId, id);
+  }
+
   @Post('contas/:id/pedidos/:orderId/importar')
   @HttpCode(HttpStatus.OK)
   importar(@Param('id', ParseIntPipe) id: number, @Param('orderId') orderId: string, @CurrentUser() user: AuthUser) {

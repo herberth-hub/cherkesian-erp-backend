@@ -5535,7 +5535,7 @@ async function viewTray(c){
         ${t.configurado&&!t.conectado?`<button class="btn-primary" onclick="APP.trayConectar(${t.id})">🔗 Conectar loja</button>`:''}
         ${t.conectado?`<button class="btn-sm" onclick="APP.trayConectar(${t.id})">↻ Reautorizar</button> <button class="btn-sm" style="color:#c14a34" onclick="APP.trayDesconectar(${t.id})">Desconectar</button>`:''}
       </div>
-      ${t.conectado?`<div style="margin-top:10px"><button class="btn-sm" onclick="APP.trayPedidos(${t.id})">🔄 Buscar pedidos da ${esc(t.apelido)}</button><div id="tray_ped_${t.id}" style="margin-top:8px"></div></div>`:''}
+      ${t.conectado?`<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.trayPedidos(${t.id})">🔄 Pedidos</button><button class="btn-sm" onclick="APP.trayCategorias(${t.id})">🗂 Categorias</button><button class="btn-sm" onclick="APP.trayProdutos(${t.id})">📦 Produtos</button></div><div id="tray_ped_${t.id}" style="margin-top:8px"></div>`:''}
     </div>`;
   }).join('');
   c.innerHTML=`
@@ -5589,8 +5589,21 @@ async function trayPedidos(id){
   ]));
 }
 async function trayImportar(id,orderId){
-  try{ const r=await api('/tray/contas/'+id+'/pedidos/'+orderId+'/importar',{method:'POST'}); toast('Pedido '+esc(r.numero)+' criado · '+esc(r.cliente)+' · '+money(r.total),'ok'); trayPedidos(id); }
+  try{ const r=await api('/tray/contas/'+id+'/pedidos/'+orderId+'/importar',{method:'POST'});
+    let msg='Pedido '+esc(r.numero)+' criado · '+esc(r.cliente)+' · '+money(r.total);
+    if(r.semVinculo>0) msg+=' · ⚠ '+r.semVinculo+' item(ns) sem produto vinculado (cadastre o SKU/código)';
+    toast(msg, r.semVinculo>0?'err':'ok'); trayPedidos(id); }
   catch(e){ toast(e.message,'err'); }
+}
+async function trayCategorias(id){
+  const box=$('tray_ped_'+id); if(box) box.innerHTML='<div class="muted" style="font-size:12px">Buscando categorias…</div>';
+  let lista; try{ lista=await api('/tray/contas/'+id+'/categorias'); }catch(e){ if(box) box.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
+  if(box) box.innerHTML=lista&&lista.length?panelTable(['ID','Categoria'], lista.map(x=>['<span class="mono">'+esc(x.id)+'</span>', esc(x.nome)])):'<div class="empty">Sem categorias.</div>';
+}
+async function trayProdutos(id){
+  const box=$('tray_ped_'+id); if(box) box.innerHTML='<div class="muted" style="font-size:12px">Buscando produtos…</div>';
+  let lista; try{ lista=await api('/tray/contas/'+id+'/produtos'); }catch(e){ if(box) box.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
+  if(box) box.innerHTML=lista&&lista.length?panelTable(['ID','Produto','SKU','Preço','Estoque'], lista.map(x=>['<span class="mono">'+esc(x.id)+'</span>', esc(x.nome), esc(x.sku||'—'), money(x.preco), x.estoque])):'<div class="empty">Sem produtos.</div>';
 }
 
 // Fiscal do produto (NCM/CFOP/...)
@@ -6086,7 +6099,7 @@ window.APP = {
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar,
-  viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar,
+  viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar, sugerirCompraTecido,

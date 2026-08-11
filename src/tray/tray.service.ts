@@ -86,7 +86,7 @@ export class TrayService {
       throw new BadRequestException('Preencha consumer key, secret, URL da API e o code de autorização antes de conectar.');
     }
     const body = new URLSearchParams({ consumer_key: c.consumerKey, consumer_secret: c.consumerSecret, code: c.code });
-    const res = await fetch(`${c.apiUrl}/auth`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
+    const res = await this.trayFetch(`${c.apiUrl}/auth`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body });
     const data: any = await res.json().catch(() => null);
     if (!res.ok || !data?.access_token) {
       this.log.warn(`Tray auth falhou: ${res.status} ${JSON.stringify(data)}`);
@@ -121,7 +121,7 @@ export class TrayService {
     const margem = 2 * 60 * 1000;
     if (c.tokenExpira && c.tokenExpira.getTime() - margem > Date.now()) return c.accessToken;
     if (!c.refreshToken || !c.apiUrl) return c.accessToken;
-    const res = await fetch(`${c.apiUrl}/auth?refresh_token=${encodeURIComponent(c.refreshToken)}`);
+    const res = await this.trayFetch(`${c.apiUrl}/auth?refresh_token=${encodeURIComponent(c.refreshToken)}`);
     const data: any = await res.json().catch(() => null);
     if (!res.ok || !data?.access_token) {
       this.log.warn(`Tray refresh falhou: ${res.status} ${JSON.stringify(data)}`);
@@ -177,14 +177,22 @@ export class TrayService {
     if (!cliente) cliente = await this.prisma.cliente.findFirst({ where: { empresaId, nome: { equals: nome, mode: 'insensitive' } } });
     if (!cliente) cliente = await this.prisma.cliente.create({ data: { empresaId, nome, cnpjCpf: doc, obs: `Importado da Tray (${c.apelido})` } });
 
-    const produtos: any[] = Array.isArray(o.ProductsSold) ? o.ProductsSold.map((x: any) => x.ProductsSold ?? x)
+    const produtosTray: any[] = Array.isArray(o.ProductsSold) ? o.ProductsSold.map((x: any) => x.ProductsSold ?? x)
       : Array.isArray(o.products) ? o.products : [];
-    const itens = produtos.map((it: any) => ({
-      descricao: String(it.name || it.product_name || 'Item Tray').slice(0, 200),
-      quantidade: Math.max(1, Math.round(Number(it.quantity) || 1)),
-      valorUnit: new Prisma.Decimal(Number(it.price ?? it.value ?? 0) || 0),
-    }));
+    // Catálogo do ERP p/ casar o item da Tray com um produto (SKU/referência/código/nome).
+    const catalogo = await this.prisma.produto.findMany({ where: { empresaId }, select: { id: true, codigo: true, referencia: true, descricao: true, cor: true } });
+    const itens = produtosTray.map((it: any) => {
+      const m = this.matchProduto(it, catalogo);
+      return {
+        produtoId: m?.id,
+        descricao: String(it.name || it.product_name || m?.descricao || 'Item Tray').slice(0, 200),
+        cor: m?.cor ?? undefined,
+        quantidade: Math.max(1, Math.round(Number(it.quantity) || 1)),
+        valorUnit: new Prisma.Decimal(Number(it.price ?? it.value ?? 0) || 0),
+      };
+    });
     if (!itens.length) throw new BadRequestException('Pedido da Tray sem itens.');
+    const semMatch = itens.filter((i) => i.produtoId == null).length;
     const total = itens.reduce((s: Prisma.Decimal, it: any) => s.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
 
     const nums = (await this.prisma.pedido.findMany({ where: { empresaId }, select: { numero: true } })).map((p) => p.numero);
@@ -199,7 +207,28 @@ export class TrayService {
         itens: { create: itens },
       },
     });
-    return { ok: true, numero: pedido.numero, cliente: cliente.nome, total: Number(total.toFixed(2)) };
+    return { ok: true, numero: pedido.numero, cliente: cliente.nome, total: Number(total.toFixed(2)), itens: itens.length, semVinculo: semMatch };
+  }
+
+  /** Casa um item vendido na Tray com um produto do ERP (SKU/referência/código/nome). */
+  private matchProduto(
+    it: any,
+    catalogo: Array<{ id: number; codigo: string; referencia: string | null; descricao: string; cor: string | null }>,
+  ): { id: number; descricao: string; cor: string | null } | null {
+    const norm = (v: unknown) => String(v ?? '').trim().toLowerCase();
+    // Chaves candidatas vindas da Tray (SKU/referência/código do produto).
+    const refs = [it.reference, it.sku, it.ean, it.code, it.product_reference].map(norm).filter(Boolean);
+    if (refs.length) {
+      const porRef = catalogo.find((p) => refs.includes(norm(p.codigo)) || (p.referencia && refs.includes(norm(p.referencia))));
+      if (porRef) return { id: porRef.id, descricao: porRef.descricao, cor: porRef.cor };
+    }
+    // Fallback pelo nome: o código do produto aparece no nome, ou descrição igual.
+    const nome = norm(it.name || it.product_name);
+    if (nome) {
+      const porNome = catalogo.find((p) => nome.includes(norm(p.codigo)) || norm(p.descricao) === nome);
+      if (porNome) return { id: porNome.id, descricao: porNome.descricao, cor: porNome.cor };
+    }
+    return null;
   }
 
   // ===== helpers =====
@@ -209,8 +238,53 @@ export class TrayService {
     return isNaN(d.getTime()) ? new Date(Date.now() + 6 * 3600 * 1000) : d;
   }
   private async getJson(url: string): Promise<any> {
-    const res = await fetch(url, { headers: { accept: 'application/json' } });
+    const res = await this.trayFetch(url, { headers: { accept: 'application/json' } });
     if (!res.ok) throw new BadRequestException(`Tray: erro ${res.status} ao consultar a loja.`);
     return res.json();
+  }
+
+  // ===== Rate limit (a Tray permite 180 req/min por aplicativo) =====
+  private callTimes: number[] = [];
+  /** Segura a chamada quando estamos perto do teto de 180 req/min (margem 175). */
+  private async rateGuard(): Promise<void> {
+    const now = Date.now();
+    this.callTimes = this.callTimes.filter((t) => now - t < 60_000);
+    if (this.callTimes.length >= 175) {
+      const espera = 60_000 - (now - this.callTimes[0]) + 60;
+      this.log.warn(`Tray: teto de req/min atingido, aguardando ${espera}ms`);
+      await new Promise((r) => setTimeout(r, Math.max(0, espera)));
+      return this.rateGuard();
+    }
+    this.callTimes.push(Date.now());
+  }
+  /** fetch com controle de taxa — TODA chamada à Tray passa por aqui. */
+  private async trayFetch(url: string, init?: RequestInit): Promise<Response> {
+    await this.rateGuard();
+    return fetch(url, init);
+  }
+
+  // ===== Categorias e Produtos (leitura — pontos de homologação) =====
+  /** Lista as categorias da loja (homologação: ponto "Categoria"). */
+  async buscarCategorias(empresaId: number, id: number) {
+    const c = await this.contaDaEmpresa(empresaId, id);
+    const token = await this.tokenValido(c);
+    const data: any = await this.getJson(`${c.apiUrl}/categories?access_token=${encodeURIComponent(token)}&limit=50`);
+    const cats: any[] = Array.isArray(data?.Categories) ? data.Categories.map((x: any) => x.Category ?? x) : [];
+    return cats.map((x) => ({ id: String(x.id), nome: x.name || x.title || '—', ativo: x.has_accessories ?? x.available ?? null }));
+  }
+
+  /** Lista os produtos da loja (homologação: ponto "Produto"). */
+  async buscarProdutos(empresaId: number, id: number) {
+    const c = await this.contaDaEmpresa(empresaId, id);
+    const token = await this.tokenValido(c);
+    const data: any = await this.getJson(`${c.apiUrl}/products?access_token=${encodeURIComponent(token)}&limit=50&sort=id_desc`);
+    const prods: any[] = Array.isArray(data?.Products) ? data.Products.map((x: any) => x.Product ?? x) : [];
+    return prods.map((p) => ({
+      id: String(p.id),
+      nome: p.name || '—',
+      sku: p.reference || p.ean || '',
+      preco: Number(p.price) || 0,
+      estoque: Number(p.stock ?? p.available_stock ?? 0),
+    }));
   }
 }
