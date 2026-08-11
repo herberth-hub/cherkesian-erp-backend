@@ -2201,9 +2201,14 @@ async function gerarOp(id, parcial){
     else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); }
     else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
     else if(r.status==='bloqueado_material'){
-      // Oferece PRODUÇÃO PARCIAL: produzir o que o estoque cobre e manter a compra do resto.
-      const falt=(r.faltantes||[]).map(f=>'• '+String(f.descricao).split(' - ')[0]+': falta '+f.faltam+' '+f.unidade).join('\n');
       const oc=(r.ordensCompra||[]).map(o=>o.numero).join(', ');
+      // Se já veio do PARCIAL e ainda bloqueou = estoque não cobre nem 1 peça. NÃO reabre o popup (evita loop).
+      if(parcial){
+        await uiAlert({tipo:'info', titulo:'Estoque não cobre nem 1 peça', ok:'Entendi', msg:'O estoque atual não dá pra produzir nem 1 peça inteira deste pedido agora.\n\nAs ordens de compra ('+oc+') foram mantidas — assim que o material chegar, é só gerar a OP (ou a OP complementar).'});
+        loadRoute(); return;
+      }
+      // 1ª vez: oferece PRODUÇÃO PARCIAL (produz o que cobre e mantém a compra do resto).
+      const falt=(r.faltantes||[]).map(f=>'• '+String(f.descricao).split(' - ')[0]+': falta '+f.faltam+' '+f.unidade).join('\n');
       const ok = await uiConfirm({tipo:'warn', titulo:'Faltou material p/ o pedido todo',
         ok:'⚙️ Produzir o que tenho (parcial)', cancel:'Só comprar (aguardar material)',
         msg:'Ordem(ns) de compra criada(s): '+oc+'\n\n'+falt+'\n\nQuer PRODUZIR AGORA a parte que o estoque cobre, sem parar a linha? A OP complementar do restante sai quando o material chegar.'});

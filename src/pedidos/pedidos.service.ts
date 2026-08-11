@@ -403,20 +403,50 @@ export class PedidosService {
     if (faltantes.length > 0) {
       const motivoPedido = `Reposição automática p/ pedido ${pedido.numero}`;
 
-      // ===== PRODUÇÃO PARCIAL: produz o que o estoque cobre AGORA e mantém a OC do resto. =====
+      // ===== PRODUÇÃO PARCIAL: CORTE MAIS RENTÁVEL — maximiza o nº de peças =====
+      // Guloso: corta primeiro os tamanhos que gastam MENOS tecido por peça (rendem
+      // mais unidades), respeitando a quantidade pedida de cada tamanho e o saldo.
       if (parcial) {
-        // Fração coberta = menor razão saldo/necessário entre os materiais da receita.
-        let ratio = 1;
-        for (const [mid, nec] of necessarioPorMaterial) {
-          const m = materiais.find((x) => x.id === mid);
-          const r = m && Number(nec) > 0 ? Number(m.saldo) / Number(nec) : 1;
-          if (r < ratio) ratio = r;
+        type Grupo = { u: (typeof unidades)[number]; tam: string | null; pedido: number; consPorMat: Map<number, number> };
+        const grupos: Grupo[] = [];
+        for (const u of unidades) {
+          const bom = bomPorItem.get(u.chave) ?? [];
+          const grade = u.grade as Record<string, number> | null | undefined;
+          if (grade && typeof grade === 'object' && Object.keys(grade).length) {
+            for (const [t, q] of Object.entries(grade)) {
+              const qn = Number(q) || 0; if (qn <= 0) continue;
+              const cpm = new Map<number, number>();
+              for (const b of bom) { const porTam = b.porTamanho as Record<string, number> | null | undefined; const c = Number((porTam && (porTam[t.toUpperCase()] ?? porTam[t])) ?? Number(b.quantidade)); if (c > 0) cpm.set(b.materialId, c); }
+              grupos.push({ u, tam: t, pedido: qn, consPorMat: cpm });
+            }
+          } else {
+            const cpm = new Map<number, number>();
+            for (const b of bom) { const c = Number(b.quantidade); if (c > 0) cpm.set(b.materialId, c); }
+            grupos.push({ u, tam: null, pedido: u.quantidade, consPorMat: cpm });
+          }
         }
-        ratio = Math.max(0, Math.min(1, ratio));
-        const parciais = unidades
-          .map((u) => ({ ...u, quantidade: Math.floor(u.quantidade * ratio), grade: this.escalarGrade(u.grade, ratio) }))
+        // Ordena por consumo total por peça (asc): peça mais "barata" de tecido primeiro.
+        grupos.sort((a, b) => [...a.consPorMat.values()].reduce((s, x) => s + x, 0) - [...b.consPorMat.values()].reduce((s, x) => s + x, 0));
+        const remanescente = new Map<number, number>();
+        const saldoDe = (mid: number) => { const m = materiais.find((x) => x.id === mid); return m ? Number(m.saldo) : 0; };
+        for (const g of grupos) for (const mid of g.consPorMat.keys()) if (!remanescente.has(mid)) remanescente.set(mid, saldoDe(mid));
+        const cortePorUnidade = new Map<(typeof unidades)[number], { grade: Record<string, number>; total: number }>();
+        for (const g of grupos) {
+          let max = g.pedido;
+          for (const [mid, cons] of g.consPorMat) if (cons > 0) max = Math.min(max, Math.floor((remanescente.get(mid) ?? 0) / cons));
+          if (max <= 0) continue;
+          for (const [mid, cons] of g.consPorMat) remanescente.set(mid, (remanescente.get(mid) ?? 0) - cons * max);
+          const cur = cortePorUnidade.get(g.u) ?? { grade: {}, total: 0 };
+          if (g.tam) cur.grade[g.tam] = (cur.grade[g.tam] ?? 0) + max;
+          cur.total += max;
+          cortePorUnidade.set(g.u, cur);
+        }
+        const parciais = [...cortePorUnidade.entries()]
+          .map(([u, v]) => ({ ...u, quantidade: v.total, grade: (Object.keys(v.grade).length ? v.grade : undefined) as Record<string, number> | undefined }))
           .filter((u) => u.quantidade > 0);
         const totalParcial = parciais.reduce((s, u) => s + u.quantidade, 0);
+        const totalPedido = unidades.reduce((s, u) => s + u.quantidade, 0);
+        const ratio = totalPedido > 0 ? totalParcial / totalPedido : 0;
         if (totalParcial > 0) {
           const necessarioParcial = new Map<number, Prisma.Decimal>();
           for (const u of parciais) {
