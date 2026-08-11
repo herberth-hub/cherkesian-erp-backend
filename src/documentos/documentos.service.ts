@@ -431,6 +431,12 @@ export class DocumentosService {
         }
       }
       secao(doc, `Romaneio de corte — materiais a separar (${op.quantidade} peças)`);
+      if (op.corteParcial) {
+        const msg = op.corteObs || 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. O restante sai na OP complementar quando o tecido chegar.';
+        doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9.5).text(msg, 50, doc.y, { width: doc.page.width - 100 });
+        doc.moveDown(0.6);
+        doc.fillColor('#242a26').font('Helvetica').fontSize(10);
+      }
       tabela(
         doc,
         [

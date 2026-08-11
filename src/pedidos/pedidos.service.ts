@@ -464,7 +464,7 @@ export class PedidosService {
               const numeroOp = await this.gerarNumeroOP(tx);
               const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
               const romaneio = bom.map((b) => { const m = materiais.find((x) => x.id === b.materialId)!; return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false }; });
-              const op = await tx.oP.create({ data: { numero: numeroOp, pedidoId: pedido.id, filialId: pedido.filialId, produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar', pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined, romaneioMateriais: romaneio as Prisma.InputJsonValue } });
+              const op = await tx.oP.create({ data: { numero: numeroOp, pedidoId: pedido.id, filialId: pedido.filialId, produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar', pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' } });
               ops.push({ numero: op.numero, quantidade: op.quantidade });
             }
             const criadas: { numero: string }[] = [];
