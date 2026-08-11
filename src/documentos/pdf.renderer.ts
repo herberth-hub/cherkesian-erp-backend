@@ -191,18 +191,27 @@ export function gradeCaixinhas(doc: Pdf, itens: Array<[string, string]>): void {
  * Grade de tamanhos em TABELA: linha de cabeçalho com os tamanhos + coluna Total,
  * e uma linha com as quantidades (em branco quando não informadas).
  */
-export function gradeTabela(doc: Pdf, itens: Array<[string, string]>): void {
+/** Marca opcional por tamanho: parcial (cortado X de Y) para destaque no PDF. */
+export type GradeMarca = { partial?: boolean; sub?: string };
+
+export function gradeTabela(
+  doc: Pdf,
+  itens: Array<[string, string] | [string, string, GradeMarca?]>,
+): void {
   const x0 = 50;
   const tableW = doc.page.width - 100;
   const cols = itens.length + 1; // + coluna Total
   const colW = tableW / cols;
   const rowH = 26;
+  const marcas = itens.map((it) => (it[2] as GradeMarca | undefined) ?? undefined);
+  const temSub = marcas.some((m) => m?.sub);
+  const subH = temSub ? 12 : 0; // linha extra p/ "de N" quando houver parciais
   let y = doc.y + 4;
-  if (y + rowH * 2 > doc.page.height - 110) { doc.addPage(); y = 128; }
+  if (y + rowH * 2 + subH > doc.page.height - 110) { doc.addPage(); y = 128; }
 
-  const total = itens.reduce((s, [, q]) => s + (Number(q) || 0), 0);
-  const headers = [...itens.map(([t]) => t), 'Total'];
-  const values = [...itens.map(([, q]) => q || ''), total ? String(total) : ''];
+  const total = itens.reduce((s, it) => s + (Number(it[1]) || 0), 0);
+  const headers = [...itens.map((it, i) => (marcas[i]?.partial ? `${it[0]} *` : it[0])), 'Total'];
+  const values = [...itens.map((it) => it[1] || ''), total ? String(total) : ''];
 
   // Cabeçalho (faixa dourada clara)
   for (let i = 0; i < cols; i++) {
@@ -212,17 +221,24 @@ export function gradeTabela(doc: Pdf, itens: Array<[string, string]>): void {
     doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(10)
       .text(headers[i], x, y + rowH / 2 - 6, { width: colW, align: 'center' });
   }
-  // Linha de quantidades
+  // Linha de quantidades (+ sublinha "de N" nos parciais)
   const y2 = y + rowH;
+  const linhaH = rowH + subH;
   for (let i = 0; i < cols; i++) {
     const x = x0 + i * colW;
-    doc.rect(x, y2, colW, rowH).fillColor('#ffffff').fill();
-    doc.rect(x, y2, colW, rowH).lineWidth(0.8).strokeColor(OURO).stroke();
-    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13)
+    const parcial = i < itens.length && marcas[i]?.partial;
+    doc.rect(x, y2, colW, linhaH).fillColor(parcial ? '#fff3e0' : '#ffffff').fill();
+    doc.rect(x, y2, colW, linhaH).lineWidth(0.8).strokeColor(OURO).stroke();
+    doc.fillColor(parcial ? '#9a5a00' : TINTA).font('Helvetica-Bold').fontSize(13)
       .text(values[i] || ' ', x, y2 + rowH / 2 - 8, { width: colW, align: 'center' });
+    const sub = i < itens.length ? marcas[i]?.sub : undefined;
+    if (sub) {
+      doc.fillColor('#9a5a00').font('Helvetica').fontSize(7.5)
+        .text(sub, x, y2 + rowH - 3, { width: colW, align: 'center' });
+    }
   }
   doc.x = x0;
-  doc.y = y2 + rowH + 12;
+  doc.y = y2 + linhaH + 12;
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
 

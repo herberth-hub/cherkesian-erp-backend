@@ -389,7 +389,36 @@ export class DocumentosService {
     const grade = op.gradeTamanhos as Record<string, number> | null;
     if (grade && Object.keys(grade).length) {
       secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
-      gradeTabela(doc, Object.entries(grade).map(([t, q]) => [t, String(q)]));
+      // OP parcial: compara com a grade pedida (mesmo produto+cor) e marca os
+      // tamanhos incompletos (cortado X de Y) em laranja com "*".
+      let pedida: Record<string, number> | null = null;
+      if (op.corteParcial && op.pedidoId && op.produtoId) {
+        const itens = await this.prisma.pedidoItem.findMany({
+          where: { pedidoId: op.pedidoId, produtoId: op.produtoId, ...(op.cor ? { cor: op.cor } : {}) },
+          select: { grade: true },
+        });
+        const acc: Record<string, number> = {};
+        for (const it of itens) {
+          const g = it.grade as Record<string, number> | null;
+          if (g) for (const [t, q] of Object.entries(g)) acc[t.toUpperCase()] = (acc[t.toUpperCase()] ?? 0) + (Number(q) || 0);
+        }
+        if (Object.keys(acc).length) pedida = acc;
+      }
+      gradeTabela(
+        doc,
+        Object.entries(grade).map(([t, q]) => {
+          const cortado = Number(q) || 0;
+          const ped = pedida?.[t.toUpperCase()];
+          if (ped != null && cortado < ped) return [t, String(cortado), { partial: true, sub: `de ${ped}` }];
+          return [t, String(cortado)];
+        }),
+      );
+      if (pedida) {
+        doc.fillColor('#9a5a00').font('Helvetica').fontSize(8.5)
+          .text('* tamanho parcial — corte primeiro os menores; o restante sai na OP complementar quando o tecido chegar.', 50, doc.y, { width: doc.page.width - 100 });
+        doc.moveDown(0.4);
+        doc.fillColor('#242a26').font('Helvetica').fontSize(10);
+      }
     } else if (produto?.grade) {
       const cols = this.expandirGrade(produto.grade);
       if (cols.length <= 1) {
