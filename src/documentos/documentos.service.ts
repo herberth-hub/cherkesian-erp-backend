@@ -672,9 +672,10 @@ export class DocumentosService {
     ]);
 
     for (const l of linhas) {
-      if (doc.y > doc.page.height - 200) doc.addPage();
+      if (doc.y > doc.page.height - 260) doc.addPage();
       secao(doc, `${l.codigo} — ${l.descricao}  ·  ${l.cor}  (${l.total} peças)`);
-      imagemMini(doc, l.foto);
+      // Foto maior na OS (vai na mão do costureiro — ver bem a peça ajuda).
+      imagemMini(doc, l.foto, 168);
       gradeTabela(doc, l.grade);
     }
     assinaturas(doc, 'Entregue à oficina', 'Recebido na oficina');
