@@ -38,7 +38,9 @@ async function bootstrap(): Promise<void> {
           'img-src': ["'self'", 'data:', 'blob:'],
           'connect-src': ["'self'"],
           'font-src': ["'self'", 'data:'],
-          'object-src': ["'none'"],
+          // PDFs (pedido/proposta/relatórios) abrem em janela interna via blob: — libera frame/object.
+          'frame-src': ["'self'", 'blob:'],
+          'object-src': ["'self'", 'blob:'],
           'frame-ancestors': ["'self'"],
           'base-uri': ["'self'"],
           'form-action': ["'self'"],
