@@ -995,6 +995,7 @@ function pedidoAcoes(p){
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
+    if(p.producaoParcial) b+=`<button class="btn-sm" style="color:#9a5a00" title="Produzir o restante — o estoque cobria só parte" onclick="APP.gerarOp(${p.id})">⚙️ OP complementar</button> `;
     if(p.etapa!=='expedicao'){ b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir tudo</button> <button class="btn-sm" onclick="APP.formExpParcial(${p.id})">📦 Expedição parcial</button> `; }
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
     if(['producao','expedicao'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarDoc('plano_corte',${p.id})">🧵 Plano de Corte</button> `;
@@ -2161,17 +2162,27 @@ async function aprovarPedido(id){
   try{ const p=await api('/pedidos/'+id+'/aprovar',{method:'POST'}); toast('Pedido aprovado → etapa '+p.etapa+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
-async function gerarOp(id){
+async function gerarOp(id, parcial){
   try{
-    const r = await api('/pedidos/'+id+'/gerar-op',{method:'POST'});
+    const r = await api('/pedidos/'+id+'/gerar-op'+(parcial?'?parcial=1':''),{method:'POST'});
     if(r.status==='op_gerada'){
       const nums=(r.ops||[]).map(o=>o.numero).join(', ');
       let msg=(r.ops&&r.ops.length>1?'OPs geradas: ':'OP gerada: ')+nums+'. Material baixado.';
       if(r.revenda&&r.revenda.length) msg+=' '+r.revenda.length+' item(ns) de revenda não geram OP.';
       toast(msg,'ok');
     }
-    else if(r.status==='sem_producao') toast('Pedido só de revenda — nenhuma OP. Liberado para expedição.','ok');
-    else if(r.status==='bloqueado_material'){ const oc=r.ordensCompra.map(o=>o.numero).join(', '); toast('Bloqueado por material. Ordem(ns) de compra criada(s): '+oc,'err'); }
+    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); }
+    else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
+    else if(r.status==='bloqueado_material'){
+      // Oferece PRODUÇÃO PARCIAL: produzir o que o estoque cobre e manter a compra do resto.
+      const falt=(r.faltantes||[]).map(f=>'• '+String(f.descricao).split(' - ')[0]+': falta '+f.faltam+' '+f.unidade).join('\n');
+      const oc=(r.ordensCompra||[]).map(o=>o.numero).join(', ');
+      const ok = await uiConfirm({tipo:'warn', titulo:'Faltou material p/ o pedido todo',
+        ok:'⚙️ Produzir o que tenho (parcial)', cancel:'Só comprar (aguardar material)',
+        msg:'Ordem(ns) de compra criada(s): '+oc+'\n\n'+falt+'\n\nQuer PRODUZIR AGORA a parte que o estoque cobre, sem parar a linha? A OP complementar do restante sai quando o material chegar.'});
+      if(ok) return gerarOp(id, true);
+      toast('OC(s) '+oc+' criada(s). Pedido aguardando material.','ok');
+    }
     else if(r.status==='bloqueado_piloto') toast('Bloqueado: '+r.message,'err');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }

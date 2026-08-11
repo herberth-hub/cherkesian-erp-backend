@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { PedidosService } from './pedidos.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
@@ -62,7 +63,7 @@ export class PedidosController {
   @Areas('pcp', 'producao')
   @Post(':id/gerar-op')
   @HttpCode(HttpStatus.OK)
-  gerarOp(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.pedidosService.gerarOp(id, user.empresaId);
+  gerarOp(@Param('id', ParseIntPipe) id: number, @Query('parcial') parcial: string, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.gerarOp(id, user.empresaId, parcial === '1' || parcial === 'true');
   }
 }

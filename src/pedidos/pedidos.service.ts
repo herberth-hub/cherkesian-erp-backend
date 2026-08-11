@@ -236,14 +236,16 @@ export class PedidosService {
    *  4. com material disponível, gera a OP, baixa o saldo e avança o pedido p/ produção.
    * Tudo numa transação.
    */
-  async gerarOp(id: number, empresaId: number) {
+  async gerarOp(id: number, empresaId: number, parcial = false) {
     const pedido = await this.findOne(id, empresaId);
 
     // Pré-condições de estado
     if (pedido.etapa === 'orcamento') {
       throw new BadRequestException('Aprove o pedido antes de gerar a OP.');
     }
-    if (['producao', 'estoque', 'expedicao'].includes(pedido.etapa) || pedido.ops.length > 0) {
+    // Já teve OP → bloqueia, EXCETO quando é produção parcial (falta a OP complementar).
+    const emProducaoParcial = (pedido as { producaoParcial?: boolean }).producaoParcial === true;
+    if ((['estoque', 'expedicao'].includes(pedido.etapa) || pedido.ops.length > 0) && !emProducaoParcial) {
       throw new ConflictException(`Pedido ${pedido.numero} já teve OP gerada.`);
     }
 
@@ -283,7 +285,7 @@ export class PedidosService {
 
     // Expande conjuntos (produtos com componentes) em UNIDADES de produção — 1 OP por unidade.
     type UnidProd = { chave: number; produtoId: number | null; quantidade: number; grade: unknown; cor: string | null };
-    const unidades: UnidProd[] = [];
+    let unidades: UnidProd[] = [];
     let ch = 0;
     for (const item of itensProducao) {
       const comps = item.produtoId ? compDe.get(item.produtoId) : null;
@@ -294,6 +296,29 @@ export class PedidosService {
         for (const c of comps) unidades.push({ chave: ch++, produtoId: c.produtoId, quantidade: item.quantidade * (Number(c.quantidade) || 1), grade: item.grade, cor: null });
       } else {
         unidades.push({ chave: ch++, produtoId: item.produtoId ?? null, quantidade: item.quantidade, grade: item.grade, cor });
+      }
+    }
+
+    // OP COMPLEMENTAR (produção parcial anterior): subtrai o que já foi produzido
+    // por produto, deixando só o RESTANTE a produzir agora.
+    if (emProducaoParcial && pedido.ops.length) {
+      const jaProd = new Map<number, number>();
+      for (const o of pedido.ops as { produtoId: number | null; quantidade: number }[]) {
+        if (o.produtoId != null) jaProd.set(o.produtoId, (jaProd.get(o.produtoId) ?? 0) + o.quantidade);
+      }
+      for (const u of unidades) {
+        if (u.produtoId == null) continue;
+        const budget = jaProd.get(u.produtoId) ?? 0;
+        if (budget <= 0) continue;
+        const tira = Math.min(budget, u.quantidade);
+        u.grade = this.escalarGrade(u.grade, u.quantidade > 0 ? (u.quantidade - tira) / u.quantidade : 0);
+        u.quantidade -= tira;
+        jaProd.set(u.produtoId, budget - tira);
+      }
+      unidades = unidades.filter((u) => u.quantidade > 0);
+      if (!unidades.length) {
+        await this.prisma.pedido.update({ where: { id }, data: { producaoParcial: false, etapa: 'producao', status: 'Em produção' } });
+        return { status: 'sem_producao' as const, pedido: { numero: pedido.numero, etapa: 'producao' }, message: 'Todas as peças já foram produzidas nas OPs anteriores. Nada restante para produzir.' };
       }
     }
 
@@ -335,6 +360,62 @@ export class PedidosService {
     //     enquanto o pedido está em 'compra' esperando o material chegar.
     if (faltantes.length > 0) {
       const motivoPedido = `Reposição automática p/ pedido ${pedido.numero}`;
+
+      // ===== PRODUÇÃO PARCIAL: produz o que o estoque cobre AGORA e mantém a OC do resto. =====
+      if (parcial) {
+        // Fração coberta = menor razão saldo/necessário entre os materiais da receita.
+        let ratio = 1;
+        for (const [mid, nec] of necessarioPorMaterial) {
+          const m = materiais.find((x) => x.id === mid);
+          const r = m && Number(nec) > 0 ? Number(m.saldo) / Number(nec) : 1;
+          if (r < ratio) ratio = r;
+        }
+        ratio = Math.max(0, Math.min(1, ratio));
+        const parciais = unidades
+          .map((u) => ({ ...u, quantidade: Math.floor(u.quantidade * ratio), grade: this.escalarGrade(u.grade, ratio) }))
+          .filter((u) => u.quantidade > 0);
+        const totalParcial = parciais.reduce((s, u) => s + u.quantidade, 0);
+        if (totalParcial > 0) {
+          const necessarioParcial = new Map<number, Prisma.Decimal>();
+          for (const u of parciais) {
+            for (const b of bomPorItem.get(u.chave) ?? []) {
+              necessarioParcial.set(b.materialId, (necessarioParcial.get(b.materialId) ?? new Prisma.Decimal(0)).plus(this.consumoDoItem(b, u)));
+            }
+          }
+          const ocsAbertas = await this.prisma.ordemCompra.findMany({ where: { status: 'aguardando', motivo: motivoPedido, materialId: { in: faltantes.map((f) => f.material.id) } } });
+          const jaComOC = new Set(ocsAbertas.map((o) => o.materialId));
+          const aCriar = faltantes.filter((f) => !jaComOC.has(f.material.id));
+          const res = await this.prisma.$transaction(async (tx) => {
+            for (const [mid, nec] of necessarioParcial) await tx.material.update({ where: { id: mid }, data: { saldo: { decrement: nec } } });
+            const ops: { numero: string; quantidade: number }[] = [];
+            for (const u of parciais) {
+              const numeroOp = await this.gerarNumeroOP(tx);
+              const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
+              const romaneio = bom.map((b) => { const m = materiais.find((x) => x.id === b.materialId)!; return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false }; });
+              const op = await tx.oP.create({ data: { numero: numeroOp, pedidoId: pedido.id, filialId: pedido.filialId, produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar', pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined, romaneioMateriais: romaneio as Prisma.InputJsonValue } });
+              ops.push({ numero: op.numero, quantidade: op.quantidade });
+            }
+            const criadas: { numero: string }[] = [];
+            if (aCriar.length) {
+              const forn = await this.fornecedorPlaceholder(tx, empresaId);
+              for (const f of aCriar) { const numero = await this.gerarNumeroOC(tx); await tx.ordemCompra.create({ data: { numero, fornecedorId: forn.id, materialId: f.material.id, descricao: f.material.descricao, quantidade: f.faltam, unidade: f.material.unidade, valor: f.faltam.mul(f.material.custo), status: 'aguardando', motivo: motivoPedido } }); criadas.push({ numero }); }
+            }
+            await tx.pedido.update({ where: { id }, data: { etapa: 'producao', status: 'Em produção (parcial)', producaoParcial: true } });
+            return { ops, ocs: criadas.length + ocsAbertas.length };
+          });
+          return {
+            status: 'op_parcial' as const,
+            pedido: { numero: pedido.numero, etapa: 'producao' },
+            produzir: totalParcial,
+            cobertura: Math.round(ratio * 100),
+            ops: res.ops,
+            ocs: res.ocs,
+            message: `Produção PARCIAL liberada: ${totalParcial} peça(s) com o estoque atual (${Math.round(ratio * 100)}%). ${res.ocs} OC(s) do restante mantida(s). Gere a OP complementar quando o material chegar.`,
+          };
+        }
+        // ratio cobre 0 peça → cai no bloqueio normal abaixo.
+      }
+
       const ocsAbertas = await this.prisma.ordemCompra.findMany({
         where: { status: 'aguardando', motivo: motivoPedido, materialId: { in: faltantes.map((f) => f.material.id) } },
       });
@@ -435,7 +516,7 @@ export class PedidosService {
       }
       await tx.pedido.update({
         where: { id },
-        data: { etapa: 'producao', status: 'Em produção' },
+        data: { etapa: 'producao', status: 'Em produção', producaoParcial: false },
       });
       return opsCriadas;
     });
@@ -460,6 +541,15 @@ export class PedidosService {
    * Se a BOM tem consumo POR TAMANHO e o item tem grade, soma tamanho×metros por tamanho;
    * senão, usa o consumo padrão × quantidade do item.
    */
+  /** Escala uma grade de tamanhos por um fator (0..1), arredondando p/ baixo por tamanho. */
+  private escalarGrade(grade: unknown, fator: number): unknown {
+    const g = grade as Record<string, number> | null | undefined;
+    if (!g || typeof g !== 'object') return undefined;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(g)) { const n = Math.floor((Number(v) || 0) * fator); if (n > 0) out[k] = n; }
+    return Object.keys(out).length ? out : undefined;
+  }
+
   private consumoDoItem(b: { quantidade: Prisma.Decimal; porTamanho?: unknown }, item: { quantidade: number; grade?: unknown }): Prisma.Decimal {
     const porTam = b.porTamanho as Record<string, number> | null | undefined;
     const grade = item.grade as Record<string, number> | null | undefined;
