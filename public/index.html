@@ -1366,6 +1366,13 @@ async function lookupCep(cepId, map){
 function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
 function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
 function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
+// Máscara automática de CNPJ/CPF enquanto digita (pontos, barra e traço).
+function maskDoc(el){
+  if(!el) return; let d=String(el.value||'').replace(/\D/g,'').slice(0,14), out='';
+  if(d.length<=11){ for(let i=0;i<d.length;i++){ if(i===3||i===6) out+='.'; if(i===9) out+='-'; out+=d[i]; } }
+  else { for(let i=0;i<d.length;i++){ if(i===2||i===5) out+='.'; if(i===8) out+='/'; if(i===12) out+='-'; out+=d[i]; } }
+  el.value=out;
+}
 async function formCliente(id){
   let cl = {};
   if(id){ try{ cl = await api('/clientes/'+id); }catch(e){ toast(e.message,'err'); return; } }
@@ -1377,7 +1384,7 @@ async function formCliente(id){
     ${field('f_email','E-mail','value="'+esc(cl.email||'')+'" type="email"')}
     <div class="mrow"><label class="fl"><input type="checkbox" id="f_novo" ${cl.clienteNovo!==false?'checked':''}> Cliente novo (exige peça-piloto)</label></div>
     <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (destinatário da NF-e)</b></div>
-    <div class="grid2"><div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(cl.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjCliente()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
+    <div class="grid2"><div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(cl.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjCliente()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
     <div class="grid2"><div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${cl.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${cl.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${cl.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>${field('f_cep','CEP (preenche endereço)','value="'+esc(cl.cep||'')+'" onblur="APP.buscarCepCliente()"')}</div>
     <div class="grid3">${field('f_log','Logradouro','value="'+esc(cl.logradouro||'')+'"')}${field('f_numend','Número','value="'+esc(cl.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(cl.bairro||'')+'"')}</div>
     <div class="grid3">${field('f_mun','Município','value="'+esc(cl.municipio||'')+'"')}${field('f_codmun','Cód. IBGE','value="'+esc(cl.codMunicipio||'')+'"')}${field('f_uf','UF','value="'+esc(cl.uf||'')+'" maxlength="2"')}</div>
@@ -1397,7 +1404,7 @@ function renderCliUnis(){
     <div style="border:1px solid #e7e3d8;border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">
       <div class="grid3">
         <div class="mrow"><label class="fl">Unidade/Filial *</label><input class="inp" id="cu_nome_${i}" value="${esc(u.nome||'')}" placeholder="ex.: SACA"></div>
-        <div class="mrow"><label class="fl">CNPJ/CPF <span class="muted" style="font-size:9px">(vazio = usa o do cliente)</span></label><input class="inp" id="cu_cnpj_${i}" value="${esc(u.cnpjCpf||'')}"></div>
+        <div class="mrow"><label class="fl">CNPJ/CPF <span class="muted" style="font-size:9px">(vazio = usa o do cliente)</span></label><input class="inp" id="cu_cnpj_${i}" value="${esc(u.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"></div>
         <div class="mrow"><label class="fl">Inscr. Estadual</label><input class="inp" id="cu_ie_${i}" value="${esc(u.inscricaoEstadual||'')}"></div>
       </div>
       <div class="grid3">
@@ -1826,7 +1833,7 @@ async function formFornecedor(id){
   let f={};
   if(id){ try{ f = await api('/fornecedores/'+id); }catch(e){ toast(e.message,'err'); return; } }
   openModal(`<h3>${id?'Editar':'Novo'} fornecedor</h3>
-    <div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(f.cnpjCpf||'')}"><button type="button" class="btn-sm" onclick="APP.buscarCnpjForn()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>
+    <div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(f.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjForn()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>
     <div class="grid2">${field('f_nome','Razão social *','value="'+esc(f.nome||'')+'"')}${field('f_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}</div>
     <div class="grid2">${field('f_tipo','Tipo (ex.: Tecido, Facção)','value="'+esc(f.tipo||'')+'"')}${field('f_cidade','Cidade/UF','value="'+esc(f.cidadeUf||'')+'"')}</div>
     <div class="grid2">${field('f_contato','Contato','value="'+esc(f.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
@@ -3275,7 +3282,7 @@ async function formNotaEntrada(prefill){
     </div>
     <div class="muted" style="font-size:11px;margin:-2px 0 4px">Ou informe o CNPJ + nome abaixo — se não estiver cadastrado, o fornecedor é criado automaticamente ao salvar.</div>
     <div class="grid2">
-      <div class="mrow"><label class="fl">CNPJ do fornecedor (emitente)</label><div style="display:flex;gap:5px"><input id="ne_cnpj" class="inp" style="flex:1" value="${esc(p.cnpjEmitente||'')}" placeholder="só dígitos"><button type="button" class="btn-sm" onclick="APP.buscarCnpjEntrada()" title="Buscar na Receita">🔍</button></div></div>
+      <div class="mrow"><label class="fl">CNPJ do fornecedor (emitente)</label><div style="display:flex;gap:5px"><input id="ne_cnpj" class="inp" style="flex:1" value="${esc(p.cnpjEmitente||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjEntrada()" title="Buscar na Receita">🔍</button></div></div>
       ${field('ne_nome','Nome / razão social do fornecedor','value="'+esc(p.nomeEmitente||'')+'"')}
     </div>
     <div class="grid2">${field('ne_serie','Série','value="'+esc(p.serie||'')+'"')}${field('ne_data','Emissão','type="date"'+(p.data?(' value="'+esc(p.data)+'"'):''))}</div>
@@ -5906,7 +5913,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, maskDoc, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
