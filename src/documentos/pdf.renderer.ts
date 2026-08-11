@@ -123,6 +123,10 @@ export function tabela(
 ): void {
   const x0 = 50;
   let y = doc.y + 4;
+  // Se não couber o cabeçalho + ao menos 1 linha no restante da página, começa em
+  // nova página ANTES de desenhar (senão o pdfkit auto-quebra a cada célula do
+  // cabeçalho, gerando uma página por coluna).
+  if (y + 20 + 24 > doc.page.height - 60) { doc.addPage(); y = 128; }
   // Cabeçalho
   doc.rect(x0, y, doc.page.width - 100, 20).fill('#faf6ea');
   let x = x0 + 8;

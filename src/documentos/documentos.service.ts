@@ -407,9 +407,9 @@ export class DocumentosService {
       // Imagem do modelo para o cortador identificar a peça (ou moldura em branco).
       secao(doc, 'Modelo da peça');
       if (produto.fotoModelo) {
-        imagem(doc, produto.fotoModelo, 160);
+        imagem(doc, produto.fotoModelo, 128);
       } else {
-        const x = 50, w = doc.page.width - 100, h = 130;
+        const x = 50, w = doc.page.width - 100, h = 92;
         const y = doc.y + 2;
         doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).dash(3, { space: 3 }).strokeColor('#C9A227').stroke().undash();
         doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('FOTO DO MODELO (cole/anexe a imagem da peça)', x, y + h / 2 - 6, { width: w, align: 'center' });
@@ -494,9 +494,8 @@ export class DocumentosService {
       }
       secao(doc, `Romaneio de corte — materiais a separar (${op.quantidade} peças)`);
       if (op.corteParcial) {
-        const msg = op.corteObs || 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. O restante sai na OP complementar quando o tecido chegar.';
-        doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9.5).text(msg, 50, doc.y, { width: doc.page.width - 100 });
-        doc.moveDown(0.6);
+        doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9).text('CORTE OTIMIZADO (parcial) — corte primeiro os tamanhos menores; o restante sai na OP complementar.', 50, doc.y, { width: doc.page.width - 100 });
+        doc.moveDown(0.4);
         doc.fillColor('#242a26').font('Helvetica').fontSize(10);
       }
       tabela(
