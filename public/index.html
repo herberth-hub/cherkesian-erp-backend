@@ -1147,14 +1147,7 @@ async function baixarRel(tipo, qs, fmt){
       const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='relatorio-'+tipo+'.xlsx';
       document.body.appendChild(a); a.click(); setTimeout(()=>{ a.remove(); },120); toast('Excel gerado — verifique os downloads.','ok');
     } else {
-      const url=URL.createObjectURL(blob);
-      openModal(`<h3>📄 Relatório · ${esc(tipo)}</h3>
-        <div style="display:flex;gap:8px;margin:-2px 0 8px;flex-wrap:wrap">
-          <button class="btn-sm" onclick="try{var f=document.getElementById('relfr');f.contentWindow.focus();f.contentWindow.print();}catch(e){window.open('${url}','_blank')}">🖨 Imprimir</button>
-          <a class="btn-sm" href="${url}" download="relatorio-${esc(tipo)}.pdf" style="text-decoration:none">⬇ Baixar</a>
-          <button class="btn-sm" onclick="window.open('${url}','_blank')">↗ Nova aba</button>
-        </div>
-        <iframe id="relfr" src="${url}" style="display:block;width:82vw;max-width:920px;height:73vh;border:1px solid #e7e3d8;border-radius:8px;background:#fff"></iframe>`);
+      abrirPdfBlob(blob, {titulo:'📄 Relatório · '+tipo, nome:'relatorio-'+tipo});
     }
   }catch(e){ toast(e.message,'err'); }
 }
@@ -1177,6 +1170,37 @@ function _winDrag(el){ const hd=el.querySelector('.win-hd'); let sx,sy,ox,oy,d=f
   hd.addEventListener('mousedown',e=>{ if(e.target.tagName==='BUTTON')return; d=true; sx=e.clientX;sy=e.clientY; const r=el.getBoundingClientRect(); ox=r.left;oy=r.top; el.style.left=ox+'px';el.style.top=oy+'px';el.style.transform='none'; document.body.style.userSelect='none'; });
   document.addEventListener('mousemove',e=>{ if(!d)return; el.style.left=Math.max(0,ox+e.clientX-sx)+'px'; el.style.top=Math.max(0,oy+e.clientY-sy)+'px'; });
   document.addEventListener('mouseup',()=>{ if(d){d=false; document.body.style.userSelect='';} }); }
+// Detecta celular/tablet (o iframe de blob PDF costuma vir em branco no mobile).
+function isMobile(){ try{ return window.matchMedia('(max-width: 760px)').matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }catch(e){ return false; } }
+let __pdfSeq=0;
+// Visualizador de PDF unificado. Desktop: embute o PDF numa janela larga.
+// Celular: mostra botões grandes "Abrir PDF" (tela cheia) e "Baixar PDF",
+// porque o iframe de blob normalmente não renderiza no navegador do celular.
+function abrirPdfBlob(blob, opts){
+  opts=opts||{};
+  const url=URL.createObjectURL(blob);
+  const nome=String(opts.nome||'documento').replace(/[^\w.-]+/g,'_');
+  const titulo=opts.titulo||'📄 Documento';
+  const tid='pdfv_'+(++__pdfSeq);
+  if(isMobile()){
+    openModal(`<h3>${esc(titulo)}</h3>
+      <div class="muted" style="font-size:12.5px;margin:-4px 0 14px">Toque para abrir o PDF em tela cheia ou baixar para o seu celular.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <a class="btn-primary" href="${url}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center;padding:14px;font-size:15px">📄 Abrir PDF</a>
+        <a class="btn-ghost" href="${url}" download="${esc(nome)}.pdf" style="text-decoration:none;text-align:center;padding:14px;font-size:15px">⬇ Baixar PDF</a>
+      </div>`);
+  } else {
+    openModal(`<h3>${esc(titulo)}</h3>
+      <div style="display:flex;gap:8px;margin:-2px 0 8px;flex-wrap:wrap">
+        <button class="btn-sm" onclick="try{var f=document.getElementById('${tid}');f.contentWindow.focus();f.contentWindow.print();}catch(e){window.open('${url}','_blank')}">🖨 Imprimir</button>
+        <a class="btn-sm" href="${url}" download="${esc(nome)}.pdf" style="text-decoration:none">⬇ Baixar</a>
+        <button class="btn-sm" onclick="window.open('${url}','_blank')">↗ Nova aba</button>
+      </div>
+      <iframe id="${tid}" src="${url}" style="display:block;width:100%;height:82vh;border:1px solid #e7e3d8;border-radius:8px;background:#fff"></iframe>`, {wide:true});
+  }
+  setTimeout(()=>{ try{URL.revokeObjectURL(url);}catch(e){} }, 10*60*1000);
+  return url;
+}
 function openModal(html, opts){
   opts=opts||{};
   const title=_winTitle(html), body=_winStripTitle(html);
@@ -4557,16 +4581,8 @@ async function gerarDoc(tipo, refId){
     const r = await fetch(d.urlPdf, { headers: { Authorization:'Bearer '+S.access } });
     if(!r.ok) throw new Error('Falha ao baixar o PDF ('+r.status+').');
     const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const nome = (tipo+'-'+(d.numero||'')).replace(/[^\w.-]+/g,'_');
-    // Abre o PDF numa JANELA INTERNA do ERP (sem sair pra nova aba).
-    openModal(`<h3>📄 ${esc(DOC_NOMES[tipo]||tipo)} · <span class="mono gold">${esc(d.numero||'')}</span></h3>
-      <div style="display:flex;gap:8px;margin:-2px 0 8px;flex-wrap:wrap">
-        <button class="btn-sm" onclick="try{var f=document.getElementById('docfr_${refId}');f.contentWindow.focus();f.contentWindow.print();}catch(e){window.open('${url}','_blank')}">🖨 Imprimir</button>
-        <a class="btn-sm" href="${url}" download="${esc(nome)}.pdf" style="text-decoration:none">⬇ Baixar</a>
-        <button class="btn-sm" onclick="window.open('${url}','_blank')">↗ Nova aba</button>
-      </div>
-      <iframe id="docfr_${refId}" src="${url}" style="display:block;width:100%;height:82vh;border:1px solid #e7e3d8;border-radius:8px;background:#fff"></iframe>`, {wide:true});
+    // Abre o PDF numa janela interna (desktop) ou botões Abrir/Baixar (celular).
+    abrirPdfBlob(blob, {titulo:'📄 '+(DOC_NOMES[tipo]||tipo)+' · '+(d.numero||''), nome:tipo+'-'+(d.numero||'')});
     toast('Documento '+d.numero+' gerado.','ok');
     return d.numero;
   }catch(e){ toast(e.message,'err'); }
@@ -4962,10 +4978,9 @@ async function baixarNfeArquivo(id,tipo){
   try{
     const r = await fetch(API+'/nfe/'+id+'/'+tipo, { headers:{ Authorization:'Bearer '+S.access } });
     if(!r.ok){ let m='Falha ao baixar '+(tipo==='danfe'?'DANFE':'XML')+' ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
-    const blob = await r.blob(); const url = URL.createObjectURL(blob);
-    if(tipo==='danfe'){ window.open(url,'_blank'); }
-    else { const a=document.createElement('a'); const cd=r.headers.get('Content-Disposition')||''; const mt=cd.match(/filename="([^"]+)"/); a.href=url; a.download=mt?mt[1]:('NFe-'+id+'.xml'); document.body.appendChild(a); a.click(); a.remove(); }
-    setTimeout(()=>URL.revokeObjectURL(url), 30000);
+    const blob = await r.blob();
+    if(tipo==='danfe'){ abrirPdfBlob(blob, {titulo:'📄 DANFE · NF '+id, nome:'DANFE-'+id}); }
+    else { const url=URL.createObjectURL(blob); const a=document.createElement('a'); const cd=r.headers.get('Content-Disposition')||''; const mt=cd.match(/filename="([^"]+)"/); a.href=url; a.download=mt?mt[1]:('NFe-'+id+'.xml'); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 30000); }
   }catch(e){ toast(e.message,'err'); }
 }
 async function cancelarNfe(id,numero){
@@ -5345,7 +5360,7 @@ function formFilial(id){
         <option value="producao"${f.nfeAmbiente==='producao'?' selected':''}>✅ Produção (nota válida)</option>
       </select>
       <div class="muted" style="font-size:11px;margin-top:2px">Use Homologação p/ testar a emissão desta filial sem afetar as outras.</div></div>
-    <div class="mrow"><label class="fl">Dados bancários (saem na proposta/pedido)</label>
+    <div class="mrow"><label class="fl">Dados bancários (saem na proposta, no pedido e nas informações complementares da NF-e)</label>
       <textarea id="fl_banco" class="inp" rows="4" placeholder="Favorecido: ...\nBanco / Agência / Conta\nPIX: ...">${esc(f.dadosBancarios||'')}</textarea></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveFilial(${id||0})">Salvar</button></div>`);

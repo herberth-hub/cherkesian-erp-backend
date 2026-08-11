@@ -152,6 +152,8 @@ export class NfeService {
       pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
       transporte?.dimensoes ? `Dimensoes (C x L x A): ${transporte.dimensoes.trim()}` : null,
       cobranca.venctoTxt,
+      // Bonificação/doação não gera cobrança — não faz sentido pedir pagamento.
+      bonificacao ? null : this.dadosPagamentoTxt(filial),
     ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
@@ -305,6 +307,7 @@ export class NfeService {
       (dto.observacoes || '').trim() || null,
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
       venctoTxt,
+      this.dadosPagamentoTxt(filial),
     ].filter(Boolean).join(' | ') || undefined;
 
     // Grade na descrição do item (por produto do pedido vinculado).
@@ -733,6 +736,16 @@ export class NfeService {
   /** Monta a cobrança (duplicatas) da NF a partir da forma de pagamento do pedido.
    *  Aceita "30 dias", "30/60/90", "à vista" etc. Divide o valor em parcelas iguais
    *  e retorna o 1º vencimento (usado também na conta a receber). */
+  /** Dados de pagamento (banco/agência/conta/PIX/favorecido) da filial emitente,
+   *  formatados numa linha para as informações complementares da NF — o cliente
+   *  identifica e paga. Retorna null se a filial não tiver os dados cadastrados. */
+  private dadosPagamentoTxt(filial: { dadosBancarios?: string | null } | null | undefined): string | null {
+    const raw = (filial?.dadosBancarios || '').trim();
+    if (!raw) return null;
+    const limpo = raw.replace(/\s*[\r\n]+\s*/g, '; ').replace(/\s{2,}/g, ' ').trim();
+    return `DADOS PARA PAGAMENTO: ${limpo}`;
+  }
+
   private duplicatasDePedido(forma: string | null | undefined, valor: number): {
     duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }>;
     venctoTxt?: string;
