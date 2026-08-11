@@ -2942,7 +2942,7 @@ async function viewProducao(c){
     mostra.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
-      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} ${o.pedidoId?`<button class="btn-sm" style="color:#2a6a2a;border-color:#bfe0bf" title="Documento único com TODAS as OPs deste pedido (clean p/ produção)" onclick="APP.gerarDoc('op_pedido',${o.pedidoId})">📄 OP do Pedido</button>`:''} <button class="btn-sm" title="Ordem de Serviço p/ oficina (selecionar produto/tamanho)" onclick="APP.formOS(${o.pedidoId||0})">📋 OS oficina</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
     ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".')));
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
@@ -4587,7 +4587,46 @@ function viewRegras(c){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas' };
+// ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
+async function formOS(pedidoId){
+  if(!pedidoId){ toast('Esta OP não está vinculada a um pedido.','err'); return; }
+  const [ops, prods] = await Promise.all([api('/ops'), api('/produtos').catch(()=>[])]);
+  const doPed = (ops||[]).filter(o=>o.pedidoId===pedidoId);
+  if(!doPed.length){ toast('Sem OPs para este pedido.','err'); return; }
+  const pnome={}; (prods||[]).forEach(p=>pnome[p.id]=p.codigo+' — '+p.descricao);
+  const prodMap=new Map(), sizes=new Set();
+  doPed.forEach(o=>{ if(o.produtoId!=null&&!prodMap.has(o.produtoId)) prodMap.set(o.produtoId, pnome[o.produtoId]||('Produto '+o.produtoId));
+    const g=o.gradeTamanhos||{}; Object.keys(g).forEach(t=>{ if(Number(g[t])>0) sizes.add(t.toUpperCase()); }); });
+  const ESC=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8'];
+  const sizeArr=[...sizes].sort((a,b)=>{const i=ESC.indexOf(a),j=ESC.indexOf(b);return (i<0?99:i)-(j<0?99:j);});
+  const pv=doPed[0].pedido?doPed[0].pedido.numero:('#'+pedidoId);
+  openModal(`<h3>📋 Ordem de Serviço — ${esc(pv)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 12px">Selecione o que vai para a oficina. Tudo marcado = pedido inteiro.</div>
+    <div style="margin-bottom:12px"><b style="font-size:12px">Produtos</b> <a style="font-size:11px;color:#8a6d1e;cursor:pointer" onclick="APP.osMarcar('os_prod',true)">todos</a> · <a style="font-size:11px;color:#8a6d1e;cursor:pointer" onclick="APP.osMarcar('os_prod',false)">nenhum</a>
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">${[...prodMap.entries()].map(([id,nome])=>`<label style="font-size:12.5px;display:flex;gap:6px;align-items:center"><input type="checkbox" class="os_prod" value="${id}" checked> ${esc(nome)}</label>`).join('')}</div></div>
+    <div style="margin-bottom:14px"><b style="font-size:12px">Tamanhos</b> <a style="font-size:11px;color:#8a6d1e;cursor:pointer" onclick="APP.osMarcar('os_tam',true)">todos</a> · <a style="font-size:11px;color:#8a6d1e;cursor:pointer" onclick="APP.osMarcar('os_tam',false)">nenhum</a>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">${sizeArr.map(t=>`<label style="font-size:12.5px;display:flex;gap:4px;align-items:center"><input type="checkbox" class="os_tam" value="${esc(t)}" checked> ${esc(t)}</label>`).join('')}</div></div>
+    <div class="row-end"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.gerarOS(${pedidoId})">Gerar OS</button></div>`);
+}
+function osMarcar(cls, val){ document.querySelectorAll('.'+cls).forEach(e=>{ e.checked=val; }); }
+async function gerarOS(pedidoId){
+  const prodEls=[...document.querySelectorAll('.os_prod:checked')].map(e=>Number(e.value));
+  const tamEls=[...document.querySelectorAll('.os_tam:checked')].map(e=>e.value);
+  const allProd=document.querySelectorAll('.os_prod').length, allTam=document.querySelectorAll('.os_tam').length;
+  if(!prodEls.length){ toast('Selecione ao menos um produto.','err'); return; }
+  if(!tamEls.length){ toast('Selecione ao menos um tamanho.','err'); return; }
+  const body={pedidoId};
+  if(prodEls.length<allProd) body.produtoIds=prodEls;
+  if(tamEls.length<allTam) body.tamanhos=tamEls;
+  try{
+    const r=await fetch(API+'/documentos/os/gerar',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+S.access},body:JSON.stringify(body)});
+    if(!r.ok){ let m='Falha ao gerar OS ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
+    const blob=await r.blob(); closeModal();
+    abrirPdfBlob(blob,{titulo:'📋 Ordem de Serviço · '+pedidoId, nome:'OS-'+pedidoId});
+  }catch(e){ toast(e.message,'err'); }
+}
 async function gerarDoc(tipo, refId){
   try{
     const d = await api('/documentos/'+tipo, {method:'POST', body:{referenciaId:refId}});
@@ -6018,7 +6057,7 @@ window.APP = {
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
-  formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio,
+  formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,

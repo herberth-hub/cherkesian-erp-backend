@@ -46,6 +46,24 @@ export class DocumentosController {
     return this.documentosService.enviarPorEmail(id, user, dto.para, dto.assunto, dto.mensagem);
   }
 
+  /** Ordem de Serviço para oficina: PDF filtrado por produto/tamanho (sob demanda). */
+  @Post('os/gerar')
+  async ordemServico(
+    @Body() dto: { pedidoId: number; produtoIds?: number[]; tamanhos?: string[] },
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const { doc, numero } = await this.documentosService.gerarOsPdf(
+      Number(dto.pedidoId),
+      user,
+      { produtoIds: dto.produtoIds, tamanhos: dto.tamanhos },
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${numero}.pdf"`);
+    doc.pipe(res);
+    doc.end();
+  }
+
   /** Stream do PDF (gerado sob demanda a partir dos dados atuais do banco). */
   @Get(':id/pdf')
   async pdf(

@@ -35,6 +35,7 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   proposta: { titulo: 'Proposta Comercial', prefixo: 'PROP', area: 'vendas' },
   pedido: { titulo: 'Pedido de Venda', prefixo: 'PVD', area: 'vendas' },
   op: { titulo: 'Ordem de Produção', prefixo: 'OPD', area: 'producao' },
+  op_pedido: { titulo: 'Ordem de Produção do Pedido', prefixo: 'OPP', area: 'producao' },
   plano_corte: { titulo: 'Plano de Corte', prefixo: 'PCT', area: 'producao' },
   pedido_compra: { titulo: 'Pedido de Compra', prefixo: 'OCD', area: 'compras' },
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
@@ -231,6 +232,8 @@ export class DocumentosService {
         return this.pdfPedido(tipo, referenciaId, empresaId, numero);
       case 'op':
         return this.pdfOp(referenciaId, empresaId, numero);
+      case 'op_pedido':
+        return this.pdfOpPedido(referenciaId, empresaId, numero);
       case 'plano_corte':
         return this.pdfPlanoCorte(referenciaId, empresaId, numero);
       case 'pedido_compra':
@@ -537,6 +540,142 @@ export class DocumentosService {
     }
     assinaturas(doc, 'Separado por (estoque)', 'Recebido no corte');
     return doc;
+  }
+
+  /**
+   * OP CONSOLIDADA DO PEDIDO: um único documento com TODAS as OPs do pedido
+   * (todos os produtos/cores + grades), mais o romaneio de materiais somado.
+   * Documento "clean" para entregar na mão da produção.
+   */
+  private async pdfOpPedido(pedidoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { cliente: true } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    const ops = await this.prisma.oP.findMany({ where: { pedidoId }, orderBy: { id: 'asc' } });
+    if (!ops.length) throw new BadRequestException('Este pedido ainda não tem OP gerada.');
+    const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true } }) : [];
+    const prodMap = new Map(produtos.map((p) => [p.id, p]));
+    const totalPecas = ops.reduce((s, o) => s + o.quantidade, 0);
+
+    const doc = novoDocumento('Ordem de Produção do Pedido', numero);
+    secao(doc, 'Identificação');
+    camposDuplos(doc, [
+      ['Pedido', pedido.numero],
+      ['Cliente', pedido.cliente?.nome ?? '—'],
+      ['Total de peças', `${totalPecas} peças`],
+      ['Ordens de produção', `${ops.length} OP(s)`],
+      ['Entrega prevista', dataBR(pedido.prazoEntrega)],
+      ['Emitido em', dataBR(new Date())],
+    ]);
+
+    // Uma seção compacta por OP: produto + cor + grade de tamanhos.
+    type Rom = { materialId?: number | null; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string };
+    const totMat = new Map<string, { codigo: string; descricao: string; unidade: string; quantidade: number; materialId?: number | null }>();
+    for (const op of ops) {
+      const prod = op.produtoId ? prodMap.get(op.produtoId) : null;
+      if (doc.y > doc.page.height - 200) doc.addPage();
+      secao(doc, `${op.numero} · ${prod?.codigo ?? '—'} — ${prod?.descricao ?? op.numero}${op.corteParcial ? '  (PARCIAL)' : ''}`);
+      camposDuplos(doc, [
+        ['Cor', op.cor ?? prod?.cor ?? '—'],
+        ['Quantidade', `${op.quantidade} peças`],
+      ]);
+      const grade = op.gradeTamanhos as Record<string, number> | null;
+      if (grade && Object.keys(grade).length) {
+        gradeTabela(doc, Object.entries(grade).map(([t, q]) => [t, String(Number(q) || 0)] as [string, string]));
+      }
+      // Acumula os materiais do romaneio (soma por material).
+      const rom = (op.romaneioMateriais as unknown as Rom[] | null) ?? [];
+      for (const r of rom) {
+        const key = String(r.materialId ?? r.codigo);
+        const cur = totMat.get(key) ?? { codigo: r.codigo, descricao: r.descricao, unidade: r.unidade, quantidade: 0, materialId: r.materialId };
+        cur.quantidade += Number(r.quantidade) || 0;
+        totMat.set(key, cur);
+      }
+    }
+
+    // Romaneio TOTAL de materiais (somado de todas as OPs do pedido).
+    if (totMat.size) {
+      if (doc.y > doc.page.height - 160) doc.addPage();
+      secao(doc, 'Materiais totais a separar (todas as OPs do pedido)');
+      tabela(
+        doc,
+        [
+          { titulo: 'Material', largura: 90 },
+          { titulo: 'Descrição', largura: 250 },
+          { titulo: 'Qtd total', largura: 105, alinhamento: 'right' },
+        ],
+        [...totMat.values()].map((m) => [m.codigo, m.descricao, `${this.qtdBR(m.quantidade)} ${m.unidade}`]),
+      );
+    }
+    assinaturas(doc, 'Separado por (estoque)', 'Recebido no corte');
+    rodapeGrupo(doc);
+    return doc;
+  }
+
+  /**
+   * ORDEM DE SERVIÇO para oficina: recorte da produção do pedido por PRODUTO
+   * e/ou TAMANHO. Gerada sob demanda (não persiste documento numerado).
+   */
+  async gerarOsPdf(
+    pedidoId: number,
+    user: AuthUser,
+    filtro: { produtoIds?: number[]; tamanhos?: string[] },
+  ): Promise<{ doc: Pdf; numero: string }> {
+    this.validarTipo('op', user); // OS é da área de produção
+    const empresaId = user.empresaId;
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { cliente: true } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    let ops = await this.prisma.oP.findMany({ where: { pedidoId }, orderBy: { id: 'asc' } });
+    if (!ops.length) throw new BadRequestException('Este pedido ainda não tem OP gerada.');
+    const prodFiltro = filtro.produtoIds && filtro.produtoIds.length ? new Set(filtro.produtoIds) : null;
+    const tamFiltro = filtro.tamanhos && filtro.tamanhos.length ? new Set(filtro.tamanhos.map((t) => t.toUpperCase())) : null;
+    if (prodFiltro) ops = ops.filter((o) => o.produtoId != null && prodFiltro.has(o.produtoId));
+    if (!ops.length) throw new BadRequestException('Nenhuma OP corresponde ao filtro selecionado.');
+
+    const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true } }) : [];
+    const prodMap = new Map(produtos.map((p) => [p.id, p]));
+
+    // Recorta a grade de cada OP pelos tamanhos escolhidos e soma o total da OS.
+    const linhas: Array<{ op: string; codigo: string; descricao: string; cor: string; grade: Array<[string, string]>; total: number }> = [];
+    let totalOS = 0;
+    for (const op of ops) {
+      const prod = op.produtoId ? prodMap.get(op.produtoId) : null;
+      const g = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+      const entradas = Object.entries(g)
+        .filter(([t, q]) => (Number(q) || 0) > 0 && (!tamFiltro || tamFiltro.has(t.toUpperCase())))
+        .map(([t, q]) => [t, String(Number(q) || 0)] as [string, string]);
+      const total = entradas.reduce((s, [, q]) => s + (Number(q) || 0), 0);
+      if (!total) continue;
+      totalOS += total;
+      linhas.push({ op: op.numero, codigo: prod?.codigo ?? '—', descricao: prod?.descricao ?? op.numero, cor: op.cor ?? prod?.cor ?? '—', grade: entradas, total });
+    }
+    if (!linhas.length) throw new BadRequestException('Nenhuma peça corresponde ao filtro (produto/tamanho).');
+
+    const numero = `OS-${pedido.numero}`;
+    const doc = novoDocumento('Ordem de Serviço', numero);
+    secao(doc, 'Identificação');
+    const filtroTxt = [
+      prodFiltro ? `${prodFiltro.size} produto(s)` : 'todos os produtos',
+      tamFiltro ? `tamanhos ${[...tamFiltro].join(', ')}` : 'todos os tamanhos',
+    ].join(' · ');
+    camposDuplos(doc, [
+      ['Pedido', pedido.numero],
+      ['Cliente', pedido.cliente?.nome ?? '—'],
+      ['Total desta OS', `${totalOS} peças`],
+      ['Recorte', filtroTxt],
+      ['Emitido em', dataBR(new Date())],
+      ['Oficina / responsável', '____________________'],
+    ]);
+
+    for (const l of linhas) {
+      if (doc.y > doc.page.height - 170) doc.addPage();
+      secao(doc, `${l.codigo} — ${l.descricao}  ·  ${l.cor}  (${l.total} peças)`);
+      gradeTabela(doc, l.grade);
+    }
+    assinaturas(doc, 'Entregue à oficina', 'Recebido na oficina');
+    rodapeGrupo(doc);
+    return { doc, numero };
   }
 
   /**
