@@ -126,6 +126,8 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 #winbg{position:fixed;inset:0;background:rgba(10,10,10,.14);display:none;z-index:49;pointer-events:none}
 #winlayer{position:fixed;inset:0;z-index:50;pointer-events:none}
 .win{position:absolute;pointer-events:auto;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.28);width:min(560px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #e7e3d8}
+.win.wide{width:min(1240px,96vw);max-height:94vh}
+.win.wide .win-body{padding:12px}
 .win-hd{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;background:#f4f2ed;border-bottom:1px solid #e7e3d8;cursor:move;user-select:none}
 .win-hd .t{flex:1;font-weight:700;font-size:13.5px;color:#3a2f08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .win-hd button{border:none;background:transparent;font-size:15px;line-height:1;cursor:pointer;padding:3px 8px;border-radius:6px;color:#6a5f38}
@@ -1175,16 +1177,17 @@ function _winDrag(el){ const hd=el.querySelector('.win-hd'); let sx,sy,ox,oy,d=f
   hd.addEventListener('mousedown',e=>{ if(e.target.tagName==='BUTTON')return; d=true; sx=e.clientX;sy=e.clientY; const r=el.getBoundingClientRect(); ox=r.left;oy=r.top; el.style.left=ox+'px';el.style.top=oy+'px';el.style.transform='none'; document.body.style.userSelect='none'; });
   document.addEventListener('mousemove',e=>{ if(!d)return; el.style.left=Math.max(0,ox+e.clientX-sx)+'px'; el.style.top=Math.max(0,oy+e.clientY-sy)+'px'; });
   document.addEventListener('mouseup',()=>{ if(d){d=false; document.body.style.userSelect='';} }); }
-function openModal(html){
+function openModal(html, opts){
+  opts=opts||{};
   const title=_winTitle(html), body=_winStripTitle(html);
   // Re-render da mesma janela (mesmo título) substitui o conteúdo em vez de empilhar.
   const ex=__wins.find(w=>w.title===title && !w.minimized);
-  if(ex){ ex.el.querySelector('.win-body').innerHTML=body; _winFocus(ex); return ex.el; }
-  const id=++__winSeq; const el=document.createElement('div'); el.className='win'; el.dataset.id=id;
+  if(ex){ ex.el.querySelector('.win-body').innerHTML=body; if(opts.wide) ex.el.classList.add('wide'); _winFocus(ex); return ex.el; }
+  const id=++__winSeq; const el=document.createElement('div'); el.className='win'+(opts.wide?' wide':''); el.dataset.id=id;
   el.innerHTML=`<div class="win-hd"><span class="t">${esc(title)}</span><button title="Minimizar" onclick="APP._winMin(${id})">—</button><button title="Fechar (Esc)" onclick="APP._winClose(${id})">✕</button></div><div class="win-body">${body}</div>`;
   $('winlayer').appendChild(el);
   const off=(__wins.length%6)*26;
-  el.style.left=`calc(50% - min(280px,47vw) + ${off}px)`; el.style.top=`calc(7vh + ${off}px)`;
+  el.style.left=opts.wide?`calc(50% - min(620px,48vw) + ${off}px)`:`calc(50% - min(280px,47vw) + ${off}px)`; el.style.top=`calc(${opts.wide?'3.5':'7'}vh + ${off}px)`;
   const w={id,el,title,minimized:false}; __wins.push(w); _winDrag(el); _winFocus(w);
   const inp=el.querySelector('input,select,textarea'); if(inp) setTimeout(()=>{try{inp.focus();}catch(e){}},50);
   return el;
@@ -2197,8 +2200,9 @@ async function gerarOp(id, parcial){
       let msg=(r.ops&&r.ops.length>1?'OPs geradas: ':'OP gerada: ')+nums+'. Material baixado.';
       if(r.revenda&&r.revenda.length) msg+=' '+r.revenda.length+' item(ns) de revenda não geram OP.';
       toast(msg,'ok');
+      await abrirOpsGeradas(r.ops);
     }
-    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); }
+    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await abrirOpsGeradas(r.ops); }
     else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
     else if(r.status==='bloqueado_material'){
       const oc=(r.ordensCompra||[]).map(o=>o.numero).join(', ');
@@ -2218,6 +2222,13 @@ async function gerarOp(id, parcial){
     else if(r.status==='bloqueado_piloto') toast('Bloqueado: '+r.message,'err');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
+}
+// Abre o PDF de cada OP recém-gerada numa janela interna (para visualizar/imprimir na hora).
+async function abrirOpsGeradas(ops){
+  const comId=(ops||[]).filter(o=>o&&o.id!=null);
+  if(!comId.length) return;
+  // Abre até 3 janelas pra não poluir; acima disso mostra só a 1ª (as demais ficam no quadro de OPs).
+  for(const o of comId.slice(0,3)){ try{ await gerarDoc('op', o.id); }catch(e){} }
 }
 
 // ---------- Bloco Financeiro ----------
@@ -2871,8 +2882,8 @@ function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
   return `<div class="kanban">${cols.map(col=>{
     const items=arr.filter(col.t);
-    return `<div class="kcol"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard">
-      <div class="kt"><span class="mono gold">${esc(o.numero)}</span><span>${o.quantidade} pç</span></div>
+    return `<div class="kcol"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard"${o.corteParcial?' style="border-left:3px solid #e08a00"':''}>
+      <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
     </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
@@ -2892,7 +2903,7 @@ async function viewProducao(c){
   c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : panelTable(
     ['OP','Pedido','Qtd','Status','Progresso','Fase atual','Prioridade','Ações'],
     mostra.map(o=>[
-      `<span class="mono gold">${esc(o.numero)}</span>`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
+      `<span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}`, esc(o.pedido?o.pedido.numero:'—'), o.quantidade,
       opPill(o.status), bar(o.progresso), `<b>${esc(o.setorAtual||'—')}</b>`, prioPill(o.prioridade),
       `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Enviar p/ facção externa: gera controle automático + rastreio linear" onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Facção</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> <button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição desta OP" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨</button></div>`
     ]), mostra.length?null:(verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".')));
@@ -4480,7 +4491,7 @@ async function viewTv(c){
     const rows = painel.map(o=>`
       <div style="display:grid;grid-template-columns:110px 1fr 90px 140px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.07)">
         <div class="mono" style="color:var(--gold-l);font-size:17px;font-weight:600">${esc(o.numero)}</div>
-        <div><div style="font-size:14px;color:#e8e4d8">${esc(o.pedido||'—')} · ${o.quantidade} pçs ${o.atrasada?'<span class="pill red" style="margin-left:8px">ATRASADA</span>':''}</div>
+        <div><div style="font-size:14px;color:#e8e4d8">${esc(o.pedido||'—')} · ${o.quantidade} pçs ${o.corteParcial?'<span class="pill" style="margin-left:8px;background:#4a3410;color:#f0b45a;border:1px solid #6d5220">PARCIAL</span>':''}${o.atrasada?'<span class="pill red" style="margin-left:8px">ATRASADA</span>':''}</div>
           <div style="height:8px;background:rgba(255,255,255,.1);border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${o.progresso}%;background:var(--gold)"></div></div></div>
         <div style="font-family:'Sora';font-size:21px;font-weight:700;color:#fff;text-align:right">${o.progresso}%</div>
         <div style="font-size:12px;color:#a8a396;text-align:right">${esc(o.status.replace(/_/g,' '))}${o.setorAtual?'<br>'+esc(o.setorAtual):''}</div>
@@ -4555,8 +4566,9 @@ async function gerarDoc(tipo, refId){
         <a class="btn-sm" href="${url}" download="${esc(nome)}.pdf" style="text-decoration:none">⬇ Baixar</a>
         <button class="btn-sm" onclick="window.open('${url}','_blank')">↗ Nova aba</button>
       </div>
-      <iframe id="docfr_${refId}" src="${url}" style="display:block;width:82vw;max-width:920px;height:73vh;border:1px solid #e7e3d8;border-radius:8px;background:#fff"></iframe>`);
+      <iframe id="docfr_${refId}" src="${url}" style="display:block;width:100%;height:82vh;border:1px solid #e7e3d8;border-radius:8px;background:#fff"></iframe>`, {wide:true});
     toast('Documento '+d.numero+' gerado.','ok');
+    return d.numero;
   }catch(e){ toast(e.message,'err'); }
 }
 

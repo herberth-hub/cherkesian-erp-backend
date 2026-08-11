@@ -459,13 +459,13 @@ export class PedidosService {
           const aCriar = faltantes.filter((f) => !jaComOC.has(f.material.id));
           const res = await this.prisma.$transaction(async (tx) => {
             for (const [mid, nec] of necessarioParcial) await tx.material.update({ where: { id: mid }, data: { saldo: { decrement: nec } } });
-            const ops: { numero: string; quantidade: number }[] = [];
+            const ops: { id: number; numero: string; quantidade: number }[] = [];
             for (const u of parciais) {
               const numeroOp = await this.gerarNumeroOP(tx);
               const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
               const romaneio = bom.map((b) => { const m = materiais.find((x) => x.id === b.materialId)!; return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false }; });
               const op = await tx.oP.create({ data: { numero: numeroOp, pedidoId: pedido.id, filialId: pedido.filialId, produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar', pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' } });
-              ops.push({ numero: op.numero, quantidade: op.quantidade });
+              ops.push({ id: op.id, numero: op.numero, quantidade: op.quantidade });
             }
             const criadas: { numero: string }[] = [];
             if (aCriar.length) {
@@ -560,7 +560,7 @@ export class PedidosService {
           data: { saldo: { decrement: necessario } },
         });
       }
-      const opsCriadas = [] as { numero: string; status: string; quantidade: number; produtoId: number | null }[];
+      const opsCriadas = [] as { id: number; numero: string; status: string; quantidade: number; produtoId: number | null }[];
       for (const u of unidades) {
         const numeroOp = await this.gerarNumeroOP(tx);
         // Romaneio da unidade = BOM do produto × quantidade (por tamanho quando houver).
@@ -584,7 +584,7 @@ export class PedidosService {
             romaneioMateriais: romaneio as Prisma.InputJsonValue,
           },
         });
-        opsCriadas.push({ numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId });
+        opsCriadas.push({ id: op.id, numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId });
       }
       await tx.pedido.update({
         where: { id },
@@ -596,7 +596,7 @@ export class PedidosService {
     return {
       status: 'op_gerada' as const,
       pedido: { numero: pedido.numero, etapa: 'producao' },
-      ops: resultado.map((o) => ({ numero: o.numero, status: o.status, quantidade: o.quantidade })),
+      ops: resultado.map((o) => ({ id: o.id, numero: o.numero, status: o.status, quantidade: o.quantidade })),
       op: resultado[0] ? { numero: resultado[0].numero, status: resultado[0].status, quantidade: resultado[0].quantidade } : null,
       revenda: itensRevenda.map((i) => ({ descricao: i.descricao, quantidade: i.quantidade })),
       consumo: [...necessarioPorMaterial.entries()].map(([materialId, q]) => {
