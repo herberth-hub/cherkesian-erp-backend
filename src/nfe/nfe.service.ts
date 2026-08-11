@@ -36,13 +36,28 @@ export class NfeService {
 
   async listar(empresaId: number) {
     const notas = await this.prisma.notaFiscal.findMany({ where: { empresaId }, orderBy: { id: 'desc' } });
-    // Anexa o e-mail do cliente (do cadastro/pedido) p/ pré-preencher o envio da NF.
+    // Resolve o DESTINATÁRIO de cada nota p/ facilitar a identificação na lista:
+    //  • venda: pedido → cliente (nome + e-mail); sem pedido, expedição → cliente.
+    //  • remessa p/ industrialização: fornecedor (facção).
     const pedidoIds = [...new Set(notas.map((n) => n.pedidoId).filter((x): x is number => x != null))];
-    const peds = pedidoIds.length
-      ? await this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, select: { id: true, cliente: { select: { email: true } } } })
-      : [];
-    const emailPorPedido = new Map(peds.map((p) => [p.id, p.cliente?.email ?? null]));
-    return notas.map((n) => ({ ...n, clienteEmail: n.pedidoId ? emailPorPedido.get(n.pedidoId) ?? null : null }));
+    const expIds = [...new Set(notas.filter((n) => n.pedidoId == null).map((n) => n.expedicaoId).filter((x): x is number => x != null))];
+    const fornIds = [...new Set(notas.map((n) => n.fornecedorId).filter((x): x is number => x != null))];
+    const [peds, exps, forns] = await Promise.all([
+      pedidoIds.length ? this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, select: { id: true, cliente: { select: { nome: true, email: true } } } }) : [],
+      expIds.length ? this.prisma.expedicao.findMany({ where: { id: { in: expIds } }, select: { id: true, clienteId: true } }) : [],
+      fornIds.length ? this.prisma.fornecedor.findMany({ where: { id: { in: fornIds } }, select: { id: true, nome: true } }) : [],
+    ]);
+    const cliIds = [...new Set(exps.map((e) => e.clienteId))];
+    const clis = cliIds.length ? await this.prisma.cliente.findMany({ where: { id: { in: cliIds } }, select: { id: true, nome: true, email: true } }) : [];
+    const porCli = new Map(clis.map((c) => [c.id, { nome: c.nome, email: c.email }]));
+    const porPedido = new Map(peds.map((p) => [p.id, p.cliente]));
+    const porExp = new Map(exps.map((e) => [e.id, porCli.get(e.clienteId) ?? null]));
+    const porForn = new Map(forns.map((f) => [f.id, f.nome]));
+    return notas.map((n) => {
+      const cli = n.pedidoId != null ? porPedido.get(n.pedidoId) : n.expedicaoId != null ? porExp.get(n.expedicaoId) : null;
+      const nome = n.tipo === 'remessa' && n.fornecedorId != null ? porForn.get(n.fornecedorId) ?? null : cli?.nome ?? null;
+      return { ...n, clienteNome: nome, clienteEmail: cli?.email ?? null };
+    });
   }
 
   async emitir(

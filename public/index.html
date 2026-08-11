@@ -4918,15 +4918,28 @@ function nfPill(s){
 }
 async function viewNotas(c){
   const list = await api('/nfe');
+  window.__NFS = list;
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', relBtn('nfs')) + panelTable(
-    ['Número','Série','Status','Valor','Chave de acesso','Emitida em','Ações'],
-    list.map(n=>[
-      `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie), nfPill(n.status), money(n.valor),
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', relBtn('nfs'))
+    + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
+    + `<div id="nfLista"></div>`;
+  nfFiltrar();
+}
+function nfFiltrar(){
+  const list = window.__NFS||[];
+  const q = (val('nfBusca')||'').trim().toLowerCase();
+  const f = q ? list.filter(n=> (n.clienteNome||'').toLowerCase().includes(q) || String(n.numero||'').toLowerCase().includes(q) || String(n.chave||'').toLowerCase().includes(q)) : list;
+  const alvo = document.getElementById('nfLista'); if(!alvo) return;
+  alvo.innerHTML = panelTable(
+    ['Número','Série','Cliente / Destinatário','Status','Valor','Chave de acesso','Emitida em','Ações'],
+    f.map(n=>[
+      `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie),
+      n.clienteNome?`<b style="font-size:12.5px">${esc(n.clienteNome)}</b>${n.tipo==='remessa'?' <span class="pill" style="background:#eef;color:#446;font-size:9px">REMESSA</span>':''}`:'<span class="muted">—</span>',
+      nfPill(n.status), money(n.valor),
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
       n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
       nfAcoes(n)
-    ]), list.length?null:'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.');
+    ]), f.length?null:(q?'Nenhuma NF encontrada para "'+esc(q)+'".':'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.'));
 }
 function nfAcoes(n){
   const b=[];
@@ -5989,7 +6002,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar,
