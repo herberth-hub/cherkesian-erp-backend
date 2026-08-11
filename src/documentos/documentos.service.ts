@@ -123,17 +123,44 @@ export class DocumentosService {
     const { doc, numero } = await this.gerarPdf(id, user);
     const pdf = await this.pdfParaBuffer(doc);
 
+    // Nos documentos de cobrança (pedido/proposta), inclui a linha do PIX no corpo
+    // do e-mail p/ facilitar o pagamento do cliente.
+    let pagamentoTxt = '';
+    if (documento.tipo === 'pedido' || documento.tipo === 'proposta') {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: Number(documento.referencia) }, select: { filialId: true } });
+      const linha = await this.linhaPagamento(user.empresaId, ped?.filialId);
+      if (linha) pagamentoTxt = `\n\n${linha}`;
+    }
+
     const resultado = await this.email.enviar({
       para,
       assunto: assunto || `${def.titulo} ${numero} — GRUPO CHERKESIAN`,
       texto:
         (mensagem ? mensagem + '\n\n' : '') +
-        `Segue em anexo o documento ${numero} (${def.titulo}).\n\n` +
-        'GRUPO CHERKESIAN · Uniformes Profissionais\n"Vestindo quem faz acontecer"',
+        `Segue em anexo o documento ${numero} (${def.titulo}).` +
+        pagamentoTxt +
+        '\n\nGRUPO CHERKESIAN · Uniformes Profissionais\n"Vestindo quem faz acontecer"',
       anexos: [{ filename: `${numero}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
 
     return { documento: numero, para, ...resultado };
+  }
+
+  /** Linha de pagamento (PIX) para o corpo do e-mail. Usa a filial do documento
+   *  ou a matriz da empresa; extrai a linha do PIX dos dados bancários. */
+  async linhaPagamento(empresaId: number, filialId?: number | null): Promise<string> {
+    let db = '';
+    if (filialId) {
+      const f = await this.prisma.filial.findUnique({ where: { id: filialId }, select: { dadosBancarios: true } });
+      db = f?.dadosBancarios || '';
+    }
+    if (!db.trim()) {
+      const m = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, select: { dadosBancarios: true } });
+      db = m?.dadosBancarios || '';
+    }
+    if (!db.trim()) return '';
+    const linhaPix = db.split(/[\r\n]+/).map((l) => l.trim()).find((l) => /pix/i.test(l));
+    return linhaPix ? `Para pagamento — ${linhaPix}` : '';
   }
 
   private pdfParaBuffer(doc: Pdf): Promise<Buffer> {

@@ -557,11 +557,18 @@ export class NfeService {
       }
     }
 
+    // Linha do PIX no corpo (nas NFs de venda; remessa não tem cobrança).
+    let pagamentoTxt = '';
+    if (nota.tipo !== 'remessa') {
+      const filPag = await this.prisma.filial.findFirst({ where: nota.filialId ? { id: nota.filialId } : { empresaId, matriz: true }, select: { dadosBancarios: true } });
+      const linhaPix = String(filPag?.dadosBancarios || '').split(/[\r\n]+/).map((l) => l.trim()).find((l) => /pix/i.test(l));
+      if (linhaPix) pagamentoTxt = `\n\nPara pagamento — ${linhaPix}`;
+    }
     const r = await this.email.enviar({
       para: destino,
       assunto: `NF-e ${nota.numero} — GRUPO CHERKESIAN`,
       texto: `Olá${nomeCliente ? ' ' + nomeCliente : ''},\n\nSegue em anexo a nota fiscal eletrônica nº ${nota.numero}` +
-        (nota.chave ? ` (chave ${nota.chave})` : '') + `.\n\nAtenciosamente,\nGRUPO CHERKESIAN`,
+        (nota.chave ? ` (chave ${nota.chave})` : '') + `.` + pagamentoTxt + `\n\nAtenciosamente,\nGRUPO CHERKESIAN`,
       anexos: anexos.length ? anexos : undefined,
     });
     return { enviado: r.enviado, simulado: r.simulado, para: destino, anexos: anexos.length, detalhe: r.detalhe };
