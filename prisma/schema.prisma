@@ -833,3 +833,43 @@ model MercadoLivreConta {
   conectadoEm   DateTime?
   atualizadoEm  DateTime  @updatedAt
 }
+
+/// Configuração do robô comercial de WhatsApp (por empresa).
+model WhatsAppConfig {
+  id           Int      @id @default(autoincrement())
+  empresaId    Int      @unique
+  provedor     String   @default("simulado") // simulado | meta | zapi
+  token        String?  // access token (Meta Cloud API) ou token (Z-API)
+  phoneId      String?  // phone_number_id (Meta) ou instância (Z-API)
+  verifyToken  String?  // token de verificação do webhook (Meta)
+  saudacao     String?  // mensagem de boas-vindas
+  ativo        Boolean  @default(false)
+  soContrato   Boolean  @default(true) // atende apenas clientes com contrato
+  atualizadoEm DateTime @updatedAt
+}
+
+/// Uma conversa de WhatsApp (1 por telefone) com estado (bot/humano/fechado).
+model WhatsAppConversa {
+  id           Int      @id @default(autoincrement())
+  empresaId    Int
+  telefone     String
+  nome         String?
+  clienteId    Int?
+  estado       String   @default("bot") // bot | humano | fechado
+  pedidoNumero String?  // pedido gerado a partir da conversa
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  mensagens    WhatsAppMensagem[]
+
+  @@unique([empresaId, telefone])
+}
+
+/// Uma mensagem trocada na conversa (histórico + memória do robô).
+model WhatsAppMensagem {
+  id         Int              @id @default(autoincrement())
+  conversaId Int
+  conversa   WhatsAppConversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+  origem     String           // cliente | bot | humano | sistema
+  texto      String
+  criadoEm   DateTime         @default(now())
+}

@@ -467,6 +467,12 @@ export class NfeService {
   async cartaCorrecao(id: number, empresaId: number, correcao: string, usuario: string) {
     const { nota, token } = await this.notaComToken(id, empresaId);
     if (nota.status !== 'autorizada') throw new ConflictException('A carta de correção só vale para nota AUTORIZADA.');
+    // Higieniza o texto p/ o schema da SEFAZ (xCorrecao): sem quebra de linha/tab,
+    // sem travessões/aspas especiais, só U+0020..U+00FF, 15..1000 chars, sem
+    // espaço no início/fim.
+    correcao = this.sanitizarCorrecao(correcao);
+    if (correcao.length < 15) throw new BadRequestException('A correção precisa de ao menos 15 caracteres válidos (após remover quebras de linha e símbolos não aceitos pela SEFAZ).');
+    if (correcao.length > 1000) correcao = correcao.slice(0, 1000);
     if (nota.provedor === 'simulado') {
       return { ok: true, mensagem: 'CC-e registrada (simulada).', correcao };
     }
@@ -634,6 +640,19 @@ export class NfeService {
     } catch (err) {
       return { ok: false as const, motivo: String(err) };
     }
+  }
+
+  /** Limpa o texto da carta de correção para o schema da SEFAZ (xCorrecao). */
+  private sanitizarCorrecao(texto: string): string {
+    return (texto || '')
+      .replace(/[‐-―−]/g, '-')            // travessões/hífens especiais → -
+      .replace(/[‘’‚‛]/g, "'")        // aspas simples curvas → '
+      .replace(/[“”„‟]/g, '"')        // aspas duplas curvas → "
+      .replace(/…/g, '...')                          // reticências → ...
+      .replace(/[ \t\r\n]+/g, ' ')                   // nbsp/tab/quebra de linha → espaço
+      .replace(/[^\x20-\xFF]/g, '')                       // remove fora de U+0020..U+00FF
+      .replace(/ {2,}/g, ' ')                             // colapsa espaços
+      .trim();
   }
 
   private async cartaCorrecaoFocus(token: string, ref: string, correcao: string, amb?: string | null) {
