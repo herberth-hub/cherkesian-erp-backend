@@ -3915,13 +3915,15 @@ async function etiquetasCaixasMaster(){
 function checkDeepLink(){
   try{
     const p=new URLSearchParams(location.search);
-    // Callback do OAuth da Tray: ?traycb=1&code=...&api_address=... (checa ANTES do ML,
-    // senão o handler do ML sequestra o code da Tray).
-    if(p.get('traycb') && S.user){
+    // Callback do OAuth da Tray. Detecta por traycb OU pela presença de api_address/
+    // store/adm_user (a Tray SEMPRE manda esses no callback) — mesmo que o traycb se
+    // perca na codificação. Checa ANTES do ML pra não ter o code sequestrado.
+    const trayHint = p.get('traycb') || p.get('api_address') || p.get('store') || p.get('adm_user') || !p.get('mlcb');
+    if(trayHint && p.get('code') && S.user){
       const code=p.get('code'); const api=p.get('api_address')||p.get('url')||'';
       history.replaceState(null,'',location.pathname);
-      if(code){ window.__trayCb={ code, apiUrl:String(api).replace(/\/+$/,'') }; try{ sessionStorage.setItem('trayCb', JSON.stringify(window.__trayCb)); }catch(_){}
-        toast('Tray autorizou! Code capturado — abrindo Integrações → Tray…','ok'); go('tray'); }
+      window.__trayCb={ code, apiUrl:String(api).replace(/\/+$/,'') }; try{ sessionStorage.setItem('trayCb', JSON.stringify(window.__trayCb)); }catch(_){}
+      toast('Tray autorizou! Code capturado — abrindo Integrações → Tray…','ok'); go('tray');
       return;
     }
     // Callback do OAuth do Mercado Livre: EXIGE mlcb=1 (não pode ser qualquer code solto).
