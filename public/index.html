@@ -3915,6 +3915,14 @@ async function etiquetasCaixasMaster(){
 function checkDeepLink(){
   try{
     const p=new URLSearchParams(location.search);
+    // DIAGNÓSTICO OAuth: se a URL de retorno tiver marcadores de callback mas SEM code,
+    // mostra os parâmetros crus (ajuda a ver o que a Tray realmente devolveu).
+    const raw=location.search||'';
+    if(S.user && /traycb|api_address|error|store=|adm_user|code=/i.test(raw) && !p.get('mlcb') && !p.get('code')){
+      try{ uiAlert({tipo:'info', titulo:'Retorno da Tray (diagnóstico)', ok:'Entendi', msg:'A Tray te devolveu SEM o code de autorização. Parâmetros recebidos:\n\n'+raw+'\n\nManda esse texto pro suporte da integração.'}); }catch(_){}
+      history.replaceState(null,'',location.pathname);
+      return;
+    }
     // Callback do OAuth da Tray. Detecta por traycb OU pela presença de api_address/
     // store/adm_user (a Tray SEMPRE manda esses no callback) — mesmo que o traycb se
     // perca na codificação. Checa ANTES do ML pra não ter o code sequestrado.
