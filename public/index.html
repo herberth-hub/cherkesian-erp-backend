@@ -5566,17 +5566,13 @@ async function viewTray(c){
   try{
     let cb=window.__trayCb; if(!cb){ const s=sessionStorage.getItem('trayCb'); if(s) cb=JSON.parse(s); }
     if(cb && cb.code){
-      const uma=(contas&&contas.length===1)?contas[0]:null;
-      if(uma){
-        if($('tr_code_'+uma.id)) $('tr_code_'+uma.id).value=cb.code;
-        if($('tr_url_'+uma.id)&&cb.apiUrl && !$('tr_url_'+uma.id).value) $('tr_url_'+uma.id).value=cb.apiUrl;
-      } else {
-        if($('tr_new_code')) $('tr_new_code').value=cb.code;
-        if($('tr_new_url')&&cb.apiUrl) $('tr_new_url').value=cb.apiUrl;
-      }
+      // Pré-preenche a "Nova loja" (mais previsível que adivinhar uma loja existente).
+      if($('tr_new_code')) $('tr_new_code').value=cb.code;
+      if($('tr_new_url')&&cb.apiUrl) $('tr_new_url').value=cb.apiUrl;
       const banner=document.createElement('div');
       banner.className='panel'; banner.style.cssText='padding:12px 14px;max-width:820px;margin-bottom:14px;background:#eafaef;border:1px solid #bfe0bf';
-      banner.innerHTML='✅ <b>Code da Tray capturado!</b> Já preenchi o campo <b>Code de autorização</b>'+(uma?(' da loja <b>'+esc(uma.apelido)+'</b>. Cole o <b>Consumer Secret</b> (se ainda não colou) e clique <b>Conectar loja</b>.'):'. Complete os dados e clique <b>Adicionar loja</b>.')+'<div class="muted" style="font-size:11px;margin-top:4px">code: <span class="mono">'+esc(String(cb.code).slice(0,10))+'…</span></div>';
+      banner.innerHTML='✅ <b>Code da Tray capturado!</b> Já preenchi em <b>➕ Nova loja Tray</b>'+(cb.apiUrl?' (URL da API e Code)':' (Code)')+'. Informe Nome + Key + Secret e clique <b>Adicionar loja</b>. <span class="muted">(Se for para uma loja já cadastrada, copie o code abaixo no campo dela.)</span>'
+        +'<div style="margin-top:6px;font-size:11px">code: <input class="inp mono" readonly onclick="this.select()" value="'+esc(cb.code)+'" style="width:100%;max-width:520px;font-size:11px;padding:4px 6px"></div>';
       c.insertBefore(banner, c.firstChild);
       window.__trayCb=null; try{ sessionStorage.removeItem('trayCb'); }catch(_){}
     }
