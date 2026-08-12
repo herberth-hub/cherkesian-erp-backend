@@ -219,11 +219,11 @@ const NAVDEF = [
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
-  ['Integrações', [['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
+  ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray']);
+const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
@@ -258,6 +258,7 @@ const TITLES = {
   agente:['Assistente IA','Pergunte sobre pedidos, produção, estoque e financeiro'],
   mercadolivre:['Mercado Livre','Integração: conectar conta, pedidos e estoque · admin'],
   tray:['Tray','Integração Tray (multi-loja): conectar lojas e importar pedidos · admin'],
+  whatsapp:['Robô WhatsApp','Atendimento comercial automático: orçamento → pedido no ERP · admin'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -534,6 +535,7 @@ async function loadRoute(){
     if(S.route==='filiais') return await viewFiliais(c);
     if(S.route==='mercadolivre') return await viewMercadoLivre(c);
     if(S.route==='tray') return await viewTray(c);
+    if(S.route==='whatsapp') return await viewWhatsapp(c);
     if(S.route==='kits') return await viewKits(c);
     if(S.route==='bi') return await viewBi(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
@@ -5531,6 +5533,114 @@ async function mlDesconectar(){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ===== Robô comercial de WhatsApp =====
+async function viewWhatsapp(c){
+  if(S.user.acesso!=='total'){ c.innerHTML='<div class="empty">Somente o administrador da conta pode configurar o robô.</div>'; return; }
+  let cfg, conversas;
+  try{ [cfg,conversas]=await Promise.all([api('/whatsapp/config'), api('/whatsapp/conversas').catch(()=>[])]); }
+  catch(e){ c.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
+  window.__WACFG=cfg;
+  const provOpt=(v,l)=>`<option value="${v}"${cfg.provedor===v?' selected':''}>${l}</option>`;
+  const iaWarn=cfg.iaOk?'':'<div style="background:#fff3e0;border:1px solid #e7c98a;color:#8a5a00;font-size:12px;padding:8px 10px;border-radius:6px;margin-bottom:10px">⚠️ IA sem chave (ANTHROPIC_API_KEY) no servidor — o robô responde só um aviso. Configure a chave pra ativar o cérebro.</div>';
+  const conv=(conversas||[]).map(k=>{
+    const est=k.estado==='humano'?'<span class="pill gold">humano</span>':(k.estado==='fechado'?'<span class="pill gray">fechado</span>':'<span class="pill green">robô</span>');
+    return `<tr onclick="APP.waAbrir(${k.id})" style="cursor:pointer">
+      <td><span class="mono">${esc(k.telefone)}</span></td><td>${esc(k.nome||'—')}</td><td>${est}</td>
+      <td>${k.pedidoNumero?('<span class="mono gold">'+esc(k.pedidoNumero)+'</span>'):'—'}</td>
+      <td class="muted" style="font-size:11px">${k.atualizadoEm?new Date(k.atualizadoEm).toLocaleString('pt-BR'):'—'}</td></tr>`;
+  }).join('');
+  c.innerHTML=`
+    <div class="sect"><h3>🤖 Robô comercial de WhatsApp</h3>
+      <div class="muted" style="font-size:12.5px;margin:-2px 0 10px">Atende clientes, monta orçamento com o preço do contrato e, ao aprovar, gera o pedido no ERP. Começa no <b>modo simulado</b> (teste sem número). Depois conecte um provedor (Meta Cloud API ou Z-API).</div>
+    </div>
+    ${iaWarn}
+    <div class="cards" style="grid-template-columns:1.1fr .9fr;align-items:start">
+      <div class="panel" style="padding:16px">
+        <b style="font-size:14px">⚙️ Configuração</b>
+        <div class="grid2" style="margin-top:8px">
+          <div class="mrow"><label class="fl">Provedor do canal</label><select id="wa_prov" class="inp">${provOpt('simulado','Simulado (teste)')}${provOpt('meta','WhatsApp Cloud API (Meta)')}${provOpt('zapi','Z-API')}</select></div>
+          ${field('wa_phone','Phone ID / Instância','value="'+esc(cfg.phoneId||'')+'" placeholder="Meta: phone_number_id · Z-API: instância"')}
+        </div>
+        <div class="grid2">
+          ${field('wa_token','Token de acesso','type="password" placeholder="'+(cfg.temToken?'•••••• (mantém o atual)':'token do provedor')+'"')}
+          ${field('wa_verify','Verify token (Meta)','value="'+esc(cfg.verifyToken||'')+'" placeholder="p/ validar o webhook"')}
+        </div>
+        <div class="mrow"><label class="fl">Saudação (opcional)</label><input id="wa_saud" class="inp" value="${esc(cfg.saudacao||'')}" placeholder="ex.: Olá! Sou o assistente comercial da Cherkesian 👋"></div>
+        <div style="display:flex;gap:16px;align-items:center;margin:6px 0 10px;flex-wrap:wrap">
+          <label style="font-size:13px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wa_ativo"${cfg.ativo?' checked':''}> Robô ativo</label>
+          <label style="font-size:13px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="wa_contrato"${cfg.soContrato?' checked':''}> Só clientes com contrato</label>
+        </div>
+        <div class="muted" style="font-size:11px;margin-bottom:8px">Webhook p/ o provedor: <span class="mono">${esc(location.origin)}/whatsapp/webhook</span></div>
+        <button class="btn-primary" onclick="APP.waSalvar()">Salvar configuração</button>
+      </div>
+      <div class="panel" style="padding:16px">
+        <b style="font-size:14px">💬 Simulador de conversa</b>
+        <div class="muted" style="font-size:11px;margin:2px 0 8px">Escreva como se fosse o cliente no WhatsApp. O robô responde de verdade (cria pedido, escala humano, etc.).</div>
+        <div id="wa_chat" style="border:1px solid var(--line);border-radius:8px;padding:10px;height:300px;overflow-y:auto;background:#fafafa;font-size:13px"></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input id="wa_msg" class="inp" placeholder="Mensagem do cliente…" onkeydown="if(event.key==='Enter')APP.waSimular()" style="flex:1">
+          <button class="btn-primary" onclick="APP.waSimular()">Enviar</button>
+        </div>
+        <div class="muted" style="font-size:10.5px;margin-top:4px">Tel. simulado: <span class="mono" id="wa_simtel">5511900000000</span> · <a style="cursor:pointer;color:#8a6d1e" onclick="APP.waNovoSim()">nova conversa</a></div>
+      </div>
+    </div>
+    <div class="sect" style="margin-top:16px"><h3>📇 Conversas (${(conversas||[]).length})</h3></div>
+    ${(conversas||[]).length?`<div class="panel" style="overflow-x:auto"><table><thead><tr><th>Telefone</th><th>Nome</th><th>Estado</th><th>Pedido</th><th>Atualizado</th></tr></thead><tbody>${conv}</tbody></table></div>`:'<div class="panel"><div class="empty">Nenhuma conversa ainda. Use o simulador acima pra testar.</div></div>'}`;
+  waRenderChat();
+}
+let __waChat=[];
+function waRenderChat(){
+  const box=$('wa_chat'); if(!box) return;
+  if(!__waChat.length){ box.innerHTML='<div class="muted" style="text-align:center;margin-top:40px">Comece a conversa 👇</div>'; return; }
+  box.innerHTML=__waChat.map(m=>{
+    const mine=m.origem==='cliente';
+    const bg=mine?'#dcf8c6':(m.origem==='bot'?'#fff':'#eef');
+    const al=mine?'right':'left';
+    const who=m.origem==='cliente'?'Cliente':(m.origem==='bot'?'🤖 Robô':(m.origem==='humano'?'👤 Você':'sistema'));
+    return `<div style="text-align:${al};margin:5px 0"><div style="display:inline-block;max-width:80%;background:${bg};border:1px solid #e7e3d8;border-radius:10px;padding:6px 9px;text-align:left"><div style="font-size:9px;color:#8a8674;margin-bottom:2px">${who}</div>${esc(m.texto).replace(/\n/g,'<br>')}</div></div>`;
+  }).join('');
+  box.scrollTop=box.scrollHeight;
+}
+async function waSalvar(){
+  const body={ provedor:val('wa_prov'), phoneId:val('wa_phone'), verifyToken:val('wa_verify'), saudacao:val('wa_saud'), ativo:$('wa_ativo').checked, soContrato:$('wa_contrato').checked };
+  const tk=val('wa_token'); if(tk) body.token=tk;
+  try{ await api('/whatsapp/config',{method:'POST',body}); toast('Configuração salva.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+function waNovoSim(){ const t='55119'+String(Math.floor(1000000+Math.random()*8999999)); if($('wa_simtel'))$('wa_simtel').textContent=t; __waChat=[]; waRenderChat(); }
+async function waSimular(){
+  const inp=$('wa_msg'); const texto=(inp?inp.value:'').trim(); if(!texto) return;
+  const tel=$('wa_simtel')?$('wa_simtel').textContent:'5511900000000';
+  __waChat.push({origem:'cliente',texto}); waRenderChat(); if(inp) inp.value='';
+  __waChat.push({origem:'bot',texto:'…'}); waRenderChat();
+  try{
+    const r=await api('/whatsapp/simular',{method:'POST',body:{telefone:tel,texto,nome:'Cliente Simulado'}});
+    __waChat.pop();
+    if(r.resposta) __waChat.push({origem:'bot',texto:r.resposta});
+    if(r.estado==='humano' && r.pedidoNumero) __waChat.push({origem:'sistema',texto:'Pedido '+r.pedidoNumero+' criado. Conversa encaminhada à equipe.'});
+    else if(r.estado==='humano') __waChat.push({origem:'sistema',texto:'Conversa encaminhada para atendimento humano.'});
+    waRenderChat();
+  }catch(e){ __waChat.pop(); __waChat.push({origem:'sistema',texto:'Erro: '+e.message}); waRenderChat(); }
+}
+async function waAbrir(id){
+  let c; try{ c=await api('/whatsapp/conversas/'+id); }catch(e){ toast(e.message,'err'); return; }
+  const msgs=(c.mensagens||[]).map(m=>{
+    const mine=m.origem==='cliente'; const bg=mine?'#dcf8c6':(m.origem==='bot'?'#fff':'#eef'); const al=mine?'right':'left';
+    const who=m.origem==='cliente'?esc(c.nome||'Cliente'):(m.origem==='bot'?'🤖 Robô':(m.origem==='humano'?'👤 Operador':'sistema'));
+    return `<div style="text-align:${al};margin:5px 0"><div style="display:inline-block;max-width:82%;background:${bg};border:1px solid #e7e3d8;border-radius:10px;padding:6px 9px;text-align:left"><div style="font-size:9px;color:#8a8674">${who} · ${new Date(m.criadoEm).toLocaleString('pt-BR')}</div>${esc(m.texto).replace(/\n/g,'<br>')}</div></div>`;
+  }).join('');
+  openModal(`<h3>💬 ${esc(c.nome||c.telefone)} <span class="mono muted" style="font-size:12px">${esc(c.telefone)}</span></h3>
+    <div style="display:flex;gap:6px;margin:-2px 0 8px;flex-wrap:wrap">
+      ${c.estado!=='humano'?`<button class="btn-sm" onclick="APP.waAssumir(${c.id})">🙋 Assumir (parar robô)</button>`:`<button class="btn-sm" onclick="APP.waDevolver(${c.id})">↩ Devolver ao robô</button>`}
+      ${c.pedidoNumero?`<span class="pill green" style="align-self:center">Pedido ${esc(c.pedidoNumero)}</span>`:''}
+    </div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;height:360px;overflow-y:auto;background:#fafafa;font-size:13px">${msgs||'<div class="muted">Sem mensagens.</div>'}</div>
+    <div style="display:flex;gap:6px;margin-top:8px"><input id="wa_reply" class="inp" placeholder="Responder como operador…" style="flex:1"><button class="btn-primary" onclick="APP.waResponder(${c.id})">Enviar</button></div>`);
+}
+async function waAssumir(id){ try{ await api('/whatsapp/conversas/'+id+'/assumir',{method:'POST'}); toast('Você assumiu a conversa.','ok'); closeModal(); waAbrir(id); }catch(e){ toast(e.message,'err'); } }
+async function waDevolver(id){ try{ await api('/whatsapp/conversas/'+id+'/devolver',{method:'POST'}); toast('Devolvida ao robô.','ok'); closeModal(); waAbrir(id); }catch(e){ toast(e.message,'err'); } }
+async function waResponder(id){ const t=val('wa_reply'); if(!t){ return; } try{ await api('/whatsapp/conversas/'+id+'/responder',{method:'POST',body:{texto:t}}); closeModal(); waAbrir(id); }catch(e){ toast(e.message,'err'); } }
+
 // ===== Integração Tray (multi-loja) =====
 async function viewTray(c){
   if(S.user.acesso!=='total'){ c.innerHTML='<div class="empty">Somente o administrador da conta pode configurar integrações.</div>'; return; }
@@ -6136,6 +6246,7 @@ window.APP = {
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
+  viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
   relatorio, relGerar, sugerirCompraTecido,
