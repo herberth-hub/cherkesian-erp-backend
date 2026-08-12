@@ -37,6 +37,7 @@ import { PcpModule } from './pcp/pcp.module';
 import { LookupModule } from './lookup/lookup.module';
 import { MercadoLivreModule } from './mercadolivre/mercadolivre.module';
 import { TrayModule } from './tray/tray.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -98,6 +99,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     LookupModule,
     MercadoLivreModule,
     TrayModule,
+    WhatsappModule,
   ],
   controllers: [AppController],
   providers: [
