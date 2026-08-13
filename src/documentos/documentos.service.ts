@@ -287,6 +287,7 @@ export class DocumentosService {
     secao(doc, 'Dados do pedido');
     camposDuplos(doc, [
       ['Número do pedido', pedido.numero],
+      ['Ordem de compra (cliente)', pedido.ordemCompraCliente || '—'],
       ['Data', dataBR(pedido.data)],
       ['Forma de pagamento', pag.texto],
       ['Vencimento', pag.vencimentos],
