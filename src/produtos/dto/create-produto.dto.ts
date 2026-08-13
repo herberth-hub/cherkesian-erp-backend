@@ -62,6 +62,13 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(8) tecidoUnidade?: string;
   /** Consumo por tamanho { "PP":1.70, "M":1.80, ... } — precisão por tamanho na OP. */
   @IsOptional() @IsObject() tecidoConsumoPorTamanho?: Record<string, number>;
+  /** Peso e embalagem (p/ peso líquido/bruto e volumes no pedido/NF). */
+  @IsOptional() @IsNumber() pesoUnitario?: number;
+  @IsOptional() @IsObject() pesoPorTamanho?: Record<string, number>;
+  @IsOptional() @IsInt() caixaId?: number;
+  @IsOptional() @IsInt() pecasPorCaixa?: number;
+  @IsOptional() @IsInt() fardoId?: number;
+  @IsOptional() @IsInt() pecasPorFardo?: number;
   @IsOptional() @IsString() @MaxLength(6000) especificacoes?: string;
   @IsOptional() @IsString() @MaxLength(4000) observacoes?: string;
   // Fotos em data URI base64 (comprimidas no cliente). Limite alto p/ imagens.

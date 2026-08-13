@@ -99,6 +99,7 @@ export class ProdutosService {
             tipo: dto.tipo,
             componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
             ...this.dadosFicha(dto),
+            ...this.dadosPeso(dto),
             ...this.dadosFiscais(dto),
             medidas: dto.medidas?.length ? { create: this.medidasCreate(dto.medidas) } : undefined,
           },
@@ -163,6 +164,7 @@ export class ProdutosService {
               ? undefined
               : (dto.componentes as unknown as Prisma.InputJsonValue),
           ...this.dadosFicha(dto),
+          ...this.dadosPeso(dto),
           ...this.dadosFiscais(dto),
         },
       });
@@ -190,6 +192,27 @@ export class ProdutosService {
         tolerancia: m.tolerancia?.trim() || null,
         valores: (m.valores ?? {}) as Prisma.InputJsonValue,
       }));
+  }
+
+  /** Peso e embalagem do produto (p/ cálculo de peso/volumes no pedido/NF). */
+  private dadosPeso(dto: CreateProdutoDto | UpdateProdutoDto) {
+    let pesoPorTamanho: Prisma.InputJsonValue | undefined;
+    if (dto.pesoPorTamanho && typeof dto.pesoPorTamanho === 'object') {
+      const limpo: Record<string, number> = {};
+      for (const [k, v] of Object.entries(dto.pesoPorTamanho)) {
+        const n = Number(v);
+        if (k && Number.isFinite(n) && n > 0) limpo[String(k).toUpperCase()] = n;
+      }
+      pesoPorTamanho = limpo as Prisma.InputJsonValue;
+    }
+    return {
+      pesoUnitario: dto.pesoUnitario != null ? new Prisma.Decimal(Number(dto.pesoUnitario).toFixed(3)) : dto.pesoUnitario === null ? null : undefined,
+      ...(pesoPorTamanho !== undefined ? { pesoPorTamanho } : {}),
+      caixaId: dto.caixaId ?? undefined,
+      pecasPorCaixa: dto.pecasPorCaixa ?? undefined,
+      fardoId: dto.fardoId ?? undefined,
+      pecasPorFardo: dto.pecasPorFardo ?? undefined,
+    };
   }
 
   /** Extrai os campos descritivos da ficha técnica presentes no DTO. */

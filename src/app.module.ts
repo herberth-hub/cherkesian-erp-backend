@@ -38,6 +38,7 @@ import { LookupModule } from './lookup/lookup.module';
 import { MercadoLivreModule } from './mercadolivre/mercadolivre.module';
 import { TrayModule } from './tray/tray.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { EmbalagensModule } from './embalagens/embalagens.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -100,6 +101,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     MercadoLivreModule,
     TrayModule,
     WhatsappModule,
+    EmbalagensModule,
   ],
   controllers: [AppController],
   providers: [

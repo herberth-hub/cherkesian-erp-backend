@@ -1585,6 +1585,8 @@ async function formProduto(id){
   window.__GRUPOSCLI=[...new Set((window.__CLILIST||[]).map(c=>c.grupo).filter(Boolean))].sort();
   // Tecidos homologados (materiais) + receita atual, p/ vincular o tecido principal.
   try{ window.__MATLIST=await api('/materiais'); }catch(e){ window.__MATLIST=window.__MATLIST||[]; }
+  try{ window.__EMBLIST=await api('/embalagens'); }catch(e){ window.__EMBLIST=window.__EMBLIST||[]; }
+  window.__pesoPorTam=(p.pesoPorTamanho&&typeof p.pesoPorTamanho==='object')?Object.assign({},p.pesoPorTamanho):{};
   let __tecMat=null, __tecCons='', __tecUn='m'; window.__tecPorTam={};
   if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){ const c=cs.slice().sort((a,b)=>Number(b.quantidade)-Number(a.quantidade))[0]; __tecMat=(window.__MATLIST||[]).find(m=>m.id===c.materialId)||null; __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; } }catch(_){} }
   const tecInit = __tecMat ? (__tecMat.descricao+' · '+__tecMat.codigo) : (p.tecido||'');
@@ -1615,6 +1617,18 @@ async function formProduto(id){
         <div style="display:flex;gap:6px"><input id="f_teccons" class="inp" type="number" step="0.001" min="0" value="${__tecCons}" placeholder="ex.: 1.80" oninput="APP.tecPick()" style="flex:1"><input id="f_tecun" class="inp" value="${esc(__tecUn)}" style="width:64px" placeholder="m/kg"></div></div>
     </div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.tecTamToggle()" title="Consumo diferente por tamanho (uma calça G4 gasta mais que uma PP)">📏 Consumo por tamanho (PP…G8)</button><div id="f_tectam" style="display:none;margin-top:8px"></div></div>
+    ${secDivisor('PESO E EMBALAGEM (peso líquido/bruto e volumes no pedido/NF)')}
+    <div class="grid3">
+      ${field('f_peso','Peso unitário (kg)','type="number" step="0.001" min="0" value="'+(p.pesoUnitario!=null?p.pesoUnitario:'')+'" placeholder="ex.: 0.380"')}
+      <div class="mrow"><label class="fl">Caixa <span class="muted">(embalagem)</span></label><select id="f_caixa" class="inp">${embOpt('caixa', p.caixaId)}</select></div>
+      ${field('f_pcaixa','Peças por caixa','type="number" min="0" value="'+(p.pecasPorCaixa!=null?p.pecasPorCaixa:'')+'" placeholder="ex.: 50"')}
+    </div>
+    <div class="grid3">
+      <div class="mrow"><label class="fl">Fardo <span class="muted">(embalagem)</span></label><select id="f_fardo" class="inp">${embOpt('fardo', p.fardoId)}</select></div>
+      ${field('f_pfardo','Peças por fardo','type="number" min="0" value="'+(p.pecasPorFardo!=null?p.pecasPorFardo:'')+'" placeholder="ex.: 60"')}
+      <div class="mrow"><label class="fl">&nbsp;</label><button type="button" class="btn-sm" onclick="APP.formEmbalagens()">📦 Gerenciar embalagens</button></div>
+    </div>
+    <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.pesoTamToggle()" title="Peso diferente por tamanho (um G8 pesa mais que um PP)">⚖️ Peso por tamanho (PP…G8)</button><div id="f_pesotam" style="display:none;margin-top:8px"></div></div>
     <div class="grid2">${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
       <div class="mrow"><label class="fl">Tipo * <span class="muted">(gera OP?)</span></label><select id="f_tipo" class="inp">
         <option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>Produção própria (gera OP)</option>
@@ -1667,6 +1681,41 @@ function tecTamToggle(){
   box.style.display='';
 }
 function tecLerPorTam(){ const pt={}; document.querySelectorAll('#f_tectam .tectam').forEach(inp=>{ const v=Number(inp.value); if(v>0) pt[(inp.dataset.tam||'').toUpperCase()]=v; }); return pt; }
+// ----- Peso e embalagem -----
+function embOpt(tipo, sel){
+  const list=(window.__EMBLIST||[]).filter(e=>e.tipo===tipo);
+  return '<option value="">— nenhuma —</option>'+list.map(e=>`<option value="${e.id}"${e.id===sel?' selected':''}>${esc(e.nome)} (${Number(e.pesoVazio).toLocaleString('pt-BR')} kg${e.comprimento?(' · '+e.comprimento+'x'+e.largura+'x'+e.altura):''})</option>`).join('');
+}
+function pesoTamToggle(){
+  const box=$('f_pesotam'); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  const pt=window.__pesoPorTam||{};
+  box.innerHTML='<div class="muted" style="font-size:11px;margin-bottom:5px">Peso (kg) por tamanho — deixe vazio p/ usar o peso unitário acima. Usado no cálculo do peso do pedido/NF.</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px">'+tecTamSizes().map(t=>`<div style="display:flex;flex-direction:column;align-items:center"><label class="fl" style="font-size:10px;letter-spacing:.5px">${esc(t)}</label><input class="inp pesotam" data-tam="${esc(t)}" type="number" step="0.001" min="0" value="${pt[t]!=null?pt[t]:''}" style="width:62px;text-align:center;padding:4px 3px;font-size:12px"></div>`).join('')+'</div>';
+  box.style.display='';
+}
+function pesoLerPorTam(){ const pt={}; document.querySelectorAll('#f_pesotam .pesotam').forEach(inp=>{ const v=Number(inp.value); if(v>0) pt[(inp.dataset.tam||'').toUpperCase()]=v; }); return pt; }
+// CRUD rápido de embalagens (caixa/fardo)
+async function formEmbalagens(){
+  let list; try{ list=await api('/embalagens'); }catch(e){ toast(e.message,'err'); return; }
+  window.__EMBLIST=list;
+  const row=e=>`<tr><td>${e.tipo==='fardo'?'📦 Fardo':'📦 Caixa'}</td><td>${esc(e.nome)}</td><td>${Number(e.pesoVazio).toLocaleString('pt-BR')} kg</td><td>${e.comprimento?(e.comprimento+'×'+e.largura+'×'+e.altura+' cm'):'—'}</td><td>${e.capacidade||'—'}</td><td><button class="btn-sm" style="color:#c14a34" onclick="APP.embDel(${e.id})">×</button></td></tr>`;
+  openModal(`<h3>📦 Embalagens (caixas e fardos)</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Cadastre uma vez; os produtos apontam qual usam. Peso vazio + dimensão saem no cálculo de peso bruto e volumes da NF.</div>
+    ${list.length?`<div class="panel" style="overflow-x:auto;margin-bottom:10px"><table><thead><tr><th>Tipo</th><th>Nome</th><th>Peso vazio</th><th>Dimensão C×L×A</th><th>Cap.</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table></div>`:'<div class="muted" style="margin-bottom:10px">Nenhuma embalagem ainda.</div>'}
+    <div class="panel" style="padding:12px"><b style="font-size:12px">Nova embalagem</b>
+      <div class="grid2" style="margin-top:6px"><div class="mrow"><label class="fl">Tipo</label><select id="emb_tipo" class="inp"><option value="caixa">Caixa</option><option value="fardo">Fardo</option></select></div>${field('emb_nome','Nome','placeholder="ex.: Caixa Master"')}</div>
+      <div class="grid2">${field('emb_peso','Peso vazio (kg)','type="number" step="0.001" min="0" placeholder="0.700"')}${field('emb_cap','Capacidade (peças, opcional)','type="number" min="0"')}</div>
+      <div class="grid3">${field('emb_c','Comprimento (cm)','type="number" min="0"')}${field('emb_l','Largura (cm)','type="number" min="0"')}${field('emb_a','Altura (cm)','type="number" min="0"')}</div>
+      <div class="mactions"><button class="btn-primary" onclick="APP.embSalvar()">Adicionar embalagem</button></div>
+    </div>`);
+}
+async function embSalvar(){
+  const body={ tipo:val('emb_tipo'), nome:val('emb_nome'), pesoVazio:Number(val('emb_peso')||0), capacidade:val('emb_cap')?Number(val('emb_cap')):undefined, comprimento:val('emb_c')?Number(val('emb_c')):undefined, largura:val('emb_l')?Number(val('emb_l')):undefined, altura:val('emb_a')?Number(val('emb_a')):undefined };
+  if(!body.nome){ toast('Informe o nome da embalagem.','err'); return; }
+  try{ await api('/embalagens',{method:'POST',body}); toast('Embalagem salva.','ok'); formEmbalagens(); }catch(e){ toast(e.message,'err'); }
+}
+async function embDel(id){ if(!await uiConfirm('Remover esta embalagem?')) return; try{ await api('/embalagens/'+id,{method:'DELETE'}); toast('Removida.','ok'); formEmbalagens(); }catch(e){ toast(e.message,'err'); } }
 // Valores de consumo por tamanho (dos inputs abertos ou do que está salvo) — p/ estimar a peça média.
 function tecPorTamValues(){
   const inputs=document.querySelectorAll('#f_tectam .tectam');
@@ -1711,6 +1760,13 @@ async function saveProduto(id){
   const cliId = val('f_cliid'); if(cliId) body.clienteId = Number(cliId);
   const setor = val('f_setor'); if(setor) body.setor = setor;
   const custo = val('f_custo'); if(custo!=='') body.custo = Number(custo);
+  // Peso e embalagem
+  const pu=val('f_peso'); body.pesoUnitario = pu!=='' ? Number(pu) : null;
+  body.pesoPorTamanho = pesoLerPorTam();
+  const cx=val('f_caixa'); body.caixaId = cx? Number(cx) : null;
+  const pcx=val('f_pcaixa'); body.pecasPorCaixa = pcx!=='' ? Number(pcx) : null;
+  const fd=val('f_fardo'); body.fardoId = fd? Number(fd) : null;
+  const pfd=val('f_pfardo'); body.pecasPorFardo = pfd!=='' ? Number(pfd) : null;
   // Tecido homologado vinculado (cria/atualiza a receita BOM p/ baixa automática na OP).
   const tecMat=Number(val('f_tecmat')); let tecCons=Number(val('f_teccons'));
   const tecPT=tecLerPorTam();
@@ -4237,7 +4293,7 @@ function renderExpedicoes(){
     arr.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>${e.pedidoNumero?`<div class="muted mono" style="font-size:10px">${esc(e.pedidoNumero)}</div>`:''}`, esc(e.clienteNome||nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
-      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
+      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
@@ -4694,10 +4750,11 @@ async function gerarDoc(tipo, refId){
 
 // ---------- Integrações (Fase 4): NF-e e e-mail ----------
 // Popup que pergunta volumes/espécie/peso/dimensões antes de emitir a NF.
-function emitirNfePrompt(expedicaoId, pecas){
+function emitirNfePrompt(expedicaoId, pecas, pedidoId){
   const volSug = Math.max(1, Number(pecas)||1) >= 1 ? 1 : 1;
   openModal(`<h3>Emitir NF-e · transporte</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 12px">Informe os dados dos volumes que vão na nota (aparecem no DANFE). Deixe o peso em branco para o sistema estimar.</div>
+    <div id="nfv_auto" class="muted" style="font-size:11.5px;margin-bottom:8px"></div>
     <div class="grid3">
       ${field('nfv_vol','Volumes *','type="number" min="1" value="'+volSug+'"')}
       ${field('nfv_esp','Espécie','value="Caixa"')}
@@ -4709,6 +4766,15 @@ function emitirNfePrompt(expedicaoId, pecas){
     </div>
     <div class="row-end" style="margin-top:14px"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.emitirNfeConfirmar(${expedicaoId})">Emitir NF-e</button></div>`);
+  // Preenche automático o peso/volumes/dimensão a partir do cadastro do pedido.
+  if(pedidoId){ api('/embalagens/peso/'+pedidoId).then(r=>{
+    if(!r) return;
+    if($('nfv_vol')&&r.volumes) $('nfv_vol').value=r.volumes;
+    if($('nfv_pl')&&r.pesoLiquido) $('nfv_pl').value=r.pesoLiquido;
+    if($('nfv_pb')&&r.pesoBruto) $('nfv_pb').value=r.pesoBruto;
+    if($('nfv_dim')&&r.dimensoes) $('nfv_dim').value=r.dimensoes;
+    const a=$('nfv_auto'); if(a) a.innerHTML='⚖️ Preenchido do cadastro: <b>'+(r.pesoLiquido||0)+' kg</b> líquido · <b>'+(r.pesoBruto||0)+' kg</b> bruto · '+(r.volumes||1)+' volume(s)'+(r.semPeso>0?(' · <span style="color:#c14a34">⚠ '+r.semPeso+' peça(s) sem peso cadastrado</span>'):'');
+  }).catch(()=>{}); }
 }
 async function emitirNfeConfirmar(expedicaoId){
   const vol=Number(val('nfv_vol'))||1;
@@ -5404,6 +5470,10 @@ async function viewEmpresa(c){
         <div><input type="file" accept="image/*" onchange="APP.empLogoSel(this)" style="font-size:12px"></div>
       </div>
     </div></div>
+    <div class="sect"><h3>Peso e embalagem</h3><div class="panel" style="padding:18px">
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Peso da <b>embalagem unitária</b> (saquinho de cada peça) — entra no peso bruto do pedido/NF. As caixas e fardos ficam no <b>catálogo de Embalagens</b> (dentro de um produto → "Gerenciar embalagens").</div>
+      <div class="grid2">${iv('e_embunit','Peso embalagem unitária (kg)',e.pesoEmbalagemUnit,'type="number" step="0.001" min="0" placeholder="ex.: 0.050"')}<div></div></div>
+    </div></div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn-primary" onclick="APP.saveEmpresa()">Salvar configuração</button></div>`;
 }
 function empLogoThumb(){
@@ -5428,6 +5498,7 @@ async function saveEmpresa(){
     nfeSerie:val('e_serie')||'1', nfeProximoNumero:Number(val('e_prox')||1),
     logo: window.__EMPLOGO||'',
   };
+  const eu=val('e_embunit'); if(eu!=='') body.pesoEmbalagemUnit=Number(eu);
   Object.keys(body).forEach(k=>{ if(body[k]==='' && k!=='logo') delete body[k]; });
   try{ await api('/empresa',{method:'PATCH',body}); toast('Configuração salva.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
@@ -6296,7 +6367,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, maskDoc, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, maskDoc, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
