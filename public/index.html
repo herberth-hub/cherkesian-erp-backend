@@ -5374,6 +5374,7 @@ function agenteCancel(i){
 // ---------- Config fiscal da empresa (NF-e) ----------
 async function viewEmpresa(c){
   const [e, pron] = await Promise.all([api('/empresa'), api('/empresa/prontidao-fiscal')]);
+  window.__EMPLOGO = e.logo||'';
   const iv = (id,lbl,val,attrs)=>`<div><label class="fl">${esc(lbl)}</label><input id="${id}" class="inp" value="${esc(val==null?'':val)}" ${attrs||''}></div>`;
   const crtOpts = [[1,'Simples Nacional'],[3,'Regime Normal (Lucro Presumido/Real)']].map(([v,t])=>`<option value="${v}" ${e.crt===v?'selected':''}>${t}</option>`).join('');
   const alerta = pron.pronto
@@ -5396,8 +5397,28 @@ async function viewEmpresa(c){
       <div class="muted" style="font-size:12px;margin-bottom:10px">Configure para continuar de onde o sistema anterior (Bling) parou: informe a <b>série</b> e o <b>próximo número</b> (último emitido + 1).</div>
       <div class="grid2">${iv('e_serie','Série',e.nfeSerie,'placeholder="1"')}${iv('e_prox','Próximo número','', 'type="number" min="1" value="'+(e.nfeProximoNumero||1)+'"')}</div>
     </div></div>
-    <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn-primary" onclick="APP.saveEmpresa()">Salvar configuração fiscal</button></div>`;
+    <div class="sect"><h3>Logo da empresa</h3><div class="panel" style="padding:18px">
+      <div class="muted" style="font-size:12px;margin-bottom:10px">Sai no <b>cabeçalho de todos os documentos</b> (Pedido, Proposta, OP, OS, Romaneio…). Prefira <b>PNG com fundo transparente</b> (o cabeçalho é escuro). Sem logo, usa a marca "CHERKESIAN".</div>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="background:#0a0a0a;padding:10px 14px;border-radius:8px" id="emplogo_pv">${empLogoThumb()}</div>
+        <div><input type="file" accept="image/*" onchange="APP.empLogoSel(this)" style="font-size:12px"></div>
+      </div>
+    </div></div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn-primary" onclick="APP.saveEmpresa()">Salvar configuração</button></div>`;
 }
+function empLogoThumb(){
+  const u=window.__EMPLOGO;
+  if(u) return `<img src="${u}" style="max-height:60px;max-width:220px;display:block"><a onclick="APP.empLogoDel()" style="cursor:pointer;color:#e08a6a;font-size:11px">remover</a>`;
+  return '<span style="color:#a8a396;font-size:12px">Sem logo (usa "CHERKESIAN")</span>';
+}
+async function empLogoSel(el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  try{
+    const dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>{ const img=new Image(); img.onload=()=>{ let w=img.width,h=img.height; const max=400; if(w>max||h>max){ const r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); } const cv=document.createElement('canvas'); cv.width=w; cv.height=h; cv.getContext('2d').drawImage(img,0,0,w,h); res(cv.toDataURL('image/png')); }; img.onerror=rej; img.src=fr.result; }; fr.onerror=rej; fr.readAsDataURL(f); });
+    window.__EMPLOGO=dataUrl; if($('emplogo_pv')) $('emplogo_pv').innerHTML=empLogoThumb();
+  }catch(e){ toast('Não foi possível ler a imagem.','err'); }
+}
+function empLogoDel(){ window.__EMPLOGO=''; if($('emplogo_pv')) $('emplogo_pv').innerHTML=empLogoThumb(); }
 async function saveEmpresa(){
   const body = {
     nome:val('e_nome'), nomeFantasia:val('e_fant'), cnpj:val('e_cnpj'), inscricaoEstadual:val('e_ie'),
@@ -5405,9 +5426,10 @@ async function saveEmpresa(){
     logradouro:val('e_log'), numeroEndereco:val('e_num'), complemento:val('e_comp'), bairro:val('e_bairro'),
     municipio:val('e_mun'), codMunicipio:val('e_codmun'), uf:val('e_uf').toUpperCase(), cep:val('e_cep'),
     nfeSerie:val('e_serie')||'1', nfeProximoNumero:Number(val('e_prox')||1),
+    logo: window.__EMPLOGO||'',
   };
-  Object.keys(body).forEach(k=>{ if(body[k]==='' ) delete body[k]; });
-  try{ await api('/empresa',{method:'PATCH',body}); toast('Configuração fiscal salva.','ok'); loadRoute(); }
+  Object.keys(body).forEach(k=>{ if(body[k]==='' && k!=='logo') delete body[k]; });
+  try{ await api('/empresa',{method:'PATCH',body}); toast('Configuração salva.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 
@@ -6296,7 +6318,7 @@ window.APP = {
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
-  saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
+  saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,

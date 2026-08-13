@@ -23,6 +23,13 @@ export const dataBR = (d?: Date | string | null) =>
   d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—';
 
 /** Cria o documento A4 com papel timbrado (cabeçalho + rodapé em toda página). */
+// Logo da empresa (data URI base64) usado no cabeçalho. Single-tenant: setado
+// pelo serviço antes de gerar o PDF; se nulo, usa a marca textual "CHERKESIAN".
+let LOGO_DOC: string | null = null;
+export function setLogoDoc(dataUri: string | null | undefined): void {
+  LOGO_DOC = dataUri && /^data:image\//.test(dataUri) ? dataUri : null;
+}
+
 export function novoDocumento(titulo: string, numero: string): Pdf {
   const doc = new PDFDocument({ size: 'A4', margins: { top: 128, bottom: 70, left: 50, right: 50 } });
   const timbre = () => cabecalho(doc, titulo, numero);
@@ -37,10 +44,24 @@ function cabecalho(doc: Pdf, titulo: string, numero: string): void {
   doc.save();
   doc.rect(0, 0, w, 92).fill(ONIX);
   doc.rect(0, 92, w, 3).fill(OURO);
-  // Marca
-  doc.fillColor(OURO).font('Helvetica-Bold').fontSize(7).text('G R U P O', 50, 26, { characterSpacing: 2 });
-  doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(21).text('CHERKESIAN', 50, 36);
-  doc.fillColor(CINZA).font('Helvetica').fontSize(6.5).text('U N I F O R M E S   P R O F I S S I O N A I S', 50, 62, { characterSpacing: 1 });
+  // Marca: logo da empresa (se cadastrado) ou a marca textual padrão.
+  let logoOk = false;
+  if (LOGO_DOC) {
+    const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(LOGO_DOC);
+    if (m) {
+      try {
+        doc.image(Buffer.from(m[1], 'base64'), 50, 20, { fit: [200, 54], valign: 'center' });
+        logoOk = true;
+      } catch {
+        logoOk = false;
+      }
+    }
+  }
+  if (!logoOk) {
+    doc.fillColor(OURO).font('Helvetica-Bold').fontSize(7).text('G R U P O', 50, 26, { characterSpacing: 2 });
+    doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(21).text('CHERKESIAN', 50, 36);
+    doc.fillColor(CINZA).font('Helvetica').fontSize(6.5).text('U N I F O R M E S   P R O F I S S I O N A I S', 50, 62, { characterSpacing: 1 });
+  }
   // Título + número à direita
   doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(13).text(titulo.toUpperCase(), w - 300, 30, { width: 250, align: 'right' });
   doc.fillColor(OURO).font('Helvetica-Bold').fontSize(10).text(numero, w - 300, 50, { width: 250, align: 'right' });

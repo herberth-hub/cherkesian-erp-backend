@@ -97,6 +97,8 @@ model Empresa {
   // Numeração da NF-e (continuar de onde o sistema anterior parou)
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
+  // Logo (data URI base64) — sai no cabeçalho dos documentos em PDF.
+  logo              String? @db.Text
 }
 
 // Filial / estabelecimento do grupo (matriz + filiais). Cada CNPJ é um emitente

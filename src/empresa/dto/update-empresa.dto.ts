@@ -29,4 +29,6 @@ export class UpdateEmpresaDto {
 
   @IsOptional() @IsString() @MaxLength(3) nfeSerie?: string;
   @IsOptional() @IsInt() @Min(1, { message: 'nfeProximoNumero deve ser >= 1.' }) nfeProximoNumero?: number;
+  /** Logo em data URI base64 (sai no cabeçalho dos documentos). '' remove. */
+  @IsOptional() @IsString() @MaxLength(4_000_000) logo?: string;
 }

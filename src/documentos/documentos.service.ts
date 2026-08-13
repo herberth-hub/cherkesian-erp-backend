@@ -18,6 +18,7 @@ import {
   gradeTabela,
   imagem,
   imagemMini,
+  setLogoDoc,
   itemPedido,
   pedidoGradeTabela,
   money,
@@ -227,6 +228,9 @@ export class DocumentosService {
     empresaId: number,
     numero: string,
   ): Promise<Pdf> {
+    // Aplica o logo da empresa no cabeçalho dos documentos.
+    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
+    setLogoDoc(emp?.logo ?? null);
     switch (tipo) {
       case 'proposta':
       case 'pedido':
@@ -656,6 +660,8 @@ export class DocumentosService {
     if (!linhas.length) throw new BadRequestException('Nenhuma peça corresponde ao filtro (produto/tamanho).');
 
     const numero = `OS-${pedido.numero}`;
+    const empLogo = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
+    setLogoDoc(empLogo?.logo ?? null);
     const doc = novoDocumento('Ordem de Serviço', numero);
     secao(doc, 'Identificação');
     const filtroTxt = [
