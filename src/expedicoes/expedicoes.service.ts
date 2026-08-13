@@ -452,23 +452,29 @@ export class ExpedicoesService {
         if (!un) throw new BadRequestException(`Etiqueta "${codigo}" não reconhecida. Bipe a etiqueta da peça, do kit ou da caixa.`);
 
         // ===== NÃO deixa bipar peça FORA do pedido (evita retrabalho) =====
+        // Só valida por produto quando o pedido tem itens VINCULADOS a produtos
+        // (produtoId). Pedidos de texto livre (ML/importados/soltos) não dá pra
+        // validar por código — aí libera a bipagem usando os dados da própria peça.
         const snapItens = (exp.itens as Array<{ produtoId: number | null; descricao?: string; cor: string | null; grade?: Record<string, number> | null }> | null) ?? [];
         if (snapItens.length) {
+          const temVinculo = snapItens.some((it) => it.produtoId != null);
           const linha = snapItens.find((it) => it.produtoId === un.produtoId && this.corCombina(it.cor, un.cor));
-          if (!linha) {
+          if (!linha && temVinculo) {
             throw new BadRequestException(`"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}). Não bipe peças de fora.`);
           }
-          // Casa o conteúdo da caixa com a linha do pedido (descrição/cor do pedido + tamanho normalizado).
+          // Casa o conteúdo da caixa com a linha do pedido (ou com a própria peça, se texto livre).
           const tNorm = this.normTamanho(un.tamanho);
-          boxDescricao = linha.descricao ?? un.descricao ?? codigo;
-          boxCor = linha.cor ?? un.cor ?? null;
+          boxDescricao = linha?.descricao ?? un.descricao ?? codigo;
+          boxCor = linha?.cor ?? un.cor ?? null;
           boxTam = tNorm;
-          const pedidoQtd = Object.entries(linha.grade ?? {}).reduce((acc, [k, v]) => (this.normTamanho(k) === tNorm ? acc + Number(v || 0) : acc), 0);
-          if (pedidoQtd > 0) {
-            const jaTam = (await tx.unidadeEstoque.findMany({ where: { expedicaoId: id, status: 'despachado', produtoId: un.produtoId }, select: { cor: true, tamanho: true } }))
-              .filter((x) => this.corCombina(linha.cor, x.cor) && this.normTamanho(x.tamanho) === tNorm).length;
-            if (jaTam >= pedidoQtd) {
-              throw new BadRequestException(`Tamanho ${tNorm} de "${un.descricao ?? ''}${un.cor ? ' · ' + un.cor : ''}" já está completo (pedido: ${pedidoQtd}). Não bipe a mais.`);
+          if (linha) {
+            const pedidoQtd = Object.entries(linha.grade ?? {}).reduce((acc, [k, v]) => (this.normTamanho(k) === tNorm ? acc + Number(v || 0) : acc), 0);
+            if (pedidoQtd > 0) {
+              const jaTam = (await tx.unidadeEstoque.findMany({ where: { expedicaoId: id, status: 'despachado', produtoId: un.produtoId }, select: { cor: true, tamanho: true } }))
+                .filter((x) => this.corCombina(linha.cor, x.cor) && this.normTamanho(x.tamanho) === tNorm).length;
+              if (jaTam >= pedidoQtd) {
+                throw new BadRequestException(`Tamanho ${tNorm} de "${un.descricao ?? ''}${un.cor ? ' · ' + un.cor : ''}" já está completo (pedido: ${pedidoQtd}). Não bipe a mais.`);
+              }
             }
           }
         }
