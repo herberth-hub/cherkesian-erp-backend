@@ -5523,6 +5523,7 @@ async function mlCarregarPedidos(){
   const box=$('ml_pedidos'); if(box) box.innerHTML='<div class="muted" style="font-size:12px">Buscando pedidos no Mercado Livre…</div>';
   let lista; try{ lista=await api('/mercadolivre/pedidos'); }catch(e){ if(box) box.innerHTML='<div class="empty" style="color:#c14a34">'+esc(e.message)+'</div>'; return; }
   if(!lista||!lista.length){ if(box) box.innerHTML='<div class="empty">Nenhum pedido pago recente na conta.</div>'; return; }
+  window.__MLPED = lista;
   if(box) box.innerHTML = panelTable(['Pedido ML','Data','Comprador','Itens','Total','Ação'], lista.map(o=>[
     '<span class="mono">'+esc(o.id)+'</span>', dfmt(o.data), esc(o.comprador),
     (o.itens||[]).map(i=>esc(i.quantidade+'× '+i.titulo)).join('<br>')||'—',
@@ -5530,9 +5531,44 @@ async function mlCarregarPedidos(){
     o.importado?'<span class="pill green">importado</span>':`<button class="btn-sm" onclick="APP.mlImportar('${esc(String(o.id))}')">Importar → pedido</button>`
   ]));
 }
+// Abre o modal de VÍNCULO: cada item do ML → produto do ERP (ou cadastrar rápido).
 async function mlImportar(id){
-  try{ const r=await api('/mercadolivre/pedidos/'+id+'/importar',{method:'POST'}); toast('Pedido '+esc(r.numero)+' criado · '+esc(r.cliente)+' · '+money(r.total),'ok'); mlCarregarPedidos(); }
-  catch(e){ toast(e.message,'err'); }
+  const o=(window.__MLPED||[]).find(x=>String(x.id)===String(id));
+  const itens=(o&&o.itens)||[];
+  const prods=await api('/produtos').catch(()=>[]);
+  window.__MLPRODS=prods;
+  const norm=s=>String(s||'').toLowerCase();
+  const opt=(sel)=>`<option value="">— não vincular (texto livre) —</option>`+ (prods||[]).map(p=>`<option value="${p.id}"${p.id===sel?' selected':''}>${esc(p.codigo+' · '+p.descricao)}${p.cor?(' · '+esc(p.cor)):''}</option>`).join('');
+  const rows=itens.map((it,i)=>{
+    // palpite: produto cujo código/descrição aparece no título do anúncio
+    const t=norm(it.titulo); const guess=(prods||[]).find(p=>t.includes(norm(p.codigo))||t.includes(norm(p.descricao).slice(0,12)));
+    return `<div style="border-top:1px solid #eee;padding:8px 0">
+      <div style="font-size:12.5px;font-weight:600">${esc(it.quantidade)}× ${esc(it.titulo)}</div>
+      <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+        <select class="inp mlvinc" data-i="${i}" style="flex:1;font-size:12px">${opt(guess?guess.id:'')}</select>
+        <button class="btn-sm" title="cadastrar produto rápido" onclick="APP.mlCadProd(${i},'${esc(String(it.titulo)).replace(/'/g,"&#39;")}')">+ novo</button>
+      </div></div>`;
+  }).join('');
+  openModal(`<h3>🔗 Importar pedido ML <span class="mono muted" style="font-size:12px">${esc(id)}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Vincule cada item a um produto do ERP (assim o pedido já gera OP, baixa estoque e passa na conferência). Sem vínculo, entra como texto livre.</div>
+    ${rows||'<div class="muted">Sem itens.</div>'}
+    <div class="row-end" style="margin-top:12px"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.mlImportarConfirmar('${esc(String(id))}',${itens.length})">Importar pedido</button></div>`);
+}
+async function mlImportarConfirmar(id,n){
+  const vinc=new Array(n).fill(null);
+  document.querySelectorAll('.mlvinc').forEach(s=>{ const i=Number(s.dataset.i); const v=Number(s.value); if(v>0) vinc[i]=v; });
+  try{
+    const r=await api('/mercadolivre/pedidos/'+id+'/importar',{method:'POST',body:{vinculos:vinc}});
+    let msg='Pedido '+esc(r.numero)+' criado · '+esc(r.cliente)+' · '+money(r.total);
+    if(r.semVinculo>0) msg+=' · ⚠ '+r.semVinculo+' item(ns) sem produto vinculado';
+    toast(msg, r.semVinculo>0?'err':'ok'); closeModal(); mlCarregarPedidos();
+  }catch(e){ toast(e.message,'err'); }
+}
+// Cadastro rápido de produto a partir do título do anúncio, e já pré-seleciona no item.
+function mlCadProd(i, titulo){
+  formProduto(0);
+  setTimeout(()=>{ if($('f_desc'))$('f_desc').value=titulo; if($('f_cat')&&!$('f_cat').value)$('f_cat').value='OUT'; toast('Cadastre o produto e salve; depois reabra a importação p/ vinculá-lo.','ok'); }, 300);
 }
 async function mlSalvarConfig(){
   const body={ appId:val('ml_appid').trim(), redirectUri:val('ml_redir').trim() };
@@ -6261,7 +6297,7 @@ window.APP = {
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
   saveEmpresa, formProdutoFiscal, saveProdutoFiscal,
-  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar,
+  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,

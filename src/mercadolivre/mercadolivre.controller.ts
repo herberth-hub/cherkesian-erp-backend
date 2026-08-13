@@ -57,7 +57,7 @@ export class MercadoLivreController {
 
   @Post('pedidos/:id/importar')
   @HttpCode(HttpStatus.OK)
-  importar(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.service.importarPedido(user.empresaId, id);
+  importar(@Param('id') id: string, @Body('vinculos') vinculos: Array<number | null>, @CurrentUser() user: AuthUser) {
+    return this.service.importarPedido(user.empresaId, id, vinculos);
   }
 }

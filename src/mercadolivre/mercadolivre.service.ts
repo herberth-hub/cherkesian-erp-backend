@@ -197,8 +197,9 @@ export class MercadoLivreService {
     }));
   }
 
-  /** Importa um pedido do ML: cria/acha o cliente e gera um Pedido de venda (orçamento). */
-  async importarPedido(empresaId: number, mlOrderId: string) {
+  /** Importa um pedido do ML: cria/acha o cliente e gera um Pedido de venda (orçamento).
+   *  `vinculos[i]` = produtoId do ERP para o item i do pedido ML (opcional). */
+  async importarPedido(empresaId: number, mlOrderId: string, vinculos?: Array<number | null>) {
     const token = await this.tokenValido(empresaId);
     const o = await this.fetchJson(`${this.API}/orders/${mlOrderId}`, token);
     if (!o?.id) throw new BadRequestException('Pedido do Mercado Livre não encontrado.');
@@ -217,12 +218,23 @@ export class MercadoLivreService {
     if (!cliente) cliente = await this.prisma.cliente.findFirst({ where: { empresaId, nome: { equals: nomeComprador, mode: 'insensitive' } } });
     if (!cliente) cliente = await this.prisma.cliente.create({ data: { empresaId, nome: nomeComprador, cnpjCpf: doc, obs: 'Importado do Mercado Livre' } });
 
-    const itens = (o.order_items || []).map((it: any) => ({
-      descricao: String(it.item?.title || 'Item Mercado Livre').slice(0, 200),
-      quantidade: Math.max(1, Number(it.quantity) || 1),
-      valorUnit: new Prisma.Decimal(Number(it.unit_price) || 0),
-    }));
+    // Vínculo opcional item→produto do ERP (deixa o pedido pronto p/ OP/estoque/conferência).
+    const pids = (vinculos || []).map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+    const prods = pids.length ? await this.prisma.produto.findMany({ where: { id: { in: pids }, empresaId }, select: { id: true, descricao: true, cor: true } }) : [];
+    const pmap = new Map(prods.map((p) => [p.id, p]));
+    const itens = (o.order_items || []).map((it: any, i: number) => {
+      const pid = vinculos && vinculos[i] ? Number(vinculos[i]) : undefined;
+      const prod = pid ? pmap.get(pid) : undefined;
+      return {
+        produtoId: prod?.id,
+        descricao: prod?.descricao || String(it.item?.title || 'Item Mercado Livre').slice(0, 200),
+        cor: prod?.cor ?? undefined,
+        quantidade: Math.max(1, Number(it.quantity) || 1),
+        valorUnit: new Prisma.Decimal(Number(it.unit_price) || 0),
+      };
+    });
     if (!itens.length) throw new BadRequestException('Pedido do Mercado Livre sem itens.');
+    const semVinculo = itens.filter((it: { produtoId?: number }) => !it.produtoId).length;
     const total = itens.reduce((s: Prisma.Decimal, it: any) => s.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
 
     const nums = (await this.prisma.pedido.findMany({ where: { empresaId }, select: { numero: true } })).map((p) => p.numero);
@@ -237,6 +249,6 @@ export class MercadoLivreService {
         itens: { create: itens },
       },
     });
-    return { ok: true, numero: pedido.numero, cliente: cliente.nome, total: Number(total.toFixed(2)) };
+    return { ok: true, numero: pedido.numero, cliente: cliente.nome, total: Number(total.toFixed(2)), itens: itens.length, semVinculo };
   }
 }
