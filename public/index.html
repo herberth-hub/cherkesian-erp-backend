@@ -3534,22 +3534,30 @@ function renderMPDestino(){
   const itens=window.__MPITENS||[], L=window.__MPLOTES||[]; const volNf=Number(window.__NEVOL||0); const umItem=itens.length===1;
   const rows = itens.map((it,i)=>`<div style="border-top:1px solid #eee;padding:7px 0">
       <div style="font-size:12px;line-height:1.2;margin-bottom:5px">${esc(it.descricao||('Item '+(i+1)))}<span class="muted"> · ${esc(String(it.quantidade||''))} ${esc(it.unidade||'')}</span></div>
+      <div style="display:flex;gap:6px;font-size:10px;color:#8a8674;padding:0 2px"><span style="flex:1">Lote do fornecedor</span><span style="width:96px;text-align:center">Nº de ROLOS</span><span style="width:24px"></span></div>
       ${(L[i]||[]).map((r,j)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
           <input class="inp" id="mplote_${i}_${j}" value="${esc(r.lote||'')}" placeholder="lote fornec." style="flex:1;font-size:12px;padding:5px 7px">
-          <input class="inp" id="mpvol_${i}_${j}" type="number" min="0" step="1" value="${r.vol}" title="volumes deste lote" style="width:74px;font-size:12px;padding:5px 7px">
+          <input class="inp" id="mpvol_${i}_${j}" type="number" min="0" step="1" value="${r.vol}" title="quantos rolos/volumes deste lote (1 etiqueta por rolo)" oninput="APP.mpContaEtq()" style="width:96px;font-size:13px;font-weight:700;text-align:center;padding:5px 7px">
           ${(L[i].length>1)?`<button class="btn-sm" title="remover lote" onclick="APP.mpLoteDel(${i},${j})">×</button>`:'<span style="display:inline-block;width:24px"></span>'}
         </div>`).join('')}
       <button class="btn-sm" style="font-size:11px" onclick="APP.mpLoteAdd(${i})">+ outro lote</button>
     </div>`).join('');
   openModal(`<h3>📦 Onde colocar a matéria-prima?</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 10px">A NF foi registrada. Informe os <b>volumes/rolos</b> por lote (uma etiqueta por volume). Se o fornecedor mandou <b>mais de um lote</b> do mesmo item, use <b>"+ outro lote"</b>. Volume 0 não etiqueta.</div>
-    ${volNf?`<div style="font-size:12px;background:#fbf7e8;border:1px solid #efe2b8;border-radius:8px;padding:7px 10px;margin-bottom:6px;color:#7a6a2e">📦 A NF declara <b>${volNf}</b> volume(s) no total${umItem?' (já preenchido).':' — distribua entre itens/lotes.'}</div>`:''}
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Informe o <b>número de ROLOS por lote</b> — sai <b>1 etiqueta por rolo</b> pra você etiquetar e endereçar cada um. Mesmo item com <b>mais de um lote</b>? Use <b>"+ outro lote"</b>. Rolos 0 não etiqueta.</div>
+    ${volNf?`<div style="font-size:12px;background:#fbf7e8;border:1px solid #efe2b8;border-radius:8px;padding:7px 10px;margin-bottom:6px;color:#7a6a2e">📦 A NF declara <b>${volNf}</b> volume(s) no transporte — mas confira os <b>rolos reais</b> recebidos (às vezes difere). Ajuste abaixo.</div>`:''}
     ${rows}
+    <div id="mp_tot" style="text-align:center;font-size:13px;font-weight:700;color:#1e7a44;margin-top:8px"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn-primary" style="flex:1" onclick="APP.gerarUnidadesMP('estoque')">📦 Estoque<br><span style="font-weight:400;font-size:11px">gera etiquetas e endereça</span></button>
       <button class="btn-primary" style="flex:1;background:#1e7a44" onclick="APP.gerarUnidadesMP('expedicao')">🚚 Expedição<br><span style="font-weight:400;font-size:11px">direto pra despachar</span></button>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal();APP.loadRoute()">Pular (só saldo agregado)</button></div>`);
+  mpContaEtq();
+}
+// Soma os rolos informados e mostra quantas etiquetas vão sair.
+function mpContaEtq(){
+  let t=0; document.querySelectorAll('[id^="mpvol_"]').forEach(e=>{ t+=Math.max(0,Math.round(Number(e.value)||0)); });
+  const el=$('mp_tot'); if(el) el.innerHTML = t>0 ? ('🏷 Vai gerar <b>'+t+'</b> etiqueta(s) — uma por rolo') : '<span style="color:#c14a34">Informe o nº de rolos pra gerar etiquetas</span>';
 }
 async function gerarUnidadesMP(destino){
   mpSyncLotes();
@@ -3598,6 +3606,15 @@ async function buscarSefaz(){
 }
 async function importarSefaz(i){
   const n=(window.__SEFAZ||[])[i]; if(!n) return;
+  const chave=String(n.chave||'').replace(/\D/g,'');
+  // Com a chave, puxa os ITENS REAIS da NF (xProd, qtd, unidade) da SEFAZ —
+  // igual ao "Puxar SEFAZ". Sem chave, cai no manual com 1 item placeholder.
+  if(chave.length===44){
+    closeModal();
+    await formNotaEntrada({ chave });
+    puxarSefazChave();
+    return;
+  }
   const forn = await api('/fornecedores').catch(()=>[]);
   const match = forn.find(f=>(f.cnpjCpf||'').replace(/\D/g,'')===(n.cnpjEmitente||''));
   window.__NEPRE = { cnpjEmitente:n.cnpjEmitente, nomeEmitente:n.emitente };
@@ -6233,7 +6250,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
