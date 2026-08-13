@@ -2252,10 +2252,24 @@ async function savePedido(id){
     // Cor obrigatória quando o produto tem cores cadastradas.
     const cores = coresDoProduto(p);
     if(cores.length && !PITENS[i].cor){ toast('Item '+(i+1)+' ('+p.descricao+'): escolha a COR.','err'); return; }
-    const item={ produtoId:p.id, quantidade, valorUnit:Number(v) };
-    if(PITENS[i].cor) item.cor=PITENS[i].cor;
-    if(soma>0) item.grade=g;
-    itens.push(item);
+    // Separa o item por FAIXA DE PREÇO: tamanhos normais (preço base) e tamanhos
+    // da tabela especial (precoEspecial) viram linhas distintas — senão o especial
+    // era gravado com o preço base.
+    const base=Number(v);
+    const esp=tamsEspDoProduto(p);
+    const precoEsp=(p.precoEspecial!=null && String(p.precoEspecial)!=='')?Number(p.precoEspecial):null;
+    const cor=PITENS[i].cor;
+    const addItem=(grade,valorUnit,qtd)=>{ const it={ produtoId:p.id, quantidade:qtd, valorUnit }; if(cor) it.cor=cor; if(grade) it.grade=grade; itens.push(it); };
+    if(soma>0 && precoEsp!=null && esp.length){
+      const gBase={}, gEsp={}; let qB=0,qE=0;
+      for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; if(n<=0) continue; if(esp.includes(String(t).toUpperCase())){ gEsp[t]=n; qE+=n; } else { gBase[t]=n; qB+=n; } }
+      if(qB>0) addItem(gBase, base, qB);
+      if(qE>0) addItem(gEsp, precoEsp, qE);
+    } else if(soma>0){
+      addItem(g, base, soma);
+    } else {
+      addItem(null, base, manual);
+    }
   }
   if(!clienteId){ toast('Selecione o cliente.','err'); return; }
   if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
