@@ -1180,6 +1180,25 @@ export class NfeService {
           provedor: 'focusnfe',
         };
       }
+      // Referência já processada: a nota JÁ existe na Focus (talvez autorizada num
+      // envio anterior que não foi gravado aqui). Consulta e RECUPERA o status real
+      // em vez de rejeitar — evita "corrija e reemita" numa nota que já saiu.
+      const jaProcessada = body['codigo'] === 'already_processed' || /já foi (autorizada|processada|enviada)/i.test(String(body['mensagem'] ?? ''));
+      if (res.status === 422 && jaProcessada) {
+        const c = await this.consultarFocus(token, ref, amb);
+        const mapa: Record<string, 'pendente' | 'autorizada' | 'rejeitada'> = {
+          autorizado: 'autorizada', processando_autorizacao: 'pendente',
+          erro_autorizacao: 'rejeitada', denegado: 'rejeitada', cancelado: 'rejeitada',
+        };
+        const st = mapa[c.status] ?? 'pendente';
+        return {
+          chave: c.chave,
+          status: st,
+          protocolo: c.protocolo,
+          motivo: st === 'autorizada' ? 'Nota já estava autorizada na SEFAZ — recuperada automaticamente.' : c.motivo,
+          provedor: 'focusnfe',
+        };
+      }
       return {
         chave: null,
         status: 'rejeitada' as const,
