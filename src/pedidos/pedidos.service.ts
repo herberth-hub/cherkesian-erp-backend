@@ -655,7 +655,7 @@ export class PedidosService {
   /** Tamanhos que usam a tabela de preço especial (ex.: "G1,G2,G3,G4,G5"). */
   static tamsEspeciais(produto: Produto | null): string[] {
     return produto?.tamsEspeciais
-      ? String(produto.tamsEspeciais).split(/[,;/ ]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
+      ? String(produto.tamsEspeciais).split(/[,;/.\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
       : [];
   }
 

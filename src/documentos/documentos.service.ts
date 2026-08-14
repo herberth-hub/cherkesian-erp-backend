@@ -736,7 +736,7 @@ export class DocumentosService {
   /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
   private precoTamanho(produto: Produto | null, base: Prisma.Decimal, tam: string): Prisma.Decimal {
     const esp = produto?.tamsEspeciais
-      ? String(produto.tamsEspeciais).split(/[,;/ ]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
+      ? String(produto.tamsEspeciais).split(/[,;/.\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
       : [];
     if (produto?.precoEspecial != null && esp.includes(String(tam).toUpperCase())) {
       return new Prisma.Decimal(produto.precoEspecial);

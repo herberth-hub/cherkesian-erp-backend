@@ -2080,12 +2080,16 @@ const TAMS_PADRAO=['PP','P','M','G','GG','G1','G2','G3','G4','G5'];
 function parseGradeTxt(txt){ const o={}; let soma=0; for(const par of String(txt||'').split(/[,;]+/)){ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Math.round(Number((m[1]||'').trim())); if(t&&q>0){o[t]=q;soma+=q;} } return {o,soma}; }
 // Tamanhos de um produto (da grade cadastrada) — ex.: "PP, P, ... G5". Sem grade, usa o padrão.
 function tamsDoProduto(p){
-  const g=(p&&p.grade)?String(p.grade).split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
-  return g.length?g.slice(0,16):TAMS_PADRAO;
+  const parse=s=>String(s||'').split(/[,;/.\s]+/).map(x=>x.trim().toUpperCase()).filter(Boolean);
+  const g=p?parse(p.grade):[];
+  const esp=p?parse(p.tamsEspeciais):[];   // especiais SEMPRE aparecem (mesmo fora da grade)
+  const uni=[...new Set([...g,...esp])];
+  if(!uni.length) return TAMS_PADRAO;
+  return uni.sort((a,b)=>{ const i=ESCADA_TAM.indexOf(a),j=ESCADA_TAM.indexOf(b); return (i<0?99:i)-(j<0?99:j); }).slice(0,20);
 }
 // Tamanhos que usam a tabela de preço especial do produto (ex.: G1..G5).
 function tamsEspDoProduto(p){
-  return (p&&p.tamsEspeciais)?String(p.tamsEspeciais).split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
+  return (p&&p.tamsEspeciais)?String(p.tamsEspeciais).split(/[,;/.\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
 }
 // Cores cadastradas do produto (separadas por "·", "|", ";" ou ","). Ex.: "2187 Verde · 9158 Cinza" ou "PRETO, CINZA, BRANCO".
 function coresDoProduto(p){
