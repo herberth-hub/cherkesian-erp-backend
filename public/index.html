@@ -4312,7 +4312,7 @@ function renderExpedicoes(){
     arr.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>${e.pedidoNumero?`<div class="muted mono" style="font-size:10px">${esc(e.pedidoNumero)}</div>`:''}`, esc(e.clienteNome||nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
-      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
+      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
@@ -4832,6 +4832,29 @@ async function emitirNfeConfirmar(expedicaoId){
   const pb=Number(val('nfv_pb')); if(pb>0) transporte.pesoBruto=pb;
   closeModal();
   await emitirNfe(expedicaoId, transporte);
+}
+// NF de Remessa (entrega futura) — pra pedido já faturado. Mesmo prompt de transporte.
+function emitirRemessaFuturaPrompt(expedicaoId, pecas){
+  openModal(`<h3>🧾 NF de Remessa · entrega futura</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 12px">Só o que está indo nesta parcial. Referencia a <b>NF de faturamento</b> do pedido (sem nova cobrança). Se o pedido ainda não foi faturado, o sistema avisa.</div>
+    <div class="grid3">
+      ${field('rmf_vol','Volumes *','type="number" min="1" value="1"')}
+      ${field('rmf_esp','Espécie','value="Caixa"')}
+      ${field('rmf_pb','Peso bruto (kg)','type="number" min="0" step="0.001" placeholder="opcional"')}
+    </div>
+    <div class="row-end" style="margin-top:14px"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.emitirRemessaFuturaConfirmar(${expedicaoId})">Emitir remessa</button></div>`);
+}
+async function emitirRemessaFuturaConfirmar(expedicaoId){
+  const body={ expedicaoId, volumes:Number(val('rmf_vol'))||1 };
+  const esp=val('rmf_esp'); if(esp) body.especie=esp;
+  const pb=Number(val('rmf_pb')); if(pb>0) body.pesoBruto=pb;
+  closeModal(); uiSpinnerOpen({nota:'NF de remessa · entrega futura'});
+  try{
+    const n=await api('/nfe/remessa-futura',{method:'POST',body}); uiSpinnerClose();
+    if(n.status==='rejeitada'){ await uiAlert({tipo:'err', titulo:'NF de remessa rejeitada', msg:'Motivo: '+(n.motivo||'ver detalhe')+'. Corrija e reemita.'}); loadRoute(); return; }
+    toast('NF de remessa '+n.numero+(n.status==='simulada'?' (SIMULADA)':' AUTORIZADA')+' — vinculada ao faturamento.','ok'); loadRoute();
+  }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
 async function emitirNfe(expedicaoId, transporte){
   uiSpinnerOpen({nota:'NF-e de venda · expedição'});
@@ -6431,7 +6454,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,

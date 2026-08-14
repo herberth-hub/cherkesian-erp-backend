@@ -298,6 +298,84 @@ export class NfeService {
   }
 
   /**
+   * NF de REMESSA (entrega futura) — acompanha uma entrega PARCIAL, referenciando
+   * a NF de faturamento do pedido. CFOP 5116/6116, SEM cobrança (o financeiro já
+   * está no faturamento). Uma por expedição parcial.
+   */
+  async emitirRemessaFutura(expedicaoId: number, empresaId: number, usuario: string, transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number }) {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id: expedicaoId } });
+    if (!exp) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
+    if (!exp.pedidoId) throw new BadRequestException('Expedição sem pedido — a remessa de entrega futura precisa do pedido faturado.');
+
+    const jaEmitida = await this.prisma.notaFiscal.findFirst({ where: { expedicaoId, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
+    if (jaEmitida) throw new ConflictException(`Expedição já possui a nota ${jaEmitida.numero}.`);
+
+    // Exige a NF de faturamento do pedido (a remessa referencia ela).
+    const faturamento = await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'faturamento', pedidoId: exp.pedidoId, status: { in: ['autorizada', 'simulada'] } }, orderBy: { id: 'desc' } });
+    if (!faturamento) throw new BadRequestException('Emita a NF de FATURAMENTO do pedido antes da remessa de entrega futura.');
+
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
+    let destinatario = cliente;
+    if (pedido?.clienteUnidadeId) {
+      const uni = await this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } });
+      if (uni && uni.clienteId === cliente.id && uni.cnpjCpf) {
+        destinatario = { ...cliente, nome: uni.nome || cliente.nome, cnpjCpf: uni.cnpjCpf, inscricaoEstadual: uni.inscricaoEstadual ?? cliente.inscricaoEstadual, indicadorIE: uni.indicadorIE ?? cliente.indicadorIE, logradouro: uni.logradouro ?? cliente.logradouro, numeroEndereco: uni.numeroEndereco ?? cliente.numeroEndereco, bairro: uni.bairro ?? cliente.bairro, municipio: uni.municipio ?? cliente.municipio, codMunicipio: uni.codMunicipio ?? cliente.codMunicipio, uf: uni.uf ?? cliente.uf, cep: uni.cep ?? cliente.cep, email: uni.email ?? cliente.email };
+      }
+    }
+
+    // Só o que foi expedido nesta parcial (snapshot em exp.itens).
+    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
+    const itens = (snap && snap.length ? snap : (pedido?.itens ?? []).map((i) => ({ produtoId: i.produtoId, descricao: i.descricao, quantidade: i.quantidade, valorUnit: Number(i.valorUnit), grade: (i.grade as Record<string, number> | null) ?? null })))
+      .map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
+    if (!itens.length) throw new BadRequestException('Nada expedido nesta parcial para emitir a remessa.');
+    const valor = itens.reduce((acc, it) => acc.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
+
+    let filial = pedido?.filialId ? await this.prisma.filial.findUnique({ where: { id: pedido.filialId } }) : null;
+    if (!filial) filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado.');
+    const token = this.tokenDaFilial(filial);
+    if (token) {
+      const faltas = this.validarFiscal(filial, destinatario, itens.length);
+      if (faltas.length) throw new BadRequestException('Dados fiscais incompletos: ' + faltas.join('; ') + '.');
+    }
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const infoAdic = `Remessa - venda para entrega futura. Ref. NF de faturamento ${faturamento.numero}${faturamento.chave ? ' (chave ' + faturamento.chave + ')' : ''}. Pedido ${pedido?.numero ?? ''}. Sem cobranca (financeiro na NF de faturamento).`;
+
+    const payload = await this.montarPayload(filial, destinatario, { pecas: itens.reduce((s, i) => s + i.quantidade, 0), volumes: transporte?.volumes }, itens, serie, numeroSeq, valor, infoAdic, {
+      cfopOverride: '5116',
+      volumes: transporte?.volumes, especie: transporte?.especie, pesoLiquido: transporte?.pesoLiquido, pesoBruto: transporte?.pesoBruto,
+    });
+    (payload as Record<string, unknown>).natureza_operacao = 'Remessa - venda para entrega futura';
+    if (faturamento.chave) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: faturamento.chave }];
+
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEREMF-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      : this.emitirSimulada();
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          empresaId, filialId: filial.id, expedicaoId, pedidoId: exp.pedidoId, tipo: 'remessa_futura', notaRefId: faturamento.id,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
+      return criada; // SEM conta a receber — a cobrança está no faturamento.
+    });
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /**
    * NF-e AVULSA — emite sem expedição/pedido: escolhe o cliente e os itens
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */

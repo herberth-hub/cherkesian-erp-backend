@@ -94,6 +94,14 @@ export class NfeController {
     return this.nfeService.emitirFaturamento(Number(dto.pedidoId), user.empresaId, user.usuario, { sinalRecebido: dto.sinalRecebido, volumes: dto.volumes });
   }
 
+  /** NF de remessa (entrega futura) — acompanha a entrega parcial, ref. o faturamento. */
+  @Post('remessa-futura')
+  @Areas('vendas', 'expedicao')
+  @HttpCode(HttpStatus.CREATED)
+  remessaFutura(@Body() dto: { expedicaoId: number; volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number }, @CurrentUser() user: AuthUser) {
+    return this.nfeService.emitirRemessaFutura(Number(dto.expedicaoId), user.empresaId, user.usuario, { volumes: dto.volumes, especie: dto.especie, pesoLiquido: dto.pesoLiquido, pesoBruto: dto.pesoBruto });
+  }
+
   /** NF-e avulsa: cliente + itens, sem expedição. Comercial também emite. */
   @Post('avulsa')
   @Areas('vendas', 'expedicao', 'receber')
