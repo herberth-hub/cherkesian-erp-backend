@@ -516,10 +516,15 @@ export class NfeService {
       throw new ConflictException('Nota AUTORIZADA não pode ser excluída — cancele na SEFAZ primeiro.');
     }
     const numeroSeq = Number(String(nota.numero).split('/').pop());
+    // Só devolve o número se a nota NUNCA consumiu numeração na SEFAZ: rejeitada
+    // (recusada) ou simulada. PENDENTE pode ser autorizada de forma assíncrona pela
+    // SEFAZ — reusar o número gera colisão (duas notas no mesmo nº). CANCELADA já
+    // consumiu o número. Nesses casos NÃO reutiliza.
+    const podeReutilizar = nota.status === 'rejeitada' || nota.status === 'simulada';
     const resultado = await this.prisma.$transaction(async (tx) => {
       await tx.notaFiscal.delete({ where: { id } });
       let numeroReutilizado: number | null = null;
-      if (nota.filialId) {
+      if (podeReutilizar && nota.filialId) {
         const filial = await tx.filial.findUnique({ where: { id: nota.filialId } });
         // Só devolve o número se ele for o ÚLTIMO consumido (senão abriria buraco).
         if (filial && numeroSeq === filial.nfeProximoNumero - 1) {
