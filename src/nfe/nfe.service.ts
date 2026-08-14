@@ -227,6 +227,77 @@ export class NfeService {
   }
 
   /**
+   * NF de SIMPLES FATURAMENTO (venda para entrega futura) — a "NF cheia" que gera
+   * a COBRANÇA do pedido (justifica o sinal e lança o residual a receber).
+   * NÃO movimenta mercadoria: CFOP 5922/6922, finalidade normal. As entregas saem
+   * depois com NF(s) de Remessa (CFOP 5116/6116) referenciando esta nota.
+   */
+  async emitirFaturamento(pedidoId: number, empresaId: number, usuario: string, opts?: { sinalRecebido?: number; volumes?: number }) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { itens: true, cliente: true } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    if (!pedido.itens.length) throw new BadRequestException('Pedido sem itens para faturar.');
+    const ja = await this.prisma.notaFiscal.findFirst({ where: { empresaId, tipo: 'faturamento', pedidoId, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
+    if (ja) throw new ConflictException(`Este pedido já tem a NF de faturamento ${ja.numero}.`);
+
+    const filial = pedido.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: pedido.filialId } })
+      : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
+    const token = this.tokenDaFilial(filial);
+    const cliente = pedido.cliente;
+
+    const valor = new Prisma.Decimal(pedido.valorTotal);
+    const itensNf = pedido.itens.map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
+    const totalPecas = pedido.itens.reduce((s, it) => s + it.quantidade, 0);
+
+    // Título = RESIDUAL (valor total − sinal já recebido fora da NF).
+    const sinal = Math.max(0, Math.min(Number(valor), Number(opts?.sinalRecebido || 0)));
+    const residual = Number((Number(valor) - sinal).toFixed(2));
+    const cobranca = this.duplicatasDePedido(pedido.formaPagamento, residual > 0 ? residual : Number(valor));
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const infoAdic = [
+      `Simples faturamento - venda para entrega futura. Pedido ${pedido.numero}.`,
+      sinal > 0 ? `Sinal ja recebido: R$ ${sinal.toFixed(2)}. Residual a cobrar: R$ ${residual.toFixed(2)}.` : '',
+      'Mercadoria sera entregue com NF(s) de remessa (CFOP 5116/6116) referenciando esta nota.',
+    ].filter(Boolean).join(' ');
+
+    const payload = await this.montarPayload(filial, cliente, { pecas: totalPecas, volumes: opts?.volumes }, itensNf, serie, numeroSeq, valor, infoAdic, {
+      cfopOverride: '5922',
+      duplicatas: cobranca.duplicatas,
+      volumes: opts?.volumes,
+    });
+    (payload as Record<string, unknown>).natureza_operacao = 'Venda para entrega futura (simples faturamento)';
+    (payload as Record<string, unknown>).finalidade_emissao = 1;
+
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEFAT-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      : this.emitirSimulada();
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          empresaId, filialId: filial.id, pedidoId, tipo: 'faturamento',
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario, ordemCompraCliente: pedido.ordemCompraCliente,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      // Conta a receber do RESIDUAL (o sinal já entrou fora desta NF).
+      if (residual > 0) {
+        await tx.contaReceber.create({ data: { empresaId, clienteId: cliente.id, pedidoId, notaFiscalId: criada.id, valor: new Prisma.Decimal(residual.toFixed(2)), vencimento: cobranca.primeiroVenc, status: 'a_vencer' } });
+      }
+      return criada;
+    });
+    return token ? { ...nota, sinal, residual } : { ...nota, sinal, residual, payloadPreview: payload };
+  }
+
+  /**
    * NF-e AVULSA — emite sem expedição/pedido: escolhe o cliente e os itens
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
@@ -967,7 +1038,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -1007,7 +1078,7 @@ export class NfeService {
         numero_item: idx + 1,
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
-        cfop: extra?.bonificacao ? (mesmaUf ? '5910' : '6910') : this.ajustarCfop(p?.cfop ?? '5101', mesmaUf),
+        cfop: extra?.cfopOverride ? this.ajustarCfop(extra.cfopOverride, mesmaUf) : (extra?.bonificacao ? (mesmaUf ? '5910' : '6910') : this.ajustarCfop(p?.cfop ?? '5101', mesmaUf)),
         // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
         codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
         unidade_comercial: unidade,

@@ -1,0 +1,1 @@
+ALTER TABLE "NotaFiscal" ADD COLUMN "notaRefId" INTEGER;

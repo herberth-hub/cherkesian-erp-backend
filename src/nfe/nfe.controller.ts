@@ -86,6 +86,14 @@ export class NfeController {
     return this.nfeService.emitirRemessa(String(controleFaccao || '').trim(), user.empresaId, user.usuario);
   }
 
+  /** NF de simples faturamento (venda para entrega futura) — cobrança cheia do pedido. */
+  @Post('faturamento')
+  @Areas('vendas', 'expedicao', 'receber')
+  @HttpCode(HttpStatus.CREATED)
+  faturamento(@Body() dto: { pedidoId: number; sinalRecebido?: number; volumes?: number }, @CurrentUser() user: AuthUser) {
+    return this.nfeService.emitirFaturamento(Number(dto.pedidoId), user.empresaId, user.usuario, { sinalRecebido: dto.sinalRecebido, volumes: dto.volumes });
+  }
+
   /** NF-e avulsa: cliente + itens, sem expedição. Comercial também emite. */
   @Post('avulsa')
   @Areas('vendas', 'expedicao', 'receber')
