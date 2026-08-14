@@ -105,11 +105,11 @@ export class NfeService {
       }
     }
     // Expedição PARCIAL: a NF reflete só o que foi expedido (snapshot em exp.itens).
-    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
-    let itens: Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: Prisma.Decimal; grade?: Record<string, number> | null }>;
+    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
+    let itens: Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: Prisma.Decimal; grade?: Record<string, number> | null }>;
     let valor: Prisma.Decimal;
     if (snap && snap.length) {
-      itens = snap.map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
+      itens = snap.map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, cor: s.cor ?? null, quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
       valor = itens.reduce((acc, it) => acc.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
     } else {
       itens = (pedido?.itens ?? []) as typeof itens;
@@ -157,7 +157,7 @@ export class NfeService {
     ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
-    const itensNf = this.explodirPorTamanho(itens.map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, grade: (it as { grade?: Record<string, number> | null }).grade })));
+    const itensNf = this.explodirPorTamanho(itens.map((it) => ({ descricao: this.descComCor(it.descricao, (it as { cor?: string | null }).cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, grade: (it as { grade?: Record<string, number> | null }).grade })));
     // Modalidade do frete pelo campo do pedido: CIF=0 (emitente), FOB=1 (destinatário), senão sem frete.
     const freteTxt = (pedido?.frete || '').toLowerCase();
     const modFrete = /cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : (exp.transportadora ? 0 : 9);
@@ -247,7 +247,7 @@ export class NfeService {
     const cliente = pedido.cliente;
 
     const valor = new Prisma.Decimal(pedido.valorTotal);
-    const itensNf = pedido.itens.map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
+    const itensNf = pedido.itens.map((it) => ({ descricao: this.descComCor(it.descricao, it.cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
     const totalPecas = pedido.itens.reduce((s, it) => s + it.quantidade, 0);
 
     // Título = RESIDUAL (valor total − sinal já recebido fora da NF).
@@ -326,9 +326,9 @@ export class NfeService {
     }
 
     // Só o que foi expedido nesta parcial (snapshot em exp.itens).
-    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
-    const itens = (snap && snap.length ? snap : (pedido?.itens ?? []).map((i) => ({ produtoId: i.produtoId, descricao: i.descricao, quantidade: i.quantidade, valorUnit: Number(i.valorUnit), grade: (i.grade as Record<string, number> | null) ?? null })))
-      .map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
+    const snap = exp.itens as Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null;
+    const itens = (snap && snap.length ? snap : (pedido?.itens ?? []).map((i) => ({ produtoId: i.produtoId, descricao: i.descricao, cor: i.cor, quantidade: i.quantidade, valorUnit: Number(i.valorUnit), grade: (i.grade as Record<string, number> | null) ?? null })))
+      .map((s) => ({ produtoId: s.produtoId ?? null, descricao: this.descComCor(s.descricao, s.cor ?? null), quantidade: s.quantidade, valorUnit: new Prisma.Decimal(s.valorUnit), grade: s.grade ?? null }));
     if (!itens.length) throw new BadRequestException('Nada expedido nesta parcial para emitir a remessa.');
     const valor = itens.reduce((acc, it) => acc.plus(it.valorUnit.mul(it.quantidade)), new Prisma.Decimal(0));
 
@@ -861,6 +861,15 @@ export class NfeService {
     if (!cliente.municipio || !cliente.uf || !cliente.cep) f.push('Endereço fiscal do cliente');
     if (qtdItens === 0) f.push('itens no pedido');
     return f;
+  }
+
+  /** Acrescenta a cor à descrição do item — ajuda cliente/almoxarifado a identificar na entrega. */
+  private descComCor(descricao: string, cor?: string | null): string {
+    const c = (cor ?? '').trim();
+    if (!c) return descricao;
+    // Evita duplicar quando a cor já está escrita na descrição.
+    if (descricao.toUpperCase().includes(c.toUpperCase())) return descricao;
+    return `${descricao} - COR: ${c}`.slice(0, 120);
   }
 
   /** Acrescenta a grade de tamanhos à descrição do item (limite xProd 120). */
