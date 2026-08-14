@@ -347,7 +347,7 @@ export class NfeService {
     const infoAdic = `Remessa - venda para entrega futura. Ref. NF de faturamento ${faturamento.numero}${faturamento.chave ? ' (chave ' + faturamento.chave + ')' : ''}. Pedido ${pedido?.numero ?? ''}. Sem cobranca (financeiro na NF de faturamento).`;
 
     const payload = await this.montarPayload(filial, destinatario, { pecas: itens.reduce((s, i) => s + i.quantidade, 0), volumes: transporte?.volumes }, itens, serie, numeroSeq, valor, infoAdic, {
-      cfopOverride: '5116',
+      cfopOverride: '5116', semImpostos: true,
       volumes: transporte?.volumes, especie: transporte?.especie, pesoLiquido: transporte?.pesoLiquido, pesoBruto: transporte?.pesoBruto,
     });
     (payload as Record<string, unknown>).natureza_operacao = 'Remessa - venda para entrega futura';
@@ -1116,7 +1116,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; semImpostos?: boolean; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -1168,7 +1168,19 @@ export class NfeService {
         valor_bruto: baseItem,
         icms_origem: p?.origem ?? 0,
       };
-      if (simples) {
+      if (extra?.semImpostos) {
+        // Remessa de venda para entrega futura: a mercadoria já foi tributada na NF de
+        // faturamento. Aqui é só a movimentação física — SEM novo ICMS/PIS/COFINS.
+        if (simples) {
+          item.icms_situacao_tributaria = '400'; // não tributada pelo Simples Nacional
+          item.pis_situacao_tributaria = '49';
+          item.cofins_situacao_tributaria = '49';
+        } else {
+          item.icms_situacao_tributaria = '41'; // Não tributada
+          item.pis_situacao_tributaria = '08';   // sem incidência da contribuição
+          item.cofins_situacao_tributaria = '08';
+        }
+      } else if (simples) {
         // Simples Nacional: CSOSN no ICMS + PIS/COFINS CST 49 (recolhidos no DAS).
         item.icms_situacao_tributaria = p?.icmsCst ?? csosnEmp;
         item.pis_situacao_tributaria = pisCofinsCstEmp;
@@ -1200,7 +1212,8 @@ export class NfeService {
       }
 
       // ===== Grupo IBS/CBS (Reforma Tributária) — transição 2026: CBS 0,9% e IBS 0,1% =====
-      if (reformaAtiva) {
+      // Na remessa de entrega futura o fato gerador (venda) já ocorreu no faturamento → sem IBS/CBS aqui.
+      if (reformaAtiva && !extra?.semImpostos) {
         const bcIbsCbs = baseItem;
         const vCbs = Number((bcIbsCbs * cbsAliq / 100).toFixed(2));
         const vIbsUf = Number((bcIbsCbs * ibsUfAliq / 100).toFixed(2));
