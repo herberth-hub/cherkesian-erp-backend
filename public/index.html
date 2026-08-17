@@ -475,7 +475,6 @@ function renderTop(){
       <div style="text-align:right"><div style="font-size:12.5px;font-weight:600">${esc(S.user.nome)}</div>
         <div style="font-size:11px;color:var(--muted)">@${esc(S.user.usuario)} · ${esc(S.user.acesso)}</div></div>
       <div class="avatar">${iniciais(S.user.nome)}</div>
-      <button class="btn-ghost" title="Abrir esta página em uma nova aba do navegador" onclick="APP.novaAba()">⧉ Nova aba</button>
       <button class="btn-ghost" title="Atualizar a página (F5)" onclick="APP.recarregar()">🔄 Atualizar</button>
       <button class="btn-ghost" onclick="APP.logout()">Sair</button>
     </div>`;
@@ -599,7 +598,42 @@ async function viewDashboard(c){
             {label:'A pagar', value:Number(d.financeiro.aPagar)||0, fmt:money(d.financeiro.aPagar), color:'#c14a34'},
           ], '')}</div>` : ''}
       </div>
-    </div>`;
+    </div>
+    ${abertoSec(d.cobrancasDia)}`;
+}
+function abertoSec(c){
+  if(!c) return '';
+  const R=c.abertoReceber||{}, P=c.abertoPagar||{};
+  if(!((R.qtd||0)||(P.qtd||0))) return '';
+  const badge=(x)=>{
+    if(x.status==='vencida') return `<span style="background:#c14a34;color:#fff;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700">${Math.abs(x.dias)}d atraso</span>`;
+    if(x.status==='hoje') return `<span style="background:#e08a2b;color:#fff;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700">hoje</span>`;
+    return `<span style="background:#3a8f4f;color:#fff;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700">${x.dias}d</span>`;
+  };
+  const rows=(itens,cobrar)=> (itens||[]).map(x=>`<tr>
+      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;font-weight:600">${esc(x.parte||'')}</td>
+      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;font-size:11px;color:#6b675c">${x.ref?esc(x.ref):'—'}</td>
+      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;text-align:center;font-size:11px;white-space:nowrap">${esc((x.vencimento||'').split('-').reverse().join('/'))} ${badge(x)}</td>
+      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'};white-space:nowrap">${money(x.valor)}</td>
+    </tr>`).join('');
+  const col=(o,cobrar)=>{
+    const cor=cobrar?'#3a8f4f':'#c14a34';
+    const titulo=cobrar?'📥 A receber em aberto':'📤 A pagar em aberto';
+    return `<div class="panel" style="flex:1 1 340px;min-width:280px;overflow-x:auto;border-left:4px solid ${cor}">
+      <div style="padding:9px 12px;background:#faf6ea;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-weight:800;color:${cor}">${titulo}</div>
+        <div style="font-size:12px">${o.qtd||0} título(s) · <b>${money(o.total||0)}</b></div></div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:#fff;color:#8a8674;font-size:11px">
+          <th style="padding:5px 10px;text-align:left">${cobrar?'Cliente':'Fornecedor'}</th>
+          <th style="padding:5px 10px;text-align:left">Título</th>
+          <th style="padding:5px 10px;text-align:center">Vencimento</th>
+          <th style="padding:5px 10px;text-align:right">Valor</th></tr></thead>
+        <tbody>${rows(o.itens,cobrar)||'<tr><td colspan=4 class="muted" style="padding:12px">Nada em aberto.</td></tr>'}</tbody></table></div>`;
+  };
+  return `<div class="sect"><h3>📋 Contas em aberto — detalhado (quem, título e valor)</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">${col(R,true)}${col(P,false)}</div>
+    <div class="muted" style="font-size:11px;margin-top:4px">Todos os títulos ainda não quitados (maiores primeiro, até 60 por lista). Baixa em Financeiro › A receber / A pagar.</div></div>`;
 }
 function kpi(k,v,s){ return `<div class="card kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`; }
 function abcClasse(c){ const cor={A:'#3a8f4f',B:'#C9A227',C:'#8a8674'}[c]||'#8a8674'; return `<span style="background:${cor};color:#fff;font-size:11px;font-weight:800;padding:1px 8px;border-radius:20px">${esc(c)}</span>`; }

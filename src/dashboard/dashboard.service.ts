@@ -251,6 +251,29 @@ export class DashboardService {
         receber: { ...resumo(receberLista), itens: receberLista.slice(0, 30) },
         pagar: { ...resumo(pagarLista), itens: pagarLista.slice(0, 30) },
       };
+
+      // Lista COMPLETA em aberto (todos os títulos não pagos, qualquer vencimento),
+      // por parte, ordenada do maior saldo p/ o menor — "quem está em aberto".
+      const montarTodos = <T extends { valor: unknown; pago: unknown; vencimento: Date; id: number }>(
+        arr: T[], parteDe: (t: T) => string, refDe: (t: T) => string | null,
+      ) => arr
+        .map((t) => ({ t, saldo: Number(Number(t.valor) - Number(t.pago)), dias: diasVenc(t.vencimento) }))
+        .filter((x) => x.saldo > 0.005)
+        .sort((a, b) => b.saldo - a.saldo)
+        .map((x) => ({
+          id: x.t.id, parte: parteDe(x.t), ref: refDe(x.t),
+          valor: Number(x.saldo.toFixed(2)),
+          vencimento: new Date(x.t.vencimento).toISOString().slice(0, 10),
+          dias: x.dias, status: x.dias < 0 ? 'vencida' : x.dias === 0 ? 'hoje' : 'a_vencer',
+        }));
+      const recTodos = montarTodos(recAbertas, (t) => nomeCli.get(t.clienteId) ?? 'Cliente', (t) => t.documento ?? null);
+      const pagTodos = montarTodos(pagAbertas, (t) => (t.fornecedorId != null ? nomeForn.get(t.fornecedorId) : null) ?? t.categoria ?? 'Fornecedor', (t) => t.referencia ?? t.categoria ?? null);
+      const somaLst = (lst: Array<{ valor: number }>) => Number(lst.reduce((s, x) => s + x.valor, 0).toFixed(2));
+      cobrancasDia = {
+        ...(cobrancasDia as Record<string, unknown>),
+        abertoReceber: { qtd: recTodos.length, total: somaLst(recTodos), itens: recTodos.slice(0, 60) },
+        abertoPagar: { qtd: pagTodos.length, total: somaLst(pagTodos), itens: pagTodos.slice(0, 60) },
+      };
     }
 
     const resposta: Record<string, unknown> = {
