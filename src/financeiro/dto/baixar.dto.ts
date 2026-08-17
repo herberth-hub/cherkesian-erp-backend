@@ -8,5 +8,5 @@ export class BaixarDto {
   valor?: number;
 
   /** Banco/conta de onde saiu o pagamento (só contas a pagar). */
-  @IsOptional() @IsString() @MaxLength(120) banco?: string;
+  @IsOptional() @IsString() @MaxLength(200) banco?: string;
 }
