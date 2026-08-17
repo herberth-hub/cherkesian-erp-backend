@@ -201,13 +201,17 @@ export class PedidosService {
     }
 
     // ===== RETIFICAÇÃO SEGURA (pedido já em produção/expedido) =====
+    // Chave inclui o PREÇO: um mesmo produto+cor pode ter DUAS linhas (preço base
+    // dos tamanhos normais e preço especial dos tamanhos grandes) — sem o preço na
+    // chave as duas colidiriam e uma linha (ex.: os tamanhos P) seria perdida.
     const norm = (s?: string | null) => String(s ?? '').trim().toUpperCase();
-    const chave = (produtoId: number | null, cor: string | null) => `${produtoId ?? 0}|${norm(cor)}`;
-    const porChave = new Map(pedido.itens.map((i) => [chave(i.produtoId, i.cor), i]));
+    const preco = (v: Prisma.Decimal) => Number(v).toFixed(2);
+    const chave = (produtoId: number | null, cor: string | null, valorUnit: Prisma.Decimal) => `${produtoId ?? 0}|${norm(cor)}|${preco(valorUnit)}`;
+    const porChave = new Map(pedido.itens.map((i) => [chave(i.produtoId, i.cor, i.valorUnit), i]));
     const usados = new Set<number>();
     return this.prisma.$transaction(async (tx) => {
       for (const nv of novos) {
-        const ex = porChave.get(chave(nv.produtoId, nv.cor));
+        const ex = porChave.get(chave(nv.produtoId, nv.cor, nv.valorUnit));
         if (ex) {
           usados.add(ex.id);
           const jaExp = ex.quantidadeExpedida ?? 0;
