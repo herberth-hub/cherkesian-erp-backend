@@ -5350,12 +5350,13 @@ async function viewNotas(c){
 function nfFiltrar(){
   const list = window.__NFS||[];
   const q = (val('nfBusca')||'').trim().toLowerCase();
-  const f = q ? list.filter(n=> (n.clienteNome||'').toLowerCase().includes(q) || String(n.numero||'').toLowerCase().includes(q) || String(n.chave||'').toLowerCase().includes(q)) : list;
+  const f = q ? list.filter(n=> (n.clienteNome||'').toLowerCase().includes(q) || String(n.numero||'').toLowerCase().includes(q) || String(n.chave||'').toLowerCase().includes(q) || String(n.cfop||'').toLowerCase().includes(q)) : list;
   const alvo = document.getElementById('nfLista'); if(!alvo) return;
   alvo.innerHTML = panelTable(
-    ['Número','Série','Cliente / Destinatário','Status','Valor','Chave de acesso','Emitida em','Ações'],
+    ['Número','Série','CFOP','Cliente / Destinatário','Status','Valor','Chave de acesso','Emitida em','Ações'],
     f.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie),
+      n.cfop?`<span class="mono" style="font-weight:700" title="${esc(n.natureza||'')}">${esc(n.cfop)}</span>`:'<span class="muted">—</span>',
       n.clienteNome?`<b style="font-size:12.5px">${esc(n.clienteNome)}</b>${n.tipo==='remessa'?' <span class="pill" style="background:#eef;color:#446;font-size:9px">REMESSA</span>':''}`:'<span class="muted">—</span>',
       nfPill(n.status), money(n.valor),
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),

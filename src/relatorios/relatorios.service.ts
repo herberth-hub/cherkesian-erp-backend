@@ -218,15 +218,15 @@ export class RelatoriosService {
             return [
               fil?.nome ?? '—', fil?.cnpj ?? '—', fil?.municipio ?? '—', fil?.uf ?? '—', fil?.cep ?? '—',
               cli?.nome ?? '—', cli?.cnpjCpf ?? '—', cli?.municipio ?? cli?.cidadeUf ?? '—', cli?.uf ?? '—', cli?.cep ?? '—',
-              nf.numero, dataBR(nf.emitidaEm), String(vol), money(val), String(pecas),
+              nf.numero, nf.cfop ?? '—', nf.natureza ?? '—', dataBR(nf.emitidaEm), String(vol), money(val), String(pecas),
             ];
           });
-          linhas.push([`TOTAIS · ${regs.length} nota(s)`, '', '', '', '', '', '', '', '', '', '', '', String(totVol), money(totValor), String(totPecas)]);
+          linhas.push([`TOTAIS · ${regs.length} nota(s)`, '', '', '', '', '', '', '', '', '', '', '', '', '', String(totVol), money(totValor), String(totPecas)]);
           return {
             colunas: [
-              { titulo: 'REMETENTE', largura: 110 }, { titulo: 'CNPJ', largura: 92 }, { titulo: 'CIDADE', largura: 78 }, { titulo: 'UF', largura: 26 }, { titulo: 'CEP', largura: 58 },
-              { titulo: 'DESTINATÁRIO', largura: 120 }, { titulo: 'CNPJ/CPF', largura: 92 }, { titulo: 'CIDADE', largura: 78 }, { titulo: 'UF', largura: 26 }, { titulo: 'CEP', largura: 58 },
-              { titulo: 'NF', largura: 58 }, { titulo: 'EMISSÃO', largura: 58 }, { titulo: 'VOLUME', largura: 48, alinhamento: 'right' }, { titulo: 'VALOR MERC.', largura: 80, alinhamento: 'right' }, { titulo: 'QTD PEÇAS', largura: 58, alinhamento: 'right' },
+              { titulo: 'REMETENTE', largura: 100 }, { titulo: 'CNPJ', largura: 88 }, { titulo: 'CIDADE', largura: 70 }, { titulo: 'UF', largura: 24 }, { titulo: 'CEP', largura: 52 },
+              { titulo: 'DESTINATÁRIO', largura: 110 }, { titulo: 'CNPJ/CPF', largura: 88 }, { titulo: 'CIDADE', largura: 70 }, { titulo: 'UF', largura: 24 }, { titulo: 'CEP', largura: 52 },
+              { titulo: 'NF', largura: 50 }, { titulo: 'CFOP', largura: 52 }, { titulo: 'NATUREZA', largura: 100 }, { titulo: 'EMISSÃO', largura: 54 }, { titulo: 'VOLUME', largura: 44, alinhamento: 'right' }, { titulo: 'VALOR MERC.', largura: 74, alinhamento: 'right' }, { titulo: 'QTD PEÇAS', largura: 52, alinhamento: 'right' },
             ],
             linhas,
           };

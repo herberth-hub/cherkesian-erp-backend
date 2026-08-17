@@ -735,6 +735,8 @@ model NotaFiscal {
   retornadaEm DateTime?  // quando a remessa foi baixada pelo retorno
   notaRefId   Int?       // referência a outra NF (remessa entrega futura -> NF de faturamento)
   ordemCompraCliente String? // nº do pedido de compra do cliente (sai nos dados adicionais)
+  cfop        String?    // CFOP(s) da nota (p/ contabilidade) — ex.: "5101" ou "5101/6101"
+  natureza    String?    // natureza da operação (ex.: "Venda de mercadoria")
   emitidaEm   DateTime  @default(now())
   emitidaPor  String?
 }

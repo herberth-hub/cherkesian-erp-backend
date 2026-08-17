@@ -204,6 +204,7 @@ export class NfeService {
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
+          ...this.resumoFiscalPayload(payload),
           empresaId,
           filialId: filial.id,
           expedicaoId,
@@ -296,6 +297,7 @@ export class NfeService {
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
+          ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, pedidoId, tipo: 'faturamento',
           numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
           motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario, ordemCompraCliente: pedido.ordemCompraCliente,
@@ -377,6 +379,7 @@ export class NfeService {
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
+          ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, expedicaoId, pedidoId: exp.pedidoId, tipo: 'remessa_futura', notaRefId: faturamento.id,
           numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
           motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario,
@@ -496,6 +499,7 @@ export class NfeService {
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
+          ...this.resumoFiscalPayload(payload),
           empresaId,
           filialId: filial.id,
           pedidoId: pedidoVinc?.id,
@@ -918,6 +922,13 @@ export class NfeService {
   }
 
   // ===== Montagem do payload (formato Focus NFe) =====
+  /** Extrai CFOP(s) distintos e a natureza de um payload Focus, p/ gravar na nota (contabilidade). */
+  private resumoFiscalPayload(payload: unknown): { cfop: string | null; natureza: string | null } {
+    const pl = payload as { items?: Array<{ cfop?: string }>; natureza_operacao?: string } | null;
+    const cfops = [...new Set((pl?.items || []).map((i) => String(i?.cfop || '').trim()).filter(Boolean))];
+    return { cfop: cfops.length ? cfops.join('/') : null, natureza: pl?.natureza_operacao || null };
+  }
+
   /** CFOP conforme a operação: 5xxx dentro do estado, 6xxx interestadual. */
   private ajustarCfop(cfop: string, mesmaUf: boolean): string {
     const c = (cfop || '5101').replace(/\D/g, '').padStart(4, '0').slice(0, 4);
@@ -1044,6 +1055,7 @@ export class NfeService {
     const nota = await this.prisma.$transaction(async (tx) => {
       const criada = await tx.notaFiscal.create({
         data: {
+          ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, tipo: 'remessa', fornecedorId: faccao.id, controleFaccao,
           numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
           motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
