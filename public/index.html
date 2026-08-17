@@ -553,6 +553,7 @@ async function viewDashboard(c){
       ${kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas')}
       ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
     </div>
+    ${cobrancasSec(d.cobrancasDia)}
     ${tecidoSec(d.alertasTecido)}
     ${remessaSec(d.remessasPendentes)}
     ${pedidosSec(d.pedidosEntrega)}
@@ -655,7 +656,7 @@ function entregaBadge(dias){
 async function sugerirCompraTecido(){
   if(!(await uiConfirm({tipo:'info', titulo:'Gerar sugestão de compra?', ok:'Gerar OCs', cancel:'Cancelar', msg:'Cria ordens de compra (status aguardando) do tecido/insumo faltante p/ atender os pedidos em aberto. Depois é só ajustar fornecedor/preço em Compras. Não duplica se já houver sugestão aberta.'}))) return;
   try{
-    const r = await api('/compras/sugerir-tecido',{method:'POST'});
+    const r = await api('/ordens-compra/sugerir-tecido',{method:'POST'});
     if(r.criadas && r.criadas.length){
       await uiAlert({tipo:'ok', titulo:r.criadas.length+' OC(s) criada(s)', msg:r.mensagem+'\n\n'+r.criadas.map(c=>'• '+c.numero+' — '+c.descricao+': '+c.quantidade+' '+c.unidade).join('\n')});
     } else {
@@ -710,6 +711,36 @@ function tecidoSec(list){
         </tr></thead>
         <tbody>${rows}</tbody></table></div>
     <div class="muted" style="font-size:11px;margin-top:4px">Comprar tecido/insumo desses produtos ou o estoque não cobre a produção. "Rende" = peças que o material mais escasso da receita permite.</div></div>`;
+}
+function cobrancasSec(c){
+  if(!c) return '';
+  const R=c.receber||{}, P=c.pagar||{};
+  if(!((R.qtd||0)||(P.qtd||0))) return `<div class="sect"><h3>💰 Cobrar / Pagar — vencidos e vencendo hoje</h3><div class="panel"><div class="empty" style="color:#3a8f4f">✅ Nada vencido nem vencendo hoje.</div></div></div>`;
+  const linha=(x,cobrar)=>{
+    const venc = esc((x.vencimento||'').split('-').reverse().join('/'));
+    const tag = x.status==='vencida'
+      ? `<span style="background:#c14a34;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700">${Math.abs(x.dias)}d atraso</span>`
+      : `<span style="background:#e08a2b;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700">vence hoje</span>`;
+    return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 10px;border-top:1px solid #f0e7d0">
+      <div style="min-width:0"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.parte||'')}</div>
+        <div class="muted" style="font-size:11px">${venc}${x.ref?' · '+esc(x.ref):''}</div></div>
+      <div style="text-align:right;white-space:nowrap"><div style="font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'}">${money(x.valor)}</div>${tag}</div>
+    </div>`;
+  };
+  const col=(o,cobrar)=>{
+    const titulo = cobrar?'📥 A receber — quem cobrar':'📤 A pagar — quem pagar';
+    const cor = cobrar?'#3a8f4f':'#c14a34';
+    const itens=(o.itens||[]);
+    const rows = itens.length?itens.map(x=>linha(x,cobrar)).join(''):`<div class="empty" style="padding:14px">✅ Nada pendente</div>`;
+    return `<div class="panel" style="flex:1 1 320px;min-width:270px;border-left:4px solid ${cor}">
+      <div style="padding:10px 12px;background:#faf6ea">
+        <div style="font-weight:800;color:${cor}">${titulo}</div>
+        <div style="font-size:13px;margin-top:2px">Total <b>${money(o.total||0)}</b> · <span style="color:#c14a34">Vencido ${money(o.vencido||0)} (${o.qtdVencido||0})</span> · <span style="color:#e08a2b">Hoje ${money(o.hoje||0)} (${o.qtdHoje||0})</span></div>
+      </div>${rows}</div>`;
+  };
+  return `<div class="sect"><h3>💰 Cobrar / Pagar — vencidos e vencendo hoje</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">${col(R,true)}${col(P,false)}</div>
+    <div class="muted" style="font-size:11px;margin-top:4px">Só títulos VENCIDOS ou que VENCEM HOJE (ação imediata). Lista completa em Financeiro › A receber / A pagar.</div></div>`;
 }
 function pedidosSec(e){
   if(!e) return '';

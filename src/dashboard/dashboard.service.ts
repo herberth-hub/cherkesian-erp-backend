@@ -211,6 +211,48 @@ export class DashboardService {
     const admin = acesso === 'total';
     const verFinanceiro = admin || acesso === 'financeiro' || acesso === 'contabilidade';
 
+    // ===== Cobrar / Pagar HOJE: títulos VENCIDOS + que VENCEM HOJE (ação imediata) =====
+    // Só para perfis financeiros. Diz "a quem cobrar" (a receber) e "a quem pagar" (a pagar).
+    let cobrancasDia: unknown = undefined;
+    if (verFinanceiro) {
+      const [recAbertas, pagAbertas, clientesFin, fornecedoresFin] = await Promise.all([
+        this.prisma.contaReceber.findMany({ where: { empresaId, status: { not: 'pago' } }, select: { id: true, clienteId: true, documento: true, valor: true, pago: true, vencimento: true } }),
+        this.prisma.contaPagar.findMany({ where: { empresaId, status: { not: 'pago' } }, select: { id: true, fornecedorId: true, categoria: true, referencia: true, valor: true, pago: true, vencimento: true } }),
+        this.prisma.cliente.findMany({ where: { empresaId }, select: { id: true, nome: true } }),
+        this.prisma.fornecedor.findMany({ select: { id: true, nome: true } }),
+      ]);
+      const nomeCli = new Map(clientesFin.map((c) => [c.id, c.nome]));
+      const nomeForn = new Map(fornecedoresFin.map((f) => [f.id, f.nome]));
+      const diasVenc = (v: Date) => Math.round((new Date(v).setHours(0, 0, 0, 0) - hojeMid.getTime()) / 86400000);
+      // Mantém só vencidos (dias<0) e que vencem hoje (dias===0), com saldo em aberto; mais atrasado primeiro.
+      const montar = <T extends { valor: unknown; pago: unknown; vencimento: Date; id: number }>(
+        arr: T[], parteDe: (t: T) => string, refDe: (t: T) => string | null,
+      ) => arr
+        .map((t) => ({ t, saldo: Number(Number(t.valor) - Number(t.pago)), dias: diasVenc(t.vencimento) }))
+        .filter((x) => x.saldo > 0.005 && x.dias <= 0)
+        .sort((a, b) => a.dias - b.dias)
+        .map((x) => ({
+          id: x.t.id, parte: parteDe(x.t), ref: refDe(x.t),
+          valor: Number(x.saldo.toFixed(2)),
+          vencimento: new Date(x.t.vencimento).toISOString().slice(0, 10),
+          dias: x.dias, status: x.dias < 0 ? 'vencida' : 'hoje',
+        }));
+      const receberLista = montar(recAbertas, (t) => nomeCli.get(t.clienteId) ?? 'Cliente', (t) => t.documento ?? null);
+      const pagarLista = montar(pagAbertas, (t) => (t.fornecedorId != null ? nomeForn.get(t.fornecedorId) : null) ?? t.categoria ?? 'Fornecedor', (t) => t.referencia ?? t.categoria ?? null);
+      const resumo = (lst: Array<{ valor: number; status: string }>) => ({
+        qtd: lst.length,
+        total: Number(lst.reduce((s, x) => s + x.valor, 0).toFixed(2)),
+        vencido: Number(lst.filter((x) => x.status === 'vencida').reduce((s, x) => s + x.valor, 0).toFixed(2)),
+        hoje: Number(lst.filter((x) => x.status === 'hoje').reduce((s, x) => s + x.valor, 0).toFixed(2)),
+        qtdVencido: lst.filter((x) => x.status === 'vencida').length,
+        qtdHoje: lst.filter((x) => x.status === 'hoje').length,
+      });
+      cobrancasDia = {
+        receber: { ...resumo(receberLista), itens: receberLista.slice(0, 30) },
+        pagar: { ...resumo(pagarLista), itens: pagarLista.slice(0, 30) },
+      };
+    }
+
     const resposta: Record<string, unknown> = {
       pedidos: {
         total: pedidos.length,
@@ -251,6 +293,7 @@ export class DashboardService {
         saldoRealizado: fluxo.realizado.saldo,
         saldoProjetado: fluxo.saldoProjetado,
       };
+      resposta.cobrancasDia = cobrancasDia;
     }
     return resposta;
   }
