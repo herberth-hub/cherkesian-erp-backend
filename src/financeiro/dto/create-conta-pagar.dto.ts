@@ -38,4 +38,15 @@ export class CreateContaPagarDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valor deve ter no máximo 2 casas decimais.' })
   @IsPositive({ message: 'valor deve ser positivo.' })
   valor!: number;
+
+  /** Boleto anexado (data URI base64: PDF ou imagem). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(15_000_000)
+  boleto?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  boletoNome?: string;
 }

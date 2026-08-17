@@ -93,6 +93,15 @@ export class FinanceiroController {
     return this.pagar.create(dto, user.empresaId);
   }
 
+  /** Visualiza/baixa o boleto (PDF/imagem) anexado ao título a pagar. */
+  @Areas('pagar')
+  @Get('pagar/:id/boleto')
+  async boletoPagar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res() res: Response) {
+    const a = await this.pagar.getBoleto(id, user.empresaId);
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `inline; filename="${a.filename}"` });
+    res.send(a.content);
+  }
+
   @Areas('pagar')
   @Post('pagar/:id/baixar')
   @HttpCode(HttpStatus.OK)

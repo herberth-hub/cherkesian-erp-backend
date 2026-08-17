@@ -30,4 +30,15 @@ export class UpdateContaPagarDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valor deve ter no máximo 2 casas decimais.' })
   @IsPositive()
   valor?: number;
+
+  /** Boleto anexado (data URI base64). String vazia remove o anexo. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(15_000_000)
+  boleto?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  boletoNome?: string;
 }

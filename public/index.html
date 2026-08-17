@@ -1577,6 +1577,14 @@ function deriveSizes(p){
   if(!s.length){ const set=[]; (p.medidas||[]).forEach(m=>Object.keys(m.valores||{}).forEach(k=>{ if(!set.includes(k)) set.push(k); })); s=set; }
   return s;
 }
+// Lê o arquivo como data URI PRESERVANDO o original (PDF/imagem) — usado no boleto.
+function arquivoParaDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onload=()=>resolve(fr.result);
+    fr.onerror=reject; fr.readAsDataURL(file);
+  });
+}
 function fileToDataURL(file, maxDim, quality){
   return new Promise((resolve,reject)=>{
     const fr=new FileReader();
@@ -2559,7 +2567,7 @@ function pagarFiltrar(){
       esc(t.categoria),
       (t.fornecedorId ? esc(nome[t.fornecedorId]||('#'+t.fornecedorId)) + ((window.__FORNPIX[t.fornecedorId]&&window.__FORNPIX[t.fornecedorId].pix)?` <button class="btn-sm" title="Copiar chave PIX" style="padding:1px 7px;margin-left:3px" onclick="APP.copiarPixForn(${t.fornecedorId})">🔑</button>`:'') : '—'),
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status)+(t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.temBoleto?`<button class="btn-sm" title="Ver/baixar boleto anexado" onclick="APP.verBoleto(${t.id})">📎 Boleto</button>`:''}${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
 function pagarPreset(kind){
@@ -2777,8 +2785,18 @@ async function formPagar(){
       <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off">${dl}</div>
     ${field('f_ref','Referência','placeholder="ex.: OC-0001, NF 123"')}
     <div class="grid2">${field('f_venc','Vencimento *','type="date"')}${field('f_valor','Valor *','type="number" step="0.01"')}</div>
+    <div class="mrow"><label class="fl">Boleto (opcional) <span class="muted" style="font-size:10px">PDF ou imagem, até 12 MB</span></label>
+      <input class="inp" id="f_boleto" type="file" accept="application/pdf,image/*"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePagar()">Salvar</button></div>`);
+}
+// Lê o input de arquivo do boleto -> {boleto, boletoNome}; valida tamanho. Retorna null se vazio.
+async function lerBoletoInput(inputId){
+  const el=document.getElementById(inputId); const f=el&&el.files&&el.files[0];
+  if(!f) return null;
+  if(f.size > 12*1024*1024){ toast('Boleto muito grande (máx. 12 MB).','err'); throw new Error('boleto grande'); }
+  const dataUrl=await arquivoParaDataURL(f);
+  return { boleto:dataUrl, boletoNome:f.name };
 }
 // Resolve o fornecedor pelo texto digitado: usa o existente (por nome) ou cadastra um novo na hora.
 async function resolverFornecedorId(inputId){
@@ -2800,10 +2818,27 @@ async function savePagar(){
   const ref=val('f_ref'); if(ref) body.referencia=ref;
   if(!body.categoria||!body.vencimento||!body.valor){ toast('Preencha categoria, vencimento e valor.','err'); return; }
   try{
+    const bol=await lerBoletoInput('f_boleto'); if(bol){ body.boleto=bol.boleto; body.boletoNome=bol.boletoNome; }
     const fid=await resolverFornecedorId('f_forn'); if(fid) body.fornecedorId=fid;
     await api('/financeiro/pagar',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute();
   }
-  catch(e){ toast(e.message,'err'); }
+  catch(e){ if(e&&e.message==='boleto grande') return; toast(e.message,'err'); }
+}
+// Abre/baixa o boleto anexado (PDF ou imagem), autenticado.
+async function verBoleto(id){
+  try{
+    const r=await fetch(API+'/financeiro/pagar/'+id+'/boleto',{headers:{Authorization:'Bearer '+S.access}});
+    if(!r.ok){ toast('Boleto não encontrado.','err'); return; }
+    const blob=await r.blob();
+    if(/image\//.test(blob.type) && !isMobile()){
+      const url=URL.createObjectURL(blob);
+      openModal(`<h3>📎 Boleto</h3><div style="margin:-2px 0 8px"><a class="btn-sm" href="${url}" download="boleto-${id}" style="text-decoration:none">⬇ Baixar</a></div>
+        <img src="${url}" style="max-width:100%;border:1px solid #e7e3d8;border-radius:8px;background:#fff">`, {wide:true});
+      setTimeout(()=>{try{URL.revokeObjectURL(url);}catch(e){}}, 10*60*1000);
+    } else {
+      abrirPdfBlob(blob, {titulo:'📎 Boleto', nome:'boleto-'+id});
+    }
+  }catch(e){ toast('Erro ao abrir boleto.','err'); }
 }
 function formReceberEdit(id){
   const t = (window.__RECS||[]).find(x=>x.id===id); if(!t){ toast('Título não encontrado.','err'); return; }
@@ -2833,6 +2868,9 @@ async function formPagarEdit(id){
       <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off" value="${curForn?esc(curForn.nome):''}">${dl}</div>
     ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
     <div class="grid2">${field('f_venc','Vencimento','type="date" value="'+String(t.vencimento).slice(0,10)+'"')}${field('f_valor','Valor','type="number" step="0.01" value="'+Number(t.valor)+'"')}</div>
+    <div class="mrow"><label class="fl">Boleto ${t.temBoleto?`<button type="button" class="btn-sm" style="padding:1px 8px" onclick="APP.verBoleto(${id})">📎 ver anexo</button>`:'<span class="muted" style="font-size:10px">(nenhum anexado)</span>'}</label>
+      <input class="inp" id="f_boleto" type="file" accept="application/pdf,image/*">
+      <div class="muted" style="font-size:10px">${t.temBoleto?'Escolha um arquivo para SUBSTITUIR o boleto atual.':'PDF ou imagem, até 12 MB.'}</div></div>
     <p class="muted" style="font-size:12px">Já pago: ${money(t.pago)} — o valor não pode ser menor.</p>
     ${Number(t.pago)>0?'':`<div style="border-top:1px solid var(--line);margin:10px 0 6px;padding-top:10px">
       <label class="fl" style="font-weight:700">Parcelar este título (opcional)</label>
@@ -2887,10 +2925,11 @@ async function savePagarEdit(id){
   const v=val('f_venc'); if(v) body.vencimento=v; const vl=val('f_valor'); if(vl) body.valor=Number(vl);
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{
+    const bol=await lerBoletoInput('f_boleto'); if(bol){ body.boleto=bol.boleto; body.boletoNome=bol.boletoNome; }
     const fid=await resolverFornecedorId('f_forn'); if(fid) body.fornecedorId=fid;
     await api('/financeiro/pagar/'+id,{method:'PATCH',body}); closeModal(); toast('Título atualizado.','ok'); loadRoute();
   }
-  catch(e){ toast(e.message,'err'); }
+  catch(e){ if(e&&e.message==='boleto grande') return; toast(e.message,'err'); }
 }
 function baixar(tipo, id, saldo){
   let pixHtml='';
@@ -6506,7 +6545,7 @@ window.APP = {
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, receberFiltrar, receberPreset, formRecorrentes, saveRecorrente, recorToggle, recorDel,
-  formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar,
+  formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,

@@ -11,7 +11,8 @@ import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
-export type ContaPagarView = ContaPagar & { status: TituloStatus; saldo: string; filial?: FilialResumo | null };
+// O boleto (base64) NÃO vai na listagem (baixa via endpoint próprio) — só o flag temBoleto.
+export type ContaPagarView = Omit<ContaPagar, 'boleto'> & { status: TituloStatus; saldo: string; temBoleto: boolean; filial?: FilialResumo | null };
 
 @Injectable()
 export class ContasPagarService {
@@ -54,6 +55,8 @@ export class ContasPagarService {
         vencimento,
         valor,
         pago: 0,
+        boleto: dto.boleto || null,
+        boletoNome: dto.boleto ? (dto.boletoNome || 'boleto') : null,
         status: calcularStatusTitulo(valor, new Prisma.Decimal(0), vencimento),
       },
       include: { filial: { select: { id: true, nome: true, cnpj: true } } },
@@ -118,11 +121,29 @@ export class ContasPagarService {
         filialId: dto.filialId ?? t.filialId,
         vencimento,
         valor,
+        // boleto: undefined = não mexe; '' = remove; string = substitui.
+        ...(dto.boleto !== undefined
+          ? { boleto: dto.boleto || null, boletoNome: dto.boleto ? (dto.boletoNome || t.boletoNome || 'boleto') : null }
+          : {}),
         status: calcularStatusTitulo(valor, t.pago, vencimento),
       },
       include: { filial: { select: { id: true, nome: true, cnpj: true } } },
     });
     return this.comStatus(atualizado);
+  }
+
+  /** Baixa o arquivo do boleto anexado (PDF/imagem) para visualizar/imprimir. */
+  async getBoleto(id: number, empresaId: number): Promise<{ content: Buffer; contentType: string; filename: string }> {
+    const t = await this.prisma.contaPagar.findUnique({ where: { id }, select: { empresaId: true, boleto: true, boletoNome: true } });
+    if (!t || t.empresaId !== empresaId) throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
+    if (!t.boleto) throw new NotFoundException('Este título não tem boleto anexado.');
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(t.boleto);
+    const contentType = m ? m[1] : 'application/octet-stream';
+    const b64 = m ? m[2] : t.boleto;
+    const content = Buffer.from(b64, 'base64');
+    const ext = contentType.includes('pdf') ? 'pdf' : /png/.test(contentType) ? 'png' : /jpe?g/.test(contentType) ? 'jpg' : 'bin';
+    const filename = t.boletoNome && /\.[a-z0-9]{2,4}$/i.test(t.boletoNome) ? t.boletoNome : `boleto-${id}.${ext}`;
+    return { content, contentType, filename };
   }
 
   async excluir(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
@@ -167,8 +188,10 @@ export class ContasPagarService {
   }
 
   private comStatus(t: ContaPagar & { filial?: FilialResumo | null }): ContaPagarView {
+    const { boleto, ...rest } = t;
     return {
-      ...t,
+      ...rest,
+      temBoleto: !!boleto,
       status: calcularStatusTitulo(t.valor, t.pago, t.vencimento),
       saldo: t.valor.minus(t.pago).toFixed(2),
     };

@@ -601,6 +601,8 @@ model ContaPagar {
   pago         Decimal      @default(0) @db.Decimal(12,2)
   bancoPagto   String?      // banco/conta de onde saiu o pagamento (registrado na baixa)
   recorrenteId Int?         // origem: conta recorrente que gerou este título (dedup por mês)
+  boleto       String?      @db.Text // boleto anexado (data URI base64: PDF/imagem)
+  boletoNome   String?      // nome original do arquivo do boleto
   status       TituloStatus @default(a_vencer)
 }
 
