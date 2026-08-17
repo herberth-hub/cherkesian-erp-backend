@@ -776,6 +776,38 @@ export class NfeService {
     return { content: arq.xml, filename: `NFe-${nome}.xml`, contentType: 'application/xml' };
   }
 
+  /**
+   * Cruza o CFOP gravado no ERP com o CFOP REAL do XML autorizado (fonte fiscal).
+   * Corrige as notas cujo CFOP ficou diferente do que foi transmitido à SEFAZ.
+   */
+  async sincronizarCfopXml(empresaId: number) {
+    const notas = await this.prisma.notaFiscal.findMany({
+      where: { empresaId, provedor: 'focusnfe', status: { in: ['autorizada', 'cancelada'] } },
+      select: { id: true, numero: true, cfop: true },
+      orderBy: { id: 'desc' },
+    });
+    let lidas = 0, alteradas = 0, falhas = 0;
+    const mudancas: Array<{ numero: string; de: string | null; para: string }> = [];
+    for (const n of notas) {
+      try {
+        const arq = await this.baixarArquivo(n.id, empresaId, 'xml');
+        const xml = arq.content.toString('utf8');
+        const cfops = [...new Set([...xml.matchAll(/<CFOP>(\d{4})<\/CFOP>/g)].map((m) => m[1]))];
+        if (!cfops.length) { falhas++; continue; }
+        lidas++;
+        const novo = cfops.join('/');
+        if (novo !== (n.cfop ?? '')) {
+          await this.prisma.notaFiscal.update({ where: { id: n.id }, data: { cfop: novo } });
+          alteradas++;
+          mudancas.push({ numero: n.numero, de: n.cfop ?? null, para: novo });
+        }
+      } catch {
+        falhas++;
+      }
+    }
+    return { total: notas.length, lidas, alteradas, falhas, mudancas: mudancas.slice(0, 50) };
+  }
+
   /** Baixa DANFE (PDF) e XML da nota na Focus. */
   private async baixarArquivosFocus(token: string, ref: string, amb?: string | null) {
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');

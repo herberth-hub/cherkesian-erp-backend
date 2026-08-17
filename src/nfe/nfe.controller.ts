@@ -122,6 +122,14 @@ export class NfeController {
     return this.nfeService.emitirAvulsa(dto, user.empresaId, user.usuario);
   }
 
+  /** Cruza e corrige o CFOP das notas com o CFOP real do XML autorizado (contabilidade). */
+  @Post('cfop/sincronizar')
+  @Areas('expedicao', 'receber')
+  @HttpCode(HttpStatus.OK)
+  sincronizarCfop(@CurrentUser() user: AuthUser) {
+    return this.nfeService.sincronizarCfopXml(user.empresaId);
+  }
+
   /** Consulta na SEFAZ (via Focus) e atualiza o status/chave/protocolo da nota. */
   @Post(':id/consultar')
   @HttpCode(HttpStatus.OK)

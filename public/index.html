@@ -5342,7 +5342,7 @@ async function viewNotas(c){
   const list = await api('/nfe');
   window.__NFS = list;
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button>'+relBtn('nfs'))
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
     + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
     + `<div id="nfLista"></div>`;
   nfFiltrar();
@@ -5363,6 +5363,17 @@ function nfFiltrar(){
       n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
       nfAcoes(n)
     ]), f.length?null:(q?'Nenhuma NF encontrada para "'+esc(q)+'".':'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.'));
+}
+async function sincronizarCfop(){
+  if(!(await uiConfirm({tipo:'info', titulo:'Sincronizar CFOP pelos XMLs?', ok:'Sincronizar', cancel:'Cancelar', msg:'Lê o CFOP real do XML autorizado de cada nota (Focus) e corrige no sistema. Pode levar alguns segundos por nota.'}))) return;
+  try{
+    uiSpinnerOpen&&uiSpinnerOpen('Lendo os XMLs e cruzando CFOPs…');
+    const r=await api('/nfe/cfop/sincronizar',{method:'POST'});
+    uiSpinnerClose&&uiSpinnerClose();
+    const chg=(r.mudancas||[]).slice(0,12).map(m=>`${m.numero}: ${m.de||'—'} → ${m.para}`).join('\n');
+    await uiAlert({titulo:'CFOP sincronizado', msg:`Notas lidas: ${r.lidas} de ${r.total}\nCorrigidas: ${r.alteradas}`+(r.falhas?`\nSem XML (puladas): ${r.falhas}`:'')+(chg?('\n\n'+chg):'\n\nNenhuma correção necessária — tudo já batia com o XML.')});
+    loadRoute();
+  }catch(e){ uiSpinnerClose&&uiSpinnerClose(); toast(e.message||'Falha ao sincronizar CFOP.','err'); }
 }
 function nfAcoes(n){
   const b=[];
@@ -6754,7 +6765,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
