@@ -309,6 +309,29 @@ model Fornecedor {
   notasEntrada NotaEntrada[]
 }
 
+/// Transportadora — dados do transporte que saem no quadro "TRANSPORTADOR" do DANFE.
+model Transportadora {
+  id                Int      @id @default(autoincrement())
+  empresaId         Int
+  nome              String   // razão social / nome
+  cnpjCpf           String?
+  inscricaoEstadual String?  // IE (ou ISENTO)
+  telefone          String?
+  logradouro        String?
+  numeroEndereco    String?
+  bairro            String?
+  municipio         String?
+  uf                String?
+  cep               String?
+  placaVeiculo      String?  // placa padrão do veículo (opcional)
+  ufVeiculo         String?
+  rntc              String?  // Registro Nacional de Transportador de Carga (ANTT)
+  ativa             Boolean  @default(true)
+  criadoEm          DateTime @default(now())
+
+  @@index([empresaId])
+}
+
 model NotaEntrada { // NF de compra recebida do fornecedor (entrada de mercadoria)
   id            Int      @id @default(autoincrement())
   empresaId     Int

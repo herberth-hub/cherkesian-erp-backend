@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma } from '@prisma/client';
+import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma, Transportadora } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 
@@ -64,7 +64,7 @@ export class NfeService {
     expedicaoId: number,
     empresaId: number,
     usuario: string,
-    transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; dimensoes?: string },
+    transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; dimensoes?: string; transportadoraId?: number; placaVeiculo?: string; modalidadeFrete?: number },
   ) {
     const exp = await this.prisma.expedicao.findUnique({ where: { id: expedicaoId } });
     if (!exp) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
@@ -158,9 +158,17 @@ export class NfeService {
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
     const itensNf = this.explodirPorTamanho(itens.map((it) => ({ descricao: this.descComCor(it.descricao, (it as { cor?: string | null }).cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, grade: (it as { grade?: Record<string, number> | null }).grade })));
-    // Modalidade do frete pelo campo do pedido: CIF=0 (emitente), FOB=1 (destinatário), senão sem frete.
+    // Transportadora cadastrada (dados do quadro TRANSPORTADOR do DANFE).
+    let transportadora: Transportadora | null = null;
+    if (transporte?.transportadoraId) {
+      transportadora = await this.prisma.transportadora.findUnique({ where: { id: transporte.transportadoraId } });
+      if (transportadora && transportadora.empresaId !== empresaId) transportadora = null;
+    }
+    // Modalidade do frete: usa a informada; senão o campo do pedido (CIF=0/FOB=1); senão sem frete.
     const freteTxt = (pedido?.frete || '').toLowerCase();
-    const modFrete = /cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : (exp.transportadora ? 0 : 9);
+    const modFrete = transporte?.modalidadeFrete != null
+      ? transporte.modalidadeFrete
+      : (/cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : ((transportadora || exp.transportadora) ? 0 : 9));
     const payload = await this.montarPayload(filial, destinatario, exp, itensNf, serie, numeroSeq, valor, infoAdic, {
       duplicatas: cobranca.duplicatas,
       frete: modFrete,
@@ -168,6 +176,12 @@ export class NfeService {
       especie: transporte?.especie,
       pesoLiquido: transporte?.pesoLiquido,
       pesoBruto: transporte?.pesoBruto,
+      placa: transporte?.placaVeiculo,
+      transportadora: transportadora ? {
+        nome: transportadora.nome, cnpjCpf: transportadora.cnpjCpf, inscricaoEstadual: transportadora.inscricaoEstadual,
+        logradouro: transportadora.logradouro, municipio: transportadora.municipio, uf: transportadora.uf,
+        placaVeiculo: transportadora.placaVeiculo, ufVeiculo: transportadora.ufVeiculo, rntc: transportadora.rntc,
+      } : undefined,
       bonificacao,
     });
 
@@ -1125,7 +1139,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; semImpostos?: boolean; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; semImpostos?: boolean; placa?: string; transportadora?: { nome: string; cnpjCpf?: string | null; inscricaoEstadual?: string | null; logradouro?: string | null; municipio?: string | null; uf?: string | null; placaVeiculo?: string | null; ufVeiculo?: string | null; rntc?: string | null }; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -1257,8 +1271,25 @@ export class NfeService {
     const pesoLiqNota = pesoLiqInf ?? pesoBrutoInf ?? pesoBase;
     const especieNota = (extra?.especie || '').toString().trim() || 'Caixa';
     const volumesNota = extra?.volumes || caixasArr.length || exp.volumes || 1;
-    const transportadoraNome = (exp.transportadora || '').toString().trim();
+    const tr = extra?.transportadora;
+    const transportadoraNome = (tr?.nome || exp.transportadora || '').toString().trim();
     const modalidadeFrete = extra?.frete != null ? extra.frete : (transportadoraNome ? 0 : 9);
+    const trDoc = tr?.cnpjCpf ? digitos(tr.cnpjCpf) : '';
+    const placaVeic = (extra?.placa || tr?.placaVeiculo || '').toString().trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const transportadorBloco: Record<string, unknown> = transportadoraNome
+      ? {
+          transportador_nome: transportadoraNome.slice(0, 60),
+          transportador_razao_social: transportadoraNome.slice(0, 60),
+          ...(trDoc ? (trDoc.length === 11 ? { transportador_cpf: trDoc } : { transportador_cnpj: trDoc }) : {}),
+          ...(tr?.inscricaoEstadual ? { transportador_inscricao_estadual: tr.inscricaoEstadual } : {}),
+          ...(tr?.logradouro ? { transportador_endereco: tr.logradouro } : {}),
+          ...(tr?.municipio ? { transportador_nome_municipio: tr.municipio } : {}),
+          ...(tr?.uf ? { transportador_uf: (tr.uf || '').toUpperCase() } : {}),
+          ...(placaVeic ? { veiculo_placa: placaVeic } : {}),
+          ...((tr?.ufVeiculo || tr?.uf) ? { veiculo_uf: ((tr?.ufVeiculo || tr?.uf) || '').toUpperCase() } : {}),
+          ...(tr?.rntc ? { veiculo_rntc: tr.rntc } : {}),
+        }
+      : {};
 
     // Inscrição Estadual do destinatário: a SEFAZ só aceita a tag IE com 2-14 dígitos.
     // Se não houver IE válida, omite a tag e ajusta o indicador (contribuinte sem IE é inválido → 9).
@@ -1274,7 +1305,7 @@ export class NfeService {
       finalidade_emissao: 1, // 1 = normal
       presenca_comprador: 9,
       modalidade_frete: modalidadeFrete, // 0=emitente(CIF) 1=destinatário(FOB) 9=sem frete
-      ...(transportadoraNome ? { transportador_nome: transportadoraNome.slice(0, 60), transportador_razao_social: transportadoraNome.slice(0, 60) } : {}),
+      ...transportadorBloco,
       serie,
       numero,
       // Emitente (dados também configurados no painel do provedor)

@@ -39,6 +39,15 @@ class EmitirNfeDto {
 
   /** Dimensões (C x L x A) — vai nas informações complementares. */
   @IsOptional() @IsString() @MaxLength(60) dimensoes?: string;
+
+  /** Transportadora cadastrada (dados do quadro TRANSPORTADOR do DANFE). */
+  @IsOptional() @IsInt() @IsPositive() transportadoraId?: number;
+
+  /** Placa do veículo (sobrepõe a placa padrão da transportadora). */
+  @IsOptional() @IsString() @MaxLength(10) placaVeiculo?: string;
+
+  /** Modalidade do frete: 0=emitente(CIF) 1=destinatário(FOB) 2=terceiros 9=sem frete. */
+  @IsOptional() @IsInt() @Min(0) modalidadeFrete?: number;
 }
 
 class CancelarNfeDto {
@@ -75,6 +84,9 @@ export class NfeController {
       pesoLiquido: dto.pesoLiquido,
       pesoBruto: dto.pesoBruto,
       dimensoes: dto.dimensoes,
+      transportadoraId: dto.transportadoraId,
+      placaVeiculo: dto.placaVeiculo,
+      modalidadeFrete: dto.modalidadeFrete,
     });
   }
 

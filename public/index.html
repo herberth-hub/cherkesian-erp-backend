@@ -4958,8 +4958,24 @@ function emitirNfePrompt(expedicaoId, pecas, pedidoId){
       ${field('nfv_pl','Peso líquido (kg)','type="number" min="0" step="0.001" placeholder="opcional"')}
       ${field('nfv_pb','Peso bruto (kg)','type="number" min="0" step="0.001" placeholder="opcional"')}
     </div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 8px;padding-top:8px;display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px;color:var(--muted)">TRANSPORTE (quadro TRANSPORTADOR do DANFE)</b><button type="button" class="btn-sm" style="padding:1px 8px" onclick="APP.gerenciarTransportadoras()">＋ cadastrar</button></div>
+    <div class="grid3">
+      <div class="mrow"><label class="fl">Transportadora</label><select id="nfv_transp" class="inp"><option value="">— sem transportadora —</option></select></div>
+      ${field('nfv_placa','Placa do veículo','placeholder="opcional"')}
+      <div class="mrow"><label class="fl">Frete por conta</label><select id="nfv_frete" class="inp">
+        <option value="">Automático</option>
+        <option value="0">0 - Emitente (CIF)</option>
+        <option value="1">1 - Destinatário (FOB)</option>
+        <option value="2">2 - Terceiros</option>
+        <option value="9">9 - Sem frete</option>
+      </select></div>
+    </div>
     <div class="row-end" style="margin-top:14px"><button class="btn-ghost" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.emitirNfeConfirmar(${expedicaoId})">Emitir NF-e</button></div>`);
+  // Carrega as transportadoras cadastradas no select.
+  api('/transportadoras').then(list=>{ const sel=$('nfv_transp'); if(!sel) return; window.__TRANSP=list||[];
+    (list||[]).filter(t=>t.ativa!==false).forEach(t=>{ const o=document.createElement('option'); o.value=t.id; o.textContent=t.nome+(t.cnpjCpf?' · '+t.cnpjCpf:''); sel.appendChild(o); });
+  }).catch(()=>{});
   // Preenche automático o peso/volumes/dimensão a partir do cadastro do pedido.
   if(pedidoId){ api('/embalagens/peso/'+pedidoId).then(r=>{
     if(!r) return;
@@ -4978,6 +4994,9 @@ async function emitirNfeConfirmar(expedicaoId){
   const dim=val('nfv_dim'); if(dim) transporte.dimensoes=dim;
   const pl=Number(val('nfv_pl')); if(pl>0) transporte.pesoLiquido=pl;
   const pb=Number(val('nfv_pb')); if(pb>0) transporte.pesoBruto=pb;
+  const tid=val('nfv_transp'); if(tid) transporte.transportadoraId=Number(tid);
+  const placa=val('nfv_placa'); if(placa) transporte.placaVeiculo=placa;
+  const frete=val('nfv_frete'); if(frete!=='') transporte.modalidadeFrete=Number(frete);
   closeModal();
   await emitirNfe(expedicaoId, transporte);
 }
@@ -5323,7 +5342,7 @@ async function viewNotas(c){
   const list = await api('/nfe');
   window.__NFS = list;
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', relBtn('nfs'))
+  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button>'+relBtn('nfs'))
     + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
     + `<div id="nfLista"></div>`;
   nfFiltrar();
@@ -5879,6 +5898,53 @@ async function delConta(id){
   if(!(await uiConfirm({tipo:'danger', titulo:'Excluir conta bancária?', ok:'Excluir', cancel:'Cancelar', msg:'A conta some do select de baixa. Títulos já pagos não são afetados.'}))) return;
   try{ await api('/filiais/contas-bancarias/'+id,{method:'DELETE'}); toast('Conta excluída.','ok');
     window.__CONTASB=await api('/filiais/contas-bancarias').catch(()=>[]); renderContasModal();
+  }catch(e){ toast(e.message,'err'); }
+}
+
+// ===== Cadastro de transportadoras (quadro TRANSPORTADOR do DANFE) =====
+async function gerenciarTransportadoras(){
+  window.__TRANSP = await api('/transportadoras').catch(()=>[]);
+  renderTranspList();
+}
+function renderTranspList(){
+  const list=window.__TRANSP||[];
+  const linhas = list.length ? list.map(t=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #f0e7d0">
+      <div style="min-width:0"><div style="font-weight:700">${esc(t.nome)} ${t.ativa===false?'<span class="pill red" style="font-size:9px">inativa</span>':''}</div>
+        <div class="muted" style="font-size:11px">${[t.cnpjCpf,t.inscricaoEstadual?('IE '+t.inscricaoEstadual):'',[t.municipio,t.uf].filter(Boolean).join('/'),t.placaVeiculo?('Placa '+t.placaVeiculo):''].filter(Boolean).map(esc).join(' · ')||'sem dados fiscais'}</div></div>
+      <div style="white-space:nowrap;display:flex;gap:5px"><button class="btn-sm" onclick="APP.formTransp(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delTransp(${t.id})">Excluir</button></div>
+    </div>`).join('') : '<div class="muted" style="padding:12px">Nenhuma transportadora cadastrada.</div>';
+  openModal(`<h3>🚚 Transportadoras</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Cadastre as transportadoras. Na emissão da NF você escolhe qual vai no quadro TRANSPORTADOR do DANFE.</div>
+    <div style="text-align:right;margin-bottom:8px"><button class="btn-primary" onclick="APP.formTransp(0)">＋ Nova transportadora</button></div>
+    <div class="panel">${linhas}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+function formTransp(id){
+  const t=id?(window.__TRANSP||[]).find(x=>x.id===id)||{}:{};
+  openModal(`<h3>${id?'Editar':'Nova'} transportadora</h3>
+    ${field('tp_nome','Nome / Razão social *','value="'+esc(t.nome||'')+'"')}
+    <div class="grid3">${field('tp_doc','CNPJ / CPF','value="'+esc(t.cnpjCpf||'')+'"')}${field('tp_ie','Inscrição Estadual','value="'+esc(t.inscricaoEstadual||'')+'" placeholder="ou ISENTO"')}${field('tp_tel','Telefone','value="'+esc(t.telefone||'')+'"')}</div>
+    <div class="grid3">${field('tp_log','Logradouro','value="'+esc(t.logradouro||'')+'"')}${field('tp_num','Número','value="'+esc(t.numeroEndereco||'')+'"')}${field('tp_bairro','Bairro','value="'+esc(t.bairro||'')+'"')}</div>
+    <div class="grid3">${field('tp_mun','Município','value="'+esc(t.municipio||'')+'"')}${field('tp_uf','UF','value="'+esc(t.uf||'')+'" maxlength="2"')}${field('tp_cep','CEP','value="'+esc(t.cep||'')+'"')}</div>
+    <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 2px;font-weight:700">VEÍCULO (opcional)</div>
+    <div class="grid3">${field('tp_placa','Placa padrão','value="'+esc(t.placaVeiculo||'')+'"')}${field('tp_ufv','UF do veículo','value="'+esc(t.ufVeiculo||'')+'" maxlength="2"')}${field('tp_rntc','RNTC (ANTT)','value="'+esc(t.rntc||'')+'"')}</div>
+    <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:6px"><input type="checkbox" id="tp_ativa" ${t.ativa!==false?'checked':''}> Ativa</label>
+    <div class="mactions"><button class="btn-sm" onclick="APP.renderTranspList()">Voltar</button>
+      <button class="btn-primary" onclick="APP.saveTransp(${id||0})">Salvar</button></div>`, {wide:true});
+}
+async function saveTransp(id){
+  const body={ nome:val('tp_nome'), cnpjCpf:val('tp_doc'), inscricaoEstadual:val('tp_ie'), telefone:val('tp_tel'),
+    logradouro:val('tp_log'), numeroEndereco:val('tp_num'), bairro:val('tp_bairro'), municipio:val('tp_mun'), uf:(val('tp_uf')||'').toUpperCase(), cep:val('tp_cep'),
+    placaVeiculo:val('tp_placa'), ufVeiculo:(val('tp_ufv')||'').toUpperCase(), rntc:val('tp_rntc'), ativa:$('tp_ativa').checked };
+  if(!body.nome){ toast('Informe o nome/razão social.','err'); return; }
+  try{ await api(id?('/transportadoras/'+id):'/transportadoras',{method:id?'PATCH':'POST',body}); toast('Transportadora salva.','ok');
+    window.__TRANSP=await api('/transportadoras').catch(()=>[]); renderTranspList();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function delTransp(id){
+  if(!(await uiConfirm({tipo:'danger', titulo:'Excluir transportadora?', ok:'Excluir', cancel:'Cancelar', msg:'As NFs já emitidas não são afetadas.'}))) return;
+  try{ await api('/transportadoras/'+id,{method:'DELETE'}); toast('Transportadora excluída.','ok');
+    window.__TRANSP=await api('/transportadoras').catch(()=>[]); renderTranspList();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -6689,7 +6755,7 @@ window.APP = {
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
-  formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
+  formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
