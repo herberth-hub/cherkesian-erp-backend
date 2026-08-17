@@ -558,7 +558,7 @@ export class NfeService {
     };
     const novoStatus = mapa[r.status] ?? nota.status;
 
-    return this.prisma.notaFiscal.update({
+    const atualizada = await this.prisma.notaFiscal.update({
       where: { id },
       data: {
         status: novoStatus,
@@ -567,6 +567,17 @@ export class NfeService {
         motivo: r.motivo ?? nota.motivo,
       },
     });
+
+    // Ao autorizar, puxa o CFOP REAL do XML (fonte fiscal) — best-effort, não trava a consulta.
+    if (novoStatus === 'autorizada') {
+      const cfopXml = await this.lerCfopDoXml(id, empresaId);
+      if (cfopXml && cfopXml !== (atualizada.cfop ?? '')) {
+        try {
+          return await this.prisma.notaFiscal.update({ where: { id }, data: { cfop: cfopXml } });
+        } catch { /* mantém o CFOP do payload se a atualização falhar */ }
+      }
+    }
+    return atualizada;
   }
 
   /** Nota + token do provedor (valida empresa). Uso interno de cancelar/CC-e. */
@@ -789,23 +800,28 @@ export class NfeService {
     let lidas = 0, alteradas = 0, falhas = 0;
     const mudancas: Array<{ numero: string; de: string | null; para: string }> = [];
     for (const n of notas) {
-      try {
-        const arq = await this.baixarArquivo(n.id, empresaId, 'xml');
-        const xml = arq.content.toString('utf8');
-        const cfops = [...new Set([...xml.matchAll(/<CFOP>(\d{4})<\/CFOP>/g)].map((m) => m[1]))];
-        if (!cfops.length) { falhas++; continue; }
-        lidas++;
-        const novo = cfops.join('/');
-        if (novo !== (n.cfop ?? '')) {
-          await this.prisma.notaFiscal.update({ where: { id: n.id }, data: { cfop: novo } });
-          alteradas++;
-          mudancas.push({ numero: n.numero, de: n.cfop ?? null, para: novo });
-        }
-      } catch {
-        falhas++;
+      const novo = await this.lerCfopDoXml(n.id, empresaId);
+      if (!novo) { falhas++; continue; }
+      lidas++;
+      if (novo !== (n.cfop ?? '')) {
+        await this.prisma.notaFiscal.update({ where: { id: n.id }, data: { cfop: novo } });
+        alteradas++;
+        mudancas.push({ numero: n.numero, de: n.cfop ?? null, para: novo });
       }
     }
     return { total: notas.length, lidas, alteradas, falhas, mudancas: mudancas.slice(0, 50) };
+  }
+
+  /** Lê o(s) CFOP do XML autorizado de uma nota (fonte fiscal). Null se indisponível. */
+  private async lerCfopDoXml(id: number, empresaId: number): Promise<string | null> {
+    try {
+      const arq = await this.baixarArquivo(id, empresaId, 'xml');
+      const xml = arq.content.toString('utf8');
+      const cfops = [...new Set([...xml.matchAll(/<CFOP>(\d{4})<\/CFOP>/g)].map((m) => m[1]))];
+      return cfops.length ? cfops.join('/') : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Baixa DANFE (PDF) e XML da nota na Focus. */
