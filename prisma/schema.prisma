@@ -158,6 +158,28 @@ model Filial {
   notasEntrada      NotaEntrada[]
   contasPagar       ContaPagar[]
   contasReceber     ContaReceber[]
+  contasBancarias   ContaBancaria[]
+}
+
+/// Conta bancária estruturada da empresa/CNPJ (várias por filial) — usada para
+/// registrar de qual conta saiu o pagamento na baixa de contas a pagar.
+model ContaBancaria {
+  id        Int      @id @default(autoincrement())
+  empresaId Int
+  filialId  Int
+  filial    Filial   @relation(fields: [filialId], references: [id])
+  banco     String   // ex.: Santander
+  agencia   String?  // ex.: 4338
+  conta     String?  // ex.: 130019372
+  tipo      String   @default("corrente") // corrente | poupanca | pagamentos
+  pixChave  String?
+  apelido   String?  // rótulo curto (ex.: "Conta principal HC")
+  principal Boolean  @default(false)
+  ativa     Boolean  @default(true)
+  criadoEm  DateTime @default(now())
+
+  @@index([empresaId])
+  @@index([filialId])
 }
 
 model Usuario {

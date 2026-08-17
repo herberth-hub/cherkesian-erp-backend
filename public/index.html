@@ -2958,11 +2958,15 @@ async function baixar(tipo, id, saldo){
   }
   let bancoHtml='';
   if(tipo==='pagar'){
-    // Contas das empresas (filiais) — "Santander · Ag 4338 · CC 130019372 · HC Quality".
+    // Contas das empresas — usa o cadastro estruturado; se vazio, cai no parse do texto antigo.
     let contasEmp=[];
     try{
-      const filiais=await api('/filiais').catch(()=>[]);
-      contasEmp=(filiais||[]).map(f=>{ const rb=resumoBancoFilial(f); return (rb?rb+' · ':'')+f.nome; });
+      const contas=await api('/filiais/contas-bancarias').catch(()=>[]);
+      contasEmp=(contas||[]).filter(c=>c.ativa!==false).map(c=>c.rotulo);
+      if(!contasEmp.length){
+        const filiais=await api('/filiais').catch(()=>[]);
+        contasEmp=(filiais||[]).map(f=>{ const rb=resumoBancoFilial(f); return (rb?rb+' · ':'')+f.nome; });
+      }
     }catch(e){}
     const usados=[...new Set((window.__PAGS||[]).map(x=>x.bancoPagto).filter(Boolean))];
     const sugest=[...new Set(contasEmp.concat(usados,['Cora','Itaú','Bradesco','Banco do Brasil','Santander','Caixa','Nubank','Inter','Sicoob','Sicredi']))].filter(Boolean);
@@ -4834,6 +4838,7 @@ function viewRegras(c){
 
 // ---------- Documentos (PDF em papel timbrado) ----------
 const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas' };
+const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
   if(!pedidoId){ toast('Esta OP não está vinculada a um pedido.','err'); return; }
@@ -5696,7 +5701,7 @@ async function saveEmpresa(){
 async function viewFiliais(c){
   const list = await api('/filiais');
   window.__FILIAIS = list;
-  c.innerHTML = toolbar('Filiais / CNPJs do grupo · '+list.length, 'Nova filial', 'APP.formFilial()') + panelTable(
+  c.innerHTML = toolbar('Filiais / CNPJs do grupo · '+list.length, 'Nova filial', 'APP.formFilial()', `<button class="btn-ghost" onclick="APP.gerenciarContas()">🏦 Contas bancárias</button>`) + panelTable(
     ['Nome','Tipo','CNPJ','Município/UF','Série · Próx. nº','NF-e','Ações'],
     list.map(f=>[
       `<b>${esc(f.nome)}</b>`,
@@ -5769,6 +5774,88 @@ async function saveFilial(id){
   Object.keys(body).forEach(k=>{ if(body[k]===''||body[k]===undefined) delete body[k]; });
   try{ await api(id?('/filiais/'+id):'/filiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Filial salva.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
+}
+
+// ===== Contas bancárias estruturadas (várias por empresa/CNPJ) =====
+async function gerenciarContas(){
+  const [filiais, contas] = await Promise.all([api('/filiais').catch(()=>[]), api('/filiais/contas-bancarias').catch(()=>[])]);
+  window.__FILIAIS=filiais; window.__CONTASB=contas;
+  renderContasModal();
+}
+function renderContasModal(){
+  const filiais=window.__FILIAIS||[], contas=window.__CONTASB||[];
+  const filOpts=filiais.map(f=>`<option value="${f.id}">${esc(f.nome)}${f.matriz?' (matriz)':''}</option>`).join('');
+  const porFil={}; contas.forEach(c=>{ (porFil[c.filialId]=porFil[c.filialId]||[]).push(c); });
+  const blocos = filiais.map(f=>{
+    const cs=porFil[f.id]||[];
+    const linhas = cs.length? cs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid #f0e7d0">
+        <div style="min-width:0">
+          <div style="font-weight:700">${esc(c.banco)}${c.agencia?' · Ag '+esc(c.agencia):''}${c.conta?' · CC '+esc(c.conta):''} ${c.principal?'<span class="pill gold" style="font-size:9px">principal</span>':''} ${c.ativa===false?'<span class="pill red" style="font-size:9px">inativa</span>':''}</div>
+          <div class="muted" style="font-size:11px">${esc(TIPOCONTA[c.tipo]||c.tipo||'')}${c.apelido?' · '+esc(c.apelido):''}${c.pixChave?' · PIX '+esc(c.pixChave):''}</div>
+        </div>
+        <div style="white-space:nowrap;display:flex;gap:5px">
+          <button class="btn-sm" onclick="APP.formContaEdit(${c.id})">Editar</button>
+          <button class="btn-sm" style="color:#c14a34" onclick="APP.delConta(${c.id})">Excluir</button>
+        </div></div>`).join('') : '<div class="muted" style="padding:10px 10px;font-size:12px">Nenhuma conta cadastrada.</div>';
+    return `<div class="panel" style="margin-bottom:10px;border-left:4px solid #C9A227">
+      <div style="padding:8px 10px;background:#faf6ea;font-weight:800">${esc(f.nome)}${f.cnpj?` <span class="muted mono" style="font-weight:400;font-size:11px">${esc(f.cnpj)}</span>`:''}</div>
+      ${linhas}</div>`;
+  }).join('');
+  openModal(`<h3>🏦 Contas bancárias das empresas</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Cadastre as contas de cada CNPJ. Elas aparecem no select ao dar baixa em contas a pagar (de qual conta saiu o pagamento).</div>
+    <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:12px;background:#fcfbf7">
+      <div style="font-weight:700;margin-bottom:6px">➕ Nova conta</div>
+      <div class="mrow"><label class="fl">Empresa / CNPJ *</label><select id="cb_fil" class="inp">${filOpts}</select></div>
+      <div class="grid3">${field('cb_banco','Banco *','placeholder="ex.: Santander"')}${field('cb_ag','Agência','placeholder="4338"')}${field('cb_conta','Conta','placeholder="130019372"')}</div>
+      <div class="grid3">
+        <div class="mrow"><label class="fl">Tipo</label><select id="cb_tipo" class="inp">${Object.entries(TIPOCONTA).map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div>
+        ${field('cb_apel','Apelido','placeholder="ex.: Conta principal HC"')}
+        ${field('cb_pix','Chave PIX','placeholder="opcional"')}
+      </div>
+      <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:4px"><input type="checkbox" id="cb_princ"> Conta principal desta empresa</label>
+      <div style="text-align:right;margin-top:8px"><button class="btn-primary" onclick="APP.saveConta()">Adicionar conta</button></div>
+    </div>
+    ${blocos||'<div class="empty">Cadastre uma filial primeiro.</div>'}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+async function saveConta(){
+  const filialId=Number(val('cb_fil'));
+  const body={ banco:val('cb_banco'), agencia:val('cb_ag'), conta:val('cb_conta'), tipo:val('cb_tipo')||'corrente', apelido:val('cb_apel'), pixChave:val('cb_pix'), principal:$('cb_princ')&&$('cb_princ').checked };
+  if(!filialId){ toast('Escolha a empresa.','err'); return; }
+  if(!body.banco){ toast('Informe o banco.','err'); return; }
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api('/filiais/'+filialId+'/contas-bancarias',{method:'POST',body}); toast('Conta adicionada.','ok');
+    window.__CONTASB=await api('/filiais/contas-bancarias').catch(()=>[]); renderContasModal();
+  }catch(e){ toast(e.message,'err'); }
+}
+function formContaEdit(id){
+  const c=(window.__CONTASB||[]).find(x=>x.id===id); if(!c){ toast('Conta não encontrada.','err'); return; }
+  openModal(`<h3>Editar conta bancária</h3>
+    <div class="grid3">${field('ce_banco','Banco *','value="'+esc(c.banco||'')+'"')}${field('ce_ag','Agência','value="'+esc(c.agencia||'')+'"')}${field('ce_conta','Conta','value="'+esc(c.conta||'')+'"')}</div>
+    <div class="grid3">
+      <div class="mrow"><label class="fl">Tipo</label><select id="ce_tipo" class="inp">${Object.entries(TIPOCONTA).map(([v,t])=>`<option value="${v}" ${c.tipo===v?'selected':''}>${t}</option>`).join('')}</select></div>
+      ${field('ce_apel','Apelido','value="'+esc(c.apelido||'')+'"')}
+      ${field('ce_pix','Chave PIX','value="'+esc(c.pixChave||'')+'"')}
+    </div>
+    <div style="display:flex;gap:16px;margin-top:4px">
+      <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ce_princ" ${c.principal?'checked':''}> Principal</label>
+      <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ce_ativa" ${c.ativa!==false?'checked':''}> Ativa</label>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.renderContasModal()">Voltar</button>
+      <button class="btn-primary" onclick="APP.saveContaEdit(${id})">Salvar</button></div>`, {wide:true});
+}
+async function saveContaEdit(id){
+  const body={ banco:val('ce_banco'), agencia:val('ce_ag'), conta:val('ce_conta'), tipo:val('ce_tipo'), apelido:val('ce_apel'), pixChave:val('ce_pix'), principal:$('ce_princ').checked, ativa:$('ce_ativa').checked };
+  if(!body.banco){ toast('Informe o banco.','err'); return; }
+  try{ await api('/filiais/contas-bancarias/'+id,{method:'PATCH',body}); toast('Conta atualizada.','ok');
+    window.__CONTASB=await api('/filiais/contas-bancarias').catch(()=>[]); renderContasModal();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function delConta(id){
+  if(!(await uiConfirm({tipo:'danger', titulo:'Excluir conta bancária?', ok:'Excluir', cancel:'Cancelar', msg:'A conta some do select de baixa. Títulos já pagos não são afetados.'}))) return;
+  try{ await api('/filiais/contas-bancarias/'+id,{method:'DELETE'}); toast('Conta excluída.','ok');
+    window.__CONTASB=await api('/filiais/contas-bancarias').catch(()=>[]); renderContasModal();
+  }catch(e){ toast(e.message,'err'); }
 }
 
 // ===== Integração Mercado Livre =====
@@ -6578,7 +6665,7 @@ window.APP = {
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
-  formFilial, saveFilial, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
+  formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,

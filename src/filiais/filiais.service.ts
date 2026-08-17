@@ -58,4 +58,69 @@ export class FiliaisService {
   matriz(empresaId: number): Promise<Filial | null> {
     return this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
   }
+
+  // ===== Contas bancárias estruturadas (várias por filial/CNPJ) =====
+
+  /** Lista as contas bancárias da empresa, já com o rótulo pronto p/ o select da baixa. */
+  async listarContas(empresaId: number, apenasAtivas = false) {
+    const contas = await this.prisma.contaBancaria.findMany({
+      where: { empresaId, ...(apenasAtivas ? { ativa: true } : {}) },
+      include: { filial: { select: { id: true, nome: true } } },
+      orderBy: [{ filialId: 'asc' }, { principal: 'desc' }, { banco: 'asc' }],
+    });
+    return contas.map((c) => ({ ...c, rotulo: this.rotuloConta(c, c.filial?.nome) }));
+  }
+
+  private rotuloConta(c: { banco: string; agencia: string | null; conta: string | null; apelido: string | null }, filialNome?: string) {
+    const partes = [c.banco, c.agencia ? `Ag ${c.agencia}` : null, c.conta ? `CC ${c.conta}` : null, filialNome || null].filter(Boolean);
+    const base = partes.join(' · ');
+    return c.apelido ? `${c.apelido} — ${base}` : base;
+  }
+
+  private async filialDaEmpresa(filialId: number, empresaId: number) {
+    const fil = await this.prisma.filial.findUnique({ where: { id: filialId } });
+    if (!fil || fil.empresaId !== empresaId) throw new NotFoundException(`Filial ${filialId} não encontrada.`);
+    return fil;
+  }
+
+  async criarConta(filialId: number, dto: { banco: string; agencia?: string; conta?: string; tipo?: string; pixChave?: string; apelido?: string; principal?: boolean; ativa?: boolean }, empresaId: number) {
+    await this.filialDaEmpresa(filialId, empresaId);
+    if (!dto.banco || !dto.banco.trim()) throw new ConflictException('Informe o banco.');
+    // Só uma conta principal por filial.
+    if (dto.principal) await this.prisma.contaBancaria.updateMany({ where: { empresaId, filialId }, data: { principal: false } });
+    return this.prisma.contaBancaria.create({
+      data: {
+        empresaId, filialId,
+        banco: dto.banco.trim(), agencia: dto.agencia?.trim() || null, conta: dto.conta?.trim() || null,
+        tipo: dto.tipo || 'corrente', pixChave: dto.pixChave?.trim() || null, apelido: dto.apelido?.trim() || null,
+        principal: !!dto.principal, ativa: dto.ativa ?? true,
+      },
+    });
+  }
+
+  async atualizarConta(id: number, dto: { banco?: string; agencia?: string; conta?: string; tipo?: string; pixChave?: string; apelido?: string; principal?: boolean; ativa?: boolean }, empresaId: number) {
+    const c = await this.prisma.contaBancaria.findUnique({ where: { id } });
+    if (!c || c.empresaId !== empresaId) throw new NotFoundException(`Conta bancária ${id} não encontrada.`);
+    if (dto.principal) await this.prisma.contaBancaria.updateMany({ where: { empresaId, filialId: c.filialId, id: { not: id } }, data: { principal: false } });
+    return this.prisma.contaBancaria.update({
+      where: { id },
+      data: {
+        banco: dto.banco?.trim() ?? undefined,
+        agencia: dto.agencia !== undefined ? (dto.agencia.trim() || null) : undefined,
+        conta: dto.conta !== undefined ? (dto.conta.trim() || null) : undefined,
+        tipo: dto.tipo ?? undefined,
+        pixChave: dto.pixChave !== undefined ? (dto.pixChave.trim() || null) : undefined,
+        apelido: dto.apelido !== undefined ? (dto.apelido.trim() || null) : undefined,
+        principal: dto.principal ?? undefined,
+        ativa: dto.ativa ?? undefined,
+      },
+    });
+  }
+
+  async removerConta(id: number, empresaId: number) {
+    const c = await this.prisma.contaBancaria.findUnique({ where: { id } });
+    if (!c || c.empresaId !== empresaId) throw new NotFoundException(`Conta bancária ${id} não encontrada.`);
+    await this.prisma.contaBancaria.delete({ where: { id } });
+    return { removido: true, id };
+  }
 }

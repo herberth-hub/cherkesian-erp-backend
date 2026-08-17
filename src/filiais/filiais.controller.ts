@@ -11,6 +11,7 @@ import {
 import { FiliaisService } from './filiais.service';
 import { CreateFilialDto } from './dto/create-filial.dto';
 import { UpdateFilialDto } from './dto/update-filial.dto';
+import { ContaBancariaDto, UpdateContaBancariaDto } from './dto/conta-bancaria.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -25,6 +26,32 @@ export class FiliaisController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.filiaisService.findAll(user.empresaId);
+  }
+
+  // ===== Contas bancárias (rotas literais ANTES de :id) =====
+  /** Lista as contas bancárias da empresa (para o select de baixa e o gerenciador). */
+  @Areas('pagar', 'receber', 'usuarios')
+  @Get('contas-bancarias')
+  listarContas(@CurrentUser() user: AuthUser) {
+    return this.filiaisService.listarContas(user.empresaId);
+  }
+
+  @Areas('pagar', 'usuarios')
+  @Post(':id/contas-bancarias')
+  criarConta(@Param('id', ParseIntPipe) filialId: number, @Body() dto: ContaBancariaDto, @CurrentUser() user: AuthUser) {
+    return this.filiaisService.criarConta(filialId, dto, user.empresaId);
+  }
+
+  @Areas('pagar', 'usuarios')
+  @Patch('contas-bancarias/:contaId')
+  atualizarConta(@Param('contaId', ParseIntPipe) contaId: number, @Body() dto: UpdateContaBancariaDto, @CurrentUser() user: AuthUser) {
+    return this.filiaisService.atualizarConta(contaId, dto, user.empresaId);
+  }
+
+  @Areas('pagar', 'usuarios')
+  @Delete('contas-bancarias/:contaId')
+  removerConta(@Param('contaId', ParseIntPipe) contaId: number, @CurrentUser() user: AuthUser) {
+    return this.filiaisService.removerConta(contaId, user.empresaId);
   }
 
   @Get(':id')
