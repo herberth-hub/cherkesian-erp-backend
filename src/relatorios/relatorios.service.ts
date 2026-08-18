@@ -197,36 +197,35 @@ export class RelatoriosService {
           const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId, ...periodo('emitidaEm', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           const filialIds = [...new Set(regs.map((r) => r.filialId).filter((x): x is number => x != null))];
           const pedidoIds = [...new Set(regs.map((r) => r.pedidoId).filter((x): x is number => x != null))];
-          const [filiais, pedidos, exps] = await Promise.all([
+          const [filiais, pedidos] = await Promise.all([
             this.prisma.filial.findMany({ where: { id: { in: filialIds } } }),
-            this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, include: { cliente: true, itens: true } }),
-            this.prisma.expedicao.findMany({ where: { pedidoId: { in: pedidoIds } }, select: { pedidoId: true, volumes: true } }),
+            this.prisma.pedido.findMany({ where: { id: { in: pedidoIds } }, include: { cliente: true } }),
           ]);
           const fMap = new Map(filiais.map((x) => [x.id, x]));
           const pMap = new Map(pedidos.map((x) => [x.id, x]));
-          const volMap = new Map<number, number>();
-          exps.forEach((e) => { if (e.pedidoId != null) volMap.set(e.pedidoId, (volMap.get(e.pedidoId) ?? 0) + (e.volumes ?? 0)); });
-          let totValor = 0, totVol = 0, totPecas = 0;
+          let totValor = 0, totProd = 0, totBc = 0, totIcms = 0, totPis = 0, totCofins = 0;
           const linhas = regs.map((nf) => {
             const fil = nf.filialId != null ? fMap.get(nf.filialId) : undefined;
             const ped = nf.pedidoId != null ? pMap.get(nf.pedidoId) : undefined;
             const cli = ped?.cliente;
-            const pecas = (ped?.itens ?? []).reduce((s, i) => s + (i.quantidade ?? 0), 0);
-            const vol = nf.pedidoId != null ? (volMap.get(nf.pedidoId) || 1) : 1;
             const val = n(nf.valor);
-            totValor += val; totVol += vol; totPecas += pecas;
+            const prod = nf.valorProdutos != null ? n(nf.valorProdutos) : val;
+            const bc = n(nf.baseIcms), icms = n(nf.valorIcms), pis = n(nf.valorPis), cof = n(nf.valorCofins);
+            totValor += val; totProd += prod; totBc += bc; totIcms += icms; totPis += pis; totCofins += cof;
             return [
-              fil?.nome ?? '—', fil?.cnpj ?? '—', fil?.municipio ?? '—', fil?.uf ?? '—', fil?.cep ?? '—',
-              cli?.nome ?? '—', cli?.cnpjCpf ?? '—', cli?.municipio ?? cli?.cidadeUf ?? '—', cli?.uf ?? '—', cli?.cep ?? '—',
-              nf.numero, nf.cfop ?? '—', nf.natureza ?? '—', dataBR(nf.emitidaEm), String(vol), money(val), String(pecas),
+              fil?.nome ?? '—', fil?.cnpj ?? '—', fil?.uf ?? '—',
+              cli?.nome ?? '—', cli?.cnpjCpf ?? '—', cli?.uf ?? '—',
+              nf.numero, nf.cfop ?? '—', nf.natureza ?? '—', dataBR(nf.emitidaEm),
+              money(prod), money(bc), money(icms), money(pis), money(cof), money(val),
             ];
           });
-          linhas.push([`TOTAIS · ${regs.length} nota(s)`, '', '', '', '', '', '', '', '', '', '', '', '', '', String(totVol), money(totValor), String(totPecas)]);
+          linhas.push([`TOTAIS · ${regs.length} nota(s)`, '', '', '', '', '', '', '', '', '', money(totProd), money(totBc), money(totIcms), money(totPis), money(totCofins), money(totValor)]);
           return {
             colunas: [
-              { titulo: 'REMETENTE', largura: 100 }, { titulo: 'CNPJ', largura: 88 }, { titulo: 'CIDADE', largura: 70 }, { titulo: 'UF', largura: 24 }, { titulo: 'CEP', largura: 52 },
-              { titulo: 'DESTINATÁRIO', largura: 110 }, { titulo: 'CNPJ/CPF', largura: 88 }, { titulo: 'CIDADE', largura: 70 }, { titulo: 'UF', largura: 24 }, { titulo: 'CEP', largura: 52 },
-              { titulo: 'NF', largura: 50 }, { titulo: 'CFOP', largura: 52 }, { titulo: 'NATUREZA', largura: 100 }, { titulo: 'EMISSÃO', largura: 54 }, { titulo: 'VOLUME', largura: 44, alinhamento: 'right' }, { titulo: 'VALOR MERC.', largura: 74, alinhamento: 'right' }, { titulo: 'QTD PEÇAS', largura: 52, alinhamento: 'right' },
+              { titulo: 'REMETENTE', largura: 108 }, { titulo: 'CNPJ', largura: 94 }, { titulo: 'UF', largura: 24 },
+              { titulo: 'DESTINATÁRIO', largura: 120 }, { titulo: 'CNPJ/CPF', largura: 94 }, { titulo: 'UF', largura: 24 },
+              { titulo: 'NF', largura: 50 }, { titulo: 'CFOP', largura: 50 }, { titulo: 'NATUREZA', largura: 104 }, { titulo: 'EMISSÃO', largura: 54 },
+              { titulo: 'VLR PROD.', largura: 74, alinhamento: 'right' }, { titulo: 'BASE ICMS', largura: 74, alinhamento: 'right' }, { titulo: 'ICMS', largura: 68, alinhamento: 'right' }, { titulo: 'PIS', largura: 60, alinhamento: 'right' }, { titulo: 'COFINS', largura: 64, alinhamento: 'right' }, { titulo: 'VALOR NF', largura: 78, alinhamento: 'right' },
             ],
             linhas,
           };

@@ -5365,9 +5365,9 @@ function nfFiltrar(){
     ]), f.length?null:(q?'Nenhuma NF encontrada para "'+esc(q)+'".':'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.'));
 }
 async function sincronizarCfop(){
-  if(!(await uiConfirm({tipo:'info', titulo:'Sincronizar CFOP pelos XMLs?', ok:'Sincronizar', cancel:'Cancelar', msg:'Lê o CFOP real do XML autorizado de cada nota (Focus) e corrige no sistema. Pode levar alguns segundos por nota.'}))) return;
+  if(!(await uiConfirm({tipo:'info', titulo:'Sincronizar CFOP e impostos pelos XMLs?', ok:'Sincronizar', cancel:'Cancelar', msg:'Lê o CFOP e os valores fiscais (produtos, base ICMS, ICMS, PIS, COFINS, IPI) do XML autorizado de cada nota (Focus) e grava no sistema. Pode levar alguns segundos por nota.'}))) return;
   try{
-    uiSpinnerOpen&&uiSpinnerOpen('Lendo os XMLs e cruzando CFOPs…');
+    uiSpinnerOpen&&uiSpinnerOpen('Lendo os XMLs (CFOP + impostos)…');
     const r=await api('/nfe/cfop/sincronizar',{method:'POST'});
     uiSpinnerClose&&uiSpinnerClose();
     const chg=(r.mudancas||[]).slice(0,12).map(m=>`${m.numero}: ${m.de||'—'} → ${m.para}`).join('\n');

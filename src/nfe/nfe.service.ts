@@ -568,13 +568,13 @@ export class NfeService {
       },
     });
 
-    // Ao autorizar, puxa o CFOP REAL do XML (fonte fiscal) — best-effort, não trava a consulta.
+    // Ao autorizar, puxa o CFOP e os TOTAIS fiscais reais do XML — best-effort, não trava a consulta.
     if (novoStatus === 'autorizada') {
-      const cfopXml = await this.lerCfopDoXml(id, empresaId);
-      if (cfopXml && cfopXml !== (atualizada.cfop ?? '')) {
+      const fis = await this.lerFiscalDoXml(id, empresaId);
+      if (fis && fis.cfop) {
         try {
-          return await this.prisma.notaFiscal.update({ where: { id }, data: { cfop: cfopXml } });
-        } catch { /* mantém o CFOP do payload se a atualização falhar */ }
+          return await this.prisma.notaFiscal.update({ where: { id }, data: { cfop: fis.cfop, ...fis.totais } });
+        } catch { /* mantém os dados do payload se a atualização falhar */ }
       }
     }
     return atualizada;
@@ -800,25 +800,36 @@ export class NfeService {
     let lidas = 0, alteradas = 0, falhas = 0;
     const mudancas: Array<{ numero: string; de: string | null; para: string }> = [];
     for (const n of notas) {
-      const novo = await this.lerCfopDoXml(n.id, empresaId);
-      if (!novo) { falhas++; continue; }
+      const fis = await this.lerFiscalDoXml(n.id, empresaId);
+      if (!fis || !fis.cfop) { falhas++; continue; }
       lidas++;
-      if (novo !== (n.cfop ?? '')) {
-        await this.prisma.notaFiscal.update({ where: { id: n.id }, data: { cfop: novo } });
-        alteradas++;
-        mudancas.push({ numero: n.numero, de: n.cfop ?? null, para: novo });
-      }
+      const mudou = fis.cfop !== (n.cfop ?? '');
+      await this.prisma.notaFiscal.update({ where: { id: n.id }, data: { cfop: fis.cfop, ...fis.totais } });
+      if (mudou) { alteradas++; mudancas.push({ numero: n.numero, de: n.cfop ?? null, para: fis.cfop }); }
     }
     return { total: notas.length, lidas, alteradas, falhas, mudancas: mudancas.slice(0, 50) };
   }
 
-  /** Lê o(s) CFOP do XML autorizado de uma nota (fonte fiscal). Null se indisponível. */
-  private async lerCfopDoXml(id: number, empresaId: number): Promise<string | null> {
+  /** Lê CFOP(s) e os totais fiscais (ICMSTot) do XML autorizado. Null se indisponível. */
+  private async lerFiscalDoXml(id: number, empresaId: number): Promise<{ cfop: string | null; totais: Record<string, Prisma.Decimal | null> } | null> {
     try {
       const arq = await this.baixarArquivo(id, empresaId, 'xml');
       const xml = arq.content.toString('utf8');
       const cfops = [...new Set([...xml.matchAll(/<CFOP>(\d{4})<\/CFOP>/g)].map((m) => m[1]))];
-      return cfops.length ? cfops.join('/') : null;
+      // Totais da nota: bloco <ICMSTot> (fonte oficial dos valores fiscais).
+      const bloco = /<ICMSTot>([\s\S]*?)<\/ICMSTot>/.exec(xml)?.[1] ?? xml;
+      const tag = (t: string) => { const m = new RegExp(`<${t}>([\\d.]+)</${t}>`).exec(bloco); return m ? new Prisma.Decimal(m[1]) : null; };
+      return {
+        cfop: cfops.length ? cfops.join('/') : null,
+        totais: {
+          valorProdutos: tag('vProd'),
+          baseIcms: tag('vBC'),
+          valorIcms: tag('vICMS'),
+          valorPis: tag('vPIS'),
+          valorCofins: tag('vCOFINS'),
+          valorIpi: tag('vIPI'),
+        },
+      };
     } catch {
       return null;
     }

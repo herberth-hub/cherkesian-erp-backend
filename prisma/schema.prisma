@@ -737,6 +737,13 @@ model NotaFiscal {
   ordemCompraCliente String? // nº do pedido de compra do cliente (sai nos dados adicionais)
   cfop        String?    // CFOP(s) da nota (p/ contabilidade) — ex.: "5101" ou "5101/6101"
   natureza    String?    // natureza da operação (ex.: "Venda de mercadoria")
+  // Totais fiscais lidos do XML autorizado (p/ o relatório da contabilidade)
+  valorProdutos Decimal? @db.Decimal(12,2)
+  baseIcms      Decimal? @db.Decimal(12,2)
+  valorIcms     Decimal? @db.Decimal(12,2)
+  valorPis      Decimal? @db.Decimal(12,2)
+  valorCofins   Decimal? @db.Decimal(12,2)
+  valorIpi      Decimal? @db.Decimal(12,2)
   emitidaEm   DateTime  @default(now())
   emitidaPor  String?
 }
