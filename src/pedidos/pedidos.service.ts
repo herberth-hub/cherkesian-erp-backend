@@ -132,6 +132,7 @@ export class PedidosService {
         frete: dto.frete,
         ordemCompraCliente: dto.ordemCompraCliente,
         obs: dto.obs,
+        obsComercial: dto.obsComercial,
         criadoPor,
         itens: { create: itensData },
       },
@@ -187,6 +188,7 @@ export class PedidosService {
       frete: dto.frete,
       ordemCompraCliente: dto.ordemCompraCliente,
       obs: dto.obs,
+      obsComercial: dto.obsComercial,
     };
 
     const temExpedido = pedido.itens.some((i) => (i.quantidadeExpedida ?? 0) > 0);

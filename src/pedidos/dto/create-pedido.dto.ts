@@ -99,8 +99,15 @@ export class CreatePedidoDto {
   @IsBoolean()
   bonificacao?: boolean;
 
+  /** Observação FISCAL: vai nas informações complementares da NF-e. */
   @IsOptional()
   @IsString()
   @MaxLength(1000)
   obs?: string;
+
+  /** Observação COMERCIAL: sai na proposta e no pedido; não vai na NF-e. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  obsComercial?: string;
 }

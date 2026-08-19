@@ -2108,7 +2108,9 @@ async function formPedido(id){
       <div style="font-size:12px;color:#6a675e">Total de peças: <b id="ped_totpc" style="font-size:15px;color:#242a26">0</b></div>
       <div style="font-size:12px;color:#6a675e">Valor total: <b id="ped_totvl" style="font-size:16px;color:#3a2f08">R$ 0,00</b></div>
     </div>
-    <div class="mrow"><label class="fl">Observações (saem na NF-e — informações complementares)</label>
+    <div class="mrow"><label class="fl">Observações comerciais (saem na proposta e no pedido)</label>
+      <textarea id="f_obscom" class="inp" rows="2" placeholder="ex.: piloto aprovado em 10/08, bordado do brasão incluso, etc.">${esc(ped&&ped.obsComercial||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Observações fiscais (saem só na NF-e — informações complementares)</label>
       <textarea id="f_obs" class="inp" rows="2" placeholder="ex.: Empenho nº …, entrega no almoxarifado, etc.">${esc(ped&&ped.obs||'')}</textarea></div>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
@@ -2133,7 +2135,8 @@ async function pedPrefillCliente(){
   const setIf=(id,v)=>{ const e=$(id); if(e && !e.value && v){ e.value=v; return true; } return false; };
   if(setIf('f_pag', ult.formaPagamento)) usou.push('forma de pagamento');
   if(setIf('f_frete', ult.frete)) usou.push('frete');
-  if(setIf('f_obs', ult.obs)) usou.push('observações');
+  if(setIf('f_obs', ult.obs)) usou.push('observações fiscais');
+  if(setIf('f_obscom', ult.obsComercial)) usou.push('observações comerciais');
   calcVenc();
   if(usou.length) toast('Puxei '+usou.join(', ')+' do último pedido ('+esc(ult.numero)+').','ok');
 }
@@ -2359,6 +2362,7 @@ async function savePedido(id){
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
   const obs=(($('f_obs')&&$('f_obs').value)||'').trim(); body.obs=obs||undefined;
+  const obsCom=(($('f_obscom')&&$('f_obscom').value)||'').trim(); body.obsComercial=obsCom||undefined;
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal(); toast('Pedido '+p.numero+' atualizado.','ok'); }
     else { const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); }

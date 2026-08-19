@@ -353,6 +353,15 @@ export class DocumentosService {
       textoBloco(doc, 'Cliente novo: produção liberada após aprovação da peça-piloto.');
     }
 
+    // Observação COMERCIAL do pedido (campo próprio, separado da observação
+    // fiscal "obs", que vai só nas informações complementares da NF-e).
+    const obsPedido = pedido.obsComercial?.trim();
+    if (obsPedido) {
+      if (doc.y > doc.page.height - 150) doc.addPage();
+      secao(doc, 'Observações');
+      textoBloco(doc, obsPedido);
+    }
+
     // Dados bancários para pagamento (da filial emissora; se o pedido não tiver
     // filial, usa a matriz da empresa como padrão).
     let dadosBancarios = pedido.filial?.dadosBancarios?.trim() || '';

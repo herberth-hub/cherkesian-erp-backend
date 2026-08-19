@@ -481,7 +481,8 @@ model Pedido {
   producaoParcial Boolean     @default(false) // produziu só o que o estoque cobria; falta OP complementar
   bonificacao    Boolean      @default(false) // pedido de bonificação: sem conta a receber; NF em remessa de bonificação
   ordemCompraCliente String?  // nº do pedido de compra do cliente (SAP/PO) — sai na NF
-  obs            String?
+  obs            String?    // observação FISCAL: vai nas informações complementares da NF-e
+  obsComercial   String?    // observação COMERCIAL: sai na proposta e no pedido (não vai na NF-e)
   itens          PedidoItem[]
   ops            OP[]
   pilotos        Piloto[]
