@@ -353,9 +353,9 @@ export class DocumentosService {
       textoBloco(doc, 'Cliente novo: produção liberada após aprovação da peça-piloto.');
     }
 
-    // Observação COMERCIAL do pedido (campo próprio, separado da observação
-    // fiscal "obs", que vai só nas informações complementares da NF-e).
-    const obsPedido = pedido.obsComercial?.trim();
+    // Observações do pedido: usa a COMERCIAL; se estiver vazia, cai para a
+    // observação "obs" (assim o que o usuário digitar sempre sai no PDF de venda).
+    const obsPedido = pedido.obsComercial?.trim() || pedido.obs?.trim();
     if (obsPedido) {
       if (doc.y > doc.page.height - 150) doc.addPage();
       secao(doc, 'Observações');
