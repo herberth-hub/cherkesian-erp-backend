@@ -32,6 +32,9 @@ export function setLogoDoc(dataUri: string | null | undefined): void {
 
 export function novoDocumento(titulo: string, numero: string): Pdf {
   const doc = new PDFDocument({ size: 'A4', margins: { top: 128, bottom: 70, left: 50, right: 50 } });
+  // Título do PDF (metadado): vira o nome sugerido ao baixar pelo visualizador do navegador.
+  doc.info.Title = `${titulo} ${numero}`.trim();
+  doc.info.Author = 'Grupo Cherkesian';
   const timbre = () => cabecalho(doc, titulo, numero);
   timbre();
   doc.on('pageAdded', timbre);

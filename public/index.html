@@ -5013,7 +5013,7 @@ async function gerarDoc(tipo, refId){
     if(!r.ok) throw new Error('Falha ao baixar o PDF ('+r.status+').');
     const blob = await r.blob();
     // Abre o PDF numa janela interna (desktop) ou botões Abrir/Baixar (celular).
-    abrirPdfBlob(blob, {titulo:'📄 '+(DOC_NOMES[tipo]||tipo)+' · '+(d.numero||''), nome:tipo+'-'+(d.numero||'')});
+    abrirPdfBlob(blob, {titulo:'📄 '+(DOC_NOMES[tipo]||tipo)+' · '+(d.numero||''), nome:((DOC_NOMES[tipo]||tipo)+' '+(d.numero||'')).trim()});
     toast('Documento '+d.numero+' gerado.','ok');
     return d.numero;
   }catch(e){ toast(e.message,'err'); }
