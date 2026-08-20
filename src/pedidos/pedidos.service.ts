@@ -48,12 +48,24 @@ export class PedidosService {
       select: { numero: true, motivo: true },
     });
 
-    return pedidos.map((p) => ({
-      ...p,
-      nfs: nfPorPedido.get(p.id) ?? [],
-      opsNumeros: p.ops.map((o) => o.numero),
-      ocsNumeros: ocs.filter((o) => (o.motivo ?? '').includes(p.numero)).map((o) => o.numero),
-    }));
+    // Unidade/filial do cliente (destinatário) para exibir na lista, ao lado do cliente.
+    const uniIds = [...new Set(pedidos.map((p) => p.clienteUnidadeId).filter((x): x is number => x != null))];
+    const unidades = uniIds.length
+      ? await this.prisma.clienteUnidade.findMany({ where: { id: { in: uniIds } }, select: { id: true, nome: true, cnpjCpf: true } })
+      : [];
+    const uniMap = new Map(unidades.map((u) => [u.id, u]));
+
+    return pedidos.map((p) => {
+      const uni = p.clienteUnidadeId != null ? uniMap.get(p.clienteUnidadeId) : null;
+      return {
+        ...p,
+        unidadeNome: uni?.nome ?? null,
+        unidadeCnpj: uni?.cnpjCpf ?? null,
+        nfs: nfPorPedido.get(p.id) ?? [],
+        opsNumeros: p.ops.map((o) => o.numero),
+        ocsNumeros: ocs.filter((o) => (o.motivo ?? '').includes(p.numero)).map((o) => o.numero),
+      };
+    });
   }
 
   async findOne(id: number, empresaId: number) {

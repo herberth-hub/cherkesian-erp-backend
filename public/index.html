@@ -1039,7 +1039,7 @@ function pedidosKanban(arr){
     const items=arr.filter(p=>p.etapa===et);
     return `<div class="kcol"><h4>${esc(lbl)} <span class="n">${items.length}</span></h4>${items.length?items.map(p=>`<div class="kcard" style="cursor:pointer" title="Abrir PDF do pedido" onclick="APP.gerarDoc('pedido',${p.id})">
         <div class="kt"><span class="mono gold">${esc(p.numero)}</span><span>${money(p.valorTotal)}</span></div>
-        <div class="kmuted">${esc(p.cliente?p.cliente.nome:'—')}</div>
+        <div class="kmuted">${esc(p.cliente?p.cliente.nome:'—')}${p.unidadeNome?' · 📍 '+esc(p.unidadeNome):''}</div>
         <div class="kmuted">${(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0)} pç${p.nfs&&p.nfs.length?(' · NF '+esc(p.nfs[0].numero)):''}</div>
       </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
   }).join('')}</div>`;
@@ -1049,7 +1049,7 @@ function renderPedidos(){
   const q=(val('ped_q')||'').toLowerCase(), et=val('ped_etapa');
   let arr=list;
   if(et) arr=arr.filter(p=>p.etapa===et);
-  if(q) arr=arr.filter(p=>[p.numero, p.cliente&&p.cliente.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q) arr=arr.filter(p=>[p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].some(x=>String(x||'').toLowerCase().includes(q)));
   const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const bonif=arr.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
@@ -1060,7 +1060,7 @@ function renderPedidos(){
     ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
       `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}`,
-      esc(p.cliente?p.cliente.nome:('#'+p.clienteId)),
+      `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
       etapaCell(p),
