@@ -281,12 +281,25 @@ export class DocumentosService {
     const titulo = tipo === 'proposta' ? 'Proposta Comercial' : 'Pedido de Venda';
     const doc = novoDocumento(titulo, numero);
 
+    // Se o pedido aponta uma UNIDADE/FILIAL do cliente, os dados exibidos são os DELA
+    // (nome, CNPJ, cidade) — é ela o destinatário; senão usa o cliente principal.
+    const unidade = pedido.clienteUnidadeId
+      ? await this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } })
+      : null;
+    const cli = pedido.cliente;
+    const destNome = unidade?.nome || cli.nome;
+    const destDoc = unidade?.cnpjCpf || cli.cnpjCpf || '—';
+    const destCidadeUf = (unidade && (unidade.municipio || unidade.uf))
+      ? `${unidade.municipio || ''}${unidade.uf ? '/' + unidade.uf : ''}`
+      : (cli.cidadeUf ?? '—');
+    const destContato = cli.contato ?? cli.telefone ?? unidade?.email ?? '—';
+
     secao(doc, 'Cliente');
     camposDuplos(doc, [
-      ['Razão social / nome', pedido.cliente.nome],
-      ['CNPJ/CPF', pedido.cliente.cnpjCpf ?? '—'],
-      ['Contato', pedido.cliente.contato ?? pedido.cliente.telefone ?? '—'],
-      ['Cidade/UF', pedido.cliente.cidadeUf ?? '—'],
+      ['Razão social / nome', destNome],
+      ['CNPJ/CPF', destDoc],
+      ['Contato', destContato],
+      ['Cidade/UF', destCidadeUf],
     ]);
 
     // Forma de pagamento + vencimento (converte "19" em data; ignora "50%").
