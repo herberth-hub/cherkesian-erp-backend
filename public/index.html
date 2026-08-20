@@ -2113,7 +2113,7 @@ async function formPedido(id){
   let ped=null;
   if(id){ try{ ped = await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; } }
   PITENS = ped && ped.itens && ped.itens.length
-    ? ped.itens.map(it=>({produtoId:it.produtoId, qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
+    ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   const selCli = ped?ped.clienteId:null;
