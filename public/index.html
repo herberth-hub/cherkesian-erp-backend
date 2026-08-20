@@ -2432,6 +2432,10 @@ async function gerarOp(id, parcial){
       if(ok) return gerarOp(id, true);
       toast('OC(s) '+oc+' criada(s). Pedido aguardando material.','ok');
     }
+    else if(r.status==='itens_livres'){
+      await uiAlert({tipo:'warn', titulo:'⚠️ Itens em texto livre', ok:'Editar pedido p/ vincular', msg:r.message});
+      formPedido(id); return;
+    }
     else if(r.status==='bloqueado_piloto') toast('Bloqueado: '+r.message,'err');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }

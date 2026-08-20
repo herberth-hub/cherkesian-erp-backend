@@ -297,6 +297,22 @@ export class PedidosService {
       throw new ConflictException(`Pedido ${pedido.numero} já teve OP gerada.`);
     }
 
+    // 0) Aviso: itens em TEXTO LIVRE (sem produto do catálogo) não têm ficha
+    // técnica nem receita de material — não dá para gerar produção deles.
+    const itensLivres = pedido.itens.filter((i) => !i.produtoId && i.quantidade > 0);
+    if (itensLivres.length) {
+      return {
+        status: 'itens_livres' as const,
+        pedido: { numero: pedido.numero, etapa: pedido.etapa },
+        itens: itensLivres.map((i) => i.descricao),
+        message:
+          `Este pedido tem ${itensLivres.length} item(ns) em texto livre (sem produto do catálogo): ` +
+          `${itensLivres.map((i) => `"${i.descricao}"`).join(', ')}. ` +
+          'Edite o pedido e vincule cada um a um produto cadastrado antes de gerar a OP — ' +
+          'assim a produção puxa a ficha técnica e baixa o material corretamente.',
+      };
+    }
+
     // 1) Piloto liberado (para cliente novo)
     if (pedido.clienteNovo) {
       const pilotoLiberado = pedido.pilotos.some((p) => p.liberado);
