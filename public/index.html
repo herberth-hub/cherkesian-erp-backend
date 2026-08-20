@@ -2221,7 +2221,7 @@ function pedCliPick(){
     pedPrefillCliente();
   } else {
     $('f_cli').value=''; $('f_cliuni').value=''; window.__PEDFILTER='';
-    if(hint) hint.textContent = txt?'Selecione um cliente da lista.':'';
+    if(hint) hint.innerHTML = txt?('✏️ Cliente novo — será cadastrado com o nome <b>'+esc(txt)+'</b> ao salvar.'):'';
   }
 }
 // Filtra os produtos pela filial/grupo escolhido (clienteGrupo). Sem correspondência → mostra todos.
@@ -2251,7 +2251,7 @@ function renderItens(){
     }).join('');
     return `<div style="border:1px solid #efece3;border-radius:8px;padding:8px;margin-bottom:8px">
       <div class="grid2" style="align-items:end;margin-bottom:6px">
-        <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar produto…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.itemProd(${i})"></div>
+        <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar OU escreva livre (orçamento)…" value="${cur?esc(prodLabel(cur)):esc(it.descTexto||'')}" onchange="APP.itemProd(${i})">${(!cur&&(it.descTexto||''))?'<div class="muted" style="font-size:10px;margin-top:2px">✏️ Item livre (sem produto do catálogo)</div>':''}</div>
         <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})">
           ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
       </div>
@@ -2312,35 +2312,53 @@ function pedTotais(){
 function itemProd(i){
   const p=prodByLabel(window.__PROD,val('it_prod_'+i));
   PITENS[i].produtoId = p?p.id:null;
+  // Texto livre (orçamento): se não casar com um produto do catálogo, usa o texto digitado.
+  PITENS[i].descTexto = p?'':(val('it_prod_'+i)||'').trim();
   PITENS[i].val = Number(val('it_val_'+i)) || (p&&p.precoBase?Number(p.precoBase):PITENS[i].val);
   // Ao trocar o produto, reseta a cor; auto-seleciona se o produto tiver só uma cor.
   const cores = coresDoProduto(p);
   PITENS[i].cor = cores.length===1 ? cores[0] : '';
   renderItens();
 }
+// Resolve o cliente do pedido: usa o selecionado; senão acha pelo nome digitado; senão cadastra na hora.
+async function resolverClienteIdPedido(){
+  const cid = Number(val('f_cli')); if(cid) return cid;
+  const nome=(val('f_cli_txt')||'').trim(); if(!nome) return 0;
+  const low=nome.toLowerCase();
+  const ent=(window.__CLIENTRIES||[]).find(x=>String(x.label||'').trim().toLowerCase()===low);
+  if(ent) return ent.clienteId;
+  const cli=(window.__CLILIST||[]).find(c=>String(c.nome||'').trim().toLowerCase()===low || String(c.fantasia||'').trim().toLowerCase()===low);
+  if(cli) return cli.id;
+  const novo=await api('/clientes',{method:'POST',body:{nome}});
+  if(Array.isArray(window.__CLILIST)) window.__CLILIST.push(novo);
+  toast('Cliente "'+esc(nome)+'" cadastrado.','ok');
+  return novo.id;
+}
 async function savePedido(id){
-  const clienteId = Number(val('f_cli'));
+  let clienteId = Number(val('f_cli'));
   const itens = [];
   for(let i=0;i<PITENS.length;i++){
     const p=prodByLabel(window.__PROD,val('it_prod_'+i)), v=val('it_val_'+i);
-    if(!p) continue;
+    const txt=(val('it_prod_'+i)||'').trim();
+    if(!p && !txt) continue; // linha vazia
     // grade vem das caixinhas por tamanho (PITENS[i].grade); senão, qtd manual.
     itemGradeInp(i);
     const g=PITENS[i].grade; const soma=g?Object.values(g).reduce((a,b)=>a+b,0):0;
     const manual=Number(val('it_qtd_'+i))||0;
     const quantidade = soma>0?soma:manual;
     if(!(quantidade>0)){ toast('Item '+(i+1)+': informe a grade (por tamanho) ou a quantidade.','err'); return; }
-    // Cor obrigatória quando o produto tem cores cadastradas.
+    const base=Number(v);
+    if(!(base>0)){ toast('Item '+(i+1)+(p?(' ('+p.descricao+')'):(' "'+txt+'"'))+': informe o valor unitário.','err'); return; }
+    // Cor obrigatória quando o produto (do catálogo) tem cores cadastradas.
     const cores = coresDoProduto(p);
     if(cores.length && !PITENS[i].cor){ toast('Item '+(i+1)+' ('+p.descricao+'): escolha a COR.','err'); return; }
     // Separa o item por FAIXA DE PREÇO: tamanhos normais (preço base) e tamanhos
     // da tabela especial (precoEspecial) viram linhas distintas — senão o especial
-    // era gravado com o preço base.
-    const base=Number(v);
+    // era gravado com o preço base. (Só p/ produto do catálogo; item livre é 1 preço.)
     const esp=tamsEspDoProduto(p);
-    const precoEsp=(p.precoEspecial!=null && String(p.precoEspecial)!=='')?Number(p.precoEspecial):null;
+    const precoEsp=(p&&p.precoEspecial!=null && String(p.precoEspecial)!=='')?Number(p.precoEspecial):null;
     const cor=PITENS[i].cor;
-    const addItem=(grade,valorUnit,qtd)=>{ const it={ produtoId:p.id, quantidade:qtd, valorUnit }; if(cor) it.cor=cor; if(grade) it.grade=grade; itens.push(it); };
+    const addItem=(grade,valorUnit,qtd)=>{ const it={ quantidade:qtd, valorUnit }; if(p) it.produtoId=p.id; else it.descricao=txt; if(cor) it.cor=cor; if(grade) it.grade=grade; itens.push(it); };
     if(soma>0 && precoEsp!=null && esp.length){
       const gBase={}, gEsp={}; let qB=0,qE=0;
       for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; if(n<=0) continue; if(esp.includes(String(t).toUpperCase())){ gEsp[t]=n; qE+=n; } else { gBase[t]=n; qB+=n; } }
@@ -2352,8 +2370,12 @@ async function savePedido(id){
       addItem(null, base, manual);
     }
   }
-  if(!clienteId){ toast('Selecione o cliente.','err'); return; }
-  if(!itens.length){ toast('Adicione ao menos um item com produto.','err'); return; }
+  if(!itens.length){ toast('Adicione ao menos um item.','err'); return; }
+  if(!clienteId){
+    try{ clienteId = await resolverClienteIdPedido(); }
+    catch(e){ toast('Não foi possível cadastrar o cliente: '+(e.message||e),'err'); return; }
+    if(!clienteId){ toast('Informe o cliente.','err'); return; }
+  }
   const body = { clienteId, itens }; const pag=val('f_pag'); if(pag) body.formaPagamento=pag;
   const uni=Number(val('f_cliuni')); if(uni) body.clienteUnidadeId=uni;
   if($('f_bonif')&&$('f_bonif').checked) body.bonificacao=true;
