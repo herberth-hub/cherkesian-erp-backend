@@ -3235,6 +3235,7 @@ function opsKanban(arr){
     const items=arr.filter(col.t);
     return `<div class="kcol"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard"${o.corteParcial?' style="border-left:3px solid #e08a00"':''}>
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
+      ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
     </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
@@ -3268,9 +3269,10 @@ function opsAgrupadas(arr, verFin){
     </div>`;
     const rows=g.ops.map(o=>`<tr>
       <td><span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</td>
+      <td style="min-width:150px;font-size:12.5px">${o.produtoDescricao?esc(o.produtoDescricao):'—'}${o.cor?' <span class="muted">· '+esc(o.cor)+'</span>':''}</td>
       <td>${o.quantidade}</td><td>${opPill(o.status)}</td><td style="min-width:110px">${bar(o.progresso)}</td>
       <td><b>${esc(o.setorAtual||'—')}</b></td><td>${prioPill(o.prioridade)}</td><td>${opAcoes(o)}</td></tr>`).join('');
-    return `<div class="panel" style="margin-bottom:14px;overflow:hidden">${head}<div style="overflow-x:auto"><table><thead><tr><th>OP</th><th>Qtd</th><th>Status</th><th>Progresso</th><th>Fase atual</th><th>Prioridade</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    return `<div class="panel" style="margin-bottom:14px;overflow:hidden">${head}<div style="overflow-x:auto"><table><thead><tr><th>OP</th><th>Produto</th><th>Qtd</th><th>Status</th><th>Progresso</th><th>Fase atual</th><th>Prioridade</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }).join('');
 }
 // Romaneio de corte: materiais que o estoquista separa p/ a OP + dupla conferência por bip.
@@ -3544,7 +3546,9 @@ function formCorte(o){
       <input class="inp" id="ct_${esc(t)}" data-plan="${plan}" type="number" min="0" value="${cur}" oninput="APP.corteTotal()" style="width:100%;text-align:center;padding:5px 4px;font-size:13px">
     </div>`;
   }).join('');
+  const prodTxt = o.produtoNome || o.produtoDescricao || (o.produtoId?('Produto #'+o.produtoId):'');
   openModal(`<h3>✂ Confirmar corte — OP ${esc(o.numero)}</h3>
+    ${prodTxt?`<div style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin:-2px 0 8px;font-size:13.5px"><b>🧵 ${esc(prodTxt)}</b>${o.cor?` <span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:11px;margin-left:4px">🎨 ${esc(o.cor)}</span>`:''}${o.pedido?`<span class="muted" style="font-size:11px;margin-left:6px">${esc(o.pedido.numero||o.pedido)}</span>`:''}</div>`:''}
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe quanto foi <b>realmente cortado</b>. Se o tecido acabou, corte parcial (menos que o planejado) é permitido.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">${cels}
       <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Total cortado</label><div id="ct_tot" style="font-size:18px;font-weight:800">0</div></div>

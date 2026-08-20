@@ -12,11 +12,22 @@ const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>)
 export class OpsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number) {
-    return this.prisma.oP.findMany({
+  async findAll(empresaId: number) {
+    const ops = await this.prisma.oP.findMany({
       where: { pedido: { empresaId } },
       include: { pedido: { select: { numero: true, clienteId: true } } },
       orderBy: [{ prioridade: 'asc' }, { id: 'desc' }],
+    });
+    // Anexa o nome do produto (código · descrição) para exibir na produção sem
+    // precisar abrir o pedido de venda.
+    const prodIds = [...new Set(ops.map((o) => o.produtoId).filter((x): x is number => x != null))];
+    const prods = prodIds.length
+      ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true } })
+      : [];
+    const pmap = new Map(prods.map((p) => [p.id, p]));
+    return ops.map((o) => {
+      const p = o.produtoId != null ? pmap.get(o.produtoId) : null;
+      return { ...o, produtoCodigo: p?.codigo ?? null, produtoDescricao: p?.descricao ?? null, produtoNome: p ? `${p.codigo} · ${p.descricao}` : null };
     });
   }
 
