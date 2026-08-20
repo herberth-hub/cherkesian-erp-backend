@@ -2142,7 +2142,8 @@ async function formPedido(id){
     const g=(c.grupo||'').trim();
     const baseLabel = g ? (g+' › '+c.nome) : c.nome;
     cliEntries.push({label:baseLabel, clienteId:c.id, unidadeId:'', filterKey:(g||c.nome)});
-    (c.unidades||[]).forEach(u=>{ cliEntries.push({label:baseLabel+' › '+u.nome, clienteId:c.id, unidadeId:u.id, filterKey:u.nome}); });
+    // Unidade/filial vem NA FRENTE (é o que diferencia) — a razão social/grupo fica como contexto.
+    (c.unidades||[]).forEach(u=>{ const ctx=g||c.nome; cliEntries.push({label:'📍 '+u.nome+' — '+ctx, clienteId:c.id, unidadeId:u.id, filterKey:u.nome}); });
   });
   window.__CLIENTRIES = cliEntries;
   window.__PEDFILTER = '';
