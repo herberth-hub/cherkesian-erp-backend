@@ -2223,7 +2223,7 @@ function calcVenc(){
 function prodLabel(p){ return p.codigo+' · '+p.descricao; }
 function prodByLabel(list,v){ if(!v) return null; v=String(v).trim(); const code=(v.split('·')[0]||v).trim(); return (list||[]).find(x=>prodLabel(x)===v||x.codigo===code||x.descricao===v)||null; }
 function prodDatalist(id,list){ return `<datalist id="${id}">${(list||[]).map(p=>`<option value="${esc(prodLabel(p))}"></option>`).join('')}</datalist>`; }
-const TAMS_PADRAO=['PP','P','M','G','GG','G1','G2','G3','G4','G5'];
+const TAMS_PADRAO=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8'];
 function parseGradeTxt(txt){ const o={}; let soma=0; for(const par of String(txt||'').split(/[,;]+/)){ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Math.round(Number((m[1]||'').trim())); if(t&&q>0){o[t]=q;soma+=q;} } return {o,soma}; }
 // Tamanhos de um produto (da grade cadastrada) — ex.: "PP, P, ... G5". Sem grade, usa o padrão.
 function tamsDoProduto(p){
