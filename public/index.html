@@ -1524,6 +1524,8 @@ async function buscarCnpjUnidade(i){
   await lookupCnpj('cu_cnpj_'+i, {razaoSocial:'cu_nome_'+i, inscricaoEstadual:'cu_ie_'+i, logradouro:'cu_log_'+i, numero:'cu_num_'+i, bairro:'cu_bairro_'+i, municipio:'cu_mun_'+i, uf:'cu_uf_'+i, cep:'cu_cep_'+i, email:'cu_email_'+i});
   if(rotulo && nomeEl) nomeEl.value=rotulo; // mantém o rótulo curto que o usuário já tinha
 }
+// Completa endereço + código IBGE de uma unidade do cliente pelo CEP.
+function buscarCepUnidade(i){ return lookupCep('cu_cep_'+i, {logradouro:'cu_log_'+i, bairro:'cu_bairro_'+i, municipio:'cu_mun_'+i, uf:'cu_uf_'+i, codMunicipio:'cu_codmun_'+i}); }
 function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
 function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
 // Máscara automática de CNPJ/CPF enquanto digita (pontos, barra e traço).
@@ -1568,7 +1570,7 @@ function renderCliUnis(){
         <div class="mrow"><label class="fl">Inscr. Estadual</label><input class="inp" id="cu_ie_${i}" value="${esc(u.inscricaoEstadual||'')}"></div>
       </div>
       <div class="grid3">
-        <div class="mrow"><label class="fl">CEP</label><input class="inp" id="cu_cep_${i}" value="${esc(u.cep||'')}"></div>
+        <div class="mrow"><label class="fl">CEP</label><div style="display:flex;gap:6px"><input class="inp" style="flex:1" id="cu_cep_${i}" value="${esc(u.cep||'')}" placeholder="00000-000"><button type="button" class="btn-sm" onclick="APP.buscarCepUnidade(${i})" title="Buscar endereço + IBGE pelo CEP">🔍</button></div></div>
         <div class="mrow"><label class="fl">Logradouro</label><input class="inp" id="cu_log_${i}" value="${esc(u.logradouro||'')}"></div>
         <div class="mrow"><label class="fl">Número</label><input class="inp" id="cu_num_${i}" value="${esc(u.numeroEndereco||'')}"></div>
       </div>
@@ -1576,6 +1578,7 @@ function renderCliUnis(){
         <div class="mrow"><label class="fl">Bairro</label><input class="inp" id="cu_bairro_${i}" value="${esc(u.bairro||'')}"></div>
         <div class="mrow"><label class="fl">Município</label><input class="inp" id="cu_mun_${i}" value="${esc(u.municipio||'')}"></div>
         <div class="mrow"><label class="fl">UF</label><input class="inp" id="cu_uf_${i}" maxlength="2" value="${esc(u.uf||'')}"></div>
+        <div class="mrow"><label class="fl">Cód. IBGE</label><input class="inp" id="cu_codmun_${i}" value="${esc(u.codMunicipio||'')}" placeholder="7 dígitos"></div>
       </div>
       <div class="grid2">
         <div class="mrow"><label class="fl">Indicador IE</label><select class="inp" id="cu_indie_${i}"><option value="">—</option><option value="1" ${u.indicadorIE===1?'selected':''}>1 · Contribuinte</option><option value="2" ${u.indicadorIE===2?'selected':''}>2 · Isento</option><option value="9" ${u.indicadorIE===9?'selected':''}>9 · Não contribuinte</option></select></div>
@@ -1588,7 +1591,7 @@ function cliUniReadDom(){
   CLIUNIS = CLIUNIS.map((_,i)=>({
     nome:val('cu_nome_'+i), cnpjCpf:val('cu_cnpj_'+i), inscricaoEstadual:val('cu_ie_'+i),
     cep:val('cu_cep_'+i), logradouro:val('cu_log_'+i), numeroEndereco:val('cu_num_'+i),
-    bairro:val('cu_bairro_'+i), municipio:val('cu_mun_'+i), uf:(val('cu_uf_'+i)||'').toUpperCase(),
+    bairro:val('cu_bairro_'+i), municipio:val('cu_mun_'+i), uf:(val('cu_uf_'+i)||'').toUpperCase(), codMunicipio:val('cu_codmun_'+i),
     email:val('cu_email_'+i), indicadorIE:Number(val('cu_indie_'+i))||undefined,
   }));
 }
@@ -6837,7 +6840,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
