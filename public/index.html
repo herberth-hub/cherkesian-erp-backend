@@ -1510,6 +1510,12 @@ async function lookupCep(cepId, map){
   }catch(e){}
 }
 function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
+// Puxa os dados do CNPJ da FILIAL/CNPJ emissor. Preserva o nome/rótulo se já digitado.
+async function buscarCnpjFilial(){
+  const nomeEl=$('fl_nome'); const rot=(nomeEl&&nomeEl.value.trim())||'';
+  await lookupCnpj('fl_cnpj', {razaoSocial:'fl_nome', nomeFantasia:'fl_fant', inscricaoEstadual:'fl_ie', logradouro:'fl_log', numero:'fl_num', bairro:'fl_bairro', municipio:'fl_mun', codMunicipio:'fl_codmun', uf:'fl_uf', cep:'fl_cep', telefone:'fl_tel'});
+  if(rot && nomeEl) nomeEl.value=rot;
+}
 // Puxa os dados do CNPJ de uma UNIDADE do cliente. Preserva o rótulo (ex.: SACA) se já digitado.
 async function buscarCnpjUnidade(i){
   const nomeEl=$('cu_nome_'+i); const rotulo=(nomeEl&&nomeEl.value.trim())||'';
@@ -5860,7 +5866,7 @@ function formFilial(id){
     <div class="grid2">${field('fl_nome','Nome * (ex.: Filial SP)','value="'+esc(f.nome||'')+'"')}
       <div class="mrow" style="align-self:end"><label class="fl"><input type="checkbox" id="fl_matriz" ${f.matriz?'checked':''}> É a matriz</label> &nbsp; <label class="fl"><input type="checkbox" id="fl_ativa" ${f.ativa!==false?'checked':''}> Ativa</label></div></div>
     <div style="border-top:1px solid var(--line);margin:8px 0 12px;padding-top:8px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (emitente da NF-e)</b></div>
-    <div class="grid3">${field('fl_cnpj','CNPJ','value="'+esc(f.cnpj||'')+'" placeholder="00.000.000/0000-00"')}${field('fl_ie','Inscrição Estadual','value="'+esc(f.inscricaoEstadual||'')+'"')}<div class="mrow"><label class="fl">Regime (CRT)</label><select id="fl_crt" class="inp">${crtOpts}</select></div></div>
+    <div class="grid3"><div class="mrow"><label class="fl">CNPJ</label><div style="display:flex;gap:6px"><input class="inp" style="flex:1" id="fl_cnpj" value="${esc(f.cnpj||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjFilial()" title="Buscar dados na Receita">🔍</button></div></div>${field('fl_ie','Inscrição Estadual','value="'+esc(f.inscricaoEstadual||'')+'"')}<div class="mrow"><label class="fl">Regime (CRT)</label><select id="fl_crt" class="inp">${crtOpts}</select></div></div>
     <div class="grid2">${field('fl_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}${field('fl_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     <div class="grid3">${field('fl_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('fl_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('fl_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
     <div class="grid3">${field('fl_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('fl_codmun','Cód. IBGE','value="'+esc(f.codMunicipio||'')+'"')}${field('fl_uf','UF','value="'+esc(f.uf||'')+'" maxlength="2"')}</div>
@@ -6829,7 +6835,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCnpjFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
