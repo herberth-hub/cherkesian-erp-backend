@@ -1023,7 +1023,7 @@ async function viewPedidos(c){
   c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', `<button class="btn-sm" onclick="APP.relatorio('bonificacao')" title="Relatório de bonificações (total por cliente/mês)">🎁 Bonificações</button> `+relBtn('pedidos'))
     + `<div class="cards" id="ped_kpis" style="margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px">
-      <input id="ped_q" class="inp" placeholder="🔎 Buscar pedido: nº, cliente ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
+      <input id="ped_q" class="inp" placeholder="🔎 Buscar: nº, cliente, filial, CNPJ, ordem de compra, valor ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
       <select id="ped_etapa" class="inp" style="width:auto;font-size:13px" onchange="APP.renderPedidos()"><option value="">Todas as etapas</option>${etapas.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('')}</select>
       ${filiais.length?`<select id="ped_filial" class="inp" style="width:auto;max-width:260px;font-size:13px" onchange="APP.renderPedidos()" title="Filtrar por filial/unidade do cliente"><option value="">📍 Todas as filiais</option>${filiais.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}</select>`:''}
       <button class="btn-sm" id="ped_view_btn" onclick="APP.pedToggleView()">${window.__pedKanban?'☰ Lista':'🔲 Kanban'}</button>
@@ -1052,7 +1052,14 @@ function renderPedidos(){
   let arr=list;
   if(et) arr=arr.filter(p=>p.etapa===et);
   if(fil) arr=arr.filter(p=>p.unidadeNome===fil);
-  if(q) arr=arr.filter(p=>[p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q){
+    const qn=_numBusca(q); // normaliza "7.710,00"/"7710" p/ comparar com o valor
+    arr=arr.filter(p=>{
+      const hay=[p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.ordemCompraCliente, p.filial&&p.filial.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].join(' ').toLowerCase();
+      const valBate = qn && Number(p.valorTotal||0).toFixed(2).includes(qn);
+      return hay.includes(q) || valBate;
+    });
+  }
   const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const bonif=arr.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
