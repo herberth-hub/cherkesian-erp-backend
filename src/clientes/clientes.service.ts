@@ -27,6 +27,46 @@ export class ClientesService {
     return cliente;
   }
 
+  /** Ficha/extrato do cliente: orçamentos, pedidos e NFs (quantidades + valores). */
+  async resumo(id: number, empresaId: number) {
+    const cliente = await this.findOne(id, empresaId);
+    const pedidos = await this.prisma.pedido.findMany({
+      where: { empresaId, clienteId: id },
+      select: { id: true, numero: true, etapa: true, status: true, valorTotal: true, data: true },
+      orderBy: { id: 'desc' },
+    });
+    const orc = pedidos.filter((p) => p.etapa === 'orcamento');
+    const ped = pedidos.filter((p) => p.etapa !== 'orcamento');
+    const somaP = (arr: typeof pedidos) => Number(arr.reduce((s, p) => s + Number(p.valorTotal), 0).toFixed(2));
+
+    const pedidoIds = pedidos.map((p) => p.id);
+    const exps = pedidoIds.length
+      ? await this.prisma.expedicao.findMany({ where: { pedidoId: { in: pedidoIds } }, select: { id: true } })
+      : [];
+    const expIds = exps.map((e) => e.id);
+    const notas = pedidoIds.length
+      ? await this.prisma.notaFiscal.findMany({
+          where: { empresaId, OR: [{ pedidoId: { in: pedidoIds } }, ...(expIds.length ? [{ expedicaoId: { in: expIds } }] : [])] },
+          select: { id: true, numero: true, serie: true, status: true, valor: true, cfop: true, chave: true, tipo: true, emitidaEm: true },
+          orderBy: { id: 'desc' },
+        })
+      : [];
+    const notasValidas = notas.filter((n) => ['autorizada', 'simulada', 'pendente'].includes(n.status));
+
+    return {
+      cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
+      orcamentos: { qtd: orc.length, valor: somaP(orc) },
+      pedidos: { qtd: ped.length, valor: somaP(ped) },
+      nfs: {
+        qtd: notas.length,
+        validas: notasValidas.length,
+        valor: Number(notasValidas.reduce((s, n) => s + Number(n.valor), 0).toFixed(2)),
+      },
+      listaPedidos: pedidos.map((p) => ({ numero: p.numero, etapa: p.etapa, status: p.status, valor: Number(p.valorTotal), data: p.data })),
+      listaNfs: notas.map((n) => ({ numero: n.numero, serie: n.serie, status: n.status, valor: Number(n.valor), cfop: n.cfop, chave: n.chave, tipo: n.tipo, emitidaEm: n.emitidaEm })),
+    };
+  }
+
   create(dto: CreateClienteDto, empresaId: number): Promise<Cliente> {
     return this.prisma.cliente.create({
       data: {

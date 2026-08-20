@@ -31,6 +31,12 @@ export class ClientesController {
     return this.clientesService.findOne(id, user.empresaId);
   }
 
+  /** Ficha do cliente: orçamentos, pedidos e NFs (quantidades + valores). */
+  @Get(':id/resumo')
+  resumo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.clientesService.resumo(id, user.empresaId);
+  }
+
   @Post()
   create(@Body() dto: CreateClienteDto, @CurrentUser() user: AuthUser) {
     return this.clientesService.create(dto, user.empresaId);
