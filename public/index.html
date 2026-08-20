@@ -908,28 +908,38 @@ async function clienteResumo(id){
   catch(e){ uiSpinnerClose&&uiSpinnerClose(); toast(e.message||'Falha ao carregar a ficha.','err'); return; }
   const card=(t,sub,v,cor)=>`<div class="card" style="padding:12px 16px;border-left:4px solid ${cor}"><div class="k" style="font-size:11px;color:var(--muted)">${t}</div><div style="font-size:22px;font-weight:800;color:${cor}">${money(v)}</div><div class="s" style="font-size:11px">${esc(sub)}</div></div>`;
   const etBadge=et=>{ const m={orcamento:['gold','orçamento'],aprovado:['blue','aprovado'],material:['blue','material'],compra:['blue','compra'],producao:['blue','produção'],estoque:['blue','estoque'],expedicao:['blue','expedição'],parcial:['gold','parcial'],concluido:['green','concluído']}; const x=m[et]||['gray',et||'—']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; };
+  const mesLbl=m=>{ const [y,mo]=String(m).split('-'); const nm=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][Number(mo)-1]||mo; return nm+'/'+String(y).slice(2); };
   const peds=(r.listaPedidos||[]).map(p=>`<tr>
     <td style="padding:5px 8px"><b class="mono gold">${esc(p.numero)}</b></td>
     <td style="padding:5px 8px">${etBadge(p.etapa)}</td>
     <td style="padding:5px 8px">${p.data?dfmt(p.data):'—'}</td>
-    <td style="padding:5px 8px;text-align:right;font-weight:700">${money(p.valor)}</td></tr>`).join('');
-  const nfs=(r.listaNfs||[]).map(n=>`<tr>
+    <td style="padding:5px 8px;text-align:right;font-weight:700">${money(p.valor)}</td>
+    <td style="padding:5px 8px;text-align:center"><button class="btn-sm" style="padding:1px 7px" title="Abrir ${p.etapa==='orcamento'?'proposta':'pedido'} em PDF" onclick="APP.gerarDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id})">🖨</button></td></tr>`).join('');
+  const nfs=(r.listaNfs||[]).map(n=>{
+    const temDanfe = n.provedor==='focusnfe' && (n.status==='autorizada'||n.status==='cancelada');
+    return `<tr>
     <td style="padding:5px 8px"><b class="mono">${esc(n.numero)}</b>${n.tipo&&n.tipo!=='venda'?' <span class="pill gray" style="font-size:9px">'+esc(n.tipo)+'</span>':''}</td>
     <td style="padding:5px 8px">${nfPill(n.status)}</td>
     <td style="padding:5px 8px" class="mono">${esc(n.cfop||'—')}</td>
     <td style="padding:5px 8px">${n.emitidaEm?dfmt(n.emitidaEm):'—'}</td>
-    <td style="padding:5px 8px;text-align:right;font-weight:700">${money(n.valor)}</td></tr>`).join('');
+    <td style="padding:5px 8px;text-align:right;font-weight:700">${money(n.valor)}</td>
+    <td style="padding:5px 8px;text-align:center">${temDanfe?`<button class="btn-sm" style="padding:1px 7px" title="Abrir DANFE" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨</button>`:'<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  const chartHtml = (r.faturamentoMensal&&r.faturamentoMensal.length)
+    ? `<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:6px">📈 Faturamento por mês (NFs)</div>${barsH(r.faturamentoMensal.map(m=>({label:mesLbl(m.mes), value:m.valor, fmt:money(m.valor), color:'#3a6ea5'})), '')}</div>`
+    : '';
   openModal(`<h3>📊 Ficha — ${esc(r.cliente.nome)}</h3>
     <div class="cards" style="margin-bottom:14px">
       ${card('Orçamentos', r.orcamentos.qtd+' orçamento(s)', r.orcamentos.valor, '#C9A227')}
       ${card('Pedidos', r.pedidos.qtd+' pedido(s)', r.pedidos.valor, '#3a8f4f')}
       ${card('NFs emitidas', r.nfs.validas+' de '+r.nfs.qtd+' válida(s)', r.nfs.valor, '#3a6ea5')}
     </div>
+    ${chartHtml}
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:300px"><div style="font-weight:700;margin-bottom:6px">📦 Pedidos & Orçamentos (${(r.listaPedidos||[]).length})</div>
-        <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Etapa</th><th style="padding:5px 8px;text-align:left">Data</th><th style="padding:5px 8px;text-align:right">Valor</th></tr></thead><tbody>${peds||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhum pedido/orçamento.</td></tr>'}</tbody></table></div></div>
+        <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Etapa</th><th style="padding:5px 8px;text-align:left">Data</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:center">PDF</th></tr></thead><tbody>${peds||'<tr><td colspan=5 class="muted" style="padding:10px">Nenhum pedido/orçamento.</td></tr>'}</tbody></table></div></div>
       <div style="flex:1;min-width:300px"><div style="font-weight:700;margin-bottom:6px">🧾 Notas fiscais (${(r.listaNfs||[]).length})</div>
-        <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">CFOP</th><th style="padding:5px 8px;text-align:left">Emissão</th><th style="padding:5px 8px;text-align:right">Valor</th></tr></thead><tbody>${nfs||'<tr><td colspan=5 class="muted" style="padding:10px">Nenhuma NF emitida.</td></tr>'}</tbody></table></div></div>
+        <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">CFOP</th><th style="padding:5px 8px;text-align:left">Emissão</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:center">DANFE</th></tr></thead><tbody>${nfs||'<tr><td colspan=6 class="muted" style="padding:10px">Nenhuma NF emitida.</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
 }
@@ -5375,22 +5385,29 @@ async function formEmailDoc(tipo, refId, clienteId){
   let emailSugerido = '';
   try{ const cl = await api('/clientes/'+clienteId); emailSugerido = cl.email||''; }catch(e){}
   openModal(`<h3>Enviar ${tipo==='proposta'?'proposta':'pedido'} por e-mail</h3>
-    ${field('f_para','Para (e-mail) *','type="email" value="'+esc(emailSugerido)+'"')}
+    ${field('f_para','Para (e-mail) * — vários? separe por vírgula','type="text" value="'+esc(emailSugerido)+'" placeholder="ex.: joao@x.com, maria@y.com"')}
     ${field('f_msg','Mensagem (opcional)','placeholder="Ex.: Segue a proposta conforme conversado."')}
-    <div class="muted" style="font-size:11px;margin-bottom:8px">O PDF em papel timbrado vai anexo automaticamente.</div>
+    <div class="muted" style="font-size:11px;margin-bottom:8px">Pode enviar para <b>vários e-mails</b> — separe por vírgula. O PDF em papel timbrado vai anexo automaticamente.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.sendEmailDoc('${tipo}',${refId})">Enviar</button></div>`);
 }
 async function sendEmailDoc(tipo, refId){
-  const para = val('f_para'); const mensagem = val('f_msg');
-  if(!para){ toast('Informe o e-mail de destino.','err'); return; }
+  const mensagem = val('f_msg');
+  // Aceita vários e-mails separados por vírgula/;/espaço.
+  const lista=(val('f_para')||'').split(/[,;\s]+/).map(e=>e.trim()).filter(Boolean);
+  if(!lista.length){ toast('Informe ao menos um e-mail de destino.','err'); return; }
+  const re=/^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const invalidos=lista.filter(e=>!re.test(e));
+  if(invalidos.length){ toast('E-mail(s) inválido(s): '+invalidos.join(', '),'err'); return; }
+  const para=[...new Set(lista)].join(', ');
   try{
     const d = await api('/documentos/'+tipo,{method:'POST',body:{referenciaId:refId}});
     const body = { para }; if(mensagem) body.mensagem = mensagem;
     const r = await api('/documentos/'+d.id+'/enviar-email',{method:'POST',body});
     closeModal();
-    if(r.simulado) toast('E-mail SIMULADO p/ '+para+' (configure SMTP_* p/ envio real). Doc '+r.documento+'.','err');
-    else toast('E-mail enviado para '+para+' com o documento '+r.documento+'.','ok');
+    const alvo = lista.length>1 ? (lista.length+' destinatários') : para;
+    if(r.simulado) toast('E-mail SIMULADO p/ '+alvo+' (configure SMTP_* p/ envio real). Doc '+r.documento+'.','err');
+    else toast('E-mail enviado para '+alvo+' com o documento '+r.documento+'.','ok');
   }catch(e){ toast(e.message,'err'); }
 }
 

@@ -47,11 +47,23 @@ export class ClientesService {
     const notas = pedidoIds.length
       ? await this.prisma.notaFiscal.findMany({
           where: { empresaId, OR: [{ pedidoId: { in: pedidoIds } }, ...(expIds.length ? [{ expedicaoId: { in: expIds } }] : [])] },
-          select: { id: true, numero: true, serie: true, status: true, valor: true, cfop: true, chave: true, tipo: true, emitidaEm: true },
+          select: { id: true, numero: true, serie: true, status: true, valor: true, cfop: true, chave: true, tipo: true, provedor: true, emitidaEm: true },
           orderBy: { id: 'desc' },
         })
       : [];
     const notasValidas = notas.filter((n) => ['autorizada', 'simulada', 'pendente'].includes(n.status));
+
+    // Faturamento por mês (últimos 12), a partir das NFs válidas.
+    const porMes = new Map<string, number>();
+    for (const n of notasValidas) {
+      const d = new Date(n.emitidaEm);
+      const mes = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      porMes.set(mes, (porMes.get(mes) ?? 0) + Number(n.valor));
+    }
+    const faturamentoMensal = [...porMes.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-12)
+      .map(([mes, valor]) => ({ mes, valor: Number(valor.toFixed(2)) }));
 
     return {
       cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
@@ -62,8 +74,9 @@ export class ClientesService {
         validas: notasValidas.length,
         valor: Number(notasValidas.reduce((s, n) => s + Number(n.valor), 0).toFixed(2)),
       },
-      listaPedidos: pedidos.map((p) => ({ numero: p.numero, etapa: p.etapa, status: p.status, valor: Number(p.valorTotal), data: p.data })),
-      listaNfs: notas.map((n) => ({ numero: n.numero, serie: n.serie, status: n.status, valor: Number(n.valor), cfop: n.cfop, chave: n.chave, tipo: n.tipo, emitidaEm: n.emitidaEm })),
+      faturamentoMensal,
+      listaPedidos: pedidos.map((p) => ({ id: p.id, numero: p.numero, etapa: p.etapa, status: p.status, valor: Number(p.valorTotal), data: p.data })),
+      listaNfs: notas.map((n) => ({ id: n.id, numero: n.numero, serie: n.serie, status: n.status, valor: Number(n.valor), cfop: n.cfop, chave: n.chave, tipo: n.tipo, provedor: n.provedor, emitidaEm: n.emitidaEm })),
     };
   }
 

@@ -123,6 +123,14 @@ export class DocumentosService {
     if (!documento) throw new NotFoundException(`Documento ${id} não encontrado.`);
     const def = this.validarTipo(documento.tipo, user);
 
+    // Aceita VÁRIOS destinatários (vírgula/;/espaço). Valida cada um e normaliza.
+    const destinatarios = (para || '').split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean);
+    const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    if (!destinatarios.length) throw new BadRequestException('Informe ao menos um e-mail de destino.');
+    const invalidos = destinatarios.filter((e) => !reEmail.test(e));
+    if (invalidos.length) throw new BadRequestException(`E-mail(s) inválido(s): ${invalidos.join(', ')}.`);
+    para = [...new Set(destinatarios)].join(', ');
+
     const { doc, numero } = await this.gerarPdf(id, user);
     const pdf = await this.pdfParaBuffer(doc);
 

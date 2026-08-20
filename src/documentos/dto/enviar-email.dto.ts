@@ -1,7 +1,10 @@
-import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class EnviarEmailDto {
-  @IsEmail({}, { message: 'Informe um e-mail de destino válido.' })
+  /** Um ou mais e-mails de destino, separados por vírgula/ponto-e-vírgula/espaço. */
+  @IsString()
+  @IsNotEmpty({ message: 'Informe ao menos um e-mail de destino.' })
+  @MaxLength(500)
   para!: string;
 
   @IsOptional()
