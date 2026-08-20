@@ -2141,9 +2141,10 @@ async function formPedido(id){
   (clientes||[]).forEach(c=>{
     const g=(c.grupo||'').trim();
     const baseLabel = g ? (g+' › '+c.nome) : c.nome;
-    cliEntries.push({label:baseLabel, clienteId:c.id, unidadeId:'', filterKey:(g||c.nome)});
-    // Unidade/filial vem NA FRENTE (é o que diferencia) — a razão social/grupo fica como contexto.
-    (c.unidades||[]).forEach(u=>{ const ctx=g||c.nome; cliEntries.push({label:'📍 '+u.nome+' — '+ctx, clienteId:c.id, unidadeId:u.id, filterKey:u.nome}); });
+    cliEntries.push({label:baseLabel+(c.cnpjCpf?' · '+c.cnpjCpf:''), clienteId:c.id, unidadeId:'', filterKey:(g||c.nome)});
+    // Unidade/filial vem NA FRENTE (é o que diferencia), com o CNPJ que vai na NF
+    // (o da unidade; se vazia, usa o do cliente). A razão social/grupo fica como contexto.
+    (c.unidades||[]).forEach(u=>{ const ctx=g||c.nome; const uc=u.cnpjCpf||c.cnpjCpf; cliEntries.push({label:'📍 '+u.nome+(uc?' · '+uc:'')+' — '+ctx, clienteId:c.id, unidadeId:u.id, filterKey:u.nome}); });
   });
   window.__CLIENTRIES = cliEntries;
   window.__PEDFILTER = '';
