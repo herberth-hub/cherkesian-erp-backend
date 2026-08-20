@@ -1510,6 +1510,8 @@ async function lookupCep(cepId, map){
   }catch(e){}
 }
 function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
+// Completa endereço + código IBGE da filial pelo CEP (essencial p/ NF-e).
+function buscarCepFilial(){ return lookupCep('fl_cep', {logradouro:'fl_log', bairro:'fl_bairro', municipio:'fl_mun', uf:'fl_uf', codMunicipio:'fl_codmun'}); }
 // Puxa os dados do CNPJ da FILIAL/CNPJ emissor. Preserva o nome/rótulo se já digitado.
 async function buscarCnpjFilial(){
   const nomeEl=$('fl_nome'); const rot=(nomeEl&&nomeEl.value.trim())||'';
@@ -5870,7 +5872,7 @@ function formFilial(id){
     <div class="grid2">${field('fl_fant','Nome fantasia','value="'+esc(f.nomeFantasia||'')+'"')}${field('fl_tel','Telefone','value="'+esc(f.telefone||'')+'"')}</div>
     <div class="grid3">${field('fl_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('fl_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('fl_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
     <div class="grid3">${field('fl_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('fl_codmun','Cód. IBGE','value="'+esc(f.codMunicipio||'')+'"')}${field('fl_uf','UF','value="'+esc(f.uf||'')+'" maxlength="2"')}</div>
-    ${field('fl_cep','CEP','value="'+esc(f.cep||'')+'"')}
+    <div class="mrow"><label class="fl">CEP <span class="muted" style="font-size:9px">(preenche endereço + código IBGE)</span></label><div style="display:flex;gap:6px"><input class="inp" style="flex:1" id="fl_cep" value="${esc(f.cep||'')}" placeholder="00000-000"><button type="button" class="btn-sm" onclick="APP.buscarCepFilial()" title="Buscar endereço pelo CEP">🔍 CEP</button></div></div>
     <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 2px;font-weight:700">TOKENS FOCUS NFe (cada CNPJ tem o seu — copie do painel da Focus)</div>
     <div class="grid2">${field('fl_tokhom','Token de HOMOLOGAÇÃO','value="'+esc(f.focusTokenHomolog||'')+'" placeholder="token de teste da Focus"')}${field('fl_tokprod','Token de PRODUÇÃO','value="'+esc(f.focusTokenProd||'')+'" placeholder="token de produção da Focus"')}</div>
     ${field('fl_token','Token genérico (fallback, opcional)','value="'+esc(f.focusToken||'')+'" placeholder="usa o global do sistema se vazio"')}
@@ -6835,7 +6837,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCnpjFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,

@@ -48,12 +48,18 @@ export class LookupService {
     const b = await fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`, { headers: this.UA }).catch(() => null);
     if (b && b.ok) {
       const d = (await b.json().catch(() => ({}))) as Record<string, unknown>;
-      return { cep, logradouro: String(d.street ?? ''), bairro: String(d.neighborhood ?? ''), municipio: String(d.city ?? ''), uf: String(d.state ?? '') };
+      let codMunicipio = String((d as { city_ibge?: unknown }).city_ibge ?? '');
+      // BrasilAPI v2 nem sempre traz o código IBGE — completa pelo ViaCEP (essencial p/ NF-e).
+      if (!codMunicipio) {
+        const vv = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: this.UA }).catch(() => null);
+        if (vv && vv.ok) { const vd = (await vv.json().catch(() => ({}))) as Record<string, unknown>; codMunicipio = String(vd.ibge ?? ''); }
+      }
+      return { cep, logradouro: String(d.street ?? ''), bairro: String(d.neighborhood ?? ''), municipio: String(d.city ?? ''), uf: String(d.state ?? ''), codMunicipio };
     }
     const v = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: this.UA }).catch(() => null);
     if (!v || !v.ok) throw new BadRequestException('CEP não encontrado.');
     const d = (await v.json().catch(() => ({}))) as Record<string, unknown>;
     if (d.erro) throw new BadRequestException('CEP não encontrado.');
-    return { cep, logradouro: String(d.logradouro ?? ''), bairro: String(d.bairro ?? ''), municipio: String(d.localidade ?? ''), uf: String(d.uf ?? '') };
+    return { cep, logradouro: String(d.logradouro ?? ''), bairro: String(d.bairro ?? ''), municipio: String(d.localidade ?? ''), uf: String(d.uf ?? ''), codMunicipio: String(d.ibge ?? '') };
   }
 }
