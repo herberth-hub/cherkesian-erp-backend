@@ -1510,6 +1510,12 @@ async function lookupCep(cepId, map){
   }catch(e){}
 }
 function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
+// Puxa os dados do CNPJ de uma UNIDADE do cliente. Preserva o rótulo (ex.: SACA) se já digitado.
+async function buscarCnpjUnidade(i){
+  const nomeEl=$('cu_nome_'+i); const rotulo=(nomeEl&&nomeEl.value.trim())||'';
+  await lookupCnpj('cu_cnpj_'+i, {razaoSocial:'cu_nome_'+i, inscricaoEstadual:'cu_ie_'+i, logradouro:'cu_log_'+i, numero:'cu_num_'+i, bairro:'cu_bairro_'+i, municipio:'cu_mun_'+i, uf:'cu_uf_'+i, cep:'cu_cep_'+i, email:'cu_email_'+i});
+  if(rotulo && nomeEl) nomeEl.value=rotulo; // mantém o rótulo curto que o usuário já tinha
+}
 function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
 function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
 // Máscara automática de CNPJ/CPF enquanto digita (pontos, barra e traço).
@@ -1550,7 +1556,7 @@ function renderCliUnis(){
     <div style="border:1px solid #e7e3d8;border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">
       <div class="grid3">
         <div class="mrow"><label class="fl">Unidade/Filial *</label><input class="inp" id="cu_nome_${i}" value="${esc(u.nome||'')}" placeholder="ex.: SACA"></div>
-        <div class="mrow"><label class="fl">CNPJ/CPF <span class="muted" style="font-size:9px">(vazio = usa o do cliente)</span></label><input class="inp" id="cu_cnpj_${i}" value="${esc(u.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"></div>
+        <div class="mrow"><label class="fl">CNPJ/CPF <span class="muted" style="font-size:9px">(vazio = usa o do cliente)</span></label><div style="display:flex;gap:6px"><input class="inp" style="flex:1" id="cu_cnpj_${i}" value="${esc(u.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjUnidade(${i})" title="Buscar dados na Receita">🔍</button></div></div>
         <div class="mrow"><label class="fl">Inscr. Estadual</label><input class="inp" id="cu_ie_${i}" value="${esc(u.inscricaoEstadual||'')}"></div>
       </div>
       <div class="grid3">
@@ -6823,7 +6829,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
