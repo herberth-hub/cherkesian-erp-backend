@@ -45,6 +45,13 @@ export class MateriaisService {
           minimo: dto.minimo ?? 0,
           custo: dto.custo ?? 0,
           localizacao: dto.localizacao,
+          fornecedorId: dto.fornecedorId,
+          artigo: dto.artigo,
+          codigoArtigo: dto.codigoArtigo,
+          composicao: dto.composicao,
+          largura: dto.largura,
+          gramatura: dto.gramatura,
+          gramaturaLinear: dto.gramaturaLinear,
         },
       });
     } catch (err) {
@@ -65,6 +72,13 @@ export class MateriaisService {
         minimo: dto.minimo,
         custo: dto.custo,
         localizacao: dto.localizacao,
+        fornecedorId: dto.fornecedorId,
+        artigo: dto.artigo,
+        codigoArtigo: dto.codigoArtigo,
+        composicao: dto.composicao,
+        largura: dto.largura,
+        gramatura: dto.gramatura,
+        gramaturaLinear: dto.gramaturaLinear,
       },
     });
   }

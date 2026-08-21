@@ -470,6 +470,14 @@ model Material {
   minimo    Decimal  @default(0) @db.Decimal(12,3)
   custo     Decimal  @default(0) @db.Decimal(12,2)
   localizacao String? // endereço na prateleira/estoque (ex.: "B3") — agiliza a separação no romaneio
+  // ===== Ficha do tecido/artigo (da etiqueta do fabricante) =====
+  fornecedorId    Int?     // fabricante do tecido (vincula na ficha do fornecedor)
+  artigo          String?  // nome do artigo (ex.: ROVASOL PELETIZADO)
+  codigoArtigo    String?  // ordem/código do fabricante (ex.: 02.116.001.1)
+  composicao      String?  // ex.: 70% ALGODÃO 30% POLIÉSTER
+  largura         Decimal? @db.Decimal(6,2)  // metros (ex.: 1,60)
+  gramatura       Decimal? @db.Decimal(8,2)  // g/m² (ex.: 127,00)
+  gramaturaLinear Decimal? @db.Decimal(8,3)  // g/ml (ex.: 0,215)
   consumo   Consumo[]
 }
 

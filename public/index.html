@@ -1087,6 +1087,11 @@ async function fornecedorResumo(id){
   const ocRows=(r.listaCompras||[]).map(o=>`<tr><td style="padding:5px 8px"><b class="mono gold">${esc(o.numero)}</b></td><td style="padding:5px 8px"><span class="pill ${o.status==='recebida'?'green':(o.status==='cancelada'?'red':'gold')}" style="font-size:9px">${esc(o.status)}</span></td><td style="padding:5px 8px">${esc((o.motivo||'').slice(0,40))}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(o.valor)}</td></tr>`).join('');
   const ntRows=(r.listaNotas||[]).map(n=>`<tr><td style="padding:5px 8px"><b class="mono">${esc(n.numero)}</b></td><td style="padding:5px 8px">${n.emitidaEm?dfmt(n.emitidaEm):'—'}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(n.valor)}</td></tr>`).join('');
   const pgRows=(r.listaPagar||[]).map(t=>`<tr><td style="padding:5px 8px">${esc(t.categoria)}</td><td style="padding:5px 8px">${t.vencimento?dfmt(t.vencimento):'—'}</td><td style="padding:5px 8px">${tituloPill(t.status)}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(t.saldo)}</td></tr>`).join('');
+  const matRows=(r.materiais||[]).map(m=>`<tr>
+    <td style="padding:5px 8px"><b class="mono gold">${esc(m.codigo)}</b></td>
+    <td style="padding:5px 8px">${esc(m.descricao)}${m.artigo?'<div class="muted" style="font-size:10px">Artigo: '+esc(m.artigo)+'</div>':''}</td>
+    <td style="padding:5px 8px;font-size:11px">${m.composicao?esc(m.composicao):'—'}${(m.largura||m.gramatura)?'<div class="muted" style="font-size:10px">'+[m.largura?('L '+m.largura+'m'):'',m.gramatura?(m.gramatura+' g/m²'):''].filter(Boolean).join(' · ')+'</div>':''}</td>
+    <td style="padding:5px 8px;text-align:right">${Number(m.saldo).toLocaleString('pt-BR')} ${esc(m.unidade||'')}</td></tr>`).join('');
   const catBox = r.fornecedor.temCatalogo
     ? `<button class="btn-sm" onclick="APP.verCatalogoForn(${id})">📎 Ver catálogo${r.fornecedor.catalogoNome?' ('+esc(r.fornecedor.catalogoNome)+')':''}</button> <button class="btn-sm" onclick="APP.uploadCatalogoForn(${id})">Trocar</button>`
     : `<button class="btn-primary" onclick="APP.uploadCatalogoForn(${id})">⬆ Enviar catálogo (PDF/imagem)</button>`;
@@ -1095,8 +1100,11 @@ async function fornecedorResumo(id){
       ${card('Compras (OCs)', r.compras.qtd+' ordem(ns)', r.compras.valor, '#C9A227')}
       ${card('Notas de entrada', r.notasEntrada.qtd+' nota(s)', r.notasEntrada.valor, '#3a6ea5')}
       ${card('Contas a pagar (aberto)', r.contasPagar.qtd+' título(s) · total '+money(r.contasPagar.total), r.contasPagar.aberto, '#c14a34')}
+      <div class="card kpi" style="border-left:4px solid #6b3fa0"><div class="k">Tecidos / materiais</div><div class="v" style="color:#6b3fa0">${r.materiaisQtd||0}</div><div class="s">deste fabricante</div></div>
     </div>
     <div style="margin-bottom:12px"><b style="font-size:12px">📎 Catálogo do fornecedor</b><div style="margin-top:6px">${catBox}<input type="file" id="forn_cat_file" accept="application/pdf,image/*" style="display:none" onchange="APP.uploadCatalogoFornGo(${id})"></div></div>
+    ${(r.materiais||[]).length?`<div style="margin-bottom:12px"><div style="font-weight:700;margin-bottom:6px">🧵 Tecidos / materiais deste fabricante (${r.materiais.length})</div>
+      <div class="panel" style="overflow:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Ficha</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>${matRows}</tbody></table></div></div>`:''}
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:280px"><div style="font-weight:700;margin-bottom:6px">🛒 Compras (${(r.listaCompras||[]).length})</div>
         <div class="panel" style="overflow:auto;max-height:280px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">OC</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Ref.</th><th style="padding:5px 8px;text-align:right">Valor</th></tr></thead><tbody>${ocRows||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhuma OC.</td></tr>'}</tbody></table></div></div>
@@ -2236,19 +2244,45 @@ async function recSalvarComponentes(){
 async function formMaterial(id){
   let m={};
   if(id){ try{ m = await api('/materiais/'+id); }catch(e){ toast(e.message,'err'); return; } }
-  openModal(`<h3>${id?'Editar':'Novo'} material</h3>
+  let forn=[]; try{ forn=await api('/fornecedores'); }catch(_){}
+  window.__FORNMAT=forn;
+  const fa = m.fornecedorId ? (forn.find(f=>f.id===m.fornecedorId)||{}) : {};
+  const fdl=`<datalist id="fabriclist">${forn.map(f=>`<option value="${esc(f.nomeFantasia||f.nome)}">`).join('')}</datalist>`;
+  openModal(`<h3>${id?'Editar':'Novo'} material / tecido</h3>
     ${field('f_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
     ${field('f_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
     <div class="grid3">${field('f_cor','Cor','value="'+esc(m.cor||'')+'"')}${field('f_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('f_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
     <div class="grid2">${field('f_saldo','Saldo'+(id?'':' inicial'),'type="number" step="0.001" value="'+(m.saldo!=null?m.saldo:0)+'"')}${field('f_min','Mínimo','type="number" step="0.001" value="'+(m.minimo!=null?m.minimo:0)+'"')}</div>
     ${field('f_local','Localização na prateleira (aparece no romaneio de corte)','value="'+esc(m.localizacao||'')+'" placeholder="ex.: B3, Prateleira 12"')}
+    <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 4px;font-weight:700">FICHA DO TECIDO / ARTIGO (da etiqueta do fabricante)</div>
+    <div class="mrow"><label class="fl">Fabricante <span class="muted" style="font-size:10px">(sugere os cadastrados; novo é cadastrado e vinculado à ficha dele ao salvar)</span></label>
+      <input class="inp" id="f_fabric" list="fabriclist" value="${esc(fa.nomeFantasia||fa.nome||'')}" placeholder="ex.: ROVACH INDUSTRIA TEXTIL LTDA" autocomplete="off">${fdl}</div>
+    <div class="grid2">${field('f_artigo','Artigo','value="'+esc(m.artigo||'')+'" placeholder="ex.: ROVASOL PELETIZADO"')}${field('f_ordem','Ordem / código do artigo','value="'+esc(m.codigoArtigo||'')+'" placeholder="ex.: 02.116.001.1"')}</div>
+    ${field('f_comp','Composição','value="'+esc(m.composicao||'')+'" placeholder="ex.: 70% ALGODÃO 30% POLIÉSTER"')}
+    <div class="grid3">${field('f_larg','Largura (m)','type="number" step="0.01" value="'+(m.largura!=null?m.largura:'')+'" placeholder="1,60"')}${field('f_gram','Gramatura (g/m²)','type="number" step="0.01" value="'+(m.gramatura!=null?m.gramatura:'')+'" placeholder="127,00"')}${field('f_grml','Gr/ml','type="number" step="0.001" value="'+(m.gramaturaLinear!=null?m.gramaturaLinear:'')+'" placeholder="0,215"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMaterial(${id||0})">Salvar</button></div>`);
 }
+// Resolve o fabricante digitado: usa o existente (por nome) ou cadastra um novo fornecedor.
+async function resolverFabricante(){
+  const txt=(val('f_fabric')||'').trim(); if(!txt) return null;
+  const lista=window.__FORNMAT||[]; const low=txt.toLowerCase();
+  const achou=lista.find(f=>String(f.nomeFantasia||'').trim().toLowerCase()===low) || lista.find(f=>String(f.nome||'').trim().toLowerCase()===low);
+  if(achou) return achou.id;
+  const nf=await api('/fornecedores',{method:'POST',body:{nome:txt, tipo:'Tecido'}});
+  window.__FORNMAT=lista.concat([nf]); toast('Fabricante "'+esc(nf.nome)+'" cadastrado e vinculado.','ok');
+  return nf.id;
+}
 async function saveMaterial(id){
   const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), unidade:val('f_un')||'un',
-    custo:Number(val('f_custo')||0), saldo:Number(val('f_saldo')||0), minimo:Number(val('f_min')||0), localizacao:val('f_local')||undefined };
+    custo:Number(val('f_custo')||0), saldo:Number(val('f_saldo')||0), minimo:Number(val('f_min')||0), localizacao:val('f_local')||undefined,
+    artigo:val('f_artigo')||undefined, codigoArtigo:val('f_ordem')||undefined, composicao:val('f_comp')||undefined };
+  const larg=val('f_larg'); if(larg) body.largura=Number(larg);
+  const gram=val('f_gram'); if(gram) body.gramatura=Number(gram);
+  const grml=val('f_grml'); if(grml) body.gramaturaLinear=Number(grml);
   if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
+  try{ const fid=await resolverFabricante(); if(fid) body.fornecedorId=fid; }
+  catch(e){ toast('Fabricante: '+(e.message||e),'err'); return; }
   try{ await api(id?('/materiais/'+id):'/materiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -3915,6 +3949,16 @@ async function saveCompra(){
   const body = { fornecedorId:Number(val('f_forn')), descricao:val('f_desc'), quantidade:Number(val('f_qtd')), unidade:val('f_un')||'un', valor:Number(val('f_val')) };
   const mid=val('f_mat'); if(mid) body.materialId=Number(mid);
   if(!body.fornecedorId||!body.descricao||!body.quantidade||!body.valor){ toast('Preencha fornecedor, descrição, quantidade e valor.','err'); return; }
+  // Aviso: se o valor ultrapassar o crédito disponível que o fornecedor concede.
+  try{
+    const r=await api('/fornecedores/'+body.fornecedorId+'/resumo').catch(()=>null);
+    const c=r&&r.credito;
+    if(c && c.limite!=null && body.valor>Number(c.disponivel||0)){
+      const ok=await uiConfirm({tipo:'warn', titulo:'Ultrapassa o crédito do fornecedor', ok:'Gerar mesmo assim', cancel:'Cancelar',
+        msg:'Limite concedido: '+money(c.limite)+'\nEm aberto (a pagar): '+money(c.emAberto)+'\nDisponível: '+money(c.disponivel)+'\n\nEsta OC ('+money(body.valor)+') ultrapassa o crédito disponível. Gerar mesmo assim?'});
+      if(!ok) return;
+    }
+  }catch(_){}
   try{ const o=await api('/ordens-compra',{method:'POST',body}); closeModal(); toast('OC '+o.numero+' criada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }

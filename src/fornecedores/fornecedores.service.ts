@@ -21,10 +21,11 @@ export class FornecedoresService {
   /** Ficha do fornecedor: compras (OCs), notas de entrada e contas a pagar. */
   async resumo(id: number, empresaId: number) {
     const f = await this.findOne(id, empresaId);
-    const [ocs, notas, pagar] = await Promise.all([
+    const [ocs, notas, pagar, materiais] = await Promise.all([
       this.prisma.ordemCompra.findMany({ where: { fornecedorId: id }, select: { numero: true, valor: true, status: true, motivo: true }, orderBy: { id: 'desc' } }),
       this.prisma.notaEntrada.findMany({ where: { fornecedorId: id }, select: { id: true, numero: true, valor: true, emitidaEm: true }, orderBy: { id: 'desc' } }),
       this.prisma.contaPagar.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, categoria: true, referencia: true, valor: true, pago: true, vencimento: true, status: true }, orderBy: { vencimento: 'desc' } }),
+      this.prisma.material.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, codigo: true, descricao: true, artigo: true, composicao: true, largura: true, gramatura: true, saldo: true, unidade: true }, orderBy: { descricao: 'asc' } }),
     ]);
     const soma = (arr: { valor: unknown }[]) => Number(arr.reduce((s, x) => s + Number(x.valor), 0).toFixed(2));
     const abertoPagar = Number(pagar.reduce((s, t) => s + (Number(t.valor) - Number(t.pago)), 0).toFixed(2));
@@ -33,6 +34,8 @@ export class FornecedoresService {
       fornecedor: { id: f.id, nome: f.nome, fantasia: f.nomeFantasia, cnpjCpf: f.cnpjCpf, temCatalogo: !!f.catalogo, catalogoNome: f.catalogoNome, limiteCredito: limite, condicaoPagamento: f.condicaoPagamento },
       credito: { limite, emAberto: abertoPagar, disponivel: limite != null ? Number((limite - abertoPagar).toFixed(2)) : null, condicaoPagamento: f.condicaoPagamento },
       compras: { qtd: ocs.length, valor: soma(ocs) },
+      materiaisQtd: materiais.length,
+      materiais: materiais.map((m) => ({ id: m.id, codigo: m.codigo, descricao: m.descricao, artigo: m.artigo, composicao: m.composicao, largura: m.largura != null ? Number(m.largura) : null, gramatura: m.gramatura != null ? Number(m.gramatura) : null, saldo: Number(m.saldo), unidade: m.unidade })),
       notasEntrada: { qtd: notas.length, valor: soma(notas) },
       contasPagar: {
         qtd: pagar.length,

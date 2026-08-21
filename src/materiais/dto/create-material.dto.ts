@@ -1,8 +1,10 @@
 import {
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   MaxLength,
   Min,
@@ -61,4 +63,13 @@ export class CreateMaterialDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo deve ter no máximo 2 casas decimais.' })
   @Min(0, { message: 'custo não pode ser negativo.' })
   custo?: number;
+
+  // ===== Ficha do tecido/artigo (etiqueta do fabricante) =====
+  @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
+  @IsOptional() @IsString() @MaxLength(120) artigo?: string;
+  @IsOptional() @IsString() @MaxLength(60) codigoArtigo?: string;
+  @IsOptional() @IsString() @MaxLength(200) composicao?: string;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) largura?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) gramatura?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) gramaturaLinear?: number;
 }
