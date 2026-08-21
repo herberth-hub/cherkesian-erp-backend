@@ -873,7 +873,7 @@ async function viewClientes(c){
   window.__GRUPOSCLI = Object.keys(grupos).sort();
   const gOpts = ['<option value="">Todos os grupos</option>'].concat(window.__GRUPOSCLI.map(g=>`<option value="${esc(g)}">${esc(g)} (${grupos[g]} unid.)</option>`)).join('');
   c.innerHTML = toolbar('Clientes cadastrados', 'Novo cliente', 'APP.formCliente()',
-      `<select id="cli_grupo" class="inp" style="width:auto;font-size:12px;padding:6px 8px" onchange="APP.cliFiltrar()">${gOpts}</select> <input id="cli_busca" class="inp" placeholder="buscar nome/fantasia/CNPJ" oninput="APP.cliFiltrar()" style="width:200px;font-size:12px;padding:6px 8px"> ${relBtn('clientes')}`)
+      `<select id="cli_grupo" class="inp" style="width:auto;font-size:12px;padding:6px 8px" onchange="APP.cliFiltrar()">${gOpts}</select> <input id="cli_busca" class="inp" placeholder="buscar nome/fantasia/CNPJ" oninput="APP.cliFiltrar()" style="width:200px;font-size:12px;padding:6px 8px"> ${S.user.acesso==='total'?`<button class="btn-ghost" onclick="APP.formCreditoConfig()" title="Configurar consulta de crédito (Serasa)">🔎 Config. crédito</button>`:''} ${relBtn('clientes')}`)
     + `<div id="cliwrap"></div>`;
   cliFiltrar();
 }
@@ -945,6 +945,66 @@ async function clienteResumo(id){
         <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">CFOP</th><th style="padding:5px 8px;text-align:left">Emissão</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:center">DANFE</th></tr></thead><tbody>${nfs||'<tr><td colspan=6 class="muted" style="padding:10px">Nenhuma NF emitida.</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+// ===== Configuração da consulta de crédito (Serasa/parceiro) =====
+async function formCreditoConfig(){
+  let c; try{ c=await api('/credito/config'); }catch(e){ toast(e.message||'Sem acesso à config.','err'); return; }
+  window.__CREDCFG=c; renderCreditoConfig();
+}
+function _ccBody(){
+  const body={ ativo:$('cc_ativo').checked, provedor:val('cc_prov'), authType:val('cc_auth'), apiUrl:val('cc_url'),
+    oauthTokenUrl:val('cc_oturl'), oauthClientId:val('cc_ocid'), oauthScope:val('cc_oscope'),
+    scoreMin:Number(val('cc_score'))||500, validadeDias:Number(val('cc_valid'))||30, bloqueiaPedido:$('cc_bloq').checked };
+  const tok=val('cc_token'); if(tok && !/^[•]+$/.test(tok)) body.apiToken=tok;   // troca só se digitou novo
+  const sec=val('cc_osecret'); if(sec && !/^[•]+$/.test(sec)) body.oauthClientSecret=sec;
+  return body;
+}
+function renderCreditoConfig(){
+  const c=window.__CREDCFG||{};
+  const provOpts=[['auto','Automático (API se houver; senão Receita/simulado)'],['externo','API externa (Serasa/parceiro)'],['brasilapi','Só situação na Receita (grátis)'],['simulado','Simulado (teste)'],['off','Desativado']].map(([v,t])=>`<option value="${v}" ${c.provedor===v?'selected':''}>${esc(t)}</option>`).join('');
+  const authOpts=[['bearer','Token fixo (Bearer)'],['oauth2','OAuth2 (client_credentials)'],['none','Sem autenticação']].map(([v,t])=>`<option value="${v}" ${c.authType===v?'selected':''}>${esc(t)}</option>`).join('');
+  openModal(`<h3>🔎 Configuração da consulta de crédito (Serasa)</h3>
+    <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-bottom:8px"><input type="checkbox" id="cc_ativo" ${c.ativo!==false?'checked':''}> Integração ativa</label>
+    <div class="grid2"><div class="mrow"><label class="fl">Provedor</label><select id="cc_prov" class="inp" onchange="APP.creditoCfgToggle()">${provOpts}</select></div>
+      <div class="mrow"><label class="fl">Autenticação</label><select id="cc_auth" class="inp" onchange="APP.creditoCfgToggle()">${authOpts}</select></div></div>
+    <div id="cc_ext">
+      ${field('cc_url','URL da consulta','value="'+esc(c.apiUrl||'')+'" placeholder="https://api.parceiro.com/credito/{doc}"')}
+      <div class="muted" style="font-size:10px;margin:-6px 0 8px">Use <b>{doc}</b> onde entra o CNPJ/CPF; sem {doc} ele envia <b>?documento=...</b></div>
+      <div id="cc_bearer">${field('cc_token','Token (Bearer)','value="'+(c.temToken?'••••••••':'')+'" placeholder="cole o token do parceiro"')}</div>
+      <div id="cc_oauth">
+        ${field('cc_oturl','OAuth2 · Token URL','value="'+esc(c.oauthTokenUrl||'')+'" placeholder="https://.../oauth/token"')}
+        <div class="grid2">${field('cc_ocid','Client ID','value="'+esc(c.oauthClientId||'')+'"')}${field('cc_osecret','Client Secret','value="'+(c.temSecret?'••••••••':'')+'" placeholder="segredo do app"')}</div>
+        ${field('cc_oscope','Scope (opcional)','value="'+esc(c.oauthScope||'')+'"')}
+      </div>
+    </div>
+    <div class="grid3">${field('cc_score','Score mín. (abaixo = restrição)','type="number" value="'+(c.scoreMin!=null?c.scoreMin:500)+'"')}${field('cc_valid','Validade da consulta (dias)','type="number" value="'+(c.validadeDias||30)+'"')}
+      <div class="mrow" style="align-self:end"><label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="cc_bloq" ${c.bloqueiaPedido!==false?'checked':''}> Restrição bloqueia o pedido</label></div></div>
+    <div style="border-top:1px solid var(--line);margin:8px 0;padding-top:8px;display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+      ${field('cc_testdoc','Testar com CNPJ/CPF','placeholder="opcional — usa exemplo se vazio"')}
+      <button class="btn-sm" onclick="APP.creditoTestar()">🧪 Testar agora</button>
+      <div id="cc_testres" style="font-size:12px;flex:1;min-width:200px"></div>
+    </div>
+    <div class="muted" style="font-size:11px">Salvar guarda a config no sistema (token/segredo criptografados no banco). "Testar" salva e faz uma consulta real sem gravar no histórico do cliente.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button><button class="btn-primary" onclick="APP.saveCreditoConfig()">Salvar</button></div>`, {wide:true});
+  creditoCfgToggle();
+}
+function creditoCfgToggle(){
+  const prov=val('cc_prov'), auth=val('cc_auth');
+  const ext=$('cc_ext'); if(ext) ext.style.display=(prov==='externo'||prov==='auto')?'block':'none';
+  const b=$('cc_bearer'); if(b) b.style.display=auth==='bearer'?'block':'none';
+  const o=$('cc_oauth'); if(o) o.style.display=auth==='oauth2'?'block':'none';
+}
+async function saveCreditoConfig(){
+  try{ await api('/credito/config',{method:'PATCH',body:_ccBody()}); toast('Configuração de crédito salva.','ok'); closeModal(); }
+  catch(e){ toast(e.message||'Falha ao salvar.','err'); }
+}
+async function creditoTestar(){
+  const el=$('cc_testres'); if(el) el.innerHTML='<span class="muted">testando…</span>';
+  try{ await api('/credito/config',{method:'PATCH',body:_ccBody()}); }catch(e){}  // testa a config atual (salva antes)
+  try{ const r=await api('/credito/testar',{method:'POST',body:{documento:val('cc_testdoc')}});
+    const cor=r.situacao==='regular'?'#3a8f4f':(r.situacao==='restricao'?'#c14a34':'#8a8674');
+    if(el) el.innerHTML=`<b style="color:${cor}">${esc(r.situacao)}</b> · fonte <b>${esc(r.fonte)}</b>${r.score!=null?' · score '+r.score:''} — ${esc(r.resumo||'')}`;
+  }catch(e){ if(el) el.innerHTML='<span style="color:#c14a34">'+esc(e.message||'erro no teste')+'</span>'; }
 }
 async function consultarCredito(clienteId){
   toast('Consultando crédito…','ok');
@@ -6943,7 +7003,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,

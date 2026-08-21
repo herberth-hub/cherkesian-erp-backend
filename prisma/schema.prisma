@@ -282,6 +282,26 @@ model ConsultaCredito { // Resultado de consulta de crédito/situação do clien
   @@index([clienteId])
 }
 
+/// Configuração da consulta de crédito (Serasa/parceiro) por empresa.
+model CreditoConfig {
+  id                Int      @id @default(autoincrement())
+  empresaId         Int      @unique
+  ativo             Boolean  @default(true)   // integração ligada
+  provedor          String   @default("auto") // auto | externo | brasilapi | simulado | off
+  apiUrl            String?  // endpoint da consulta (use {doc} para o CNPJ/CPF)
+  apiToken          String?  @db.Text         // token/Bearer estático (parceiro REST)
+  authType          String   @default("bearer") // bearer | oauth2 | none
+  oauthTokenUrl     String?  // endpoint do token (OAuth2 client_credentials)
+  oauthClientId     String?
+  oauthClientSecret String?  @db.Text
+  oauthScope        String?
+  scoreMin          Int      @default(500)    // score abaixo disso = restrição
+  bloqueiaPedido    Boolean  @default(true)   // restrição bloqueia o pedido
+  validadeDias      Int      @default(30)     // validade da consulta p/ reaproveitar
+  atualizadoEm      DateTime @default(now()) @updatedAt
+  atualizadoPor     String?
+}
+
 model Fornecedor {
   id           Int    @id @default(autoincrement())
   empresaId    Int
