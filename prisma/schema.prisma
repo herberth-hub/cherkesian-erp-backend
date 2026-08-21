@@ -327,6 +327,8 @@ model Fornecedor {
   cep               String?
   catalogo     String?  @db.Text // catálogo do fornecedor (data URI base64: PDF/imagem)
   catalogoNome String?  // nome original do arquivo do catálogo
+  limiteCredito     Decimal? @db.Decimal(12,2) // crédito que O FORNECEDOR nos concede (compra a prazo)
+  condicaoPagamento String?  // condição negociada (ex.: 30/60/90, 28 DDL)
   ordensCompra OrdemCompra[]
   notasEntrada NotaEntrada[]
 }

@@ -1105,7 +1105,7 @@ async function fornecedorResumo(id){
       <div style="flex:1;min-width:260px"><div style="font-weight:700;margin-bottom:6px">💸 Contas a pagar (${(r.listaPagar||[]).length})</div>
         <div class="panel" style="overflow:auto;max-height:280px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Categoria</th><th style="padding:5px 8px;text-align:left">Vencto</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>${pgRows||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhum título.</td></tr>'}</tbody></table></div></div>
     </div>
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+    <div class="mactions"><button class="btn-sm" onclick="APP.fornecedorSituacaoReceita(${id})">🔎 Situação na Receita</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
 }
 async function verCatalogoForn(id){
   try{ const rr=await fetch(API+'/fornecedores/'+id+'/catalogo',{headers:{Authorization:'Bearer '+S.access}});
@@ -1124,14 +1124,37 @@ async function uploadCatalogoFornGo(id){
     toast('Catálogo enviado.','ok'); fornecedorResumo(id);
   }catch(e){ toast(e.message||'Falha ao enviar.','err'); }
 }
+// Crédito = o que o FORNECEDOR concede a NÓS (compra a prazo) x o que devemos.
 async function fornecedorCredito(id){
-  const f=(window.__FORNLIST||[]).find(x=>x.id===id);
-  const doc=(f&&f.cnpjCpf||'').replace(/\D/g,'');
+  let r; try{ uiSpinnerOpen&&uiSpinnerOpen('Carregando crédito…'); r=await api('/fornecedores/'+id+'/resumo'); uiSpinnerClose&&uiSpinnerClose(); }
+  catch(e){ uiSpinnerClose&&uiSpinnerClose(); toast(e.message,'err'); return; }
+  const c=r.credito||{}, f=r.fornecedor||{};
+  const corDisp = c.disponivel!=null&&c.disponivel<0?'#c14a34':'#3a8f4f';
+  openModal(`<h3>🔎 Crédito — ${esc(f.nome)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Limite que <b>${esc(f.fantasia||f.nome)}</b> concede a nós para <b>comprar a prazo</b>, e quanto já está comprometido.</div>
+    <div class="cards" style="margin-bottom:12px">
+      ${kpi('Limite concedido', c.limite!=null?money(c.limite):'—', 'pelo fornecedor')}
+      ${kpi('Em aberto (a pagar)', money(c.emAberto||0), 'o que devemos hoje')}
+      <div class="card kpi" style="border-left:4px solid ${corDisp}"><div class="k">Disponível p/ comprar</div><div class="v" style="color:${corDisp}">${c.disponivel!=null?money(c.disponivel):'—'}</div><div class="s">${c.disponivel!=null&&c.disponivel<0?'⚠ acima do limite':(c.limite!=null?'limite − em aberto':'defina um limite')}</div></div>
+    </div>
+    <div class="grid2">${field('fc_lim','Limite de crédito concedido (R$)','type="number" step="0.01" value="'+(c.limite!=null?c.limite:'')+'" placeholder="ex.: 50000"')}${field('fc_cond','Condição de pagamento','value="'+esc(f.condicaoPagamento||'')+'" placeholder="ex.: 30/60/90, 28 DDL"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button><button class="btn-primary" onclick="APP.saveFornCredito(${id})">Salvar</button></div>`);
+}
+async function saveFornCredito(id){
+  const body={ condicaoPagamento:val('fc_cond') };
+  const lim=val('fc_lim'); body.limiteCredito = lim!==''?Number(lim):0;
+  try{ await api('/fornecedores/'+id,{method:'PATCH',body}); toast('Crédito do fornecedor salvo.','ok'); closeModal(); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+// Situação cadastral do fornecedor na Receita (dentro da Ficha).
+async function fornecedorSituacaoReceita(id){
+  const f=(window.__FORNLIST||[]).find(x=>x.id===id) || (window.__FORNFICHA&&window.__FORNFICHA.fornecedor);
+  const doc=((f&&f.cnpjCpf)||'').replace(/\D/g,'');
   if(doc.length!==14){ toast('Fornecedor sem CNPJ válido para consultar a Receita.','err'); return; }
   toast('Consultando situação na Receita…','ok');
   try{ const d=await api('/lookup/cnpj/'+doc);
     const ativa=/ATIVA/i.test(String(d.situacao||''));
-    await uiAlert({tipo: ativa?'info':'warn', titulo:'Situação na Receita', ok:'OK', msg:`${d.razaoSocial||f.nome}\nCNPJ ${f.cnpjCpf}\n\nSituação: ${d.situacao||'—'}${ativa?' ✅':' ⚠️'}\n${d.logradouro?('Endereço: '+[d.logradouro,d.municipio,d.uf].filter(Boolean).join(', ')):''}`});
+    await uiAlert({tipo: ativa?'info':'warn', titulo:'Situação na Receita', ok:'OK', msg:`${d.razaoSocial||(f&&f.nome)||''}\nCNPJ ${(f&&f.cnpjCpf)||doc}\n\nSituação: ${d.situacao||'—'}${ativa?' ✅':' ⚠️'}\n${d.logradouro?('Endereço: '+[d.logradouro,d.municipio,d.uf].filter(Boolean).join(', ')):''}`});
   }catch(e){ toast(e.message||'Não foi possível consultar.','err'); }
 }
 async function viewPedidos(c){
@@ -7100,7 +7123,7 @@ window.APP = {
   toggleNav,
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
-  formMaterial, saveMaterial, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito,
+  formMaterial, saveMaterial, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,

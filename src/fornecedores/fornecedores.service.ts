@@ -27,8 +27,11 @@ export class FornecedoresService {
       this.prisma.contaPagar.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, categoria: true, referencia: true, valor: true, pago: true, vencimento: true, status: true }, orderBy: { vencimento: 'desc' } }),
     ]);
     const soma = (arr: { valor: unknown }[]) => Number(arr.reduce((s, x) => s + Number(x.valor), 0).toFixed(2));
+    const abertoPagar = Number(pagar.reduce((s, t) => s + (Number(t.valor) - Number(t.pago)), 0).toFixed(2));
+    const limite = f.limiteCredito != null ? Number(f.limiteCredito) : null;
     return {
-      fornecedor: { id: f.id, nome: f.nome, fantasia: f.nomeFantasia, cnpjCpf: f.cnpjCpf, temCatalogo: !!f.catalogo, catalogoNome: f.catalogoNome },
+      fornecedor: { id: f.id, nome: f.nome, fantasia: f.nomeFantasia, cnpjCpf: f.cnpjCpf, temCatalogo: !!f.catalogo, catalogoNome: f.catalogoNome, limiteCredito: limite, condicaoPagamento: f.condicaoPagamento },
+      credito: { limite, emAberto: abertoPagar, disponivel: limite != null ? Number((limite - abertoPagar).toFixed(2)) : null, condicaoPagamento: f.condicaoPagamento },
       compras: { qtd: ocs.length, valor: soma(ocs) },
       notasEntrada: { qtd: notas.length, valor: soma(notas) },
       contasPagar: {

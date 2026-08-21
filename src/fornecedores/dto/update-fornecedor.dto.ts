@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateFornecedorDto {
   @IsOptional()
@@ -61,4 +61,8 @@ export class UpdateFornecedorDto {
   /** Catálogo anexado (data URI base64: PDF/imagem). String vazia remove. */
   @IsOptional() @IsString() @MaxLength(15_000_000) catalogo?: string;
   @IsOptional() @IsString() @MaxLength(200) catalogoNome?: string;
+
+  /** Crédito que o fornecedor concede (compra a prazo) + condição de pagamento. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) limiteCredito?: number;
+  @IsOptional() @IsString() @MaxLength(120) condicaoPagamento?: string;
 }
