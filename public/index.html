@@ -1782,8 +1782,16 @@ function pmedAdd(){ pmedSync(); (window.__PMED=window.__PMED||[]).push({descrica
 function pmedDel(i){ pmedSync(); window.__PMED.splice(i,1); pmedRender(); }
 function pmedApplySizes(){ pmedSync(); const raw=val('f_tam'); window.__PMEDT = raw.split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16); const fg=$('f_grade'); if(fg && window.__PMEDT.length) fg.value=window.__PMEDT.join(', '); pmedRender(); }
 
-async function formProduto(id){
-  let p={};
+// Do aviso de "item em texto livre": abre o cadastro de produto já com a descrição,
+// guardando o pedido p/ voltar e vincular assim que salvar.
+function cadProdDeLivre(enc, pedidoId){
+  const d=decodeURIComponent(enc);
+  window.__PENDVINC={ pedidoId:Number(pedidoId), descricao:d };
+  closeModal();
+  formProduto(0, { descricao:d });
+}
+async function formProduto(id, prefill){
+  let p = (!id && prefill && prefill.descricao) ? { descricao: prefill.descricao } : {};
   if(id){ try{ p = await api('/produtos/'+id); }catch(e){ toast(e.message,'err'); return; } }
   // Carrega clientes p/ os seletores de grupo/cliente (padrão do produto acabado).
   if(!window.__CLILIST){ try{ window.__CLILIST=await api('/clientes'); }catch(e){ window.__CLILIST=[]; } }
@@ -2002,7 +2010,12 @@ async function saveProduto(id){
   const tams = val('f_tam').split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16);
   const gradeStr = val('f_grade').trim() || tams.join(', ');
   body.grade = gradeStr; // string vazia limpa a grade
-  try{ await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok'); loadRoute(); }
+  try{ const pr=await api(id?('/produtos/'+id):'/produtos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Produto salvo.','ok');
+    const pv=window.__PENDVINC; window.__PENDVINC=null;
+    loadRoute();
+    // Fluxo "item livre → cadastrar produto": volta ao pedido p/ vincular o produto novo.
+    if(pv && pv.pedidoId){ setTimeout(()=>{ formPedido(pv.pedidoId); toast('Produto "'+(pr.codigo||pr.descricao||'')+'" cadastrado — selecione-o no item do pedido.','ok'); }, 350); }
+  }
   catch(e){ toast(e.message,'err'); }
 }
 
@@ -2383,10 +2396,13 @@ function renderItens(){
       </div>`;
     }).join('');
     return `<div style="border:1px solid #efece3;border-radius:8px;padding:8px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:800;color:#8a6d1e;background:#faf6ea;border:1px solid #efe2b8;border-radius:6px;padding:1px 10px">Item ${i+1}</span>
+        ${PITENS.length>1?`<button class="btn-sm" style="padding:2px 9px;color:#c14a34" onclick="APP.rmItem(${i})">× remover</button>`:''}
+      </div>
       <div class="grid2" style="align-items:end;margin-bottom:6px">
         <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar OU escreva livre (orçamento)…" value="${cur?esc(prodLabel(cur)):esc(it.descTexto||'')}" onchange="APP.itemProd(${i})">${(!cur&&(it.descTexto||''))?'<div class="muted" style="font-size:10px;margin-top:2px">✏️ Item livre (sem produto do catálogo)</div>':''}</div>
-        <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})">
-          ${PITENS.length>1?`<button class="btn-sm" onclick="APP.rmItem(${i})">×</button>`:''}</div>
+        <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})"></div>
       </div>
       ${corSel}
       <div style="font-size:11px;color:#6a675e;margin:2px 0 4px">Quantidade por tamanho${temEsp?' <span style="color:#9a7d1e">(★ = preço especial '+money(cur.precoEspecial)+')</span>':''}:</div>
@@ -2566,10 +2582,19 @@ async function gerarOp(id, parcial){
       toast('OC(s) '+oc+' criada(s). Pedido aguardando material.','ok');
     }
     else if(r.status==='itens_livres'){
-      await uiAlert({tipo:'warn', titulo:'⚠️ Itens em texto livre', ok:'Editar pedido p/ vincular', msg:r.message});
-      formPedido(id); return;
+      const itens=(r.itens||[]);
+      const lista=itens.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid #f0e7d0">
+        <div style="min-width:0;font-size:12.5px">✏️ ${esc(d)}</div>
+        <button class="btn-primary" style="white-space:nowrap;padding:4px 10px" onclick="APP.cadProdDeLivre('${encodeURIComponent(d)}',${id})">➕ Cadastrar produto</button>
+      </div>`).join('');
+      openModal(`<h3>⚠️ Itens em texto livre</h3>
+        <div class="muted" style="font-size:12.5px;margin:-4px 0 8px">Estes itens não têm produto do catálogo (sem ficha técnica/material), por isso não geram OP. Cadastre o produto e depois vincule ao item.</div>
+        <div class="panel">${lista||'<div class="empty">—</div>'}</div>
+        <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button><button class="btn-sm" onclick="APP.formPedido(${id})">✏️ Editar pedido (vincular)</button></div>`, {wide:true});
+      return;
     }
     else if(r.status==='bloqueado_piloto') toast('Bloqueado: '+r.message,'err');
+    // (handler de itens_livres acima usa cadProdDeLivre)
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -7016,7 +7041,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
