@@ -4067,6 +4067,12 @@ async function formNotaEntrada(prefill){
     if(match){ const s=$('ne_forn'); if(s) s.value=match.id; }
   }
   neRender();
+  // Puxado da SEFAZ: seleciona a empresa/filial destino pelo CNPJ do destinatário do XML.
+  if(p.cnpjDest){
+    const cd=String(p.cnpjDest||'').replace(/\D/g,'');
+    const fmatch=filList.find(f=>(f.cnpj||'').replace(/\D/g,'')===cd);
+    if(fmatch){ const s=$('ne_filial'); if(s) s.value=fmatch.id; }
+  }
   // Modo edição: pré-seleciona filial destino e estado do estoque; o título a pagar
   // é AJUSTADO automaticamente (não recriado), então some a caixa de geração/parcelas.
   if(p._edit){
@@ -4375,11 +4381,12 @@ async function puxarSefazChave(){
   if(!volTot){ const vs=d.volumes||d.vol||(d.transporte&&d.transporte.volumes)||(d.transp&&d.transp.vol)||[]; if(Array.isArray(vs)) volTot=vs.reduce((s,v)=>s+Number(g(v,['quantidade','qVol','volumes_quantidade'])||0),0); }
   window.__NEVOL = volTot||0;
   window.__NEPRE={ cnpjEmitente:cnpjE, nomeEmitente:nomeE };
+  const cnpjDest=String(g(d,['cnpj_destinatario','cnpj_dest','documento_destinatario'])||'').replace(/\D/g,'');
   closeModal();
   await formNotaEntrada({
     numero:String(g(d,['numero','nnf','numero_nf'])||''), serie:String(g(d,['serie'])||''), chave,
     data:String(g(d,['data_emissao','dhEmi','data'])||'').slice(0,10),
-    vencimento:venc,
+    vencimento:venc, cnpjDest,
     nomeEmitente:nomeE, cnpjEmitente:cnpjE,
     itens: itens.length?itens:[{descricao:'Mercadoria conforme NF', quantidade:1, unidade:'un', valorUnit:Number(g(d,['valor_total','valor_liquido','valor'])||0)}]
   });

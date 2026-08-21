@@ -488,6 +488,12 @@ export class NotasEntradaService {
           if (nNF && !body.numero) body.numero = nNF;
           const serieX = /<ide>[\s\S]*?<serie>(\d+)<\/serie>/.exec(xml)?.[1];
           if (serieX && !body.serie) body.serie = serieX;
+          // CNPJ do DESTINATÁRIO (quem recebeu) — permite selecionar a empresa/filial certa.
+          const cnpjDest = /<dest>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1] || /<dest>[\s\S]*?<CPF>(\d+)<\/CPF>/.exec(xml)?.[1];
+          if (cnpjDest && !body.cnpj_destinatario) body.cnpj_destinatario = cnpjDest;
+          // Volumes declarados (transp/vol/qVol) — total p/ etiquetas por volume.
+          const qVol = [...xml.matchAll(/<qVol>(\d+)<\/qVol>/g)].reduce((s, m) => s + Number(m[1] || 0), 0);
+          if (qVol && !body.quantidade_volumes) body.quantidade_volumes = qVol;
         } catch { /* mantém o resumo se o XML falhar */ }
       }
     }
