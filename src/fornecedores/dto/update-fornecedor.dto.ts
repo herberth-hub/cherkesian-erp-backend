@@ -57,4 +57,8 @@ export class UpdateFornecedorDto {
   @IsOptional() @IsString() @MaxLength(7) codMunicipio?: string;
   @IsOptional() @IsString() @MaxLength(2) uf?: string;
   @IsOptional() @IsString() @MaxLength(9) cep?: string;
+
+  /** Catálogo anexado (data URI base64: PDF/imagem). String vazia remove. */
+  @IsOptional() @IsString() @MaxLength(15_000_000) catalogo?: string;
+  @IsOptional() @IsString() @MaxLength(200) catalogoNome?: string;
 }

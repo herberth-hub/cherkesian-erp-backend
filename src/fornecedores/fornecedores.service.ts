@@ -8,11 +8,52 @@ import { UpdateFornecedorDto } from './dto/update-fornecedor.dto';
 export class FornecedoresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number): Promise<Fornecedor[]> {
-    return this.prisma.fornecedor.findMany({
-      where: { empresaId },
-      orderBy: { id: 'asc' },
-    });
+  async findAll(empresaId: number) {
+    // Não carrega o catálogo (base64) na listagem — só um flag.
+    const [fornecedores, comCat] = await Promise.all([
+      this.prisma.fornecedor.findMany({ where: { empresaId }, orderBy: { id: 'asc' }, omit: { catalogo: true } }),
+      this.prisma.fornecedor.findMany({ where: { empresaId, NOT: { catalogo: null } }, select: { id: true } }),
+    ]);
+    const catSet = new Set(comCat.map((f) => f.id));
+    return fornecedores.map((f) => ({ ...f, temCatalogo: catSet.has(f.id) }));
+  }
+
+  /** Ficha do fornecedor: compras (OCs), notas de entrada e contas a pagar. */
+  async resumo(id: number, empresaId: number) {
+    const f = await this.findOne(id, empresaId);
+    const [ocs, notas, pagar] = await Promise.all([
+      this.prisma.ordemCompra.findMany({ where: { fornecedorId: id }, select: { numero: true, valor: true, status: true, motivo: true }, orderBy: { id: 'desc' } }),
+      this.prisma.notaEntrada.findMany({ where: { fornecedorId: id }, select: { id: true, numero: true, valor: true, emitidaEm: true }, orderBy: { id: 'desc' } }),
+      this.prisma.contaPagar.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, categoria: true, referencia: true, valor: true, pago: true, vencimento: true, status: true }, orderBy: { vencimento: 'desc' } }),
+    ]);
+    const soma = (arr: { valor: unknown }[]) => Number(arr.reduce((s, x) => s + Number(x.valor), 0).toFixed(2));
+    return {
+      fornecedor: { id: f.id, nome: f.nome, fantasia: f.nomeFantasia, cnpjCpf: f.cnpjCpf, temCatalogo: !!f.catalogo, catalogoNome: f.catalogoNome },
+      compras: { qtd: ocs.length, valor: soma(ocs) },
+      notasEntrada: { qtd: notas.length, valor: soma(notas) },
+      contasPagar: {
+        qtd: pagar.length,
+        total: soma(pagar),
+        aberto: Number(pagar.reduce((s, t) => s + (Number(t.valor) - Number(t.pago)), 0).toFixed(2)),
+      },
+      listaCompras: ocs.map((o) => ({ numero: o.numero, valor: Number(o.valor), status: o.status, motivo: o.motivo })),
+      listaNotas: notas.map((n) => ({ numero: n.numero, valor: Number(n.valor), emitidaEm: n.emitidaEm })),
+      listaPagar: pagar.map((t) => ({ id: t.id, categoria: t.categoria, referencia: t.referencia, valor: Number(t.valor), saldo: Number(t.valor) - Number(t.pago), vencimento: t.vencimento, status: t.status })),
+    };
+  }
+
+  /** Baixa/visualiza o catálogo (PDF/imagem) do fornecedor. */
+  async getCatalogo(id: number, empresaId: number) {
+    const f = await this.prisma.fornecedor.findUnique({ where: { id }, select: { empresaId: true, catalogo: true, catalogoNome: true } });
+    if (!f || f.empresaId !== empresaId) throw new NotFoundException(`Fornecedor ${id} não encontrado.`);
+    if (!f.catalogo) throw new NotFoundException('Este fornecedor não tem catálogo anexado.');
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(f.catalogo);
+    const contentType = m ? m[1] : 'application/octet-stream';
+    const b64 = m ? m[2] : f.catalogo;
+    const content = Buffer.from(b64, 'base64');
+    const ext = contentType.includes('pdf') ? 'pdf' : /png/.test(contentType) ? 'png' : /jpe?g/.test(contentType) ? 'jpg' : 'bin';
+    const filename = f.catalogoNome && /\.[a-z0-9]{2,4}$/i.test(f.catalogoNome) ? f.catalogoNome : `catalogo-${id}.${ext}`;
+    return { content, contentType, filename };
   }
 
   async findOne(id: number, empresaId: number): Promise<Fornecedor> {

@@ -7,7 +7,9 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto } from './dto/create-fornecedor.dto';
 import { UpdateFornecedorDto } from './dto/update-fornecedor.dto';
@@ -24,6 +26,20 @@ export class FornecedoresController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.fornecedoresService.findAll(user.empresaId);
+  }
+
+  /** Ficha do fornecedor: compras, notas de entrada e contas a pagar. */
+  @Get(':id/resumo')
+  resumo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.fornecedoresService.resumo(id, user.empresaId);
+  }
+
+  /** Visualiza/baixa o catálogo (PDF/imagem) anexado ao fornecedor. */
+  @Get(':id/catalogo')
+  async catalogo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res() res: Response) {
+    const a = await this.fornecedoresService.getCatalogo(id, user.empresaId);
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `inline; filename="${a.filename}"` });
+    res.send(a.content);
   }
 
   @Get(':id')

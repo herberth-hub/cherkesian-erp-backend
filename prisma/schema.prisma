@@ -325,6 +325,8 @@ model Fornecedor {
   codMunicipio      String? // código IBGE (7 dígitos)
   uf                String?
   cep               String?
+  catalogo     String?  @db.Text // catálogo do fornecedor (data URI base64: PDF/imagem)
+  catalogoNome String?  // nome original do arquivo do catálogo
   ordensCompra OrdemCompra[]
   notasEntrada NotaEntrada[]
 }
