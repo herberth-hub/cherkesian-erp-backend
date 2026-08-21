@@ -2530,14 +2530,16 @@ function pct(v){ return (Number(v||0)*100).toFixed(2).replace('.',',')+'%'; }
 
 async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
-  window.__RECS = list; window.__RCEMP='';
+  let F=window.__RCFILTERS; if(!F){ try{ F=JSON.parse(sessionStorage.getItem('rcfilt')||'{}'); }catch(_){ F={}; } window.__RCFILTERS=F; }
+  window.__RECS = list; window.__RCEMP=F.emp||'';
   window.__RECNOME = {}; window.__RECCNPJ = {}; clientes.forEach(cl=>{ window.__RECNOME[cl.id]=cl.nome; window.__RECCNPJ[cl.id]=cl.cnpjCpf||''; });
+  const sel=(v,o)=>v===o?' selected':'';
   c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', relBtn('receber'))
     + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
-        <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (cliente, CNPJ, doc., valor)</label><input id="rc_busca" class="inp" style="padding:6px" placeholder="ex.: Unimed, 12.345, 500,00" oninput="APP.receberFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" onchange="APP.receberFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="rc_ate" class="inp" type="date" style="padding:6px" onchange="APP.receberFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="rc_status" class="inp" style="padding:6px;width:auto" onchange="APP.receberFiltrar()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="pago">Recebidos</option></select></div>
+        <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (cliente, CNPJ, doc., valor)</label><input id="rc_busca" class="inp" style="padding:6px" placeholder="ex.: Unimed, 12.345, 500,00" value="${esc(F.q||'')}" oninput="APP.receberFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.receberFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="rc_ate" class="inp" type="date" style="padding:6px" value="${esc(F.ate||'')}" onchange="APP.receberFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="rc_status" class="inp" style="padding:6px;width:auto" onchange="APP.receberFiltrar()"><option value=""${sel(F.st,'')}>Todos</option><option value="aberto"${sel(F.st,'aberto')}>Em aberto</option><option value="pago"${sel(F.st,'pago')}>Recebidos</option></select></div>
         <button class="btn-sm" onclick="APP.receberPreset('mes')">Este mês</button>
         <button class="btn-sm" onclick="APP.receberPreset('7')">Próx. 7 dias</button>
         <button class="btn-sm" onclick="APP.receberPreset('venc')">Vencidos</button>
@@ -2552,7 +2554,9 @@ function receberEmp(enc){ const k=decodeURIComponent(enc); window.__RCEMP = (win
 function receberFiltrar(){
   const list=window.__RECS||[], nome=window.__RECNOME||{}, cnpj=window.__RECCNPJ||{};
   const de=val('rc_de'), ate=val('rc_ate'), st=val('rc_status');
-  const q=(val('rc_busca')||'').trim().toLowerCase(); const qn=_numBusca(q); const emp=window.__RCEMP||'';
+  const qraw=(val('rc_busca')||'').trim(); const q=qraw.toLowerCase(); const qn=_numBusca(q); const emp=window.__RCEMP||'';
+  window.__RCFILTERS = { q:qraw, de, ate, st, emp };
+  try{ sessionStorage.setItem('rcfilt', JSON.stringify(window.__RCFILTERS)); }catch(_){}
   const fil=list.filter(t=>{
     const v=String(t.vencimento).slice(0,10);
     if(de && v<de) return false;
@@ -2628,14 +2632,16 @@ function receberPreset(kind){
 async function viewPagar(c){
   try{ await api('/financeiro/recorrentes/gerar',{method:'POST',silent:true}); }catch(_){}
   const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
-  window.__PAGS = list; window.__PGEMP='';
+  let F=window.__PGFILTERS; if(!F){ try{ F=JSON.parse(sessionStorage.getItem('pgfilt')||'{}'); }catch(_){ F={}; } window.__PGFILTERS=F; }
+  window.__PAGS = list; window.__PGEMP=F.emp||'';
   window.__PAGNOME = {}; window.__PAGCNPJ = {}; window.__FORNPIX = {}; forn.forEach(f=>{ window.__PAGNOME[f.id]=f.nome; window.__PAGCNPJ[f.id]=f.cnpjCpf||''; window.__FORNPIX[f.id]={nome:f.nome, pix:f.chavePix||''}; });
+  const sel=(v,o)=>v===o?' selected':'';
   c.innerHTML = toolbar('Contas a pagar', 'Novo título', 'APP.formPagar()', relBtn('pagar'))
     + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
-        <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (fornecedor, CNPJ, ref., valor)</label><input id="pg_busca" class="inp" style="padding:6px" placeholder="ex.: Maria, 12.345, 144,00" oninput="APP.pagarFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="pg_de" class="inp" type="date" style="padding:6px" onchange="APP.pagarFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="pg_ate" class="inp" type="date" style="padding:6px" onchange="APP.pagarFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="pg_status" class="inp" style="padding:6px;width:auto" onchange="APP.pagarFiltrar()"><option value="">Todos</option><option value="aberto">Em aberto</option><option value="pago">Pagos</option></select></div>
+        <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (fornecedor, CNPJ, ref., valor)</label><input id="pg_busca" class="inp" style="padding:6px" placeholder="ex.: Maria, 12.345, 144,00" value="${esc(F.q||'')}" oninput="APP.pagarFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="pg_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.pagarFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="pg_ate" class="inp" type="date" style="padding:6px" value="${esc(F.ate||'')}" onchange="APP.pagarFiltrar()"></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="pg_status" class="inp" style="padding:6px;width:auto" onchange="APP.pagarFiltrar()"><option value=""${sel(F.st,'')}>Todos</option><option value="aberto"${sel(F.st,'aberto')}>Em aberto</option><option value="pago"${sel(F.st,'pago')}>Pagos</option></select></div>
         <button class="btn-sm" onclick="APP.pagarPreset('mes')">Este mês</button>
         <button class="btn-sm" onclick="APP.pagarPreset('7')">Próx. 7 dias</button>
         <button class="btn-sm" onclick="APP.pagarPreset('venc')">Vencidos</button>
@@ -2694,7 +2700,10 @@ function pagarEmp(enc){ const k=decodeURIComponent(enc); window.__PGEMP = (windo
 function pagarFiltrar(){
   const list=window.__PAGS||[], nome=window.__PAGNOME||{}, cnpj=window.__PAGCNPJ||{};
   const de=val('pg_de'), ate=val('pg_ate'), st=val('pg_status');
-  const q=(val('pg_busca')||'').trim().toLowerCase(); const qn=_numBusca(q); const emp=window.__PGEMP||'';
+  const qraw=(val('pg_busca')||'').trim(); const q=qraw.toLowerCase(); const qn=_numBusca(q); const emp=window.__PGEMP||'';
+  // Guarda o estado dos filtros p/ manter aplicado após executar tarefas (baixa, exclusão…) e após F5.
+  window.__PGFILTERS = { q:qraw, de, ate, st, emp };
+  try{ sessionStorage.setItem('pgfilt', JSON.stringify(window.__PGFILTERS)); }catch(_){}
   const fil=list.filter(t=>{
     const v=String(t.vencimento).slice(0,10);
     if(de && v<de) return false;
