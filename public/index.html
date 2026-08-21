@@ -97,6 +97,9 @@ th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04
 td{font-size:13px;padding:11px 14px;border-bottom:1px solid var(--line2);color:var(--ink2)}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:#fcfbf7}
+/* Coluna de seleção (checkbox) estreita e centralizada */
+th:has(#pg_all),th:has(#rc_all),td:has(.pg_chk),td:has(.rc_chk){width:34px;text-align:center;padding-left:8px;padding-right:8px}
+.pg_chk,.rc_chk,#pg_all,#rc_all{width:16px;height:16px;cursor:pointer;accent-color:#C9A227;margin:0}
 .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px}
 .pill.gold{background:#f7efd3;color:var(--gold-d)}
 .pill.green{background:#e3f5e9;color:#1f8a4c}
