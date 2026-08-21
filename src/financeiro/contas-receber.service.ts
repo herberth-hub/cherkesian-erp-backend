@@ -63,7 +63,7 @@ export class ContasReceberService {
   }
 
   /** Baixa (recebe) o título — parcial ou total. */
-  async baixar(id: number, empresaId: number, valorBaixa?: number): Promise<ContaReceberView> {
+  async baixar(id: number, empresaId: number, valorBaixa?: number, juros?: number): Promise<ContaReceberView> {
     const titulo = await this.prisma.contaReceber.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
       throw new NotFoundException(`Título a receber ${id} não encontrado.`);
@@ -75,14 +75,16 @@ export class ContasReceberService {
     const baixa = valorBaixa != null ? new Prisma.Decimal(valorBaixa) : restante;
     if (baixa.greaterThan(restante)) {
       throw new BadRequestException(
-        `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}).`,
+        `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}). Se recebeu a mais por atraso, informe a diferença no campo Juros/multa.`,
       );
     }
+    const jurosDec = juros != null && juros > 0 ? new Prisma.Decimal(juros) : new Prisma.Decimal(0);
     const novoPago = titulo.pago.plus(baixa);
     const atualizado = await this.prisma.contaReceber.update({
       where: { id },
       data: {
         pago: novoPago,
+        juros: titulo.juros.plus(jurosDec),
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
       },
     });

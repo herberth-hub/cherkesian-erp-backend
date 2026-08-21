@@ -3245,10 +3245,18 @@ async function baixar(tipo, id, saldo){
   openModal(`<h3>${tipo==='receber'?'Receber':'Pagar'} título</h3>
     ${pixHtml}
     <div class="muted" style="font-size:12.5px;margin-bottom:12px">Saldo em aberto: <b>${money(saldo)}</b>. Deixe o valor em branco para quitar o total.</div>
-    ${field('f_baixa','Valor da baixa','type="number" step="0.01" placeholder="'+saldo+'"')}
+    <div class="grid2">${field('f_baixa','Valor da baixa (principal)','type="number" step="0.01" placeholder="'+saldo+'" oninput="APP.baixaTotal('+saldo+")\"")}
+      ${field('f_juros','Juros / multa (atraso, opcional)','type="number" step="0.01" min="0" placeholder="0,00" oninput="APP.baixaTotal('+saldo+")\"")}</div>
+    <div id="f_baixatot" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
     ${bancoHtml}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
+}
+function baixaTotal(saldo){
+  const v=Number(val('f_baixa'))||Number(saldo)||0;
+  const j=Number(val('f_juros'))||0;
+  const el=$('f_baixatot'); if(!el) return;
+  el.innerHTML = j>0 ? `Principal <b>${money(v)}</b> + juros <b>${money(j)}</b> = <b style="color:#242a26">Total ${money(v+j)}</b>` : '';
 }
 function _copiaTexto(txt){
   if(!txt) return;
@@ -3261,8 +3269,9 @@ function copiarPixForn(id){ const fp=(window.__FORNPIX||{})[id]; if(fp&&fp.pix) 
 function _copiaFallback(txt,done){ try{ const ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand('copy'); ta.remove(); done&&done(); }catch(e){ toast('Copie manualmente: '+txt,'info'); } }
 async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
+  const j = Number(val('f_juros'))||0; if(j>0) body.juros=j;
   if(tipo==='pagar'){ const b=val('f_banco'); if(b) body.banco=b; }
-  try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast('Baixa registrada.','ok'); loadRoute(); }
+  try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast(j>0?('Baixa registrada (+ juros '+money(j)+').'):'Baixa registrada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 async function formComissao(id){
@@ -7007,7 +7016,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,

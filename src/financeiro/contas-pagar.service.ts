@@ -64,7 +64,7 @@ export class ContasPagarService {
     return this.comStatus(titulo);
   }
 
-  async baixar(id: number, empresaId: number, valorBaixa?: number, banco?: string): Promise<ContaPagarView> {
+  async baixar(id: number, empresaId: number, valorBaixa?: number, banco?: string, juros?: number): Promise<ContaPagarView> {
     const titulo = await this.prisma.contaPagar.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
       throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
@@ -74,17 +74,20 @@ export class ContasPagarService {
       throw new ConflictException('Título já está quitado.');
     }
     const baixa = valorBaixa != null ? new Prisma.Decimal(valorBaixa) : restante;
+    // O valor da baixa é o PRINCIPAL (limitado ao saldo). Juros/multa entram à parte.
     if (baixa.greaterThan(restante)) {
       throw new BadRequestException(
-        `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}).`,
+        `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}). Se pagou a mais por atraso, informe a diferença no campo Juros/multa.`,
       );
     }
+    const jurosDec = juros != null && juros > 0 ? new Prisma.Decimal(juros) : new Prisma.Decimal(0);
     const novoPago = titulo.pago.plus(baixa);
     const bancoTxt = (banco || '').trim();
     const atualizado = await this.prisma.contaPagar.update({
       where: { id },
       data: {
         pago: novoPago,
+        juros: titulo.juros.plus(jurosDec),
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
         ...(bancoTxt ? { bancoPagto: bancoTxt } : {}),
       },
