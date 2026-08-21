@@ -61,6 +61,30 @@ export class FinanceiroController {
     return this.receber.excluirLote(dto?.ids ?? [], user.empresaId);
   }
 
+  /** Recebimento (quitação total) em lote de títulos a receber. */
+  @Areas('receber')
+  @Post('receber/baixar-lote')
+  @HttpCode(HttpStatus.OK)
+  baixarReceberLote(@Body() dto: { ids: number[] }, @CurrentUser() user: AuthUser) {
+    return this.receber.baixarLote(dto?.ids ?? [], user.empresaId);
+  }
+
+  /** Exclusão em lote de títulos a pagar (seleção múltipla). */
+  @Areas('pagar')
+  @Post('pagar/excluir-lote')
+  @HttpCode(HttpStatus.OK)
+  excluirPagarLote(@Body() dto: { ids: number[] }, @CurrentUser() user: AuthUser) {
+    return this.pagar.excluirLote(dto?.ids ?? [], user.empresaId);
+  }
+
+  /** Baixa (quitação total) em lote de títulos a pagar. */
+  @Areas('pagar')
+  @Post('pagar/baixar-lote')
+  @HttpCode(HttpStatus.OK)
+  baixarPagarLote(@Body() dto: { ids: number[]; banco?: string }, @CurrentUser() user: AuthUser) {
+    return this.pagar.baixarLote(dto?.ids ?? [], user.empresaId, dto?.banco);
+  }
+
   @Areas('receber')
   @Post('receber/:id/baixar')
   @HttpCode(HttpStatus.OK)

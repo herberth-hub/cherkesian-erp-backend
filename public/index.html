@@ -2574,9 +2574,9 @@ function receberFiltrar(){
   const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`+chips;
   const body=$('receber_body'); if(!body) return;
   window.__RECSEL = new Set(); // reseta seleção ao refiltar
-  const bulkBar = `<div id="receber_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#fdecea;border:1px solid #f0b8ae;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+  const bulkBar = `<div id="receber_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#eef6ee;border:1px solid #bfe0c4;border-radius:8px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
     <div><b id="receber_seln">0</b> selecionado(s) — <span id="receber_selv">R$ 0,00</span></div>
-    <div style="display:flex;gap:8px"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#3a8f4f;color:#fff;border-color:#3a8f4f" onclick="APP.receberReceberSel()">✓ Receber selecionados</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
   </div>`;
   body.innerHTML = bulkBar + panelTable(
     [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','Doc.','Valor','Pago','Saldo','Status','Ações'],
@@ -2605,6 +2605,15 @@ async function receberExcluirSel(){
   if(!(await uiConfirm({tipo:'danger', titulo:'Excluir '+ids.length+' título(s) a receber?', ok:'Excluir '+ids.length, cancel:'Cancelar', msg:'Esta ação apaga os títulos selecionados e não pode ser desfeita.'}))) return;
   try{ const r=await api('/financeiro/receber/excluir-lote',{method:'POST',body:{ids}}); toast((r.removidos||ids.length)+' título(s) excluído(s).','ok'); loadRoute(); }
   catch(e){ toast(e.message||'Falha ao excluir.','err'); }
+}
+async function receberReceberSel(){
+  const chks=[...document.querySelectorAll('.rc_chk')].filter(c=>c.checked);
+  const ids=chks.map(c=>Number(c.value));
+  if(!ids.length){ toast('Selecione ao menos um título.','err'); return; }
+  const val=chks.reduce((s,c)=>s+Number(c.getAttribute('data-saldo')||0),0);
+  if(!(await uiConfirm({tipo:'info', titulo:'Receber '+ids.length+' título(s)?', ok:'Receber '+money(val), cancel:'Cancelar', msg:'Quita o saldo total dos títulos selecionados ('+money(val)+'). Marca como recebido.'}))) return;
+  try{ const r=await api('/financeiro/receber/baixar-lote',{method:'POST',body:{ids}}); toast((r.baixados||ids.length)+' título(s) recebido(s).','ok'); loadRoute(); }
+  catch(e){ toast(e.message||'Falha ao receber.','err'); }
 }
 function receberPreset(kind){
   const de=$('rc_de'), ate=$('rc_ate'), stt=$('rc_status');
@@ -2706,9 +2715,14 @@ function pagarFiltrar(){
   const ef=$('pagar_empfiltro'); if(ef) ef.innerHTML = emp?`<div style="margin:-4px 0 12px;font-size:12px">Filtrando por empresa: <b>${esc(emp)}</b> <button class="btn-sm" style="padding:1px 8px" onclick="APP.pagarEmp('${encodeURIComponent(emp)}')">✕ limpar</button></div>`:'';
   const kp=$('pagar_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s)</div></div>`+chips;
   const body=$('pagar_body'); if(!body) return;
-  body.innerHTML = panelTable(
-    ['Vencimento','Empresa','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
+  const bulkBar = `<div id="pagar_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
+    <div><b id="pagar_seln">0</b> selecionado(s) — <span id="pagar_selv">R$ 0,00</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.pagarToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#3a8f4f;color:#fff;border-color:#3a8f4f" onclick="APP.pagarPagarSel()">✓ Pagar selecionados</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.pagarExcluirSel()">🗑 Excluir selecionados</button></div>
+  </div>`;
+  body.innerHTML = bulkBar + panelTable(
+    [`<input type="checkbox" id="pg_all" title="Selecionar todos" onclick="APP.pagarToggleAll(this.checked)">`,'Vencimento','Empresa','Categoria','Fornecedor','Ref.','Valor','Saldo','Status','Ações'],
     fil.map(t=>[
+      `<input type="checkbox" class="pg_chk" value="${t.id}" data-saldo="${t.saldo}" onchange="APP.pagarSelCount()">`,
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.pagarEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(t.categoria),
@@ -2716,6 +2730,32 @@ function pagarFiltrar(){
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status)+(t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.temBoleto?`<button class="btn-sm" title="Ver/baixar boleto anexado" onclick="APP.verBoleto(${t.id})">📎 Boleto</button>`:''}${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
+}
+function pagarSelCount(){
+  const chks=[...document.querySelectorAll('.pg_chk')];
+  const sel=chks.filter(c=>c.checked);
+  const n=sel.length; const val=sel.reduce((s,c)=>s+Number(c.getAttribute('data-saldo')||0),0);
+  const bar=$('pagar_bulk'); if(bar) bar.style.display=n?'flex':'none';
+  const en=$('pagar_seln'); if(en) en.textContent=n;
+  const ev=$('pagar_selv'); if(ev) ev.textContent=money(val);
+  const all=$('pg_all'); if(all){ all.checked=n>0&&n===chks.length; all.indeterminate=n>0&&n<chks.length; }
+}
+function pagarToggleAll(checked){ document.querySelectorAll('.pg_chk').forEach(c=>{ c.checked=checked; }); pagarSelCount(); }
+async function pagarExcluirSel(){
+  const ids=[...document.querySelectorAll('.pg_chk')].filter(c=>c.checked).map(c=>Number(c.value));
+  if(!ids.length){ toast('Selecione ao menos um título.','err'); return; }
+  if(!(await uiConfirm({tipo:'danger', titulo:'Excluir '+ids.length+' título(s) a pagar?', ok:'Excluir '+ids.length, cancel:'Cancelar', msg:'Esta ação apaga os títulos selecionados e não pode ser desfeita.'}))) return;
+  try{ const r=await api('/financeiro/pagar/excluir-lote',{method:'POST',body:{ids}}); toast((r.removidos||ids.length)+' título(s) excluído(s).','ok'); loadRoute(); }
+  catch(e){ toast(e.message||'Falha ao excluir.','err'); }
+}
+async function pagarPagarSel(){
+  const chks=[...document.querySelectorAll('.pg_chk')].filter(c=>c.checked);
+  const ids=chks.map(c=>Number(c.value));
+  if(!ids.length){ toast('Selecione ao menos um título.','err'); return; }
+  const val=chks.reduce((s,c)=>s+Number(c.getAttribute('data-saldo')||0),0);
+  if(!(await uiConfirm({tipo:'info', titulo:'Pagar '+ids.length+' título(s)?', ok:'Pagar '+money(val), cancel:'Cancelar', msg:'Quita o saldo total dos títulos selecionados ('+money(val)+'). Marca como pago.'}))) return;
+  try{ const r=await api('/financeiro/pagar/baixar-lote',{method:'POST',body:{ids}}); toast((r.baixados||ids.length)+' título(s) pago(s).','ok'); loadRoute(); }
+  catch(e){ toast(e.message||'Falha ao pagar.','err'); }
 }
 function pagarPreset(kind){
   const de=$('pg_de'), ate=$('pg_ate'), stt=$('pg_status');
@@ -6895,7 +6935,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,

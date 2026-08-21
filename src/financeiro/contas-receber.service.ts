@@ -123,6 +123,23 @@ export class ContasReceberService {
     return { removidos: r.count };
   }
 
+  /** Baixa (recebimento total) em lote dos títulos selecionados. */
+  async baixarLote(ids: number[], empresaId: number): Promise<{ baixados: number }> {
+    const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+    if (!list.length) return { baixados: 0 };
+    const titulos = await this.prisma.contaReceber.findMany({ where: { id: { in: list }, empresaId } });
+    let baixados = 0;
+    for (const t of titulos) {
+      if (t.valor.minus(t.pago).lessThanOrEqualTo(0)) continue;
+      await this.prisma.contaReceber.update({
+        where: { id: t.id },
+        data: { pago: t.valor, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento) },
+      });
+      baixados++;
+    }
+    return { baixados };
+  }
+
   private comStatus(t: ContaReceber): ContaReceberView {
     return {
       ...t,

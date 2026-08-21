@@ -155,6 +155,32 @@ export class ContasPagarService {
     return { removido: true, id };
   }
 
+  /** Exclusão em lote (só títulos da empresa). */
+  async excluirLote(ids: number[], empresaId: number): Promise<{ removidos: number }> {
+    const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+    if (!list.length) return { removidos: 0 };
+    const r = await this.prisma.contaPagar.deleteMany({ where: { id: { in: list }, empresaId } });
+    return { removidos: r.count };
+  }
+
+  /** Baixa (quitação total) em lote dos títulos selecionados. */
+  async baixarLote(ids: number[], empresaId: number, banco?: string): Promise<{ baixados: number }> {
+    const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+    if (!list.length) return { baixados: 0 };
+    const titulos = await this.prisma.contaPagar.findMany({ where: { id: { in: list }, empresaId } });
+    const bancoTxt = (banco || '').trim();
+    let baixados = 0;
+    for (const t of titulos) {
+      if (t.valor.minus(t.pago).lessThanOrEqualTo(0)) continue; // já quitado
+      await this.prisma.contaPagar.update({
+        where: { id: t.id },
+        data: { pago: t.valor, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento), ...(bancoTxt ? { bancoPagto: bancoTxt } : {}) },
+      });
+      baixados++;
+    }
+    return { baixados };
+  }
+
   /** Divide um título em várias parcelas (uma conta por parcela). Só se ainda não houve baixa. */
   async parcelar(id: number, empresaId: number, parcelas: { vencimento: string; valor: number }[]): Promise<{ criadas: number }> {
     const t = await this.prisma.contaPagar.findUnique({ where: { id } });
