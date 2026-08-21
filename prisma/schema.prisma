@@ -377,6 +377,7 @@ model NotaEntrada { // NF de compra recebida do fornecedor (entrada de mercadori
   contaPagarId  Int?     // título gerado no A Pagar (se houver)
   obs           String?
   itens         NotaEntradaItem[]
+  ordensRecebidas OrdemCompra[] // OCs baixadas por esta entrada (necessidade × compra)
   criadoEm      DateTime @default(now())
   criadoPor     String?
 }
@@ -592,6 +593,11 @@ model OrdemCompra {
   status       OCStatus   @default(aguardando)
   previsao     DateTime?
   motivo       String?
+  // Recebimento vinculado à NF de entrada (necessidade × compra) — a entrada da NF
+  // dá baixa automática na OC; o estoque entra só uma vez (na NF), sem duplicar.
+  notaEntradaId Int?
+  notaEntrada   NotaEntrada? @relation(fields: [notaEntradaId], references: [id])
+  recebidaEm    DateTime?
 }
 
 model Estoque {

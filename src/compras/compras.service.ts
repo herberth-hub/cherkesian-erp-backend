@@ -13,11 +13,17 @@ import { proximoSequencial } from '../common/utils/codigo.util';
 export class ComprasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number): Promise<OrdemCompra[]> {
-    return this.prisma.ordemCompra.findMany({
+  async findAll(empresaId: number) {
+    const ocs = await this.prisma.ordemCompra.findMany({
       where: { fornecedor: { empresaId } },
       orderBy: { id: 'desc' },
+      include: {
+        fornecedor: { select: { nome: true } },
+        notaEntrada: { select: { numero: true } },
+      },
     });
+    // Sinaliza quando a baixa veio de uma NF de entrada (necessidade × compra).
+    return ocs.map((o) => ({ ...o, recebidaViaNf: o.notaEntrada?.numero ?? null }));
   }
 
   async findOne(id: number, empresaId: number): Promise<OrdemCompra> {

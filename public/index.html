@@ -3928,7 +3928,8 @@ async function viewCompras(c){
     ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
-      esc(o.quantidade)+' '+esc(o.unidade), money(o.valor), ocPill(o.status),
+      esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
+      ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
       (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma ordem de compra.');
 }
@@ -4138,6 +4139,7 @@ async function saveNotaEntrada(){
     const n=await api('/notas-entrada',{method:'POST',body}); window.__NEPRE=null;
     let msg='Entrada registrada (NF '+n.numero+').';
     if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
+    if(n.ocsBaixadas&&n.ocsBaixadas.length) msg+=' Baixa automática: OC '+n.ocsBaixadas.join(', ')+' (necessidade × compra).';
     toast(msg,'ok');
     // Toda entrada com estoque marcado pergunta o destino físico (endereçar × expedição).
     if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens, n.id); }

@@ -161,6 +161,7 @@ export class NotasEntradaService {
 
       // Entrada no estoque de matéria-prima (soma ao saldo dos materiais vinculados)
       const lancados: string[] = [];
+      const recebidoPorMat = new Map<number, number>();
       if (dto.lancarEstoque) {
         for (const it of dto.itens) {
           if (!it.materialId) continue;
@@ -171,10 +172,40 @@ export class NotasEntradaService {
             data: { saldo: { increment: new Prisma.Decimal(it.quantidade) } },
           });
           lancados.push(mat.codigo);
+          recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + Number(it.quantidade));
         }
       }
 
-      return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados };
+      // BAIXA AUTOMÁTICA das OCs/sugestão (necessidade × compra): para cada material
+      // recebido, quita as OCs abertas do mesmo material (mais antigas primeiro), sem
+      // somar estoque de novo (o estoque já entrou pela NF acima). Evita a duplicidade
+      // de "Receber a OC" + "dar entrada na NF". Recebimento parcial deixa a OC aberta.
+      const ocsBaixadas: string[] = [];
+      for (const [matId, qtdRecebida] of recebidoPorMat) {
+        let restante = qtdRecebida;
+        const ocs = await tx.ordemCompra.findMany({
+          where: { materialId: matId, status: 'aguardando', fornecedor: { empresaId } },
+          orderBy: { id: 'asc' },
+        });
+        for (const oc of ocs) {
+          const qtdOc = Number(oc.quantidade);
+          if (restante < qtdOc * 0.99) break; // não cobre esta OC → para (fica aberta)
+          await tx.ordemCompra.update({
+            where: { id: oc.id },
+            data: {
+              status: 'recebida',
+              recebidaEm: new Date(),
+              notaEntradaId: nota.id,
+              // Vincula o fornecedor real da compra (a sugestão nasce como "A DEFINIR").
+              ...(fornecedorId ? { fornecedorId } : {}),
+            },
+          });
+          restante -= qtdOc;
+          ocsBaixadas.push(oc.numero);
+        }
+      }
+
+      return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas };
     });
   }
 
@@ -191,6 +222,11 @@ export class NotasEntradaService {
           }).catch(() => undefined);
         }
       }
+      // Reabre as OCs que esta entrada havia baixado (desfaz o vínculo necessidade × compra)
+      await tx.ordemCompra.updateMany({
+        where: { notaEntradaId: id },
+        data: { status: 'aguardando', notaEntradaId: null, recebidaEm: null },
+      });
       // Remove o título a pagar gerado, se ainda existir e não tiver baixa
       if (nota.contaPagarId) {
         const cp = await tx.contaPagar.findUnique({ where: { id: nota.contaPagarId } });
