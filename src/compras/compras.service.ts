@@ -66,11 +66,32 @@ export class ComprasService {
     });
   }
 
-  /** Recebe a OC: baixa (status recebida) e repõe o saldo do material vinculado. */
-  async receber(id: number, empresaId: number): Promise<OrdemCompra> {
+  /** Recebe a OC: baixa (status recebida) e repõe o saldo do material vinculado.
+   *  `force`=true pula a trava de duplicidade (entrada de NF recente do material). */
+  async receber(id: number, empresaId: number, force = false): Promise<OrdemCompra> {
     const oc = await this.findOne(id, empresaId);
     if (oc.status !== 'aguardando') {
       throw new ConflictException(`OC ${oc.numero} não está aguardando (status: ${oc.status}).`);
+    }
+
+    // TRAVA anti-duplicidade: se este material já teve entrada por NF recente (45 dias,
+    // com estoque lançado), receber aqui somaria estoque de novo. Bloqueia até confirmar
+    // (force). O caminho correto é dar entrada pela NF, que já baixa a OC automaticamente.
+    if (!force && oc.materialId) {
+      const dias45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+      const nf = await this.prisma.notaEntrada.findFirst({
+        where: { empresaId, lancadaEstoque: true, criadoEm: { gte: dias45 }, itens: { some: { materialId: oc.materialId } } },
+        orderBy: { id: 'desc' },
+        select: { numero: true, criadoEm: true },
+      });
+      if (nf) {
+        throw new ConflictException({
+          code: 'NF_DUP',
+          numero: nf.numero,
+          data: nf.criadoEm.toISOString().slice(0, 10),
+          message: `Este material já teve entrada pela NF ${nf.numero} (${nf.criadoEm.toISOString().slice(0, 10)}) — o estoque já foi lançado. Receber aqui vai DUPLICAR. Prefira dar entrada pela NF (que baixa a OC sozinha). Confirmar mesmo assim?`,
+        });
+      }
     }
 
     const [atualizada] = await this.prisma.$transaction([

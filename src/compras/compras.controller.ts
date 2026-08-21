@@ -7,6 +7,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ComprasService } from './compras.service';
 import { CreateOrdemCompraDto } from './dto/create-ordem-compra.dto';
@@ -43,8 +44,12 @@ export class ComprasController {
 
   @Post(':id/receber')
   @HttpCode(HttpStatus.OK)
-  receber(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.comprasService.receber(id, user.empresaId);
+  receber(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('force') force: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.comprasService.receber(id, user.empresaId, force === 'true' || force === '1');
   }
 
   @Post(':id/cancelar')

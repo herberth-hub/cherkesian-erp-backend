@@ -3963,9 +3963,18 @@ async function saveCompra(){
   try{ const o=await api('/ordens-compra',{method:'POST',body}); closeModal(); toast('OC '+o.numero+' criada.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
-async function receberCompra(id){
-  try{ await api('/ordens-compra/'+id+'/receber',{method:'POST'}); toast('OC recebida — material reposto no estoque.','ok'); loadRoute(); }
-  catch(e){ toast(e.message,'err'); }
+async function receberCompra(id, force){
+  try{ await api('/ordens-compra/'+id+'/receber'+(force?'?force=true':''),{method:'POST'}); toast('OC recebida — material reposto no estoque.','ok'); loadRoute(); }
+  catch(e){
+    // Trava anti-duplicidade: material já entrou por NF recente. Confirma antes de somar de novo.
+    if(e.data && e.data.code==='NF_DUP'){
+      const ok=await uiConfirm({tipo:'warn', titulo:'Material já entrou por NF', ok:'Receber assim mesmo', cancel:'Cancelar',
+        msg:'Este material já teve entrada pela NF '+e.data.numero+' ('+e.data.data+') — o estoque já foi lançado.\n\nReceber aqui vai DUPLICAR o estoque. O correto é dar entrada pela NF, que baixa a OC sozinha.\n\nReceber mesmo assim?'});
+      if(ok) return receberCompra(id, true);
+      return;
+    }
+    toast(e.message,'err');
+  }
 }
 async function cancelarCompra(id){
   try{ await api('/ordens-compra/'+id+'/cancelar',{method:'POST'}); toast('OC cancelada.','ok'); loadRoute(); }
