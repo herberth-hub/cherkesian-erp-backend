@@ -2638,7 +2638,7 @@ function renderRecorrentes(){
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px"><thead><tr style="border-bottom:2px solid #e0d9c4;color:#7a5c00;font-size:11px;text-align:left"><th style="padding:4px">CATEGORIA</th><th style="padding:4px;text-align:right">VALOR</th><th style="padding:4px;text-align:center">VENCE</th><th style="padding:4px;text-align:center">STATUS</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="muted" style="padding:8px">Nenhuma conta recorrente cadastrada.</td></tr>'}</tbody></table></div>
     <div style="border-top:1px solid var(--line);padding-top:10px">
       <label class="fl" style="font-weight:700;margin-bottom:6px">Nova conta recorrente</label>
-      <div class="grid2">${field('rc_cat','Categoria * (ex.: Aluguel, Energia)','')}${field('rc_desc','Descrição','placeholder="ex.: Aluguel galpão Barueri"')}</div>
+      <div class="grid2"><div class="mrow"><label class="fl">Categoria *</label><input class="inp" id="rc_cat" list="catlist_pag" placeholder="ex.: Aluguel, Energia…" autocomplete="off">${catDatalistPag()}</div>${field('rc_desc','Descrição','placeholder="ex.: Aluguel galpão Barueri"')}</div>
       <div class="grid3">${field('rc_val','Valor *','type="number" step="0.01"')}${field('rc_dia','Dia do vencimento *','type="number" min="1" max="31" placeholder="ex.: 1"')}
         <div class="mrow"><label class="fl">Empresa pagadora</label><select id="rc_fil" class="inp">${filOpts}</select></div></div>
       <div class="mrow"><label class="fl">Fornecedor (opcional)</label><select id="rc_forn" class="inp">${fornOpts}</select></div>
@@ -2896,15 +2896,24 @@ async function saveReceber(){
   try{ await api('/financeiro/receber',{method:'POST',body}); closeModal(); toast('Título criado.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
+// Datalist de categorias de despesa: as já usadas nos títulos + padrões comuns.
+function catDatalistPag(){
+  const usadas=[...new Set((window.__PAGS||[]).map(t=>t.categoria).filter(Boolean))];
+  const padrao=['Facção','Aluguel','Energia elétrica','Água','Internet / Telefone','Matéria-prima','Tecido','Aviamentos','Salário','Pró-labore','FGTS / INSS','Imposto','Frete','Manutenção','Contabilidade','Material de escritório','Marketing','Combustível','Despesas bancárias','Água e café'];
+  const cats=[...new Set(usadas.concat(padrao))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  return `<datalist id="catlist_pag">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>`;
+}
 async function formPagar(){
   const [forn, filiais] = await Promise.all([api('/fornecedores'), api('/filiais').catch(()=>[])]);
   window.__FORNPAG = forn;
   const dl = `<datalist id="fornlist_pag">${forn.map(f=>`<option value="${esc(f.nome)}">`).join('')}</datalist>`;
+  const cdl = catDatalistPag();
   const filList=(filiais||[]); const matrizId=(filList.find(f=>f.matriz)||filList[0]||{}).id;
   const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Novo título a pagar</h3>
     ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador *</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
-    ${field('f_cat','Categoria * (ex.: Facção, Aluguel)','')}
+    <div class="mrow"><label class="fl">Categoria * <span class="muted" style="font-size:10px">(escolha da lista ou digite — padroniza o relatório)</span></label>
+      <input class="inp" id="f_cat" list="catlist_pag" placeholder="ex.: Facção, Aluguel, Energia…" autocomplete="off">${cdl}</div>
     <div class="mrow"><label class="fl">Fornecedor / Oficina / Facção <span class="muted" style="font-size:10px">(escolha um ou digite um novo p/ cadastrar)</span></label>
       <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off">${dl}</div>
     ${field('f_ref','Referência','placeholder="ex.: OC-0001, NF 123"')}
@@ -2987,7 +2996,7 @@ async function formPagarEdit(id){
   const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===curFil?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   openModal(`<h3>Editar título a pagar</h3>
     ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ pagador</label><select id="f_filial" class="inp">${filOpts}</select></div>`:''}
-    ${field('f_cat','Categoria','value="'+esc(t.categoria||'')+'"')}
+    <div class="mrow"><label class="fl">Categoria</label><input class="inp" id="f_cat" list="catlist_pag" autocomplete="off" value="${esc(t.categoria||'')}">${catDatalistPag()}</div>
     <div class="mrow"><label class="fl">Fornecedor / Oficina / Facção <span class="muted" style="font-size:10px">(escolha um ou digite um novo p/ cadastrar)</span></label>
       <input class="inp" id="f_forn" list="fornlist_pag" placeholder="digite p/ buscar ou cadastrar novo…" autocomplete="off" value="${curForn?esc(curForn.nome):''}">${dl}</div>
     ${field('f_ref','Referência','value="'+esc(t.referencia||'')+'"')}
