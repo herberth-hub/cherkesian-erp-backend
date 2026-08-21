@@ -1272,7 +1272,7 @@ async function baixarRel(tipo, qs, fmt){
 }
 function panelTable(cols, rows, emptyMsg){
   if(emptyMsg) return `<div class="panel"><div class="empty">${esc(emptyMsg)}</div></div>`;
-  return `<div class="panel" style="overflow-x:auto"><table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
+  return `<div class="panel" style="overflow-x:auto"><table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${r.map(cell=>`<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
