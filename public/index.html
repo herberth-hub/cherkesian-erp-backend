@@ -2573,15 +2573,38 @@ function receberFiltrar(){
   const ef=$('receber_empfiltro'); if(ef) ef.innerHTML = emp?`<div style="margin:-4px 0 12px;font-size:12px">Filtrando por empresa: <b>${esc(emp)}</b> <button class="btn-sm" style="padding:1px 8px" onclick="APP.receberEmp('${encodeURIComponent(emp)}')">✕ limpar</button></div>`:'';
   const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`+chips;
   const body=$('receber_body'); if(!body) return;
-  body.innerHTML = panelTable(
-    ['Vencimento','Empresa','Cliente','Doc.','Valor','Pago','Saldo','Status','Ações'],
+  window.__RECSEL = new Set(); // reseta seleção ao refiltar
+  const bulkBar = `<div id="receber_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#fdecea;border:1px solid #f0b8ae;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+    <div><b id="receber_seln">0</b> selecionado(s) — <span id="receber_selv">R$ 0,00</span></div>
+    <div style="display:flex;gap:8px"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
+  </div>`;
+  body.innerHTML = bulkBar + panelTable(
+    [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','Doc.','Valor','Pago','Saldo','Status','Ações'],
     fil.map(t=>[
+      `<input type="checkbox" class="rc_chk" value="${t.id}" data-saldo="${t.saldo}" onchange="APP.receberSelCount()">`,
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.receberEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(nome[t.clienteId]||('#'+t.clienteId)), esc(t.documento||'—'),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
+}
+function receberSelCount(){
+  const chks=[...document.querySelectorAll('.rc_chk')];
+  const sel=chks.filter(c=>c.checked);
+  const n=sel.length; const val=sel.reduce((s,c)=>s+Number(c.getAttribute('data-saldo')||0),0);
+  const bar=$('receber_bulk'); if(bar) bar.style.display=n?'flex':'none';
+  const en=$('receber_seln'); if(en) en.textContent=n;
+  const ev=$('receber_selv'); if(ev) ev.textContent=money(val);
+  const all=$('rc_all'); if(all){ all.checked = n>0 && n===chks.length; all.indeterminate = n>0 && n<chks.length; }
+}
+function receberToggleAll(checked){ document.querySelectorAll('.rc_chk').forEach(c=>{ c.checked=checked; }); receberSelCount(); }
+async function receberExcluirSel(){
+  const ids=[...document.querySelectorAll('.rc_chk')].filter(c=>c.checked).map(c=>Number(c.value));
+  if(!ids.length){ toast('Selecione ao menos um título.','err'); return; }
+  if(!(await uiConfirm({tipo:'danger', titulo:'Excluir '+ids.length+' título(s) a receber?', ok:'Excluir '+ids.length, cancel:'Cancelar', msg:'Esta ação apaga os títulos selecionados e não pode ser desfeita.'}))) return;
+  try{ const r=await api('/financeiro/receber/excluir-lote',{method:'POST',body:{ids}}); toast((r.removidos||ids.length)+' título(s) excluído(s).','ok'); loadRoute(); }
+  catch(e){ toast(e.message||'Falha ao excluir.','err'); }
 }
 function receberPreset(kind){
   const de=$('rc_de'), ate=$('rc_ate'), stt=$('rc_status');
@@ -6424,6 +6447,9 @@ function boot(){
   if(S.access && S.user){
     const allowed = ACCESS[S.user.acesso];
     S.route = (allowed==='*'||allowed.includes('dashboard'))?'dashboard':firstReady(allowed);
+    // Mantém a página atual após reload/Atualizar: restaura a rota do #hash da URL.
+    const hr=(location.hash||'').replace(/^#/,'');
+    if(hr && canAccess(hr)) S.route=hr;
     renderShell(); loadRoute(); checkDeepLink();
   } else { renderLogin(); }
 }
@@ -6869,7 +6895,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, receberFiltrar, receberPreset, receberEmp, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,

@@ -53,6 +53,14 @@ export class FinanceiroController {
     return this.receber.create(dto, user.empresaId);
   }
 
+  /** Exclusão em lote de títulos a receber (seleção múltipla). */
+  @Areas('receber')
+  @Post('receber/excluir-lote')
+  @HttpCode(HttpStatus.OK)
+  excluirReceberLote(@Body() dto: { ids: number[] }, @CurrentUser() user: AuthUser) {
+    return this.receber.excluirLote(dto?.ids ?? [], user.empresaId);
+  }
+
   @Areas('receber')
   @Post('receber/:id/baixar')
   @HttpCode(HttpStatus.OK)

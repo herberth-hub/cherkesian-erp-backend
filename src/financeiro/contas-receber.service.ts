@@ -115,6 +115,14 @@ export class ContasReceberService {
     return { removido: true, id };
   }
 
+  /** Exclusão em lote (só títulos da empresa). */
+  async excluirLote(ids: number[], empresaId: number): Promise<{ removidos: number }> {
+    const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+    if (!list.length) return { removidos: 0 };
+    const r = await this.prisma.contaReceber.deleteMany({ where: { id: { in: list }, empresaId } });
+    return { removidos: r.count };
+  }
+
   private comStatus(t: ContaReceber): ContaReceberView {
     return {
       ...t,
