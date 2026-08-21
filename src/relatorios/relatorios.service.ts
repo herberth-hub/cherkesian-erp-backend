@@ -326,16 +326,18 @@ export class RelatoriosService {
         build: async (empresaId, f) => {
           const regs = await this.prisma.contaReceber.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
+          const totJuros = regs.reduce((s, c) => s + n(c.juros), 0);
           return {
             colunas: [
-              { titulo: 'Vencimento', largura: 90 },
-              { titulo: 'Valor', largura: 100, alinhamento: 'right' },
-              { titulo: 'Pago', largura: 100, alinhamento: 'right' },
-              { titulo: 'Saldo', largura: 100, alinhamento: 'right' },
-              { titulo: 'Status', largura: 85 },
+              { titulo: 'Vencimento', largura: 85 },
+              { titulo: 'Valor', largura: 92, alinhamento: 'right' },
+              { titulo: 'Pago', largura: 92, alinhamento: 'right' },
+              { titulo: 'Juros', largura: 82, alinhamento: 'right' },
+              { titulo: 'Saldo', largura: 92, alinhamento: 'right' },
+              { titulo: 'Status', largura: 80 },
             ],
-            linhas: regs.map((c) => [dataBR(c.vencimento), money(c.valor), money(c.pago), money(n(c.valor) - n(c.pago)), c.status]),
-            total: { rotulo: 'Saldo a receber (aberto)', valor: money(aberto) },
+            linhas: regs.map((c) => [dataBR(c.vencimento), money(c.valor), money(c.pago), money(c.juros), money(n(c.valor) - n(c.pago)), c.status]),
+            total: { rotulo: `Saldo a receber (aberto)${totJuros > 0 ? ` · Juros recebidos ${money(totJuros)}` : ''}`, valor: money(aberto) },
           };
         },
       },
@@ -345,17 +347,19 @@ export class RelatoriosService {
         build: async (empresaId, f) => {
           const regs = await this.prisma.contaPagar.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
+          const totJuros = regs.reduce((s, c) => s + n(c.juros), 0);
           return {
             colunas: [
-              { titulo: 'Categoria', largura: 105 },
-              { titulo: 'Vencimento', largura: 75 },
-              { titulo: 'Valor', largura: 85, alinhamento: 'right' },
-              { titulo: 'Pago', largura: 80, alinhamento: 'right' },
-              { titulo: 'Saldo', largura: 85, alinhamento: 'right' },
+              { titulo: 'Categoria', largura: 100 },
+              { titulo: 'Vencimento', largura: 72 },
+              { titulo: 'Valor', largura: 80, alinhamento: 'right' },
+              { titulo: 'Pago', largura: 76, alinhamento: 'right' },
+              { titulo: 'Juros', largura: 72, alinhamento: 'right' },
+              { titulo: 'Saldo', largura: 80, alinhamento: 'right' },
               { titulo: 'Status', largura: 55 },
             ],
-            linhas: regs.map((c) => [c.categoria, dataBR(c.vencimento), money(c.valor), money(c.pago), money(n(c.valor) - n(c.pago)), c.status]),
-            total: { rotulo: 'Saldo a pagar (aberto)', valor: money(aberto) },
+            linhas: regs.map((c) => [c.categoria, dataBR(c.vencimento), money(c.valor), money(c.pago), money(c.juros), money(n(c.valor) - n(c.pago)), c.status]),
+            total: { rotulo: `Saldo a pagar (aberto)${totJuros > 0 ? ` · Juros pagos ${money(totJuros)}` : ''}`, valor: money(aberto) },
           };
         },
       },
