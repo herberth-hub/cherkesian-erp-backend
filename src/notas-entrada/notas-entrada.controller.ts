@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import { NotasEntradaService } from './notas-entrada.service';
@@ -51,6 +52,17 @@ export class NotasEntradaController {
   @Post()
   create(@Body() dto: CreateNotaEntradaDto, @CurrentUser() user: AuthUser) {
     return this.service.create(dto, user.empresaId, user.usuario);
+  }
+
+  /** Edita a NF de entrada: recalcula valor, estorna+relança estoque, reabre+re-baixa
+   *  as OCs e ajusta o título a pagar vinculado (se ainda não pago). */
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateNotaEntradaDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.update(id, dto, user.empresaId);
   }
 
   /** Marca que as etiquetas de volume (rolos) já foram emitidas para esta NF. */

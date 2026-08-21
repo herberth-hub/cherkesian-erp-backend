@@ -3997,7 +3997,7 @@ async function viewNotasEntrada(c){
       n.lancadaEstoque?('<span class="pill green">lançado</span>'+((!n.etiquetasGeradas)?' <span class="pill red" title="Ainda não emitiu as etiquetas de volume">⚠ sem etiqueta</span>':'')):'<span class="muted">—</span>',
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
       `<span class="pill gray">${esc(n.origem)}</span>`,
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
     ]), list.length?null:'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".');
   // Se atualizou a página e há entradas sem etiqueta, abre a 1ª para emitir.
   const pend=(list||[]).filter(n=>n.lancadaEstoque&&!n.etiquetasGeradas);
@@ -4013,6 +4013,7 @@ async function emitirEtiquetasNF(id){
 }
 async function formNotaEntrada(prefill){
   if(!prefill) window.__NEPRE=null;
+  window.__NEEDIT = (prefill&&prefill._edit)||null;
   const [forn, mats, filiais] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/filiais').catch(()=>[])]);
   window.__MATS = mats;
   const p = prefill||{};
@@ -4022,7 +4023,8 @@ async function formNotaEntrada(prefill){
   const filOpts=filList.map(f=>`<option value="${f.id}"${f.id===matrizId?' selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}${f.matriz?' (matriz)':''}</option>`).join('');
   NEITENS = (p.itens&&p.itens.length)?p.itens.map(x=>Object.assign({},x)):[{unidade:'un'}];
   NEPARC = [];
-  openModal(`<h3>Nova nota de entrada</h3>
+  openModal(`<h3>${p._edit?'✏️ Editar nota de entrada':'Nova nota de entrada'}</h3>
+    ${p._edit?`<div class="muted" style="font-size:11px;margin:-6px 0 8px;color:#b8860b">Ao salvar: estorna e relança o estoque com os novos números, reabre/re-baixa as OCs e ajusta o título a pagar (se ainda não pago).</div>`:''}
     ${p.nomeEmitente?`<div class="muted" style="font-size:12px;margin:-6px 0 8px">Emitente (SEFAZ): <b>${esc(p.nomeEmitente)}</b>${p.cnpjEmitente?' · CNPJ '+esc(p.cnpjEmitente):''}</div>`:''}
     ${filList.length?`<div class="mrow"><label class="fl">Empresa / CNPJ destino * <span class="muted">(quem recebe a mercadoria)</span></label><select id="ne_filial" class="inp">${filOpts}</select></div>`:''}
     <div class="grid2">
@@ -4065,6 +4067,16 @@ async function formNotaEntrada(prefill){
     if(match){ const s=$('ne_forn'); if(s) s.value=match.id; }
   }
   neRender();
+  // Modo edição: pré-seleciona filial destino e estado do estoque; o título a pagar
+  // é AJUSTADO automaticamente (não recriado), então some a caixa de geração/parcelas.
+  if(p._edit){
+    if(p.filialId){ const s=$('ne_filial'); if(s) s.value=p.filialId; }
+    const est=$('ne_est'); if(est) est.checked=!!p.lancarEstoque;
+    const cp=$('ne_cp'); if(cp){ cp.checked=false; }
+    const cpbox=$('ne_cpbox'); if(cpbox) cpbox.style.display='none';
+    const cpwrap=cp&&cp.closest('label'); if(cpwrap) cpwrap.style.display='none';
+    const btn=document.querySelector('.mactions .btn-primary'); if(btn) btn.textContent='Salvar alterações';
+  }
 }
 function neMatLabel(m){ return m.codigo+' · '+m.descricao+(m.cor?' · '+m.cor:''); }
 function neFindMat(text){
@@ -4144,6 +4156,19 @@ async function saveNotaEntrada(){
   }
   const cnpjE=(val('ne_cnpj')||'').replace(/\D/g,''); if(cnpjE) body.cnpjEmitente=cnpjE;
   const nomeE=val('ne_nome'); if(nomeE) body.nomeEmitente=nomeE;
+  // ===== Modo EDIÇÃO (PATCH): corrige a NF, sem recriar título/estoque em duplicidade =====
+  if(window.__NEEDIT){
+    const id=window.__NEEDIT;
+    try{
+      const n=await api('/notas-entrada/'+id,{method:'PATCH',body});
+      let msg='NF '+n.numero+' atualizada (total '+money(n.valor)+').';
+      if(n.tituloAjustado) msg+=' Título a pagar ajustado.';
+      if(n.tituloPago) msg+=' ⚠️ Título já tem baixa — ajuste o valor pago manualmente.';
+      if(n.ocsBaixadas&&n.ocsBaixadas.length) msg+=' OC re-baixada: '+n.ocsBaixadas.join(', ')+'.';
+      window.__NEEDIT=null; closeModal(); toast(msg,'ok'); loadRoute();
+    }catch(e){ toast(e.message,'err'); }
+    return;
+  }
   try{
     const n=await api('/notas-entrada',{method:'POST',body}); window.__NEPRE=null;
     let msg='Entrada registrada (NF '+n.numero+').';
@@ -4154,6 +4179,20 @@ async function saveNotaEntrada(){
     if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens, n.id); }
     else { closeModal(); loadRoute(); }
   }catch(e){ toast(e.message,'err'); }
+}
+// Abre o form já preenchido para CORRIGIR uma NF de entrada (ex.: valor divergente).
+async function editNotaEntrada(id){
+  let n; try{ n=await api('/notas-entrada/'+id); }catch(e){ toast(e.message,'err'); return; }
+  const prefill={
+    _edit:id,
+    numero:n.numero, serie:n.serie||'', chave:n.chave||'',
+    cnpjEmitente:n.cnpjEmitente||'', nomeEmitente:n.nomeEmitente||'',
+    fornecedorId:n.fornecedorId||null, filialId:n.filialId||null,
+    data:n.emitidaEm?String(n.emitidaEm).slice(0,10):'',
+    lancarEstoque:!!n.lancadaEstoque, obs:n.obs||'',
+    itens:(n.itens||[]).map(it=>({ materialId:it.materialId||undefined, descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) })),
+  };
+  formNotaEntrada(prefill);
 }
 // Pop-up: onde colocar a matéria-prima que deu entrada — estoque (endereçar) ou expedição.
 // Cada item pode ter VÁRIOS lotes do fornecedor (linha lote + volumes por lote).
@@ -7188,7 +7227,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

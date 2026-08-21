@@ -209,6 +209,138 @@ export class NotasEntradaService {
     });
   }
 
+  /**
+   * Edita uma NF de entrada já registrada (ex.: valor divergente).
+   * Reverte os efeitos antigos (estoque + OCs) e reaplica com os novos itens,
+   * ajustando o título a pagar vinculado quando ainda não houve baixa.
+   */
+  async update(id: number, dto: CreateNotaEntradaDto, empresaId: number) {
+    const nota = await this.prisma.notaEntrada.findUnique({ where: { id }, include: { itens: true } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota de entrada ${id} não encontrada.`);
+
+    // Chave: se informada e diferente, valida dedupe (ignorando a própria nota).
+    if (dto.chave && digitos(dto.chave).length === 44) {
+      const outra = await this.prisma.notaEntrada.findUnique({ where: { chave: digitos(dto.chave) } });
+      if (outra && outra.id !== id) throw new BadRequestException(`Esta NF (chave ...${digitos(dto.chave).slice(-6)}) já foi registrada em outra entrada.`);
+    }
+
+    // Filial destino (mantém a atual se não informada).
+    let filialId = dto.filialId ?? nota.filialId ?? undefined;
+    if (dto.filialId) {
+      const fil = await this.prisma.filial.findUnique({ where: { id: dto.filialId } });
+      if (!fil || fil.empresaId !== empresaId) throw new NotFoundException(`Filial ${dto.filialId} não encontrada.`);
+    }
+
+    // Fornecedor: informado > pelo CNPJ emitente > mantém o atual.
+    let fornecedorId = dto.fornecedorId ?? nota.fornecedorId ?? undefined;
+    if (!dto.fornecedorId && dto.cnpjEmitente) {
+      const cnpj = digitos(dto.cnpjEmitente);
+      if (cnpj) {
+        const existente = await this.prisma.fornecedor.findFirst({ where: { empresaId, cnpjCpf: cnpj } });
+        fornecedorId = existente
+          ? existente.id
+          : (await this.prisma.fornecedor.create({ data: { empresaId, nome: dto.nomeEmitente || `Fornecedor ${cnpj}`, cnpjCpf: cnpj } })).id;
+      }
+    }
+
+    const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
+    const lancar = dto.lancarEstoque ?? nota.lancadaEstoque;
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1) REVERTE efeitos antigos ------------------------------------------
+      // 1a) estorna o estoque dos itens anteriores (se havia sido lançado)
+      if (nota.lancadaEstoque) {
+        for (const it of nota.itens) {
+          if (!it.materialId) continue;
+          await tx.material.update({ where: { id: it.materialId }, data: { saldo: { decrement: it.quantidade } } }).catch(() => undefined);
+        }
+      }
+      // 1b) reabre as OCs que esta NF havia baixado
+      await tx.ordemCompra.updateMany({ where: { notaEntradaId: id }, data: { status: 'aguardando', notaEntradaId: null, recebidaEm: null } });
+      // 1c) remove os itens antigos (serão recriados)
+      await tx.notaEntradaItem.deleteMany({ where: { notaEntradaId: id } });
+
+      // 2) Auto-cadastro de materiais dos novos itens (acha por descrição ou cria)
+      const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
+      for (const it of dto.itens) {
+        if (it.materialId) continue;
+        const desc = (it.descricao || '').trim();
+        if (!desc) continue;
+        const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
+        if (existente) { it.materialId = existente.id; continue; }
+        const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
+        codigosMP.push(codigo);
+        const novo = await tx.material.create({ data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) } });
+        it.materialId = novo.id;
+      }
+
+      // 3) Atualiza cabeçalho + recria itens
+      const atualizada = await tx.notaEntrada.update({
+        where: { id },
+        data: {
+          filialId,
+          fornecedorId,
+          numero: dto.numero,
+          serie: dto.serie,
+          chave: dto.chave ? digitos(dto.chave) : nota.chave,
+          cnpjEmitente: dto.cnpjEmitente ? digitos(dto.cnpjEmitente) : nota.cnpjEmitente,
+          nomeEmitente: dto.nomeEmitente ?? nota.nomeEmitente,
+          emitidaEm: dto.emitidaEm ? new Date(dto.emitidaEm) : nota.emitidaEm,
+          valor: new Prisma.Decimal(valor.toFixed(2)),
+          lancadaEstoque: lancar,
+          obs: dto.obs ?? nota.obs,
+          itens: {
+            create: dto.itens.map((it) => ({
+              materialId: it.materialId,
+              descricao: it.descricao,
+              ncm: it.ncm,
+              quantidade: new Prisma.Decimal(it.quantidade),
+              unidade: it.unidade || 'un',
+              valorUnit: new Prisma.Decimal(it.valorUnit),
+            })),
+          },
+        },
+        include: { itens: true },
+      });
+
+      // 4) RELANÇA o estoque com as novas quantidades
+      const recebidoPorMat = new Map<number, number>();
+      if (lancar) {
+        for (const it of dto.itens) {
+          if (!it.materialId) continue;
+          await tx.material.update({ where: { id: it.materialId }, data: { saldo: { increment: new Prisma.Decimal(it.quantidade) } } });
+          recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + Number(it.quantidade));
+        }
+      }
+
+      // 5) Re-baixa as OCs abertas do material (necessidade × compra)
+      const ocsBaixadas: string[] = [];
+      for (const [matId, qtdRecebida] of recebidoPorMat) {
+        let restante = qtdRecebida;
+        const ocs = await tx.ordemCompra.findMany({ where: { materialId: matId, status: 'aguardando', fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
+        for (const oc of ocs) {
+          const qtdOc = Number(oc.quantidade);
+          if (restante < qtdOc * 0.99) break;
+          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', recebidaEm: new Date(), notaEntradaId: id, ...(fornecedorId ? { fornecedorId } : {}) } });
+          restante -= qtdOc;
+          ocsBaixadas.push(oc.numero);
+        }
+      }
+
+      // 6) Ajusta o título a pagar vinculado ao novo valor (só se ainda não pago)
+      let tituloAjustado = false, tituloPago = false;
+      if (nota.contaPagarId) {
+        const cp = await tx.contaPagar.findUnique({ where: { id: nota.contaPagarId } });
+        if (cp) {
+          if (Number(cp.pago) > 0) tituloPago = true;
+          else { await tx.contaPagar.update({ where: { id: cp.id }, data: { valor: new Prisma.Decimal(valor.toFixed(2)) } }); tituloAjustado = true; }
+        }
+      }
+
+      return { ...atualizada, ocsBaixadas, tituloAjustado, tituloPago };
+    });
+  }
+
   async remove(id: number, empresaId: number) {
     const nota = await this.findOne(id, empresaId);
     return this.prisma.$transaction(async (tx) => {
