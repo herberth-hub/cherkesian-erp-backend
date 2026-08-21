@@ -753,11 +753,15 @@ export class NfeService {
       const linhaPix = String(filPag?.dadosBancarios || '').split(/[\r\n]+/).map((l) => l.trim()).find((l) => /pix/i.test(l));
       if (linhaPix) pagamentoTxt = `\n\nPara pagamento — ${linhaPix}`;
     }
+    // Nome do remetente = empresa/filial emissora da NF (HC QUALITY / YEREVAN / CHERKESIAN...).
+    const filMarca = await this.prisma.filial.findFirst({ where: nota.filialId ? { id: nota.filialId } : { empresaId, matriz: true }, select: { nome: true, nomeFantasia: true } });
+    const marca = (filMarca?.nomeFantasia || filMarca?.nome || 'GRUPO CHERKESIAN').trim();
     const r = await this.email.enviar({
       para: destino,
-      assunto: `NF-e ${nota.numero} — GRUPO CHERKESIAN`,
+      remetenteNome: marca,
+      assunto: `NF-e ${nota.numero} — ${marca}`,
       texto: `Olá${nomeCliente ? ' ' + nomeCliente : ''},\n\nSegue em anexo a nota fiscal eletrônica nº ${nota.numero}` +
-        (nota.chave ? ` (chave ${nota.chave})` : '') + `.` + pagamentoTxt + `\n\nAtenciosamente,\nGRUPO CHERKESIAN`,
+        (nota.chave ? ` (chave ${nota.chave})` : '') + `.` + pagamentoTxt + `\n\nAtenciosamente,\n${marca}`,
       anexos: anexos.length ? anexos : undefined,
     });
     return { enviado: r.enviado, simulado: r.simulado, para: destino, anexos: anexos.length, detalhe: r.detalhe };
@@ -838,8 +842,15 @@ export class NfeService {
   /** Baixa DANFE (PDF) e XML da nota na Focus. */
   private async baixarArquivosFocus(token: string, ref: string, amb?: string | null) {
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
-    const host = this.focusHost(amb);
-    const det = (await (await fetch(`https://${host}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
+    // Descobre em qual host a nota realmente existe (ambiente pode divergir do global).
+    let host = this.focusHost(amb);
+    let det: Record<string, unknown> | undefined;
+    for (const a of this.ambientesParaLeitura(amb)) {
+      const h = this.focusHost(a);
+      const d = (await (await fetch(`https://${h}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
+      if (d && (d['caminho_xml_nota_fiscal'] || d['caminho_danfe'])) { host = h; det = d; break; }
+      if (!det) det = d;
+    }
     const baixar = async (caminho?: unknown): Promise<Buffer | null> => {
       if (!caminho || typeof caminho !== 'string') return null;
       try {
@@ -903,6 +914,17 @@ export class NfeService {
   }
 
   private async consultarFocus(token: string, ref: string, amb?: string | null) {
+    // Tenta o ambiente configurado; se não vier status (host errado/401), tenta o oposto.
+    let ultimo: { status: string; chave: string | null; protocolo: string | null; motivo: string } | null = null;
+    for (const a of this.ambientesParaLeitura(amb)) {
+      const r = await this.consultarFocusUm(token, ref, a);
+      if (r.status) return r;
+      ultimo = r;
+    }
+    return ultimo ?? { status: '', chave: null, protocolo: null, motivo: 'Consulta ao provedor: sem status.' };
+  }
+
+  private async consultarFocusUm(token: string, ref: string, amb?: string | null) {
     const url = `https://${this.focusHost(amb)}/v2/nfe/${encodeURIComponent(ref)}`;
     try {
       const res = await fetch(url, {
@@ -1434,6 +1456,18 @@ export class NfeService {
   private focusHost(amb?: string | null): string {
     const ambiente = amb || this.config.get<string>('NFE_AMBIENTE');
     return ambiente === 'producao' ? 'api.focusnfe.com.br' : 'homologacao.focusnfe.com.br';
+  }
+
+  /**
+   * Ordem de ambientes a tentar numa LEITURA (consulta/download). O ambiente da
+   * filial pode divergir do NFE_AMBIENTE global; a nota só existe no host onde foi
+   * emitida, então tentamos o configurado primeiro e o oposto como fallback. Isso
+   * evita notas presas em "pendente" só porque a consulta bateu no host errado.
+   */
+  private ambientesParaLeitura(amb?: string | null): Array<'producao' | 'homologacao'> {
+    const primeiro = this.focusHost(amb) === 'api.focusnfe.com.br' ? 'producao' : 'homologacao';
+    const oposto = primeiro === 'producao' ? 'homologacao' : 'producao';
+    return [primeiro, oposto];
   }
 
   // ===== Provedores =====

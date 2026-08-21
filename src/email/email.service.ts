@@ -7,6 +7,12 @@ export interface EnvioEmail {
   assunto: string;
   texto: string;
   anexos?: Array<{ filename: string; content: Buffer; contentType?: string }>;
+  /** Nome exibido no "De:" — reflete a empresa/filial que emite o documento
+   *  (ex.: "HC QUALITY CORPORATE", "YEREVAN CONFECÇÕES"). O endereço de envio
+   *  continua o da conta SMTP (deliverability/SPF); só o rótulo muda. */
+  remetenteNome?: string;
+  /** Responder-para (opcional): e-mail da empresa/vendedor p/ a resposta do cliente. */
+  replyTo?: string;
 }
 
 export interface ResultadoEnvio {
@@ -66,12 +72,22 @@ export class EmailService {
     }
     // Se SMTP_FROM já vem no formato "Nome <email>", usa como está;
     // se for só o e-mail, adiciona o nome da marca.
+    // Endereço de envio: sempre o da conta SMTP autenticada (SPF/DKIM). O NOME
+    // exibido no "De:" reflete a empresa do documento (remetenteNome) quando
+    // informado; senão cai no que estiver em SMTP_FROM ou "GRUPO CHERKESIAN".
     const fromEnv =
       this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || '';
-    const from = fromEnv.includes('<') ? fromEnv : `"GRUPO CHERKESIAN" <${fromEnv}>`;
+    const enderecoEnvio = /<([^>]+)>/.exec(fromEnv)?.[1] || fromEnv;
+    const nome = (envio.remetenteNome || '').replace(/"/g, '').trim();
+    const from = nome
+      ? `"${nome}" <${enderecoEnvio}>`
+      : fromEnv.includes('<')
+        ? fromEnv
+        : `"GRUPO CHERKESIAN" <${fromEnv}>`;
     const info = await this.transporter.sendMail({
       from,
       to: envio.para,
+      replyTo: envio.replyTo || undefined,
       subject: envio.assunto,
       text: envio.texto,
       attachments: envio.anexos,

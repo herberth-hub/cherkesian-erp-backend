@@ -134,23 +134,33 @@ export class DocumentosService {
     const { doc, numero } = await this.gerarPdf(id, user);
     const pdf = await this.pdfParaBuffer(doc);
 
+    // Empresa/filial emissora do documento — vira o NOME do remetente ("De:"),
+    // o assunto e a assinatura, para o cliente ver de qual empresa da base veio
+    // (HC QUALITY / YEREVAN / CHERKESIAN...). Cai em GRUPO CHERKESIAN se não houver.
+    let filialId: number | null = null;
+    if (documento.tipo === 'pedido' || documento.tipo === 'proposta') {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: Number(documento.referencia) }, select: { filialId: true } });
+      filialId = ped?.filialId ?? null;
+    }
+    const marca = await this.marcaRemetente(user.empresaId, filialId);
+
     // Nos documentos de cobrança (pedido/proposta), inclui a linha do PIX no corpo
     // do e-mail p/ facilitar o pagamento do cliente.
     let pagamentoTxt = '';
     if (documento.tipo === 'pedido' || documento.tipo === 'proposta') {
-      const ped = await this.prisma.pedido.findUnique({ where: { id: Number(documento.referencia) }, select: { filialId: true } });
-      const linha = await this.linhaPagamento(user.empresaId, ped?.filialId);
+      const linha = await this.linhaPagamento(user.empresaId, filialId);
       if (linha) pagamentoTxt = `\n\n${linha}`;
     }
 
     const resultado = await this.email.enviar({
       para,
-      assunto: assunto || `${def.titulo} ${numero} — GRUPO CHERKESIAN`,
+      remetenteNome: marca,
+      assunto: assunto || `${def.titulo} ${numero} — ${marca}`,
       texto:
         (mensagem ? mensagem + '\n\n' : '') +
         `Segue em anexo o documento ${numero} (${def.titulo}).` +
         pagamentoTxt +
-        '\n\nGRUPO CHERKESIAN · Uniformes Profissionais\n"Vestindo quem faz acontecer"',
+        `\n\n${marca} · Uniformes Profissionais\n"Vestindo quem faz acontecer"`,
       anexos: [{ filename: `${numero}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
 
@@ -172,6 +182,16 @@ export class DocumentosService {
     if (!db.trim()) return '';
     const linhaPix = db.split(/[\r\n]+/).map((l) => l.trim()).find((l) => /pix/i.test(l));
     return linhaPix ? `Para pagamento — ${linhaPix}` : '';
+  }
+
+  /** Nome de exibição da empresa emissora ("De:" do e-mail e assinatura).
+   *  Usa a filial do documento (nome fantasia ou razão) ou a matriz da empresa. */
+  async marcaRemetente(empresaId: number, filialId?: number | null): Promise<string> {
+    const f = filialId
+      ? await this.prisma.filial.findUnique({ where: { id: filialId }, select: { nome: true, nomeFantasia: true } })
+      : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, select: { nome: true, nomeFantasia: true } });
+    const nome = (f?.nomeFantasia || f?.nome || '').trim();
+    return nome || 'GRUPO CHERKESIAN';
   }
 
   private pdfParaBuffer(doc: Pdf): Promise<Buffer> {
