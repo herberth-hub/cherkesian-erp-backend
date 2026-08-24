@@ -613,11 +613,11 @@ function abertoSec(c){
     if(x.status==='hoje') return `<span style="background:#e08a2b;color:#fff;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700">hoje</span>`;
     return `<span style="background:#3a8f4f;color:#fff;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:700">${x.dias}d</span>`;
   };
-  const rows=(itens,cobrar)=> (itens||[]).map(x=>`<tr>
+  const rows=(itens,cobrar)=> (itens||[]).map(x=>`<tr onclick="APP.irCobranca(${cobrar?1:0},'${encodeURIComponent(x.parte||'')}')" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" title="Abrir no financeiro (já filtrado) para dar baixa" style="cursor:pointer">
       <td style="padding:6px 10px;border-top:1px solid #f0e7d0;font-weight:600">${esc(x.parte||'')}</td>
       <td style="padding:6px 10px;border-top:1px solid #f0e7d0;font-size:11px;color:#6b675c">${x.ref?esc(x.ref):'—'}</td>
       <td style="padding:6px 10px;border-top:1px solid #f0e7d0;text-align:center;font-size:11px;white-space:nowrap">${esc((x.vencimento||'').split('-').reverse().join('/'))} ${badge(x)}</td>
-      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'};white-space:nowrap">${money(x.valor)}</td>
+      <td style="padding:6px 10px;border-top:1px solid #f0e7d0;text-align:right;font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'};white-space:nowrap;text-decoration:underline;text-decoration-style:dotted">${money(x.valor)} ›</td>
     </tr>`).join('');
   const col=(o,cobrar)=>{
     const cor=cobrar?'#3a8f4f':'#c14a34';
@@ -758,10 +758,10 @@ function cobrancasSec(c){
     const tag = x.status==='vencida'
       ? `<span style="background:#c14a34;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700">${Math.abs(x.dias)}d atraso</span>`
       : `<span style="background:#e08a2b;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700">vence hoje</span>`;
-    return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 10px;border-top:1px solid #f0e7d0">
+    return `<div onclick="APP.irCobranca(${cobrar?1:0},'${encodeURIComponent(x.parte||'')}')" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" title="Abrir no financeiro (já filtrado) para dar baixa" style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 10px;border-top:1px solid #f0e7d0;cursor:pointer">
       <div style="min-width:0"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.parte||'')}</div>
         <div class="muted" style="font-size:11px">${venc}${x.ref?' · '+esc(x.ref):''}</div></div>
-      <div style="text-align:right;white-space:nowrap"><div style="font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'}">${money(x.valor)}</div>${tag}</div>
+      <div style="text-align:right;white-space:nowrap"><div style="font-weight:800;color:${cobrar?'#3a8f4f':'#c14a34'};text-decoration:underline;text-decoration-style:dotted">${money(x.valor)} ›</div>${tag}</div>
     </div>`;
   };
   const col=(o,cobrar)=>{
@@ -777,7 +777,15 @@ function cobrancasSec(c){
   };
   return `<div class="sect"><h3>💰 Cobrar / Pagar — vencidos e vencendo hoje</h3>
     <div style="display:flex;gap:12px;flex-wrap:wrap">${col(R,true)}${col(P,false)}</div>
-    <div class="muted" style="font-size:11px;margin-top:4px">Só títulos VENCIDOS ou que VENCEM HOJE (ação imediata). Lista completa em Financeiro › A receber / A pagar.</div></div>`;
+    <div class="muted" style="font-size:11px;margin-top:4px">Só títulos VENCIDOS ou que VENCEM HOJE (ação imediata). Clique numa linha para abrir no Financeiro já filtrado e dar baixa.</div></div>`;
+}
+// Abre o Financeiro (A receber / A pagar) já filtrado pelo nome da parte e em aberto,
+// para dar baixa direto a partir do dashboard.
+function irCobranca(cobrar, parteEnc){
+  const parte=decodeURIComponent(parteEnc||'');
+  const filt={ q:parte, de:'', ate:'', st:'aberto', emp:'' };
+  if(Number(cobrar)){ window.__RCFILTERS=filt; try{sessionStorage.setItem('rcfilt',JSON.stringify(filt));}catch(_){} go('receber'); }
+  else { window.__PGFILTERS=filt; try{sessionStorage.setItem('pgfilt',JSON.stringify(filt));}catch(_){} go('pagar'); }
 }
 function pedidosSec(e){
   if(!e) return '';
@@ -7220,7 +7228,7 @@ window.APP = {
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
-  go(r){ go(r); }, navGo, novaAba,
+  go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
