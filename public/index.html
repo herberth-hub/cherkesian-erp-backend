@@ -4411,7 +4411,7 @@ async function viewEstoque(c){
   const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
   const cont={produto:0,materia:0,aviamento:0}; (unidades||[]).forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.verRetalhos()">🧵 Retalhos</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
     + `<div class="cards">
         <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('estoque')"><div class="k">Em estoque</div><div class="v">${emEstoque}</div><div class="s">endereçadas</div></div>
         <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('recebimento')"><div class="k">📥 Recebimento</div><div class="v">${aguard}</div><div class="s">aguardando endereço</div></div>
@@ -4674,25 +4674,52 @@ const CAIXAS_MASTER=['1.000','2.000','3.000','4.000','5.000','6.000','7.000','8.
 async function formEntradaEstoque(){
   const [prods, mats] = await Promise.all([api('/produtos').catch(()=>[]), api('/materiais').catch(()=>[])]);
   window.__ESTPROD=prods; window.__ESTMAT=mats;
-  openModal(`<h3>Entrada de estoque (gera etiqueta por unidade)</h3>
-    <div class="grid2"><div class="mrow"><label class="fl">Tipo *</label><select id="en_tipo" class="inp" onchange="APP.enTipo()">
-        <option value="produto">Produto pronto</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
-      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar"><datalist id="enitemlist"></datalist></div></div>
-    <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
-    <div class="grid2">${field('en_qtd','Quantidade *','type="number" min="1" max="500" placeholder="ex.: 70"')}
-      <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
-    <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
-      <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
-        <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
-        <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option></select></div></div></div>
+  openModal(`<h3>Entrada de estoque</h3>
+    <div class="mrow"><label class="fl">Tipo *</label><select id="en_tipo" class="inp" onchange="APP.enTipo()">
+        <option value="produto">Produto pronto</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option><option value="retalho">🧵 Retalhos (pesar p/ reciclar)</option></select></div>
+    <div id="en_padrao">
+      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar"><datalist id="enitemlist"></datalist></div>
+      <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
+      <div class="grid2">${field('en_qtd','Quantidade *','type="number" min="1" max="500" placeholder="ex.: 70"')}
+        <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
+      <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
+        <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
+          <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
+          <div class="mrow"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option></select></div></div></div>
+    </div>
+    <div id="en_retalho" style="display:none">
+      <div class="muted" style="font-size:11px;margin:2px 0 6px">Pese o retalho na balança e registre o peso. Vai para o estoque de retalhos e você recicla no fim do mês.</div>
+      <div class="grid2">${field('re_desc','Descrição','placeholder="ex.: Retalho brim leve"')}${field('re_cor','Cor','placeholder="ex.: Azul marinho"')}</div>
+      <div class="grid3">${field('re_comp','Composição','placeholder="ex.: 67% poli 33% alg"')}${field('re_peso','Peso (kg) *','type="number" step="0.001" min="0" placeholder="ex.: 12,5"')}${field('re_local','Local / bag','placeholder="ex.: Bag 3"')}</div>
+    </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
+      <button class="btn-primary" id="en_savebtn" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
   enTipo();
 }
-function enTipo(){ const t=val('en_tipo'); const dl=$('enitemlist'); if(!dl)return; const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]); dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join(''); }
+function enTipo(){
+  const t=val('en_tipo');
+  const ret=t==='retalho';
+  const pad=$('en_padrao'), rbox=$('en_retalho'), btn=$('en_savebtn');
+  if(pad) pad.style.display=ret?'none':'';
+  if(rbox) rbox.style.display=ret?'':'none';
+  if(btn) btn.textContent=ret?'🧵 Guardar retalho':'Gerar entrada + etiquetas';
+  const dl=$('enitemlist'); if(!dl||ret)return;
+  const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
+  dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join('');
+}
 function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
 async function saveEntradaEstoque(){
-  const tipo=val('en_tipo'); const itemTxt=val('en_item'); const list=tipo==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
+  const tipo=val('en_tipo');
+  if(tipo==='retalho'){
+    const peso=Number((val('re_peso')||'').replace(',','.'));
+    if(!(peso>0)){ toast('Informe o peso do retalho (kg).','err'); return; }
+    const body={ pesoKg:peso, descricao:val('re_desc')||undefined, cor:val('re_cor')||undefined, composicao:val('re_comp')||undefined, localizacao:val('re_local')||undefined };
+    try{ const r=await api('/retalhos',{method:'POST',body}); closeModal();
+      toast('Retalho guardado: '+Number(r.pesoKg).toFixed(3).replace('.',',')+' kg'+(r.cor?(' · '+r.cor):'')+'.','ok'); loadRoute();
+    }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+    return;
+  }
+  const itemTxt=val('en_item'); const list=tipo==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
   const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
   const body={ tipo, quantidade:Number(val('en_qtd')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
@@ -4704,6 +4731,41 @@ async function saveEntradaEstoque(){
     imprimirEtqUnidades(r.pecas, r);
     loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+// ---------- Retalhos (sobras de tecido pesadas em kg, recicladas no fim do mês) ----------
+async function verRetalhos(){
+  let r; try{ r=await api('/retalhos'); }catch(e){ toast(e.message,'err'); return; }
+  const kg=v=>Number(v||0).toFixed(3).replace('.',',');
+  const cor = (r.porCor||[]).map(c=>`<span class="pill gray" style="margin:2px">${esc(c.cor)}: <b>${kg(c.kg)} kg</b></span>`).join('');
+  const linhas=(r.itens||[]).filter(x=>!x.reciclado).map(x=>`<tr>
+      <td style="padding:5px 8px">${esc(x.descricao)}${x.composicao?'<div class="muted" style="font-size:10px">'+esc(x.composicao)+'</div>':''}</td>
+      <td style="padding:5px 8px">${esc(x.cor||'—')}</td>
+      <td style="padding:5px 8px">${esc(x.localizacao||'—')}</td>
+      <td style="padding:5px 8px;text-align:right;font-weight:700">${kg(x.pesoKg)} kg</td>
+      <td style="padding:5px 8px">${esc((x.criadoEm||'').slice(0,10).split('-').reverse().join('/'))}</td>
+      <td style="padding:5px 8px;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.delRetalho(${x.id})">×</button></td>
+    </tr>`).join('');
+  openModal(`<h3>🧵 Retalhos em estoque</h3>
+    <div class="card kpi" style="margin-bottom:10px"><div class="k">Total guardado (não reciclado)</div><div class="v">${kg(r.totalKg)} kg</div><div class="s">${r.qtd||0} registro(s) de pesagem</div></div>
+    ${cor?`<div style="margin-bottom:8px">${cor}</div>`:''}
+    ${linhas?`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:#8a8674;font-size:11px"><th style="text-align:left;padding:5px 8px">Descrição</th><th style="text-align:left;padding:5px 8px">Cor</th><th style="text-align:left;padding:5px 8px">Local</th><th style="text-align:right;padding:5px 8px">Peso</th><th style="text-align:left;padding:5px 8px">Data</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>`:'<div class="empty">Nenhum retalho guardado. Use Entrada → Tipo: Retalhos.</div>'}
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Fechar</button>
+      <button class="btn-sm" onclick="APP.formEntradaEstoqueRetalho()">+ Pesar retalho</button>
+      ${(r.qtd||0)?`<button class="btn-primary" onclick="APP.reciclarRetalhos()">♻️ Reciclar tudo (fim do mês)</button>`:''}
+    </div>`);
+}
+// Abre a entrada já em modo retalho.
+function formEntradaEstoqueRetalho(){ closeModal(); formEntradaEstoque().then(()=>{ const s=$('en_tipo'); if(s){ s.value='retalho'; enTipo(); } }); }
+async function reciclarRetalhos(){
+  if(!(await uiConfirm({tipo:'warn', titulo:'Reciclar retalhos do mês?', ok:'Reciclar (dar baixa)', cancel:'Cancelar', msg:'Marca TODOS os retalhos em estoque como reciclados e zera o acumulado. Use no fim do mês, depois de enviar para reciclagem.'}))) return;
+  try{ const r=await api('/retalhos/reciclar',{method:'POST',body:{}}); toast('♻️ '+r.reciclados+' retalho(s) reciclado(s) · '+Number(r.kg).toFixed(3).replace('.',',')+' kg.','ok'); verRetalhos(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function delRetalho(id){
+  if(!(await uiConfirm('Remover este registro de retalho?'))) return;
+  try{ await api('/retalhos/'+id,{method:'DELETE'}); toast('Removido.','ok'); verRetalhos(); }
+  catch(e){ toast(e.message,'err'); }
 }
 // Abrevia a descrição p/ caber na etiqueta (tira o tecido após " - "/" — " e encurta palavras longas).
 function abrevEtq(d){
@@ -7244,7 +7306,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

@@ -40,6 +40,7 @@ import { TrayModule } from './tray/tray.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { EmbalagensModule } from './embalagens/embalagens.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
+import { RetalhosModule } from './retalhos/retalhos.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -104,6 +105,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     WhatsappModule,
     EmbalagensModule,
     TransportadorasModule,
+    RetalhosModule,
   ],
   controllers: [AppController],
   providers: [

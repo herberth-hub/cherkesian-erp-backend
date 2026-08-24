@@ -334,6 +334,26 @@ model Fornecedor {
 }
 
 /// Transportadora — dados do transporte que saem no quadro "TRANSPORTADOR" do DANFE.
+/// Retalhos de tecido (sobras do corte) — pesados em kg e guardados até a
+/// reciclagem no fim do mês. Estoque por PESO (não por peça/etiqueta).
+model Retalho {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  filialId    Int?
+  descricao   String   // ex.: "Retalho brim leve" — livre
+  cor         String?
+  composicao  String?  // ex.: "67% poliéster 33% algodão"
+  pesoKg      Decimal  @db.Decimal(10,3) // peso pesado na balança
+  localizacao String?  // onde está guardado (bag/bombona/prateleira)
+  origem      String?  // ex.: OP-0012, "corte", "sobra"
+  reciclado   Boolean  @default(false)   // baixado na reciclagem de fim de mês
+  recicladoEm DateTime?
+  criadoEm    DateTime @default(now())
+  criadoPor   String?
+
+  @@index([empresaId, reciclado])
+}
+
 model Transportadora {
   id                Int      @id @default(autoincrement())
   empresaId         Int
