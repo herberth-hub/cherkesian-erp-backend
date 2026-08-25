@@ -13,6 +13,8 @@ export class EntradaEstoqueDto {
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
   @IsPositive({ message: 'quantidade deve ser positiva.' })
   quantidade!: number;
+  /** Unidade de medida da entrada (matéria-prima/aviamento): m, kg, un, cone... */
+  @IsOptional() @IsString() @MaxLength(10) unidadeMedida?: string;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
   @IsOptional() @IsIn(['A', 'B']) coluna?: string;

@@ -39,7 +39,7 @@ export class EstoqueService {
    */
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
-    quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
+    quantidade: number; unidadeMedida?: string; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
   }, empresaId: number, usuario: string) {
     // Matéria-prima / aviamento entram por MEDIDA (metro/kg, decimal): somam ao saldo
@@ -55,7 +55,7 @@ export class EstoqueService {
     // Descrição + REF (código do produto/material) — vão na etiqueta.
     let descricao = dto.descricao;
     let ref = dto.ref ?? '';
-    let unidadeMedida = 'un';
+    let unidadeMedida = (dto.unidadeMedida || '').trim() || 'un';
     if (dto.produtoId) {
       const p = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
       if (!p || p.empresaId !== empresaId) throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
@@ -66,7 +66,12 @@ export class EstoqueService {
       if (!m || m.empresaId !== empresaId) throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
       descricao = descricao ?? m.descricao;
       ref = ref || m.codigo;
-      unidadeMedida = m.unidade || 'un';
+      // Unidade da entrada: a escolhida (m/kg/un…) ou a do cadastro. Se o usuário
+      // escolheu uma diferente (ex.: kg), atualiza o material p/ manter coerência.
+      unidadeMedida = (dto.unidadeMedida || '').trim() || m.unidade || 'un';
+      if (granel && dto.unidadeMedida && dto.unidadeMedida.trim() && dto.unidadeMedida.trim() !== m.unidade) {
+        await this.prisma.material.update({ where: { id: m.id }, data: { unidade: dto.unidadeMedida.trim() } });
+      }
     }
     if (!descricao) throw new BadRequestException('Informe a descrição do item (ou selecione um produto/material).');
 

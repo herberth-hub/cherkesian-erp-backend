@@ -4795,9 +4795,14 @@ async function formEntradaEstoque(){
     <div class="mrow"><label class="fl">Tipo *</label><select id="en_tipo" class="inp" onchange="APP.enTipo()">
         <option value="produto">Produto pronto</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option><option value="retalho">🧵 Retalhos (pesar p/ reciclar)</option></select></div>
     <div id="en_padrao">
-      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar"><datalist id="enitemlist"></datalist></div>
+      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar" oninput="APP.enItemUnidade()"><datalist id="enitemlist"></datalist></div>
       <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
-      <div class="grid2">${field('en_qtd','Quantidade *','type="number" min="1" max="500" placeholder="ex.: 70"')}
+      <div class="grid2">
+        <div class="mrow"><label class="fl" id="en_qtd_lab">Quantidade *</label>
+          <div style="display:flex;gap:6px">
+            <input id="en_qtd" class="inp" type="number" min="1" max="500" placeholder="ex.: 70" style="flex:1">
+            <select id="en_un" class="inp" style="width:96px;display:none"><option value="m">m</option><option value="kg">kg</option><option value="un">un</option><option value="cone">cone</option><option value="rolo">rolo</option><option value="pç">pç</option></select>
+          </div></div>
         <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
       <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
         <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
@@ -4822,15 +4827,23 @@ function enTipo(){
   if(btn) btn.textContent=ret?'🧵 Guardar retalho':'Gerar entrada + etiquetas';
   // Matéria-prima/aviamento entram por medida (metro/kg, decimal); produto por peça (inteiro).
   const granel=(t==='materia'||t==='aviamento');
-  const q=$('en_qtd');
+  const q=$('en_qtd'), un=$('en_un'), lab=$('en_qtd_lab');
   if(q){
     q.step=granel?'0.001':'1'; q.setAttribute('min',granel?'0.001':'1');
-    if(granel){ q.removeAttribute('max'); q.placeholder='ex.: 5,90 (metro/kg)'; } else { q.setAttribute('max','500'); q.placeholder='ex.: 70'; }
-    const lab=q.closest('.mrow')&&q.closest('.mrow').querySelector('.fl'); if(lab) lab.textContent=granel?'Quantidade — metro/kg *':'Quantidade *';
+    if(granel){ q.removeAttribute('max'); q.placeholder='ex.: 5,90'; } else { q.setAttribute('max','500'); q.placeholder='ex.: 70'; }
   }
+  if(un) un.style.display=granel?'':'none';
+  if(lab) lab.textContent=granel?'Quantidade + unidade *':'Quantidade *';
   const dl=$('enitemlist'); if(!dl||ret)return;
   const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
   dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join('');
+}
+// Ao escolher o material, sugere a unidade cadastrada dele (m/kg/un…) no seletor.
+function enItemUnidade(){
+  const t=val('en_tipo'); if(t!=='materia'&&t!=='aviamento') return;
+  const itemTxt=val('en_item'); const list=window.__ESTMAT||[];
+  const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
+  const un=$('en_un'); if(it&&it.unidade&&un){ const u=String(it.unidade).toLowerCase(); if([...un.options].some(o=>o.value===u)) un.value=u; }
 }
 function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
 async function saveEntradaEstoque(){
@@ -4850,6 +4863,7 @@ async function saveEntradaEstoque(){
   const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
   const granel=(tipo==='materia'||tipo==='aviamento');
   const body={ tipo, quantidade:Number((val('en_qtd')||'').replace(',','.')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
+  if(granel){ const u=val('en_un'); if(u) body.unidadeMedida=u; }
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
   if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
   if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
@@ -7478,7 +7492,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemUnidade, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
