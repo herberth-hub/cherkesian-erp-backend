@@ -4856,7 +4856,11 @@ async function formEntradaEstoque(){
     <div class="mrow"><label class="fl">Tipo *</label><select id="en_tipo" class="inp" onchange="APP.enTipo()">
         <option value="produto">Produto pronto</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option><option value="retalho">🧵 Retalhos (pesar p/ reciclar)</option></select></div>
     <div id="en_padrao">
-      <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar" oninput="APP.enItemUnidade()"><datalist id="enitemlist"></datalist></div>
+      <div class="mrow" style="position:relative">
+        <label class="fl">Item (opcional — busca por código, descrição ou cor)</label>
+        <input id="en_item" class="inp" autocomplete="off" placeholder="digite p/ buscar…" oninput="APP.enItemFilter()" onfocus="APP.enItemFilter()" onblur="APP.enItemBlur()">
+        <div id="en_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div>
+      </div>
       <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
       ${field('en_lote','Lote / partida do fornecedor (rastreio — sai na etiqueta)','placeholder="ex.: L2025-0788"')}
       <div class="grid2">
@@ -4896,24 +4900,40 @@ function enTipo(){
   }
   if(un) un.style.display=''; // seletor de unidade sempre visível (un/kg/metro…)
   if(lab) lab.textContent=granel?'Quantidade + unidade *':'Quantidade + unidade *';
-  const dl=$('enitemlist'); if(!dl||ret)return;
-  const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
-  dl.innerHTML=list.map(p=>`<option value="${esc(enItemLabel(p))}"></option>`).join('');
+  // troca de tipo → limpa item selecionado e fecha o dropdown
+  window.__ENITEMID=null; const inp=$('en_item'); if(inp) inp.value=''; const dd0=$('en_itemdd'); if(dd0) dd0.style.display='none';
 }
-// Rótulo do item na busca: código · descrição · 🎨 COR (destaca a cor p/ achar entre iguais).
+// Rótulo do item: código · descrição · 🎨 COR (destaca a cor p/ achar entre iguais).
 function enItemLabel(p){ return p.codigo+' · '+p.descricao+(p.cor?' · 🎨 '+p.cor:''); }
+function enItemList(){ const t=val('en_tipo'); return t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]); }
 function enItemFind(itemTxt, list){
+  if(window.__ENITEMID){ const byId=list.find(p=>p.id===window.__ENITEMID); if(byId) return byId; }
   const cod=(itemTxt.split('·')[0]||'').trim();
   return list.find(p=>enItemLabel(p)===itemTxt) || list.find(p=>p.codigo===cod);
 }
-// Ao escolher o material, preenche a COR e sugere a unidade cadastrada dele no seletor.
-function enItemUnidade(){
-  const t=val('en_tipo'); if(t!=='materia'&&t!=='aviamento') return;
-  const it=enItemFind(val('en_item'), window.__ESTMAT||[]);
-  if(!it) return;
-  const un=$('en_un'); if(it.unidade&&un){ const u=String(it.unidade).toLowerCase(); if([...un.options].some(o=>o.value===u)) un.value=u; }
+// Dropdown PRÓPRIO da busca de item: abre dentro do modal, texto completo, cor destacada.
+function enItemFilter(){
+  const dd=$('en_itemdd'); if(!dd) return;
+  const t=val('en_tipo'); if(t==='retalho'){ dd.style.display='none'; return; }
+  window.__ENITEMID=null; // texto mudou → desfaz seleção fixa
+  const q=(val('en_item')||'').trim().toLowerCase();
+  let list=enItemList();
+  if(q){ const terms=q.split(/\s+/); list=list.filter(p=>{ const s=(p.codigo+' '+p.descricao+' '+(p.cor||'')).toLowerCase(); return terms.every(tm=>s.includes(tm)); }); }
+  list=list.slice(0,80);
+  if(!list.length){ dd.innerHTML='<div class="muted" style="padding:8px 10px">Nada encontrado.</div>'; dd.style.display=''; return; }
+  dd.innerHTML=list.map(p=>`<div onmousedown="APP.enItemPick(${p.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35">
+      <span class="mono gold" style="font-weight:700">${esc(p.codigo)}</span> ${esc(p.descricao)}${p.cor?` · <b style="color:#7a5b12">🎨 ${esc(p.cor)}</b>`:''}</div>`).join('');
+  dd.style.display='';
+}
+function enItemBlur(){ setTimeout(()=>{ const dd=$('en_itemdd'); if(dd) dd.style.display='none'; }, 180); }
+function enItemPick(id){
+  const it=enItemList().find(p=>p.id===id); if(!it) return;
+  window.__ENITEMID=id;
+  const inp=$('en_item'); if(inp) inp.value=enItemLabel(it);
+  const un=$('en_un'); if(un&&it.unidade){ const u=String(it.unidade).toLowerCase(); if([...un.options].some(o=>o.value===u)) un.value=u; }
   const cor=$('en_cor'); if(cor&&it.cor) cor.value=it.cor;
-  const desc=$('en_desc'); if(desc&&!desc.value&&it.descricao) desc.value=it.descricao;
+  const desc=$('en_desc'); if(desc&&it.descricao) desc.value=it.descricao;
+  const dd=$('en_itemdd'); if(dd) dd.style.display='none';
 }
 function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
 async function saveEntradaEstoque(){
@@ -7563,7 +7583,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemUnidade, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
