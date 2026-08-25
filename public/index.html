@@ -1912,6 +1912,9 @@ async function formProduto(id, prefill){
   </style>
     <h3>${id?'Editar':'Novo'} produto — ficha técnica</h3>
     ${secDivisor('IDENTIFICAÇÃO')}
+    <div class="mrow" style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 10px;margin:0 0 8px"><label class="fl" style="font-weight:700">Tipo do produto *</label>
+      <select id="f_tipo" class="inp" onchange="APP.prodTipoToggle()"><option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>🏭 Produção própria (gera OP · usa tecido/consumo)</option><option value="revenda"${p.tipo==='revenda'?' selected':''}>🛒 Revenda (comprado pronto — não gera OP)</option></select>
+      <div id="f_tiporev" class="muted" style="font-size:11px;margin-top:4px;display:none">🛒 Revenda: preencha custo de compra, preço de venda e NCM. Tecido/consumo/peso não se aplicam.</div></div>
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
@@ -1938,11 +1941,7 @@ async function formProduto(id, prefill){
       <div class="mrow"><label class="fl">&nbsp;</label><button type="button" class="btn-sm" onclick="APP.formEmbalagens()">📦 Gerenciar embalagens</button></div>
     </div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.pesoTamToggle()" title="Peso diferente por tamanho (um G8 pesa mais que um PP)">⚖️ Peso por tamanho (PP…G8)</button><div id="f_pesotam" style="display:none;margin-top:8px"></div></div>
-    <div class="grid2">${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
-      <div class="mrow"><label class="fl">Tipo * <span class="muted">(gera OP?)</span></label><select id="f_tipo" class="inp">
-        <option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>Produção própria (gera OP)</option>
-        <option value="revenda"${p.tipo==='revenda'?' selected':''}>Revenda (não gera OP)</option>
-      </select></div></div>
+    ${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
     ${field('f_model','Modelagem (Audaces) — ex.: 3174 - N 7005-000AA','value="'+esc(p.modelagem||'')+'"')}
     ${id?'':'<div class="muted" style="font-size:11px;margin:-2px 0 6px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
     ${secDivisor('CLIENTE / VENDA')}
@@ -1977,7 +1976,10 @@ async function formProduto(id, prefill){
   if(p.observacoes) $('f_obs').value=p.observacoes;
   pmedRender();
   tecPick();
+  prodTipoToggle();
 }
+// Mostra a dica de revenda conforme o Tipo do produto.
+function prodTipoToggle(){ const rev=$('f_tipo')&&val('f_tipo')==='revenda'; const h=$('f_tiporev'); if(h) h.style.display=rev?'':'none'; }
 // ----- Consumo de tecido POR TAMANHO (opcional, precisão na OP) -----
 const ESCADA_TAM=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8'];
 function tecTamSizes(){ const g=(val('f_grade')||'').toUpperCase(); const p=g.split(/[,;/ ]+/).map(s=>s.trim()).filter(Boolean); return p.length?p.slice(0,16):ESCADA_TAM; }
@@ -7675,7 +7677,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
