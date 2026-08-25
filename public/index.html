@@ -4715,7 +4715,9 @@ async function saveEntradaEstoque(){
     if(!(peso>0)){ toast('Informe o peso do retalho (kg).','err'); return; }
     const body={ pesoKg:peso, descricao:val('re_desc')||undefined, cor:val('re_cor')||undefined, composicao:val('re_comp')||undefined, localizacao:val('re_local')||undefined };
     try{ const r=await api('/retalhos',{method:'POST',body}); closeModal();
-      toast('Retalho guardado: '+Number(r.pesoKg).toFixed(3).replace('.',',')+' kg'+(r.cor?(' · '+r.cor):'')+'.','ok'); loadRoute();
+      toast('Retalho guardado: '+Number(r.pesoKg).toFixed(3).replace('.',',')+' kg'+(r.cor?(' · '+r.cor):'')+'.','ok');
+      if(r.etiqueta) imprimirEtqRetalho(r.etiqueta);
+      loadRoute();
     }catch(e){ toast('Falha: '+(e.message||e),'err'); }
     return;
   }
@@ -4743,7 +4745,7 @@ async function verRetalhos(){
       <td style="padding:5px 8px">${esc(x.localizacao||'—')}</td>
       <td style="padding:5px 8px;text-align:right;font-weight:700">${kg(x.pesoKg)} kg</td>
       <td style="padding:5px 8px">${esc((x.criadoEm||'').slice(0,10).split('-').reverse().join('/'))}</td>
-      <td style="padding:5px 8px;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.delRetalho(${x.id})">×</button></td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap"><button class="btn-sm" onclick="APP.etiquetaRetalho(${x.id})">🏷</button> <button class="btn-sm" style="color:#c14a34" onclick="APP.delRetalho(${x.id})">×</button></td>
     </tr>`).join('');
   openModal(`<h3>🧵 Retalhos em estoque</h3>
     <div class="card kpi" style="margin-bottom:10px"><div class="k">Total guardado (não reciclado)</div><div class="v">${kg(r.totalKg)} kg</div><div class="s">${r.qtd||0} registro(s) de pesagem</div></div>
@@ -4766,6 +4768,48 @@ async function delRetalho(id){
   if(!(await uiConfirm('Remover este registro de retalho?'))) return;
   try{ await api('/retalhos/'+id,{method:'DELETE'}); toast('Removido.','ok'); verRetalhos(); }
   catch(e){ toast(e.message,'err'); }
+}
+async function etiquetaRetalho(id){
+  let et; try{ et=await api('/retalhos/'+id+'/etiqueta'); }catch(e){ toast(e.message,'err'); return; }
+  imprimirEtqRetalho(et);
+}
+// Etiqueta do FARDO de retalho (código + código de barras + cor/peso/composição/data).
+function imprimirEtqRetalho(et){
+  et=et||{};
+  const kg=Number(et.pesoKg||0).toFixed(3).replace('.',',');
+  const page=`<div class="page"><div class="ul">
+      <div class="ulref">🧵 RETALHO ${et.cor?('· '+esc(String(et.cor).toUpperCase())):''}</div>
+      <div class="ulp">${esc(et.descricao||'Retalho de tecido')}</div>
+      <div class="ulpeso">${kg} kg</div>
+      ${et.composicao?`<div class="uld">${esc(et.composicao)}</div>`:''}
+      <div class="uld">${et.localizacao?('📍 '+esc(et.localizacao)+' · '):''}${esc((et.data||'').split('-').reverse().join('/'))}</div>
+      <img src="${et.barcode}">
+      <div class="ulc">${esc(et.codigo||'')}</div></div></div>`;
+  const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir a etiqueta.','err'); return; }
+  w.document.write(`<html><head><title>Etiqueta ${esc(et.codigo||'')}</title><meta charset=utf-8>
+    <style id="upsz">@page{size:100mm 50mm;margin:0}</style>
+    <style>
+    *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
+    .ulref{font-size:9pt;font-weight:800;color:#222} .ulp{font-size:11pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .ulpeso{font-size:20pt;font-weight:900;line-height:1;margin:.4mm 0} .uld{font-size:8.5pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+    body.a4mode .wrap{display:grid;grid-template-columns:repeat(2,1fr);gap:4mm;padding:4mm}
+    body.a4mode .page{border:1px solid #000;border-radius:4px;padding:3mm;break-inside:avoid} body.a4mode .ul img{height:12mm}
+    body.z50mode .wrap{display:block}
+    body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm}
+    body.z50mode .ul{width:100%;height:100%;padding:1.5mm 9mm 1.5mm 12mm} body.z50mode .ul img{height:12mm}
+    @media print{ body{background:#fff} .bar{display:none!important} body.z50mode .page{margin:0} }
+    body.z50mode{background:#eee}
+    .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
+    .bar button{padding:6px 10px;cursor:pointer}
+    </style></head><body class="z50mode">
+    <div class="bar"><b style="align-self:center">Imprimir:</b>
+      <button onclick="setUL('z50')">🏷 Zebra 100×50</button>
+      <button onclick="setUL('a4')">📄 Folha A4</button></div>
+    <div class="wrap">${page}</div>
+    <script>function setUL(s){var z=s==='z50';document.body.className=z?'z50mode':'a4mode';document.getElementById('upsz').textContent=z?'@page{size:100mm 50mm;margin:0}':'@page{size:A4;margin:8mm}';setTimeout(function(){window.print()},150);}setTimeout(function(){window.print()},250);<\/script>
+    </body></html>`);
+  w.document.close();
 }
 // Abrevia a descrição p/ caber na etiqueta (tira o tecido após " - "/" — " e encurta palavras longas).
 function abrevEtq(d){
@@ -7306,7 +7350,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,

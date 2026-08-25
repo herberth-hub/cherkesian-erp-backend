@@ -36,6 +36,11 @@ export class RetalhosController {
     return this.service.create(dto, user.empresaId, user.usuario);
   }
 
+  @Get(':id/etiqueta')
+  etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.service.etiqueta(id, user.empresaId);
+  }
+
   @Post('reciclar')
   reciclar(@Body() dto: ReciclarDto, @CurrentUser() user: AuthUser) {
     return this.service.reciclar(user.empresaId, dto.ids);

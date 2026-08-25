@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Retalho } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
 
 export interface CriarRetalhoInput {
   descricao?: string;
@@ -43,12 +45,12 @@ export class RetalhosService {
     };
   }
 
-  /** Registra uma pesagem de retalho no estoque. */
+  /** Registra uma pesagem de retalho no estoque. Já devolve a etiqueta do fardo. */
   async create(dto: CriarRetalhoInput, empresaId: number, criadoPor: string) {
     const peso = Number(dto.pesoKg);
     if (!(peso > 0)) throw new BadRequestException('Informe o peso do retalho (kg > 0).');
     const descricao = (dto.descricao || '').trim() || (dto.cor ? `Retalho ${dto.cor}` : 'Retalho de tecido');
-    return this.prisma.retalho.create({
+    const r = await this.prisma.retalho.create({
       data: {
         empresaId,
         filialId: dto.filialId,
@@ -61,6 +63,33 @@ export class RetalhosService {
         criadoPor,
       },
     });
+    return { ...r, etiqueta: await this.montarEtiqueta(r) };
+  }
+
+  /** Etiqueta do fardo (código + código de barras) para reimpressão. */
+  async etiqueta(id: number, empresaId: number) {
+    const r = await this.prisma.retalho.findUnique({ where: { id } });
+    if (!r || r.empresaId !== empresaId) throw new NotFoundException(`Retalho ${id} não encontrado.`);
+    return this.montarEtiqueta(r);
+  }
+
+  private codigoDe(id: number): string {
+    return `RET-${String(id).padStart(6, '0')}`;
+  }
+
+  private async montarEtiqueta(r: Retalho) {
+    const codigo = this.codigoDe(r.id);
+    const bc = await bwipjs.toBuffer({ bcid: 'code128', text: codigo, scale: 2, height: 12, includetext: false, padding: 0 });
+    return {
+      codigo,
+      descricao: r.descricao,
+      cor: r.cor,
+      composicao: r.composicao,
+      pesoKg: Number(r.pesoKg),
+      localizacao: r.localizacao,
+      data: r.criadoEm.toISOString().slice(0, 10),
+      barcode: 'data:image/png;base64,' + bc.toString('base64'),
+    };
   }
 
   /** Reciclagem de fim de mês: baixa (marca reciclado) os retalhos informados,
