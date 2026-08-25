@@ -42,13 +42,20 @@ export class EstoqueService {
     quantidade: number; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
   }, empresaId: number, usuario: string) {
-    const qtd = Math.floor(Number(dto.quantidade));
-    if (!qtd || qtd < 1) throw new BadRequestException('Informe a quantidade (>= 1).');
-    if (qtd > 500) throw new BadRequestException('Máximo de 500 unidades por entrada.');
+    // Matéria-prima / aviamento entram por MEDIDA (metro/kg, decimal): somam ao saldo
+    // do material e geram 1 etiqueta do rolo/volume. Produto acabado entra por PEÇA
+    // (inteiro), com 1 etiqueta por peça.
+    const granel = dto.tipo === 'materia' || dto.tipo === 'aviamento';
+    const qtdMedida = Number(dto.quantidade);
+    if (!(qtdMedida > 0)) throw new BadRequestException('Informe a quantidade (> 0).');
+    const qtd = granel ? 1 : Math.floor(qtdMedida);
+    if (!granel && (qtd < 1)) throw new BadRequestException('Informe a quantidade (>= 1).');
+    if (!granel && qtd > 500) throw new BadRequestException('Máximo de 500 unidades (peças) por entrada.');
 
     // Descrição + REF (código do produto/material) — vão na etiqueta.
     let descricao = dto.descricao;
     let ref = dto.ref ?? '';
+    let unidadeMedida = 'un';
     if (dto.produtoId) {
       const p = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
       if (!p || p.empresaId !== empresaId) throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
@@ -59,6 +66,7 @@ export class EstoqueService {
       if (!m || m.empresaId !== empresaId) throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
       descricao = descricao ?? m.descricao;
       ref = ref || m.codigo;
+      unidadeMedida = m.unidade || 'un';
     }
     if (!descricao) throw new BadRequestException('Informe a descrição do item (ou selecione um produto/material).');
 
@@ -90,13 +98,28 @@ export class EstoqueService {
       });
       criadas.push({ codigo });
     }
+
+    // Matéria-prima/aviamento: soma a quantidade (metro/kg) ao saldo do material.
+    if (granel && dto.materialId) {
+      await this.prisma.material.update({
+        where: { id: dto.materialId },
+        data: { saldo: { increment: new Prisma.Decimal(qtdMedida.toFixed(3)) } },
+      });
+    }
+
     // Gera as etiquetas (código de barras) das unidades criadas.
+    const qtdFmt = qtdMedida.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
     const pecas = [];
     for (const c of criadas) {
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: c.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
-      pecas.push({ codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '', loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+      pecas.push({
+        codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
+        loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
+        // No rolo/volume de matéria-prima, mostra a medida na etiqueta (ex.: 5,90 m).
+        ...(granel ? { qtdLote: qtdFmt, unLote: unidadeMedida } : {}),
+      });
     }
-    return { loteEntrada, total: qtd, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
+    return { loteEntrada, total: qtd, granel, saldoAdd: granel ? qtdMedida : 0, unidade: unidadeMedida, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
   }
 
   private enderecoTxt(d: { coluna?: string; andar?: string; caixaMaster?: string }): string | null {

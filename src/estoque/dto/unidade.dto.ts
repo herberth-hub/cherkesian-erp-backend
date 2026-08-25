@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, MaxLength } from 'class-validator';
 
 export class EntradaEstoqueDto {
   @IsIn(['materia', 'aviamento', 'produto']) tipo!: string;
@@ -8,7 +8,11 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsString() @MaxLength(40) ref?: string;
   @IsOptional() @IsString() @MaxLength(40) cor?: string;
   @IsOptional() @IsString() @MaxLength(40) tamanho?: string;
-  @IsInt() @Min(1) @Max(500) quantidade!: number;
+  // Aceita decimal (matéria-prima/aviamento por metro/kg). Produto acabado é
+  // arredondado para inteiro no serviço (1 etiqueta por peça, máx. 500).
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
+  @IsPositive({ message: 'quantidade deve ser positiva.' })
+  quantidade!: number;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
   @IsOptional() @IsIn(['A', 'B']) coluna?: string;

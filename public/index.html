@@ -4820,6 +4820,14 @@ function enTipo(){
   if(pad) pad.style.display=ret?'none':'';
   if(rbox) rbox.style.display=ret?'':'none';
   if(btn) btn.textContent=ret?'🧵 Guardar retalho':'Gerar entrada + etiquetas';
+  // Matéria-prima/aviamento entram por medida (metro/kg, decimal); produto por peça (inteiro).
+  const granel=(t==='materia'||t==='aviamento');
+  const q=$('en_qtd');
+  if(q){
+    q.step=granel?'0.001':'1'; q.setAttribute('min',granel?'0.001':'1');
+    if(granel){ q.removeAttribute('max'); q.placeholder='ex.: 5,90 (metro/kg)'; } else { q.setAttribute('max','500'); q.placeholder='ex.: 70'; }
+    const lab=q.closest('.mrow')&&q.closest('.mrow').querySelector('.fl'); if(lab) lab.textContent=granel?'Quantidade — metro/kg *':'Quantidade *';
+  }
   const dl=$('enitemlist'); if(!dl||ret)return;
   const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
   dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join('');
@@ -4840,13 +4848,16 @@ async function saveEntradaEstoque(){
   }
   const itemTxt=val('en_item'); const list=tipo==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
   const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
-  const body={ tipo, quantidade:Number(val('en_qtd')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
+  const granel=(tipo==='materia'||tipo==='aviamento');
+  const body={ tipo, quantidade:Number((val('en_qtd')||'').replace(',','.')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
   if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
-  if(!body.quantidade||body.quantidade<1){ toast('Informe a quantidade.','err'); return; }
+  if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
+  if(granel && !body.materialId){ toast('Selecione o material (no campo Item) para somar ao saldo.','err'); return; }
   if(!body.descricao){ toast('Informe a descrição (ou selecione um item).','err'); return; }
   try{ const r=await api('/estoque/entrada',{method:'POST',body}); closeModal();
-    toast('Entrada '+r.loteEntrada+' · '+r.total+' unidade(s) · '+(r.endereco||'sem endereço'),'ok');
+    if(r.granel){ toast('Entrada '+r.loteEntrada+' · +'+Number(r.saldoAdd).toLocaleString('pt-BR')+' '+esc(r.unidade||'')+' no saldo · '+(r.endereco||'etiqueta do rolo'),'ok'); }
+    else { toast('Entrada '+r.loteEntrada+' · '+r.total+' unidade(s) · '+(r.endereco||'sem endereço'),'ok'); }
     imprimirEtqUnidades(r.pecas, r);
     loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
@@ -4940,7 +4951,7 @@ function imprimirEtqUnidades(pecas, meta){
   const pages=(pecas||[]).map(p=>`<div class="page"><div class="ul">
       ${p.ref?`<div class="ulref">REF ${esc(p.ref)}</div>`:''}
       <div class="ulp">${esc(abrevEtq(p.descricao))}</div>
-      <div class="uld"><b>${p.tamanho?('TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+p.qtdLote+' un'):''}</b>${p.cor?((p.tamanho||p.qtdLote?' · ':'')+esc(p.cor)):''}</div>
+      <div class="uld"><b>${p.tamanho?('TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+esc(p.qtdLote)+' '+esc(p.unLote||'un')):''}</b>${p.cor?((p.tamanho||p.qtdLote?' · ':'')+esc(p.cor)):''}</div>
       ${p.loteFornecedor?`<div class="ullote">LOTE ${esc(p.loteFornecedor)}</div>`:''}
       <img src="${p.barcode}">
       <div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
