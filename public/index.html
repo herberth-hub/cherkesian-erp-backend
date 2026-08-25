@@ -4898,14 +4898,22 @@ function enTipo(){
   if(lab) lab.textContent=granel?'Quantidade + unidade *':'Quantidade + unidade *';
   const dl=$('enitemlist'); if(!dl||ret)return;
   const list=t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
-  dl.innerHTML=list.map(p=>`<option value="${esc(p.codigo+' · '+p.descricao)}"></option>`).join('');
+  dl.innerHTML=list.map(p=>`<option value="${esc(enItemLabel(p))}"></option>`).join('');
 }
-// Ao escolher o material, sugere a unidade cadastrada dele (m/kg/un…) no seletor.
+// Rótulo do item na busca: código · descrição · 🎨 COR (destaca a cor p/ achar entre iguais).
+function enItemLabel(p){ return p.codigo+' · '+p.descricao+(p.cor?' · 🎨 '+p.cor:''); }
+function enItemFind(itemTxt, list){
+  const cod=(itemTxt.split('·')[0]||'').trim();
+  return list.find(p=>enItemLabel(p)===itemTxt) || list.find(p=>p.codigo===cod);
+}
+// Ao escolher o material, preenche a COR e sugere a unidade cadastrada dele no seletor.
 function enItemUnidade(){
   const t=val('en_tipo'); if(t!=='materia'&&t!=='aviamento') return;
-  const itemTxt=val('en_item'); const list=window.__ESTMAT||[];
-  const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
-  const un=$('en_un'); if(it&&it.unidade&&un){ const u=String(it.unidade).toLowerCase(); if([...un.options].some(o=>o.value===u)) un.value=u; }
+  const it=enItemFind(val('en_item'), window.__ESTMAT||[]);
+  if(!it) return;
+  const un=$('en_un'); if(it.unidade&&un){ const u=String(it.unidade).toLowerCase(); if([...un.options].some(o=>o.value===u)) un.value=u; }
+  const cor=$('en_cor'); if(cor&&it.cor) cor.value=it.cor;
+  const desc=$('en_desc'); if(desc&&!desc.value&&it.descricao) desc.value=it.descricao;
 }
 function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
 async function saveEntradaEstoque(){
@@ -4922,9 +4930,9 @@ async function saveEntradaEstoque(){
     return;
   }
   const itemTxt=val('en_item'); const list=tipo==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]);
-  const it=list.find(p=>(p.codigo+' · '+p.descricao)===itemTxt || p.codigo===(itemTxt.split('·')[0]||'').trim());
+  const it=enItemFind(itemTxt, list);
   const granel=(tipo==='materia'||tipo==='aviamento');
-  const body={ tipo, quantidade:Number((val('en_qtd')||'').replace(',','.')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
+  const body={ tipo, quantidade:Number((val('en_qtd')||'').replace(',','.')), descricao:val('en_desc')||undefined, cor:(val('en_cor')||(it&&it.cor)||'')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
   { const u=val('en_un'); if(u) body.unidadeMedida=u; }
   { const lt=val('en_lote'); if(lt) body.loteFornecedor=lt; }
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
