@@ -1071,7 +1071,7 @@ async function viewMateriais(c){
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
       return [
-        `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao), esc(m.unidade),
+        `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao)+(m.cor?` <span class="pill" style="background:#f0e7d0;color:#7a5b12;font-size:10px">${esc(m.cor)}</span>`:''), esc(m.unidade),
         `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
         `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formMaterial(${m.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
       ];
@@ -2293,7 +2293,8 @@ async function formMaterial(id){
   openModal(`<h3>${id?'Editar':'Novo'} material / tecido</h3>
     ${field('f_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
     ${field('f_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
-    <div class="grid3">${field('f_cor','Cor','value="'+esc(m.cor||'')+'"')}${field('f_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('f_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
+    <div class="grid3">${field('f_cor',id?'Cor':'Cor(es) — vírgula p/ criar várias','value="'+esc(m.cor||'')+'"'+(id?'':' placeholder="ex.: AZUL ROYAL, BRANCO, PRETO"'))}${field('f_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('f_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
+    ${id?'':'<div class="muted" style="font-size:10.5px;margin:-4px 0 6px">Digite várias cores separadas por vírgula para criar um material por cor (mesmo artigo). O saldo inicial vale só p/ 1 cor — para várias, use "Entrada de estoque" por cor depois.</div>'}
     <div class="grid2">${field('f_saldo','Saldo'+(id?'':' inicial'),'type="number" step="0.001" value="'+(m.saldo!=null?m.saldo:0)+'"')}${field('f_min','Mínimo','type="number" step="0.001" value="'+(m.minimo!=null?m.minimo:0)+'"')}</div>
     ${field('f_local','Localização na prateleira (aparece no romaneio de corte)','value="'+esc(m.localizacao||'')+'" placeholder="ex.: B3, Prateleira 12"')}
     <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 4px;font-weight:700">FICHA DO TECIDO / ARTIGO (da etiqueta do fabricante)</div>
@@ -2316,17 +2317,39 @@ async function resolverFabricante(){
   return nf.id;
 }
 async function saveMaterial(id){
-  const body = { categoria:val('f_cat'), descricao:val('f_desc'), cor:val('f_cor'), unidade:val('f_un')||'un',
-    custo:Number(val('f_custo')||0), saldo:Number(val('f_saldo')||0), minimo:Number(val('f_min')||0), localizacao:val('f_local')||undefined,
+  const base = { categoria:val('f_cat'), descricao:val('f_desc'), unidade:val('f_un')||'un',
+    custo:Number(val('f_custo')||0), minimo:Number(val('f_min')||0), localizacao:val('f_local')||undefined,
     artigo:val('f_artigo')||undefined, codigoArtigo:val('f_ordem')||undefined, composicao:val('f_comp')||undefined };
-  const larg=val('f_larg'); if(larg) body.largura=Number(larg);
-  const gram=val('f_gram'); if(gram) body.gramatura=Number(gram);
-  const grml=val('f_grml'); if(grml) body.gramaturaLinear=Number(grml);
-  if(!body.categoria||!body.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
-  try{ const fid=await resolverFabricante(); if(fid) body.fornecedorId=fid; }
-  catch(e){ toast('Fabricante: '+(e.message||e),'err'); return; }
-  try{ await api(id?('/materiais/'+id):'/materiais',{method:id?'PATCH':'POST',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
-  catch(e){ toast(e.message,'err'); }
+  const larg=val('f_larg'); if(larg) base.largura=Number(larg);
+  const gram=val('f_gram'); if(gram) base.gramatura=Number(gram);
+  const grml=val('f_grml'); if(grml) base.gramaturaLinear=Number(grml);
+  if(!base.categoria||!base.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
+  let fid=null;
+  try{ fid=await resolverFabricante(); }catch(e){ toast('Fabricante: '+(e.message||e),'err'); return; }
+  if(fid) base.fornecedorId=fid;
+  // Cores: 1 ou várias (vírgula/;). Edição = 1 cor. Cadastro novo com várias = 1 material por cor.
+  const cores=(val('f_cor')||'').split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
+  if(id){
+    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('f_saldo')||0) });
+    try{ await api('/materiais/'+id,{method:'PATCH',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
+    catch(e){ toast(e.message,'err'); }
+    return;
+  }
+  if(cores.length<=1){
+    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('f_saldo')||0) });
+    try{ await api('/materiais',{method:'POST',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
+    catch(e){ toast(e.message,'err'); }
+    return;
+  }
+  // Várias cores do mesmo artigo → 1 material por cor (saldo inicial 0 em cada).
+  let ok=0; const erros=[];
+  for(const c of cores){
+    try{ await api('/materiais',{method:'POST',body:Object.assign({}, base, { cor:c, saldo:0 })}); ok++; }
+    catch(e){ erros.push(c+': '+(e.message||e)); }
+  }
+  closeModal();
+  toast(ok+' cor(es) cadastrada(s) do artigo "'+base.descricao+'"'+(erros.length?(' · '+erros.length+' falha(s)'):'.'), erros.length?'err':'ok');
+  loadRoute();
 }
 
 async function formFornecedor(id){
