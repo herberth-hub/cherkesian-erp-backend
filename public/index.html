@@ -2744,7 +2744,7 @@ async function viewReceber(c){
   window.__RECS = list; window.__RCEMP=F.emp||'';
   window.__RECNOME = {}; window.__RECCNPJ = {}; clientes.forEach(cl=>{ window.__RECNOME[cl.id]=cl.nome; window.__RECCNPJ[cl.id]=cl.cnpjCpf||''; });
   const sel=(v,o)=>v===o?' selected':'';
-  c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', relBtn('receber'))
+  c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', `<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.viewCobranca()">🔔 Cobrança por e-mail</button> `+relBtn('receber'))
     + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
         <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (cliente, CNPJ, doc., valor)</label><input id="rc_busca" class="inp" style="padding:6px" placeholder="ex.: Unimed, 12.345, 500,00" value="${esc(F.q||'')}" oninput="APP.receberFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.receberFiltrar()"></div>
@@ -2840,6 +2840,89 @@ function receberPreset(kind){
   else if(kind==='7'){ if(de)de.value=isoLocal(hoje); const t2=new Date(hoje); t2.setDate(t2.getDate()+7); if(ate)ate.value=isoLocal(t2); }
   else if(kind==='venc'){ if(de)de.value=''; if(ate)ate.value=isoLocal(hoje); if(stt)stt.value='aberto'; }
   receberFiltrar();
+}
+// ---------- Cobrança por e-mail (régua dos títulos em aberto) ----------
+async function viewCobranca(){
+  let d; try{ d=await api('/financeiro/cobranca/pendentes'); }catch(e){ toast(e.message,'err'); return; }
+  window.__COB=d; const cf=d.config||{};
+  const cli=d.clientes||[];
+  const elegiveis=cli.filter(c=>c.temEmail&&c.podeEnviar);
+  const semEmail=cli.filter(c=>!c.temEmail);
+  const dstamp=v=>v?String(v).slice(0,10).split('-').reverse().join('/'):'—';
+  const rows=cli.map(c=>{
+    const st = !c.temEmail ? '<span class="pill red">sem e-mail</span>' : (c.podeEnviar?'<span class="pill green">enviar</span>':'<span class="pill gray">aguarda intervalo</span>');
+    return `<tr>
+      <td style="padding:5px 8px;text-align:center">${c.temEmail?`<input type="checkbox" class="cobck" value="${c.clienteId}" ${c.podeEnviar?'checked':''}>`:''}</td>
+      <td style="padding:5px 8px"><b>${esc(c.nome)}</b>${c.email?'<div class="muted" style="font-size:10px">'+esc(c.email)+'</div>':''}</td>
+      <td style="padding:5px 8px;text-align:right;font-weight:700">${money(c.totalAberto)}</td>
+      <td style="padding:5px 8px;text-align:center">${c.qtdTitulos}</td>
+      <td style="padding:5px 8px;text-align:center">${c.maxAtraso}d</td>
+      <td style="padding:5px 8px;text-align:center;font-size:11px">${dstamp(c.ultimaCobranca)}</td>
+      <td style="padding:5px 8px">${st}</td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap">${c.temEmail?`<button class="btn-sm" onclick="APP.cobrancaPreview(${c.clienteId})">👁 Prever</button> <button class="btn-sm" onclick="APP.cobrancaEnviar([${c.clienteId}],true)">Enviar</button>`:''}</td>
+    </tr>`;
+  }).join('');
+  openModal(`<h3>🔔 Cobrança por e-mail — títulos em aberto</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Régua atual: cobra a partir de <b>${cf.diasAtraso}</b> dia(s) de atraso · reenvia a cada <b>${cf.intervaloDias}</b> dia(s) · tom cordial. ${cf.automatico?'<span class="pill green">automático LIGADO ('+esc(cf.horario)+')</span>':'<span class="pill gray">automático desligado</span>'}</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+      ${kpi('Clientes na régua', d.totalClientes, money(d.totalAberto)+' em aberto')}
+      ${kpi('Prontos p/ enviar', elegiveis.length, 'com e-mail e no intervalo')}
+      ${kpi('Sem e-mail', semEmail.length, 'cadastre p/ cobrar')}
+    </div>
+    <details style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:700">⚙️ Configurar régua / ligar automático</summary>
+      <div style="padding:10px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px;margin-top:6px">
+        <label class="fl"><input type="checkbox" id="cob_auto" ${cf.automatico?'checked':''}> Enviar automaticamente todo dia</label>
+        <div class="grid3" style="margin-top:8px">
+          ${field('cob_dias','Cobrar após (dias atraso)','type="number" min="0" value="'+(cf.diasAtraso)+'"')}
+          ${field('cob_int','Reenviar a cada (dias)','type="number" min="1" value="'+(cf.intervaloDias)+'"')}
+          ${field('cob_hora','Horário (HH:MM)','value="'+esc(cf.horario||'08:00')+'"')}
+        </div>
+        ${field('cob_cc','Cópia p/ (e-mail interno, opcional)','value="'+esc(cf.copiaPara||'')+'" placeholder="financeiro@empresa.com"')}
+        <div class="mrow"><label class="fl">Assinatura (rodapé, opcional)</label><textarea id="cob_ass" class="inp" rows="2" placeholder="Ex.: Financeiro · (11) 99999-0000">${esc(cf.assinatura||'')}</textarea></div>
+        <button class="btn-sm" onclick="APP.cobrancaSalvarConfig()">Salvar configuração</button>
+      </div>
+    </details>
+    ${cli.length?`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="color:#8a8674;font-size:11px">
+        <th style="padding:5px 8px"><input type="checkbox" id="coball" onclick="APP.cobrancaToggleAll(this.checked)" checked></th>
+        <th style="padding:5px 8px;text-align:left">Cliente</th><th style="padding:5px 8px;text-align:right">Em aberto</th>
+        <th style="padding:5px 8px">Títulos</th><th style="padding:5px 8px">Atraso</th><th style="padding:5px 8px">Últ. cobrança</th><th style="padding:5px 8px;text-align:left">Situação</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`:'<div class="empty" style="color:#3a8f4f">✅ Ninguém em atraso na régua atual.</div>'}
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Fechar</button>
+      ${elegiveis.length?`<button class="btn-primary" onclick="APP.cobrancaEnviarSel()">✉️ Enviar aos selecionados (${elegiveis.length})</button>`:''}
+    </div>`);
+}
+function cobrancaToggleAll(on){ document.querySelectorAll('.cobck').forEach(ck=>ck.checked=on); }
+function cobrancaSelIds(){ return [...document.querySelectorAll('.cobck:checked')].map(ck=>Number(ck.value)); }
+async function cobrancaSalvarConfig(){
+  const body={ automatico:$('cob_auto').checked, diasAtraso:Number(val('cob_dias')), intervaloDias:Number(val('cob_int')), horario:val('cob_hora')||'08:00', copiaPara:val('cob_cc')||'', assinatura:val('cob_ass')||'' };
+  try{ await api('/financeiro/cobranca/config',{method:'POST',body}); toast('Configuração salva'+(body.automatico?' · automático LIGADO.':'.'),'ok'); viewCobranca(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function cobrancaPreview(clienteId){
+  let p; try{ p=await api('/financeiro/cobranca/preview/'+clienteId); }catch(e){ toast(e.message,'err'); return; }
+  if(!p.encontrado){ toast(p.motivo||'Sem prévia.','err'); return; }
+  openModal(`<h3>👁 Prévia da cobrança</h3>
+    <div class="muted" style="font-size:12px">Para: <b>${esc(p.para||'(sem e-mail)')}</b> · De: <b>${esc(p.marca||'')}</b></div>
+    <div style="margin:8px 0"><b>Assunto:</b> ${esc(p.assunto)}</div>
+    <pre style="white-space:pre-wrap;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px;padding:10px;font-family:inherit;font-size:12.5px">${esc(p.corpo)}</pre>
+    <div class="mactions"><button class="btn-sm" onclick="APP.viewCobranca()">Voltar</button>${p.temEmail?`<button class="btn-primary" onclick="APP.cobrancaEnviar([${clienteId}],true)">✉️ Enviar agora</button>`:''}</div>`);
+}
+async function cobrancaEnviarSel(){
+  const ids=cobrancaSelIds();
+  if(!ids.length){ toast('Selecione ao menos um cliente.','err'); return; }
+  return cobrancaEnviar(ids, true);
+}
+async function cobrancaEnviar(clienteIds, force){
+  const n=clienteIds.length;
+  if(!(await uiConfirm({tipo:'warn', titulo:'Enviar cobrança por e-mail?', ok:'Enviar', cancel:'Cancelar', msg:'Vai enviar o e-mail de cobrança (tom cordial) para '+n+' cliente(s) com título em aberto. Confirmar o envio?'}))) return;
+  try{ const r=await api('/financeiro/cobranca/enviar',{method:'POST',body:{clienteIds, force:!!force}});
+    let msg='✉️ '+r.enviados+' cobrança(s) enviada(s).';
+    if(r.semEmail) msg+=' '+r.semEmail+' sem e-mail.';
+    if(r.falhas) msg+=' '+r.falhas+' falha(s).';
+    toast(msg,'ok'); viewCobranca();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function viewPagar(c){
   try{ await api('/financeiro/recorrentes/gerar',{method:'POST',silent:true}); }catch(_){}
@@ -7340,7 +7423,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,

@@ -691,6 +691,22 @@ model ContaReceber {
   pago          Decimal      @default(0) @db.Decimal(12,2)
   juros         Decimal      @default(0) @db.Decimal(12,2) // juros/multa recebidos (atraso)
   status        TituloStatus @default(a_vencer)
+  ultimaCobrancaEm  DateTime? // última cobrança por e-mail enviada (régua)
+  cobrancasEnviadas Int      @default(0) // nº de cobranças já disparadas
+}
+
+/// Régua de cobrança por e-mail dos títulos em aberto (a receber).
+model CobrancaConfig {
+  id            Int      @id @default(autoincrement())
+  empresaId     Int      @unique
+  automatico    Boolean  @default(false)  // dispara sozinho todo dia?
+  diasAtraso    Int      @default(3)       // só cobra após N dias de atraso
+  intervaloDias Int      @default(7)       // reenvia a cada N dias
+  horario       String   @default("08:00") // horário do envio automático (HH:MM)
+  copiaPara     String?  // CC/cópia opcional (e-mail interno do financeiro)
+  assinatura    String?  // texto de assinatura no rodapé (opcional)
+  ultimoRunEm   DateTime? // última execução da régua (auto), p/ não repetir no dia
+  atualizadoEm  DateTime @updatedAt
 }
 
 model ContaPagar {
