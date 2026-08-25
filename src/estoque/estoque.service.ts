@@ -406,22 +406,44 @@ export class EstoqueService {
 
   /** Movimenta o estoque: ENTRADA gera Lote rastreável; SAÍDA baixa o disponível. */
   async movimentar(dto: MovimentarEstoqueDto, empresaId: number) {
-    const produto = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
+    // Matéria-prima / aviamento: movimenta o SALDO do material (sem tamanho, aceita decimal).
+    if (dto.materialId) {
+      const mat = await this.prisma.material.findUnique({ where: { id: dto.materialId } });
+      if (!mat || mat.empresaId !== empresaId) throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
+      const qtd = Number(dto.quantidade);
+      if (dto.tipo === 'saida') {
+        const disp = Number(mat.saldo);
+        if (disp < qtd) throw new BadRequestException(`Saldo insuficiente para saída (disponível: ${disp} ${mat.unidade}, pedido: ${qtd}).`);
+      }
+      const atual = await this.prisma.material.update({
+        where: { id: mat.id },
+        data: dto.tipo === 'entrada'
+          ? { saldo: { increment: new Prisma.Decimal(qtd.toFixed(3)) }, ...(dto.localizacao ? { localizacao: dto.localizacao } : {}) }
+          : { saldo: { decrement: new Prisma.Decimal(qtd.toFixed(3)) } },
+      });
+      return { movimento: dto.tipo, material: { id: atual.id, codigo: atual.codigo, saldo: Number(atual.saldo), unidade: atual.unidade } };
+    }
+
+    if (!dto.produtoId) throw new BadRequestException('Selecione um produto ou um material para movimentar.');
+    if (!dto.tamanho) throw new BadRequestException('Informe o tamanho do produto.');
+    const produtoId = dto.produtoId;
+    const tamanho = dto.tamanho;
+    const produto = await this.prisma.produto.findUnique({ where: { id: produtoId } });
     if (!produto || produto.empresaId !== empresaId) {
-      throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
+      throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
     }
 
     if (dto.tipo === 'entrada') {
       return this.prisma.$transaction(async (tx) => {
         const estoque = await tx.estoque.upsert({
-          where: { produtoId_tamanho: { produtoId: dto.produtoId, tamanho: dto.tamanho } },
+          where: { produtoId_tamanho: { produtoId, tamanho } },
           update: {
             entradas: { increment: dto.quantidade },
             localizacao: dto.localizacao ?? undefined,
           },
           create: {
-            produtoId: dto.produtoId,
-            tamanho: dto.tamanho,
+            produtoId,
+            tamanho,
             entradas: dto.quantidade,
             saidas: 0,
             minimo: dto.minimo ?? 0,
@@ -447,7 +469,7 @@ export class EstoqueService {
 
     // SAÍDA
     const estoque = await this.prisma.estoque.findUnique({
-      where: { produtoId_tamanho: { produtoId: dto.produtoId, tamanho: dto.tamanho } },
+      where: { produtoId_tamanho: { produtoId, tamanho } },
     });
     const disponivel = estoque ? estoque.entradas - estoque.saidas : 0;
     if (!estoque || disponivel < dto.quantidade) {

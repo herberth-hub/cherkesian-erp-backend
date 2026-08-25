@@ -1,7 +1,7 @@
 import {
   IsIn,
   IsInt,
-  IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -11,21 +11,30 @@ import {
 } from 'class-validator';
 
 export class MovimentarEstoqueDto {
+  /** Produto acabado (movimenta por tamanho). Informe produtoId OU materialId. */
+  @IsOptional()
   @IsInt()
   @IsPositive()
-  produtoId!: number;
+  produtoId?: number;
 
-  /** Tamanho/grade da peça (PP, M, G, G4...). */
+  /** Matéria-prima / aviamento (movimenta o saldo do material, sem tamanho). */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  materialId?: number;
+
+  /** Tamanho/grade da peça (PP, M, G, G4...) — obrigatório só para produto acabado. */
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Informe o tamanho.' })
   @MaxLength(20)
-  tamanho!: string;
+  tamanho?: string;
 
   @IsIn(['entrada', 'saida'], { message: "tipo deve ser 'entrada' ou 'saida'." })
   tipo!: 'entrada' | 'saida';
 
-  @IsInt()
-  @Min(1, { message: 'quantidade deve ser ao menos 1.' })
+  // Aceita decimal (matéria-prima em kg/m). Produto acabado é arredondado no serviço.
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
+  @IsPositive({ message: 'quantidade deve ser positiva.' })
   quantidade!: number;
 
   /** Só para ENTRADA: código do lote (gerado automaticamente se omitido). */

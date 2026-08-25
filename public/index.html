@@ -2596,7 +2596,7 @@ function filtrarProdCli(list){
 }
 function renderItens(){
   const prods = window.__PROD||[];
-  $('pitens').innerHTML = prodDatalist('prodlist',filtrarProdCli(prods)) + PITENS.map((it,i)=>{
+  $('pitens').innerHTML = PITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     const gr = it.grade || {};
     const cores = coresDoProduto(cur);
@@ -2618,7 +2618,9 @@ function renderItens(){
         ${PITENS.length>1?`<button class="btn-sm" style="padding:2px 9px;color:#c14a34" onclick="APP.rmItem(${i})">× remover</button>`:''}
       </div>
       <div class="grid2" style="align-items:end;margin-bottom:6px">
-        <div><input class="inp" id="it_prod_${i}" list="prodlist" placeholder="digite p/ buscar OU escreva livre (orçamento)…" value="${cur?esc(prodLabel(cur)):esc(it.descTexto||'')}" onchange="APP.itemProd(${i})">${(!cur&&(it.descTexto||''))?'<div class="muted" style="font-size:10px;margin-top:2px">✏️ Item livre (sem produto do catálogo)</div>':''}</div>
+        <div style="position:relative"><input class="inp" id="it_prod_${i}" autocomplete="off" placeholder="digite p/ buscar OU escreva livre (orçamento)…" value="${cur?esc(prodLabel(cur)):esc(it.descTexto||'')}" oninput="APP.itemDD(${i})" onfocus="APP.itemDD(${i})" onblur="APP.itemDDHide(${i})" onchange="APP.itemProd(${i})">
+          <div id="it_proddd_${i}" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div>
+          ${(!cur&&(it.descTexto||''))?'<div class="muted" style="font-size:10px;margin-top:2px">✏️ Item livre (sem produto do catálogo)</div>':''}</div>
         <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})"></div>
       </div>
       ${corSel}
@@ -2685,6 +2687,25 @@ function itemProd(i){
   const cores = coresDoProduto(p);
   PITENS[i].cor = cores.length===1 ? cores[0] : '';
   renderItens();
+}
+// Dropdown PRÓPRIO de busca de produto do item (texto completo, dentro do modal).
+function itemDD(i){
+  const inp=$('it_prod_'+i), dd=$('it_proddd_'+i); if(!inp||!dd) return;
+  const q=(inp.value||'').trim().toLowerCase();
+  let l=filtrarProdCli(window.__PROD||[]);
+  if(q){ const terms=q.split(/\s+/); l=l.filter(p=>{ const s=(p.codigo+' '+p.descricao).toLowerCase(); return terms.every(t=>s.includes(t)); }); }
+  l=l.slice(0,80);
+  dd.innerHTML = l.length
+    ? l.map(p=>`<div onmousedown="APP.itemDDPick(${i},${p.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35"><span class="mono gold" style="font-weight:700">${esc(p.codigo)}</span> ${esc(p.descricao)}</div>`).join('')
+    : '<div class="muted" style="padding:8px 10px">Nenhum no catálogo com esse termo — pode escrever livre (orçamento).</div>';
+  dd.style.display='';
+}
+function itemDDHide(i){ setTimeout(()=>{ const dd=$('it_proddd_'+i); if(dd) dd.style.display='none'; }, 180); }
+function itemDDPick(i,id){
+  const p=(window.__PROD||[]).find(x=>x.id===id); if(!p) return;
+  const inp=$('it_prod_'+i); if(inp) inp.value=prodLabel(p);
+  const dd=$('it_proddd_'+i); if(dd) dd.style.display='none';
+  itemProd(i);
 }
 // Resolve o cliente do pedido: usa o selecionado; senão acha pelo nome digitado; senão cadastra na hora.
 async function resolverClienteIdPedido(){
@@ -5189,24 +5210,49 @@ async function consultarEtiqueta(){
   $('cons_bip').value=''; $('cons_bip').focus();
 }
 async function formMov(){
-  const prods = await api('/produtos');
-  const po = prods.map(p=>`<option value="${p.id}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+  const [prods, mats] = await Promise.all([api('/produtos'), api('/materiais').catch(()=>[])]);
+  window.__MOVPROD=prods; window.__MOVMAT=mats;
   openModal(`<h3>Movimentar estoque</h3>
-    <div class="mrow"><label class="fl">Produto *</label><select id="f_prod" class="inp">${po||'<option>—</option>'}</select></div>
+    <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
+      <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
+    <div class="mrow"><label class="fl" id="f_itemlab">Produto *</label><select id="f_item" class="inp" onchange="APP.movItem()"></select></div>
     <div class="grid3">
       <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp"><option value="entrada">entrada</option><option value="saida">saída</option></select></div>
-      ${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}${field('f_qtd','Quantidade *','type="number" min="1"')}
+      <div id="f_tamwrap">${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}</div>
+      <div><label class="fl" id="f_qtdlab">Quantidade *</label><div style="display:flex;gap:6px;align-items:center"><input id="f_qtd" class="inp" type="number" min="1" step="1" style="flex:1"><span id="f_unlbl" class="muted" style="display:none;font-weight:700"></span></div></div>
     </div>
     ${field('f_loc','Localização (entrada)','')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMov()">Confirmar</button></div>`);
+  movAlvo();
+}
+function movAlvo(){
+  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const list=isMat
+    ? (window.__MOVMAT||[]).filter(m=> alvo==='aviamento' ? String(m.codigo).startsWith('AVI-') : !String(m.codigo).startsWith('AVI-'))
+    : (window.__MOVPROD||[]);
+  const sel=$('f_item'); if(sel) sel.innerHTML = list.length ? list.map(x=>`<option value="${x.id}" data-un="${esc(x.unidade||'un')}">${esc(x.codigo)} · ${esc(x.descricao)}${x.cor?' · '+esc(x.cor):''}</option>`).join('') : '<option value="">—</option>';
+  const lab=$('f_itemlab'); if(lab) lab.textContent = isMat ? (alvo==='aviamento'?'Aviamento *':'Matéria-prima *') : 'Produto *';
+  const tw=$('f_tamwrap'); if(tw) tw.style.display=isMat?'none':'';
+  const q=$('f_qtd'); if(q){ q.step=isMat?'0.001':'1'; q.min=isMat?'0.001':'1'; q.placeholder=isMat?'ex.: 5,90':'ex.: 10'; }
+  movItem();
+}
+function movItem(){
+  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const unl=$('f_unlbl'); const sel=$('f_item'); const opt=sel&&sel.selectedOptions[0];
+  if(unl){ if(isMat&&opt){ unl.textContent=opt.getAttribute('data-un')||''; unl.style.display=''; } else unl.style.display='none'; }
 }
 async function saveMov(){
-  const body = { produtoId:Number(val('f_prod')), tamanho:val('f_tam'), tipo:val('f_tipo'), quantidade:Number(val('f_qtd')) };
+  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const body={ tipo:val('f_tipo'), quantidade:Number((val('f_qtd')||'').replace(',','.')) };
+  if(isMat) body.materialId=Number(val('f_item')); else { body.produtoId=Number(val('f_item')); body.tamanho=val('f_tam'); }
   const loc=val('f_loc'); if(loc) body.localizacao=loc;
-  if(!body.produtoId||!body.tamanho||!body.quantidade){ toast('Preencha produto, tamanho e quantidade.','err'); return; }
-  try{ const r=await api('/estoque/movimentar',{method:'POST',body}); closeModal(); toast(r.lote?('Entrada · lote '+r.lote.codigoLote+' criado.'):'Saída registrada.','ok'); loadRoute(); }
-  catch(e){ toast(e.message,'err'); }
+  if(isMat){ if(!body.materialId||!(body.quantidade>0)){ toast('Selecione o material e a quantidade.','err'); return; } }
+  else { if(!body.produtoId||!body.tamanho||!(body.quantidade>0)){ toast('Preencha produto, tamanho e quantidade.','err'); return; } }
+  try{ const r=await api('/estoque/movimentar',{method:'POST',body}); closeModal();
+    const msg = r.material ? (r.movimento+' · '+r.material.codigo+' saldo '+Number(r.material.saldo).toLocaleString('pt-BR',{maximumFractionDigits:3})+' '+r.material.unidade) : (r.lote?('Entrada · lote '+r.lote.codigoLote+' criado.'):'Saída registrada.');
+    toast(msg,'ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function verLotes(codigo){
   try{
@@ -7572,7 +7618,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
@@ -7582,7 +7628,7 @@ window.APP = {
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
-  formMov, saveMov, verLotes, formExpedicao, saveExpedicao,
+  formMov, movAlvo, movItem, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
