@@ -4797,6 +4797,7 @@ async function formEntradaEstoque(){
     <div id="en_padrao">
       <div class="mrow"><label class="fl">Item (opcional — busca)</label><input id="en_item" class="inp" list="enitemlist" placeholder="digite p/ buscar" oninput="APP.enItemUnidade()"><datalist id="enitemlist"></datalist></div>
       <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
+      ${field('en_lote','Lote / partida do fornecedor (rastreio — sai na etiqueta)','placeholder="ex.: L2025-0788"')}
       <div class="grid2">
         <div class="mrow"><label class="fl" id="en_qtd_lab">Quantidade *</label>
           <div style="display:flex;gap:6px">
@@ -4864,6 +4865,7 @@ async function saveEntradaEstoque(){
   const granel=(tipo==='materia'||tipo==='aviamento');
   const body={ tipo, quantidade:Number((val('en_qtd')||'').replace(',','.')), descricao:val('en_desc')||undefined, cor:val('en_cor')||undefined, tamanho:val('en_tam')||undefined, destino:val('en_dest') };
   { const u=val('en_un'); if(u) body.unidadeMedida=u; }
+  { const lt=val('en_lote'); if(lt) body.loteFornecedor=lt; }
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
   if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
   if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
