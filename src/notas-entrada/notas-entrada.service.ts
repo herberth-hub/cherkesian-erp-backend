@@ -167,10 +167,17 @@ export class NotasEntradaService {
           if (!it.materialId) continue;
           const mat = await tx.material.findUnique({ where: { id: it.materialId } });
           if (!mat || mat.empresaId !== empresaId) continue;
-          await tx.material.update({
+          const upd = await tx.material.update({
             where: { id: it.materialId },
             data: { saldo: { increment: new Prisma.Decimal(it.quantidade) } },
           });
+          await tx.movimentoMaterial.create({
+            data: {
+              empresaId, materialId: it.materialId, tipo: 'entrada',
+              quantidade: new Prisma.Decimal(it.quantidade), unidade: upd.unidade,
+              saldoApos: upd.saldo, origem: 'nf_entrada', documento: `NF ${dto.numero}`, criadoPor,
+            },
+          }).catch(() => undefined);
           lancados.push(mat.codigo);
           recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + Number(it.quantidade));
         }

@@ -124,6 +124,21 @@ export class EstoqueController {
     return this.estoqueService.conteudoCaixa(codigo, user.empresaId);
   }
 
+  /** Livro de movimentações de matéria-prima/aviamento (entrada/saída). */
+  @Get('movimentos-material')
+  movimentosMaterial(
+    @Query('materialId') materialId: string,
+    @Query('tipo') tipo: string,
+    @Query('limite') limite: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.estoqueService.movimentosMaterial(user.empresaId, {
+      materialId: materialId ? Number(materialId) : undefined,
+      tipo: tipo === 'entrada' || tipo === 'saida' ? tipo : undefined,
+      limite: limite ? Number(limite) : undefined,
+    });
+  }
+
   @Get(':codigo/lotes')
   lotes(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
     return this.estoqueService.lotesPorCodigo(codigo, user.empresaId);
@@ -132,6 +147,6 @@ export class EstoqueController {
   @Post('movimentar')
   @HttpCode(HttpStatus.OK)
   movimentar(@Body() dto: MovimentarEstoqueDto, @CurrentUser() user: AuthUser) {
-    return this.estoqueService.movimentar(dto, user.empresaId);
+    return this.estoqueService.movimentar(dto, user.empresaId, user.usuario);
   }
 }

@@ -334,6 +334,26 @@ model Fornecedor {
 }
 
 /// Transportadora — dados do transporte que saem no quadro "TRANSPORTADOR" do DANFE.
+/// Livro de movimentações de matéria-prima/aviamento (entrada e saída do saldo).
+/// Permite acompanhar o que entra e sai de cada material ao longo do tempo.
+model MovimentoMaterial {
+  id         Int      @id @default(autoincrement())
+  empresaId  Int
+  materialId Int
+  tipo       String   // entrada | saida
+  quantidade Decimal  @db.Decimal(12,3)
+  unidade    String   @default("un")
+  saldoApos  Decimal  @db.Decimal(12,3)
+  origem     String?  // movimentacao | nf_entrada | entrada_etiqueta
+  documento  String?  // nº NF, lote, etc.
+  obs        String?
+  criadoEm   DateTime @default(now())
+  criadoPor  String?
+
+  @@index([empresaId, materialId])
+  @@index([empresaId, criadoEm])
+}
+
 /// Retalhos de tecido (sobras do corte) — pesados em kg e guardados até a
 /// reciclagem no fim do mês. Estoque por PESO (não por peça/etiqueta).
 model Retalho {

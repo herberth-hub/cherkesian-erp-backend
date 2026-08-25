@@ -4610,7 +4610,7 @@ async function viewEstoque(c){
   const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
   const cont={produto:0,materia:0,aviamento:0}; (unidades||[]).forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.verRetalhos()">🧵 Retalhos</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.verRetalhos()">🧵 Retalhos</button> <button class="btn-sm" onclick="APP.verMovimentos()">📊 Movimentações</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
     + `<div class="cards">
         <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('estoque')"><div class="k">Em estoque</div><div class="v">${emEstoque}</div><div class="s">endereçadas</div></div>
         <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('recebimento')"><div class="k">📥 Recebimento</div><div class="v">${aguard}</div><div class="s">aguardando endereço</div></div>
@@ -5274,6 +5274,45 @@ async function saveMov(){
     const msg = r.material ? (r.movimento+' · '+r.material.codigo+' saldo '+Number(r.material.saldo).toLocaleString('pt-BR',{maximumFractionDigits:3})+' '+r.material.unidade) : (r.lote?('Entrada · lote '+r.lote.codigoLote+' criado.'):'Saída registrada.');
     toast(msg,'ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
+}
+// ---------- Movimentações de matéria-prima (entrada/saída) ----------
+async function verMovimentos(){
+  let list; try{ list=await api('/estoque/movimentos-material?limite=500'); }catch(e){ toast(e.message,'err'); return; }
+  window.__MOVS=list; window.__MOVF={tipo:'',q:''};
+  openModal(`<h3>📊 Movimentações — matéria-prima / aviamento</h3>
+    <div class="muted" style="font-size:11px;margin:-4px 0 8px">Entradas e saídas registradas a partir de agora (movimentar, entrada por etiqueta e NF de compra).</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+      <button class="btn-sm" onclick="APP.movFiltro('')">Tudo</button>
+      <button class="btn-sm" style="color:#3a8f4f" onclick="APP.movFiltro('entrada')">▲ Entradas</button>
+      <button class="btn-sm" style="color:#c14a34" onclick="APP.movFiltro('saida')">▼ Saídas</button>
+      <input id="mov_q" class="inp" placeholder="🔍 código, descrição ou cor" style="flex:1;min-width:160px;padding:6px" oninput="APP.movFiltroBusca()">
+    </div>
+    <div id="mov_body"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  movRender();
+}
+function movFiltro(t){ if(window.__MOVF) window.__MOVF.tipo=t; movRender(); }
+function movFiltroBusca(){ if(window.__MOVF) window.__MOVF.q=(val('mov_q')||'').toLowerCase(); movRender(); }
+function movRender(){
+  const f=window.__MOVF||{tipo:'',q:''};
+  let list=(window.__MOVS||[]);
+  if(f.tipo) list=list.filter(m=>m.tipo===f.tipo);
+  if(f.q) list=list.filter(m=>((m.codigo+' '+m.descricao+' '+(m.cor||'')).toLowerCase().includes(f.q)));
+  const fmt=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:3});
+  const dt=v=>{ try{ const d=new Date(v); return d.toLocaleDateString('pt-BR')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(_){ return ''; } };
+  const rows=list.map(m=>{ const ent=m.tipo==='entrada';
+    return `<tr>
+      <td style="padding:5px 8px;font-size:11px;white-space:nowrap">${dt(m.criadoEm)}</td>
+      <td style="padding:5px 8px"><span class="mono gold" style="font-size:11px">${esc(m.codigo)}</span> ${esc(m.descricao)}${m.cor?' · <b style="color:#7a5b12">'+esc(m.cor)+'</b>':''}</td>
+      <td style="padding:5px 8px;text-align:center"><span class="pill ${ent?'green':'red'}">${ent?'entrada':'saída'}</span></td>
+      <td style="padding:5px 8px;text-align:right;font-weight:800;color:${ent?'#3a8f4f':'#c14a34'};white-space:nowrap">${ent?'+':'−'}${fmt(m.quantidade)} ${esc(m.unidade)}</td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap">${fmt(m.saldoApos)} ${esc(m.unidade)}</td>
+      <td style="padding:5px 8px;font-size:10px;color:#8a8674">${esc(m.origem||'')}${m.documento?' · '+esc(m.documento):''}</td>
+    </tr>`; }).join('');
+  const box=$('mov_body'); if(!box) return;
+  box.innerHTML = list.length
+    ? `<div style="overflow:auto;max-height:60vh"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="color:#8a8674;font-size:11px"><th style="text-align:left;padding:5px 8px">Data</th><th style="text-align:left;padding:5px 8px">Item</th><th style="padding:5px 8px">Tipo</th><th style="text-align:right;padding:5px 8px">Qtd</th><th style="text-align:right;padding:5px 8px">Saldo após</th><th style="text-align:left;padding:5px 8px">Origem</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="empty">Nenhuma movimentação ainda. Entradas e saídas passam a aparecer aqui a partir de agora.</div>';
 }
 async function verLotes(codigo){
   try{
@@ -7649,7 +7688,7 @@ window.APP = {
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
-  formMov, movAlvo, movItemDD, movItemHide, movItemPick, saveMov, verLotes, formExpedicao, saveExpedicao,
+  formMov, movAlvo, movItemDD, movItemHide, movItemPick, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,

@@ -106,10 +106,11 @@ export class EstoqueService {
 
     // Matéria-prima/aviamento: soma a quantidade (metro/kg) ao saldo do material.
     if (granel && dto.materialId) {
-      await this.prisma.material.update({
+      const upd = await this.prisma.material.update({
         where: { id: dto.materialId },
         data: { saldo: { increment: new Prisma.Decimal(qtdMedida.toFixed(3)) } },
       });
+      await this.registrarMovMaterial({ empresaId, materialId: dto.materialId, tipo: 'entrada', quantidade: qtdMedida, unidade: unidadeMedida, saldoApos: Number(upd.saldo), origem: 'entrada_etiqueta', documento: dto.loteFornecedor || loteEntrada, usuario });
     }
 
     // Gera as etiquetas (código de barras) das unidades criadas.
@@ -405,7 +406,7 @@ export class EstoqueService {
   }
 
   /** Movimenta o estoque: ENTRADA gera Lote rastreável; SAÍDA baixa o disponível. */
-  async movimentar(dto: MovimentarEstoqueDto, empresaId: number) {
+  async movimentar(dto: MovimentarEstoqueDto, empresaId: number, usuario?: string) {
     // Matéria-prima / aviamento: movimenta o SALDO do material (sem tamanho, aceita decimal).
     if (dto.materialId) {
       const mat = await this.prisma.material.findUnique({ where: { id: dto.materialId } });
@@ -421,6 +422,7 @@ export class EstoqueService {
           ? { saldo: { increment: new Prisma.Decimal(qtd.toFixed(3)) }, ...(dto.localizacao ? { localizacao: dto.localizacao } : {}) }
           : { saldo: { decrement: new Prisma.Decimal(qtd.toFixed(3)) } },
       });
+      await this.registrarMovMaterial({ empresaId, materialId: mat.id, tipo: dto.tipo, quantidade: qtd, unidade: atual.unidade, saldoApos: Number(atual.saldo), origem: 'movimentacao', usuario });
       return { movimento: dto.tipo, material: { id: atual.id, codigo: atual.codigo, saldo: Number(atual.saldo), unidade: atual.unidade } };
     }
 
@@ -498,5 +500,41 @@ export class EstoqueService {
       select: { codigoLote: true },
     });
     return proximoSequencial(prefixo, doMes.map((l) => l.codigoLote), { pad: 2, separador: '' });
+  }
+
+  /** Registra uma movimentação de material (entrada/saída) no livro. Best-effort. */
+  async registrarMovMaterial(d: {
+    empresaId: number; materialId: number; tipo: string; quantidade: number; unidade: string;
+    saldoApos: number; origem?: string; documento?: string; usuario?: string; client?: Prisma.TransactionClient;
+  }) {
+    const db = d.client ?? this.prisma;
+    await db.movimentoMaterial.create({
+      data: {
+        empresaId: d.empresaId, materialId: d.materialId, tipo: d.tipo,
+        quantidade: new Prisma.Decimal(d.quantidade.toFixed(3)), unidade: d.unidade || 'un',
+        saldoApos: new Prisma.Decimal(d.saldoApos.toFixed(3)),
+        origem: d.origem, documento: d.documento, criadoPor: d.usuario,
+      },
+    }).catch(() => undefined);
+  }
+
+  /** Lista as movimentações de material (mais recentes primeiro), opcionalmente filtradas. */
+  async movimentosMaterial(empresaId: number, opts: { materialId?: number; tipo?: string; limite?: number } = {}) {
+    const movs = await this.prisma.movimentoMaterial.findMany({
+      where: { empresaId, ...(opts.materialId ? { materialId: opts.materialId } : {}), ...(opts.tipo ? { tipo: opts.tipo } : {}) },
+      orderBy: { id: 'desc' },
+      take: Math.min(Math.max(opts.limite ?? 300, 1), 1000),
+    });
+    const ids = [...new Set(movs.map((m) => m.materialId))];
+    const mats = await this.prisma.material.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true, cor: true } });
+    const mm = new Map(mats.map((m) => [m.id, m]));
+    return movs.map((m) => {
+      const mat = mm.get(m.materialId);
+      return {
+        id: m.id, materialId: m.materialId, codigo: mat?.codigo ?? `#${m.materialId}`, descricao: mat?.descricao ?? '', cor: mat?.cor ?? null,
+        tipo: m.tipo, quantidade: Number(m.quantidade), unidade: m.unidade, saldoApos: Number(m.saldoApos),
+        origem: m.origem, documento: m.documento, criadoEm: m.criadoEm, criadoPor: m.criadoPor,
+      };
+    });
   }
 }
