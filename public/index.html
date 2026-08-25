@@ -2303,8 +2303,46 @@ async function formMaterial(id){
     <div class="grid2">${field('f_artigo','Artigo','value="'+esc(m.artigo||'')+'" placeholder="ex.: ROVASOL PELETIZADO"')}${field('f_ordem','Ordem / código do artigo','value="'+esc(m.codigoArtigo||'')+'" placeholder="ex.: 02.116.001.1"')}</div>
     ${field('f_comp','Composição','value="'+esc(m.composicao||'')+'" placeholder="ex.: 70% ALGODÃO 30% POLIÉSTER"')}
     <div class="grid3">${field('f_larg','Largura (m)','type="number" step="0.01" value="'+(m.largura!=null?m.largura:'')+'" placeholder="1,60"')}${field('f_gram','Gramatura (g/m²)','type="number" step="0.01" value="'+(m.gramatura!=null?m.gramatura:'')+'" placeholder="127,00"')}${field('f_grml','Gr/ml','type="number" step="0.001" value="'+(m.gramaturaLinear!=null?m.gramaturaLinear:'')+'" placeholder="0,215"')}</div>
+    ${id?'<div id="mat_cores"></div>':''}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMaterial(${id||0})">Salvar</button></div>`);
+  if(id){ window.__MATBASE=m; renderMatCores(); }
+}
+// Painel de CORES do mesmo artigo (mesma descrição) com o saldo REAL de cada cor.
+async function renderMatCores(){
+  const box=$('mat_cores'); if(!box) return;
+  const m=window.__MATBASE||{};
+  let all=[]; try{ all=await api('/materiais'); }catch(_){}
+  const key=x=>String(x.descricao||'').trim().toLowerCase();
+  const grupo=all.filter(x=>key(x)===key(m)).sort((a,b)=>String(a.cor||'').localeCompare(String(b.cor||'')));
+  const fmt=v=>Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:3});
+  const tot=grupo.reduce((s,x)=>s+Number(x.saldo||0),0);
+  const rows=grupo.map(x=>`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 8px;border-top:1px solid #f0e7d0${x.id===m.id?';background:#fbf3d6':''}">
+      <span>${x.cor?('<b>'+esc(x.cor)+'</b>'):'<span class="muted">sem cor</span>'} <span class="muted mono" style="font-size:10px">${esc(x.codigo)}</span></span>
+      <span style="display:flex;gap:8px;align-items:center"><b>${fmt(x.saldo)} ${esc(x.unidade||'')}</b>${x.id!==m.id?`<button class="btn-sm" onclick="APP.formMaterial(${x.id})" title="Abrir esta cor">✏️</button>`:''}</span>
+    </div>`).join('');
+  box.innerHTML=`<div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:10px 0 4px;font-weight:700">CORES DESTE ARTIGO — quantidade real por cor (${grupo.length})</div>
+    <div style="border:1px solid #efe2b8;border-radius:8px;background:#faf8f0;overflow:hidden">
+      ${rows||'<div class="muted" style="padding:8px">Só esta cor por enquanto.</div>'}
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-top:2px solid #e6d9a8;background:#f3ead0"><b>Total do artigo</b><b>${fmt(tot)} ${esc(m.unidade||'')}</b></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <input id="mat_novacor" class="inp" placeholder="+ nova cor deste artigo (ex.: VERMELHO)" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.addCorArtigo();}">
+      <button class="btn-sm" onclick="APP.addCorArtigo()">➕ Adicionar cor</button>
+    </div>`;
+}
+async function addCorArtigo(){
+  const m=window.__MATBASE||{}; const cor=(val('mat_novacor')||'').trim();
+  if(!cor){ toast('Digite a cor.','err'); return; }
+  const body={ categoria:m.categoria, descricao:m.descricao, cor, unidade:m.unidade||'un',
+    custo:Number(m.custo||0), minimo:Number(m.minimo||0), localizacao:m.localizacao||undefined,
+    artigo:m.artigo||undefined, codigoArtigo:m.codigoArtigo||undefined, composicao:m.composicao||undefined, saldo:0 };
+  if(m.largura!=null) body.largura=Number(m.largura);
+  if(m.gramatura!=null) body.gramatura=Number(m.gramatura);
+  if(m.gramaturaLinear!=null) body.gramaturaLinear=Number(m.gramaturaLinear);
+  if(m.fornecedorId) body.fornecedorId=m.fornecedorId;
+  try{ await api('/materiais',{method:'POST',body}); toast('Cor "'+cor+'" adicionada ao artigo.','ok'); const i=$('mat_novacor'); if(i)i.value=''; renderMatCores(); }
+  catch(e){ toast(e.message,'err'); }
 }
 // Resolve o fabricante digitado: usa o existente (por nome) ou cadastra um novo fornecedor.
 async function resolverFabricante(){
@@ -7505,7 +7543,7 @@ window.APP = {
   toggleNav,
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
-  formMaterial, saveMaterial, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
+  formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
