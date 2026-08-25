@@ -5215,7 +5215,9 @@ async function formMov(){
   openModal(`<h3>Movimentar estoque</h3>
     <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
       <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
-    <div class="mrow"><label class="fl" id="f_itemlab">Produto *</label><select id="f_item" class="inp" onchange="APP.movItem()"></select></div>
+    <div class="mrow" style="position:relative"><label class="fl" id="f_itemlab">Produto *</label>
+      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar (código, descrição ou cor)…" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()">
+      <div id="f_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div></div>
     <div class="grid3">
       <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp"><option value="entrada">entrada</option><option value="saida">saída</option></select></div>
       <div id="f_tamwrap">${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}</div>
@@ -5228,27 +5230,46 @@ async function formMov(){
 }
 function movAlvo(){
   const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
-  const list=isMat
+  window.__MOVLIST = isMat
     ? (window.__MOVMAT||[]).filter(m=> alvo==='aviamento' ? String(m.codigo).startsWith('AVI-') : !String(m.codigo).startsWith('AVI-'))
     : (window.__MOVPROD||[]);
-  const sel=$('f_item'); if(sel) sel.innerHTML = list.length ? list.map(x=>`<option value="${x.id}" data-un="${esc(x.unidade||'un')}">${esc(x.codigo)} · ${esc(x.descricao)}${x.cor?' · '+esc(x.cor):''}</option>`).join('') : '<option value="">—</option>';
+  window.__MOVITEMID=null;
+  const inp=$('f_item'); if(inp){ inp.value=''; }
+  const dd=$('f_itemdd'); if(dd) dd.style.display='none';
   const lab=$('f_itemlab'); if(lab) lab.textContent = isMat ? (alvo==='aviamento'?'Aviamento *':'Matéria-prima *') : 'Produto *';
   const tw=$('f_tamwrap'); if(tw) tw.style.display=isMat?'none':'';
   const q=$('f_qtd'); if(q){ q.step=isMat?'0.001':'1'; q.min=isMat?'0.001':'1'; q.placeholder=isMat?'ex.: 5,90':'ex.: 10'; }
-  movItem();
+  const unl=$('f_unlbl'); if(unl) unl.style.display='none';
 }
-function movItem(){
-  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
-  const unl=$('f_unlbl'); const sel=$('f_item'); const opt=sel&&sel.selectedOptions[0];
-  if(unl){ if(isMat&&opt){ unl.textContent=opt.getAttribute('data-un')||''; unl.style.display=''; } else unl.style.display='none'; }
+function movLabel(x){ return x.codigo+' · '+x.descricao+(x.cor?' · 🎨 '+x.cor:''); }
+function movItemDD(){
+  const inp=$('f_item'), dd=$('f_itemdd'); if(!inp||!dd) return;
+  window.__MOVITEMID=null; const unl=$('f_unlbl'); if(unl) unl.style.display='none';
+  const qraw=(inp.value||'').trim().toLowerCase();
+  let l=window.__MOVLIST||[];
+  if(qraw){ const terms=qraw.split(/\s+/); l=l.filter(x=>{ const s=(x.codigo+' '+x.descricao+' '+(x.cor||'')).toLowerCase(); return terms.every(t=>s.includes(t)); }); }
+  l=l.slice(0,80);
+  dd.innerHTML = l.length ? l.map(x=>`<div onmousedown="APP.movItemPick(${x.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35"><span class="mono gold" style="font-weight:700">${esc(x.codigo)}</span> ${esc(x.descricao)}${x.cor?` · <b style="color:#7a5b12">🎨 ${esc(x.cor)}</b>`:''}</div>`).join('') : '<div class="muted" style="padding:8px 10px">Nada encontrado.</div>';
+  dd.style.display='';
+}
+function movItemHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style.display='none'; }, 180); }
+function movItemPick(id){
+  const x=(window.__MOVLIST||[]).find(m=>m.id===id); if(!x) return;
+  window.__MOVITEMID=id;
+  const inp=$('f_item'); if(inp) inp.value=movLabel(x);
+  const dd=$('f_itemdd'); if(dd) dd.style.display='none';
+  const isMat=(val('f_alvo')==='materia'||val('f_alvo')==='aviamento');
+  const unl=$('f_unlbl'); if(unl){ if(isMat){ unl.textContent=x.unidade||''; unl.style.display=''; } else unl.style.display='none'; }
 }
 async function saveMov(){
   const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const id=Number(window.__MOVITEMID||0);
   const body={ tipo:val('f_tipo'), quantidade:Number((val('f_qtd')||'').replace(',','.')) };
-  if(isMat) body.materialId=Number(val('f_item')); else { body.produtoId=Number(val('f_item')); body.tamanho=val('f_tam'); }
+  if(isMat) body.materialId=id; else { body.produtoId=id; body.tamanho=val('f_tam'); }
   const loc=val('f_loc'); if(loc) body.localizacao=loc;
-  if(isMat){ if(!body.materialId||!(body.quantidade>0)){ toast('Selecione o material e a quantidade.','err'); return; } }
-  else { if(!body.produtoId||!body.tamanho||!(body.quantidade>0)){ toast('Preencha produto, tamanho e quantidade.','err'); return; } }
+  if(!id){ toast('Selecione o item (digite e escolha na lista).','err'); return; }
+  if(isMat){ if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; } }
+  else { if(!body.tamanho||!(body.quantidade>0)){ toast('Preencha tamanho e quantidade.','err'); return; } }
   try{ const r=await api('/estoque/movimentar',{method:'POST',body}); closeModal();
     const msg = r.material ? (r.movimento+' · '+r.material.codigo+' saldo '+Number(r.material.saldo).toLocaleString('pt-BR',{maximumFractionDigits:3})+' '+r.material.unidade) : (r.lote?('Entrada · lote '+r.lote.codigoLote+' criado.'):'Saída registrada.');
     toast(msg,'ok'); loadRoute();
@@ -7628,7 +7649,7 @@ window.APP = {
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
-  formMov, movAlvo, movItem, saveMov, verLotes, formExpedicao, saveExpedicao,
+  formMov, movAlvo, movItemDD, movItemHide, movItemPick, saveMov, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
