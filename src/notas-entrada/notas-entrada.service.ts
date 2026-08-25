@@ -91,7 +91,7 @@ export class NotasEntradaService {
       // um material seguindo a regra de código MP-CAT-0000. Toda entrada fica no cadastro.
       const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
       for (const it of dto.itens) {
-        if (it.materialId) continue;
+        if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
         const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
@@ -148,6 +148,7 @@ export class NotasEntradaService {
           itens: {
             create: dto.itens.map((it) => ({
               materialId: it.materialId,
+              produtoId: it.produtoId,
               descricao: it.descricao,
               ncm: it.ncm,
               quantidade: new Prisma.Decimal(it.quantidade),
@@ -180,6 +181,21 @@ export class NotasEntradaService {
           }).catch(() => undefined);
           lancados.push(mat.codigo);
           recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + Number(it.quantidade));
+        }
+        // Produtos de REVENDA: entram no estoque do produto (Estoque agregado, tamanho único).
+        for (const it of dto.itens) {
+          if (!it.produtoId) continue;
+          const prod = await tx.produto.findUnique({ where: { id: it.produtoId } });
+          if (!prod || prod.empresaId !== empresaId) continue;
+          const qtd = Math.round(Number(it.quantidade));
+          if (qtd < 1) continue;
+          const est = await tx.estoque.upsert({
+            where: { produtoId_tamanho: { produtoId: it.produtoId, tamanho: 'UNICO' } },
+            update: { entradas: { increment: qtd } },
+            create: { produtoId: it.produtoId, tamanho: 'UNICO', entradas: qtd, saidas: 0, minimo: 0 },
+          });
+          await tx.lote.create({ data: { estoqueId: est.id, codigoLote: `NF-${dto.numero}`, quantidade: qtd } }).catch(() => undefined);
+          lancados.push(prod.codigo);
         }
       }
 
@@ -270,7 +286,7 @@ export class NotasEntradaService {
       // 2) Auto-cadastro de materiais dos novos itens (acha por descrição ou cria)
       const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
       for (const it of dto.itens) {
-        if (it.materialId) continue;
+        if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
         const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
@@ -299,6 +315,7 @@ export class NotasEntradaService {
           itens: {
             create: dto.itens.map((it) => ({
               materialId: it.materialId,
+              produtoId: it.produtoId,
               descricao: it.descricao,
               ncm: it.ncm,
               quantidade: new Prisma.Decimal(it.quantidade),

@@ -427,6 +427,7 @@ model NotaEntradaItem {
   notaEntradaId Int
   nota          NotaEntrada @relation(fields: [notaEntradaId], references: [id], onDelete: Cascade)
   materialId    Int?        // vínculo opcional à matéria-prima do catálogo (p/ dar entrada no estoque)
+  produtoId     Int?        // vínculo a um PRODUTO DE REVENDA (entrada no estoque do produto)
   descricao     String
   ncm           String?
   quantidade    Decimal     @db.Decimal(12,3)

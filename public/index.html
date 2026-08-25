@@ -4223,8 +4223,9 @@ async function emitirEtiquetasNF(id){
 async function formNotaEntrada(prefill){
   if(!prefill) window.__NEPRE=null;
   window.__NEEDIT = (prefill&&prefill._edit)||null;
-  const [forn, mats, filiais] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/filiais').catch(()=>[])]);
+  const [forn, mats, filiais, prods] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/filiais').catch(()=>[]), api('/produtos').catch(()=>[])]);
   window.__MATS = mats;
+  window.__NFPRODREV = (prods||[]).filter(p=>p.tipo==='revenda'); // produtos de revenda entram no estoque do produto
   const p = prefill||{};
   const fo = ['<option value="">— selecione —</option>'].concat(forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`)).join('');
   const filList=(filiais||[]);
@@ -4293,21 +4294,19 @@ async function formNotaEntrada(prefill){
     const btn=document.querySelector('.mactions .btn-primary'); if(btn) btn.textContent='Salvar alterações';
   }
 }
-function neMatLabel(m){ return m.codigo+' · '+m.descricao+(m.cor?' · '+m.cor:''); }
-function neFindMat(text){
-  const mats=window.__MATS||[]; const t=(text||'').trim().toLowerCase(); if(!t) return null;
-  let m=mats.find(x=>neMatLabel(x).toLowerCase()===t);       // escolha exata do datalist
-  if(!m) m=mats.find(x=>x.codigo.toLowerCase()===t);          // código exato
-  if(!m) m=mats.find(x=>t.startsWith(x.codigo.toLowerCase()+' · '));
-  return m||null;
+// Catálogo combinado da NF: materiais (MP/aviamento) + PRODUTOS DE REVENDA.
+function neCatalogo(){
+  const mats=(window.__MATS||[]).map(m=>({kind:'mat', id:m.id, codigo:m.codigo, descricao:m.descricao, cor:m.cor, unidade:m.unidade, custo:m.custo}));
+  const prods=(window.__NFPRODREV||[]).map(p=>({kind:'prod', id:p.id, codigo:p.codigo, descricao:p.descricao, cor:p.cor, unidade:p.unidadeComercial||'un', custo:p.custo}));
+  return mats.concat(prods);
 }
+function neItemLabel(x){ return x.codigo+' · '+x.descricao+(x.cor?' · 🎨 '+x.cor:'')+(x.kind==='prod'?' · [REVENDA]':''); }
 function neRender(){
   const box=$('neitens'); if(!box) return;
-  const mats=window.__MATS||[];
-  const dl = `<datalist id="ne_matlist">${mats.map(m=>`<option value="${esc(neMatLabel(m))}"></option>`).join('')}</datalist>`;
-  box.innerHTML = dl + NEITENS.map((it,i)=>`
+  box.innerHTML = NEITENS.map((it,i)=>`
     <div class="grid2" style="margin-bottom:6px">
-      <input class="inp" id="ne_mat_${i}" list="ne_matlist" autocomplete="off" placeholder="🔎 vincular material (digite código ou nome)" oninput="APP.neMat(${i})" onchange="APP.neMat(${i})">
+      <div style="position:relative"><input class="inp" id="ne_mat_${i}" autocomplete="off" placeholder="🔎 vincular material ou produto de revenda…" oninput="APP.neDD(${i})" onfocus="APP.neDD(${i})" onblur="APP.neDDHide(${i})">
+        <div id="ne_matdd_${i}" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:260px;overflow-y:auto;margin-top:3px"></div></div>
       <input class="inp" id="ne_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
     </div>
     <div class="grid3" style="margin-bottom:12px">
@@ -4315,13 +4314,37 @@ function neRender(){
       <input class="inp" id="ne_un_${i}" placeholder="un" value="${esc(it.unidade||'un')}">
       <div style="display:flex;gap:6px"><input class="inp" id="ne_vu_${i}" type="number" step="0.0001" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">${NEITENS.length>1?`<button class="btn-sm" onclick="APP.neDel(${i})">×</button>`:''}</div>
     </div>`).join('');
-  // Prefill do vínculo quando o item já tem material (ex.: edição).
-  NEITENS.forEach((it,i)=>{ if(it.materialId){ const m=mats.find(x=>x.id===it.materialId); const s=$('ne_mat_'+i); if(m&&s) s.value=neMatLabel(m); } });
+  // Prefill do vínculo (edição): material ou produto de revenda.
+  NEITENS.forEach((it,i)=>{ const s=$('ne_mat_'+i); if(!s) return;
+    let x=null;
+    if(it.materialId){ const m=(window.__MATS||[]).find(y=>y.id===it.materialId); if(m) x={kind:'mat',...m}; }
+    else if(it.produtoId){ const p=(window.__NFPRODREV||[]).find(y=>y.id===it.produtoId); if(p) x={kind:'prod',codigo:p.codigo,descricao:p.descricao,cor:p.cor}; }
+    if(x) s.value=neItemLabel(x);
+  });
 }
-function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) return; it.descricao=d.value; it.quantidade=val('ne_qtd_'+i); it.unidade=val('ne_un_'+i)||'un'; it.valorUnit=val('ne_vu_'+i); const m=neFindMat(val('ne_mat_'+i)); it.materialId=m?m.id:undefined; }); }
+function neDD(i){
+  const inp=$('ne_mat_'+i), dd=$('ne_matdd_'+i); if(!inp||!dd) return;
+  NEITENS[i].materialId=undefined; NEITENS[i].produtoId=undefined; // texto mudou → desvincula
+  const q=(inp.value||'').trim().toLowerCase();
+  let l=neCatalogo();
+  if(q){ const terms=q.split(/\s+/); l=l.filter(x=>{ const s=(x.codigo+' '+x.descricao+' '+(x.cor||'')).toLowerCase(); return terms.every(t=>s.includes(t)); }); }
+  l=l.slice(0,80);
+  dd.innerHTML = l.length ? l.map(x=>`<div onmousedown="APP.neDDPick(${i},'${x.kind}',${x.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:6px 9px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12px;line-height:1.3"><span class="mono gold" style="font-weight:700">${esc(x.codigo)}</span> ${esc(x.descricao)}${x.cor?` · <b style="color:#7a5b12">🎨 ${esc(x.cor)}</b>`:''}${x.kind==='prod'?' <span class="pill blue" style="font-size:9px">revenda</span>':''}</div>`).join('') : '<div class="muted" style="padding:8px 9px">Nada — pode digitar a descrição livre (vira matéria-prima nova).</div>';
+  dd.style.display='';
+}
+function neDDHide(i){ setTimeout(()=>{ const dd=$('ne_matdd_'+i); if(dd) dd.style.display='none'; }, 180); }
+function neDDPick(i,kind,id){
+  const x=neCatalogo().find(y=>y.kind===kind&&y.id===id); if(!x) return;
+  const inp=$('ne_mat_'+i); if(inp) inp.value=neItemLabel(x);
+  if(kind==='prod'){ NEITENS[i].produtoId=id; NEITENS[i].materialId=undefined; } else { NEITENS[i].materialId=id; NEITENS[i].produtoId=undefined; }
+  const d=$('ne_desc_'+i); if(d&&!d.value) d.value=x.descricao;
+  const u=$('ne_un_'+i); if(u) u.value=x.unidade||'un';
+  const vu=$('ne_vu_'+i); if(vu&&!vu.value&&Number(x.custo)>0) vu.value=Number(x.custo);
+  const dd=$('ne_matdd_'+i); if(dd) dd.style.display='none';
+}
+function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) return; it.descricao=d.value; it.quantidade=val('ne_qtd_'+i); it.unidade=val('ne_un_'+i)||'un'; it.valorUnit=val('ne_vu_'+i); }); }
 function neAdd(){ neSync(); NEITENS.push({unidade:'un'}); neRender(); }
 function neDel(i){ neSync(); NEITENS.splice(i,1); neRender(); }
-function neMat(i){ const m=neFindMat(val('ne_mat_'+i)); if(m){ const d=$('ne_desc_'+i); if(d&&!d.value)d.value=m.descricao; const u=$('ne_un_'+i); if(u)u.value=m.unidade||'un'; const vu=$('ne_vu_'+i); if(vu&&!vu.value&&Number(m.custo)>0)vu.value=Number(m.custo); } }
 function neCpToggle(){ $('ne_cpbox').style.display=$('ne_cp').checked?'':'none'; }
 function neTotalEntrada(){ neSync(); return NEITENS.reduce((s,it)=>s+(Number(it.quantidade)||0)*(Number(it.valorUnit)||0),0); }
 function neParcGerar(){
@@ -4349,7 +4372,7 @@ function neParcDel(i){ neParcSync(); NEPARC.splice(i,1); neParcRender(); }
 async function saveNotaEntrada(){
   neSync();
   const itens = NEITENS.filter(it=>it.descricao&&it.descricao.trim()&&Number(it.quantidade)>0&&it.valorUnit!==''&&it.valorUnit!=null)
-    .map(it=>{ const o={ descricao:it.descricao.trim(), quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) }; if(it.materialId) o.materialId=it.materialId; return o; });
+    .map(it=>{ const o={ descricao:it.descricao.trim(), quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) }; if(it.produtoId) o.produtoId=it.produtoId; else if(it.materialId) o.materialId=it.materialId; return o; });
   if(!val('ne_num')){ toast('Informe o número da NF.','err'); return; }
   const temForn = val('ne_forn') || (val('ne_cnpj')||'').replace(/\D/g,'') || val('ne_nome');
   if(!temForn){ toast('Informe o fornecedor: selecione um cadastrado, ou preencha o CNPJ/nome (ele será cadastrado automaticamente).','err'); return; }
@@ -4390,8 +4413,9 @@ async function saveNotaEntrada(){
     if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
     if(n.ocsBaixadas&&n.ocsBaixadas.length) msg+=' Baixa automática: OC '+n.ocsBaixadas.join(', ')+' (necessidade × compra).';
     toast(msg,'ok');
-    // Toda entrada com estoque marcado pergunta o destino físico (endereçar × expedição).
-    if(body.lancarEstoque && itens.length){ perguntarDestinoMP(itens, n.id); }
+    // Só os itens de MATERIAL geram etiqueta/destino físico; produto de revenda já entrou no estoque do produto.
+    const matItens = itens.filter(x=>!x.produtoId);
+    if(body.lancarEstoque && matItens.length){ perguntarDestinoMP(matItens, n.id); }
     else { closeModal(); loadRoute(); }
   }catch(e){ toast(e.message,'err'); }
 }
@@ -4405,7 +4429,7 @@ async function editNotaEntrada(id){
     fornecedorId:n.fornecedorId||null, filialId:n.filialId||null,
     data:n.emitidaEm?String(n.emitidaEm).slice(0,10):'',
     lancarEstoque:!!n.lancadaEstoque, obs:n.obs||'',
-    itens:(n.itens||[]).map(it=>({ materialId:it.materialId||undefined, descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) })),
+    itens:(n.itens||[]).map(it=>({ materialId:it.materialId||undefined, produtoId:it.produtoId||undefined, descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un', valorUnit:Number(it.valorUnit) })),
   };
   formNotaEntrada(prefill);
 }
@@ -7689,7 +7713,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, editNotaEntrada, neAdd, neDel, neMat, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

@@ -17,6 +17,7 @@ import {
 
 export class NotaEntradaItemDto {
   @IsOptional() @IsInt() @IsPositive() materialId?: number;
+  @IsOptional() @IsInt() @IsPositive() produtoId?: number;
 
   @IsString()
   @IsNotEmpty({ message: 'Informe a descrição do item.' })
