@@ -7513,6 +7513,28 @@ window.APP = {
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 // PWA: registra o service worker (torna o app instalável no celular).
 if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }); }
+// Aviso automático de NOVA VERSÃO: como o app é uma página única, trocar de aba
+// não recarrega o index.html. Aqui comparamos o ETag do arquivo servido e, se
+// mudou (novo deploy), mostramos um banner p/ recarregar com 1 clique.
+(function autoUpdate(){
+  let baseline=null, avisado=false;
+  async function check(){
+    try{
+      const r=await fetch('/?_v='+Date.now(),{method:'HEAD',cache:'no-store'});
+      const tag=r.headers.get('etag')||r.headers.get('last-modified'); if(!tag) return;
+      if(baseline===null){ baseline=tag; return; }
+      if(tag!==baseline && !avisado){ avisado=true;
+        if(document.getElementById('updbanner')) return;
+        const b=document.createElement('div'); b.id='updbanner';
+        b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:99999;background:#3a2f08;color:#f4e9c1;padding:11px 18px;border-radius:10px;box-shadow:0 8px 26px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center;font-weight:800;cursor:pointer';
+        b.innerHTML='🔄 Nova versão disponível — clique para atualizar';
+        b.onclick=()=>{ try{location.reload(true);}catch(_){ location.reload(); } };
+        document.body.appendChild(b);
+      }
+    }catch(_){}
+  }
+  setTimeout(check,4000); setInterval(check,180000); window.addEventListener('focus',check);
+})();
 boot();
 })();
 </script>
