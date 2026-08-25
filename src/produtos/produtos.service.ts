@@ -219,6 +219,7 @@ export class ProdutosService {
   private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {
     return {
       referencia: dto.referencia,
+      fornecedorId: dto.fornecedorId,
       marca: dto.marca,
       linha: dto.linha,
       grupo: dto.grupo,

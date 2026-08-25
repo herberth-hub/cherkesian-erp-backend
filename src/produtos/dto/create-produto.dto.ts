@@ -50,6 +50,7 @@ export class FichaMedidaDto {
 /** Campos descritivos da ficha técnica (herda os fiscais). */
 export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(60) referencia?: string;
+  @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
   @IsOptional() @IsString() @MaxLength(80) marca?: string;
   @IsOptional() @IsString() @MaxLength(60) linha?: string;
   @IsOptional() @IsString() @MaxLength(60) grupo?: string;

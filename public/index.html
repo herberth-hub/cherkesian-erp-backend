@@ -1036,7 +1036,7 @@ async function viewProdutos(c){
   window.__PRODLIST = list;
   const _gruposP=[...new Set(list.map(p=>p.clienteGrupo).filter(Boolean))].sort();
   const gFilterP = _gruposP.length? `<div style="margin:-2px 0 10px"><select id="prod_grupo" class="inp" style="width:auto" onchange="APP.prodFiltrar()"><option value="">Todos os grupos de cliente</option>${_gruposP.map(g=>'<option value="'+esc(g)+'">'+esc(g)+' ('+list.filter(p=>p.clienteGrupo===g).length+')</option>').join('')}</select></div>` : '';
-  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', relBtn('produtos'))
+  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', `<button class="btn-sm" onclick="APP.formProdutoRevenda()">🛒 Novo produto de revenda</button> `+relBtn('produtos'))
     + `<div style="margin:0 0 10px"><input id="prod_busca" class="inp" placeholder="🔍 Buscar por código, descrição, categoria, cor ou NCM…" oninput="APP.prodFiltrar()" style="max-width:520px"></div>`
     + gFilterP
     + `<div id="prodwrap">${prodTabela(list)}</div>`;
@@ -2115,6 +2115,40 @@ async function saveProduto(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ===== Cadastro rápido de PRODUTO DE REVENDA (sem ficha de produção) =====
+async function formProdutoRevenda(){
+  const forn = await api('/fornecedores').catch(()=>[]);
+  window.__FORNREV = forn;
+  const dl = `<datalist id="rev_fornlist">${forn.map(f=>`<option value="${esc(f.nome)}"></option>`).join('')}</datalist>`;
+  openModal(`<h3>🛒 Novo produto de revenda</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Produto comprado pronto para revender — não gera OP nem ficha de produção (tecido/consumo/peso).</div>
+    ${dl}
+    <div class="grid2">${field('rev_ref','Referência / código','placeholder="ex.: 101004966"')}${field('rev_desc','Descrição *','placeholder="ex.: Boné trucker azul"')}</div>
+    <div class="grid3">${field('rev_cat','Categoria *','value="Revenda"')}${field('rev_marca','Marca / cliente','placeholder="ex.: INTS"')}${field('rev_cor','Cor','placeholder="ex.: Royal"')}</div>
+    <div class="mrow"><label class="fl">Fornecedor (de quem compramos)</label><input id="rev_forn" class="inp" list="rev_fornlist" placeholder="digite — cadastra se novo"></div>
+    <div class="grid3">${field('rev_custo','Custo de compra (R$)','type="number" step="0.01" min="0" placeholder="0,00"')}${field('rev_preco','Preço de venda (R$)','type="number" step="0.01" min="0" placeholder="0,00"')}${field('rev_un','Unidade','value="UN"')}</div>
+    ${field('rev_ncm','NCM (8 díg.)','placeholder="ex.: 65050011" maxlength="8"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveProdutoRevenda()">Salvar produto de revenda</button></div>`);
+}
+async function saveProdutoRevenda(){
+  const desc=val('rev_desc'), cat=val('rev_cat')||'Revenda';
+  if(!desc){ toast('Informe a descrição.','err'); return; }
+  const body={ tipo:'revenda', categoria:cat, descricao:desc,
+    referencia:val('rev_ref')||undefined, marca:val('rev_marca')||undefined, cor:val('rev_cor')||undefined,
+    unidadeComercial:val('rev_un')||'UN', ncm:(val('rev_ncm')||'').replace(/\D/g,'')||undefined };
+  const custo=val('rev_custo'); if(custo!=='') body.custo=Number(custo);
+  const preco=val('rev_preco'); if(preco!=='') body.precoBase=Number(preco);
+  // Fornecedor: acha pelo nome ou cadastra na hora, e vincula.
+  const fnome=(val('rev_forn')||'').trim();
+  if(fnome){
+    const lista=window.__FORNREV||[]; const achou=lista.find(f=>String(f.nome||'').trim().toLowerCase()===fnome.toLowerCase());
+    if(achou) body.fornecedorId=achou.id;
+    else { try{ const nf=await api('/fornecedores',{method:'POST',body:{nome:fnome, tipo:'Revenda'}}); body.fornecedorId=nf.id; toast('Fornecedor "'+esc(nf.nome)+'" cadastrado.','ok'); }catch(_){} }
+  }
+  try{ const pr=await api('/produtos',{method:'POST',body}); closeModal(); toast('Produto de revenda "'+(pr.codigo||pr.descricao||'')+'" cadastrado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
 // ===== Receita (BOM): materiais + consumo por tamanho + componentes do conjunto =====
 async function formReceita(id){
   let prod, consumos, materiais, produtos;
@@ -7419,7 +7453,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,

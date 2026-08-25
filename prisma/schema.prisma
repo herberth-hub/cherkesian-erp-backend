@@ -444,6 +444,7 @@ model Produto {
 
   // ===== Ficha técnica (gerada a partir do cadastro; enviada ao cliente) =====
   referencia     String? // referência do cliente/externa (ex.: 101004966)
+  fornecedorId   Int?    // fornecedor (produto de revenda: de quem compramos)
   marca          String? // marca / cliente (ex.: CINEMARK)
   linha          String? // linha (ex.: PROFISSIONAL)
   grupo          String? // grupo detalhado (ex.: CALCA)
