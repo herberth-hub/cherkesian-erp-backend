@@ -4718,6 +4718,10 @@ async function viewEstoque(c){
           <option value="">Todas as colunas</option>
           ${[...new Set((unidades||[]).map(u=>u.coluna).filter(Boolean))].sort().map(c=>`<option value="${esc(c)}">Coluna ${esc(c)}</option>`).join('')}
         </select>
+        <select id="und_andar" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
+          <option value="">Todos os andares</option>
+          ${[...new Set((unidades||[]).map(u=>u.andar).filter(x=>x!=null&&x!==''))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(a=>`<option value="${esc(a)}">Andar ${esc(a)}</option>`).join('')}
+        </select>
         <select id="und_cx" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
           <option value="">Todas as caixas/gôndolas</option>
           ${[...new Set((unidades||[]).map(u=>u.caixaMaster).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(c=>`<option value="${esc(c)}">Gôndola ${esc(c)}</option>`).join('')}
@@ -4731,11 +4735,12 @@ function estAreaSet(a){ const s=$('und_area'); if(s){ s.value=a; renderUnidades(
 function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u.status==='aguardando_endereco') return 'recebimento'; if(u.status==='em_estoque'||u.status==='reservado') return 'estoque'; return u.status; }
 function renderUnidades(){
   const box=$('unidsbox'); if(!box) return;
-  const tipo=val('und_tipo'), area=val('und_area'), col=val('und_col'), cx=val('und_cx'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
+  const tipo=val('und_tipo'), area=val('und_area'), col=val('und_col'), andar=val('und_andar'), cx=val('und_cx'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
   let arr=(window.__UNIDS_ALL||[]);
   if(area) arr=arr.filter(u=>areaDaUnidade(u)===area);
   if(tipo) arr=arr.filter(u=>u.tipo===tipo);
   if(col) arr=arr.filter(u=>u.coluna===col);
+  if(andar) arr=arr.filter(u=>String(u.andar)===String(andar));
   if(cx) arr=arr.filter(u=>u.caixaMaster===cx);
   if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.areaMotivo].some(x=>String(x||'').toLowerCase().includes(q)));
   window.__UNIDS=arr.slice(0,300);
@@ -4763,19 +4768,22 @@ function renderUnidades(){
       <button class="btn-sm" onclick="APP.unBulkReimprimir()">🖨 Reimprimir selecionadas</button>
       ${_admin?`<button class="btn-sm" style="color:#c14a34" onclick="APP.unBulkExcluir()">🗑 Excluir selecionadas</button>`:''}
     </div>
-    ${(col||cx)?resumoGondola(arr,col,cx):''}
-    <div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||col||cx||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
+    ${(col||cx||andar||q)?resumoGondola(arr,{col,andar,cx,q}):''}
+    <div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||col||andar||cx||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
     + panelTable(['Sel','Código','Tipo','Item','Status','Endereço / Motivo','Ações'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
   unSelCount();
 }
-// Resumo do que há na gôndola/coluna filtrada: agrupa por item (descrição · cor · tam).
-function resumoGondola(arr, col, cx){
-  const g=new Map();
-  (arr||[]).forEach(u=>{ const k=[u.descricao||'',u.cor||'',u.tamanho||''].join(' · '); g.set(k,(g.get(k)||0)+1); });
-  const linhas=[...g.entries()].sort((a,b)=>b[1]-a[1]).map(([k,n])=>`<span style="display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid #efe2b8;border-radius:6px;padding:3px 8px;margin:2px;font-size:12px">${esc(k)} <b class="gold">${n}</b></span>`).join('');
-  const alvo=[col?('Coluna '+col):'', cx?('Gôndola '+cx):''].filter(Boolean).join(' · ');
+// Resumo do estoque filtrado: conta a QUANTIDADE POR TAMANHO (por item), tanto na
+// busca por produto/código quanto ao filtrar uma gôndola (Coluna · Andar · Caixa).
+function resumoGondola(arr, opts){
+  opts=opts||{};
+  const g=new Map(); // desc¦cor¦tam -> {desc,cor,tam,n}
+  (arr||[]).forEach(u=>{ const k=[u.descricao||'',u.cor||'',u.tamanho||''].join('¦'); const cur=g.get(k)||{desc:u.descricao||'',cor:u.cor||'',tam:u.tamanho||'—',n:0}; cur.n++; g.set(k,cur); });
+  const linhas=[...g.values()].sort((a,b)=> a.desc===b.desc ? String(a.tam).localeCompare(String(b.tam),'pt',{numeric:true}) : a.desc.localeCompare(b.desc))
+    .map(x=>`<span style="display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid #efe2b8;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px"><b style="font-size:13px">${esc(x.tam)}</b> <span class="muted">${esc(x.desc)}${x.cor?' · '+esc(x.cor):''}</span> <b class="gold" style="font-size:13px">${x.n}</b></span>`).join('');
+  const partes=[opts.col?('Coluna '+opts.col):'', opts.andar?('Andar '+opts.andar):'', opts.cx?('Gôndola '+opts.cx):'', opts.q?('Busca "'+opts.q+'"'):''].filter(Boolean).join(' · ');
   return `<div style="background:#faf8f0;border:1px solid #efe2b8;border-radius:8px;padding:8px 10px;margin-bottom:8px">
-    <div style="font-weight:700;font-size:12px;margin-bottom:4px">📍 ${esc(alvo)} — ${arr.length} unidade(s), ${g.size} item(ns)</div>
+    <div style="font-weight:700;font-size:12px;margin-bottom:4px">📊 ${esc(partes||'Resumo')} — <b>${arr.length}</b> unidade(s) · ${g.size} tamanho(s)/item(ns)</div>
     <div style="display:flex;flex-wrap:wrap">${linhas||'<span class="muted">vazio</span>'}</div></div>`;
 }
 function unSel(cod, ck){ if(!window.__UNSEL) window.__UNSEL=new Set(); if(ck) window.__UNSEL.add(cod); else window.__UNSEL.delete(cod); unSelCount(); }
