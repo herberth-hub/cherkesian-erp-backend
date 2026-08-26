@@ -391,12 +391,53 @@ export class ExpedicoesService {
     const exp = await this.getExp(id, empresaId);
     const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean; viaBip?: boolean; conteudo?: CaixaLinha[] }> | null) ?? [])
       .map((c) => ({ numero: c.numero, pecas: c.pecas, conferida: !!c.conferida, viaBip: !!c.viaBip, conteudo: c.conteudo ?? [] }));
+
+    // Grade da conferência: esperado × conferido × falta, por (descrição · tamanho).
+    // Esperado vem do snapshot de itens da expedição (com grade); se não houver,
+    // cai nos itens do pedido de origem. Conferido vem do conteúdo das caixas bipadas.
+    const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
+    let itens = (exp.itens as Array<{ descricao?: string; cor?: string | null; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
+    if (!itens.length && exp.pedidoId) {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
+      itens = (ped?.itens ?? []).map((it) => ({ descricao: it.descricao, cor: it.cor, quantidade: it.quantidade, grade: (it.grade as Record<string, number> | null) }));
+    }
+    const esp = new Map<string, { descricao: string; cor: string | null; tamanho: string; esperado: number }>();
+    for (const it of itens) {
+      const desc = it.descricao ?? '';
+      const grade = it.grade && typeof it.grade === 'object' ? it.grade : null;
+      if (grade && Object.keys(grade).length) {
+        for (const [t, q] of Object.entries(grade)) {
+          const k = norm(desc) + '|' + norm(t);
+          const cur = esp.get(k) ?? { descricao: desc, cor: it.cor ?? null, tamanho: t, esperado: 0 };
+          cur.esperado += Number(q) || 0; esp.set(k, cur);
+        }
+      } else {
+        const k = norm(desc) + '|';
+        const cur = esp.get(k) ?? { descricao: desc, cor: it.cor ?? null, tamanho: '—', esperado: 0 };
+        cur.esperado += Number(it.quantidade) || 0; esp.set(k, cur);
+      }
+    }
+    const conf = new Map<string, number>();
+    for (const c of caixas) for (const l of (c.conteudo ?? [])) {
+      const k = norm(l.descricao) + '|' + norm(l.tamanho);
+      conf.set(k, (conf.get(k) ?? 0) + (Number(l.qtd) || 0));
+    }
+    const chaves = new Set<string>([...esp.keys(), ...conf.keys()]);
+    const grade = [...chaves].map((k) => {
+      const e = esp.get(k);
+      const [d, t] = k.split('|');
+      const esperado = e?.esperado ?? 0;
+      const conferido = conf.get(k) ?? 0;
+      return { descricao: e?.descricao ?? d, cor: e?.cor ?? null, tamanho: e?.tamanho ?? (t || '—'), esperado, conferido, falta: Math.max(0, esperado - conferido) };
+    }).sort((a, b) => (a.descricao === b.descricao ? a.tamanho.localeCompare(b.tamanho, 'pt', { numeric: true }) : a.descricao.localeCompare(b.descricao)));
+
     return {
       numero: exp.numero,
       codBip: String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase(), // código da etiqueta MASTER
       esperadas: exp.pecas, conferidas: exp.pecasConferidas,
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
       caixas, totalCaixas: caixas.length, caixasConferidas: caixas.filter((c) => c.conferida).length,
+      grade,
     };
   }
 

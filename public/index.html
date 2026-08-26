@@ -6265,6 +6265,7 @@ async function formConferencia(id){
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
     ${c.totalCaixas?`<div style="font-size:12px;color:#6a675e;margin:4px 0 2px">📦 Caixas: <b>${c.totalCaixas}</b>${c.caixasConferidas?(' · '+c.caixasConferidas+' conferida(s)'):''} ${(c.caixas||[]).map(cx=>{const tip=(cx.conteudo||[]).map(l=>[l.descricao,l.cor,l.tamanho].filter(Boolean).join(' · ')+': '+l.qtd).join(' | ')||(cx.pecas+' pç');const on=cx.conferida;const x=despachado?'':' <b style="cursor:pointer;color:#b03a2e" title="Zerar esta caixa (devolve as peças ao estoque)" onclick="APP.zerarCaixaConf('+id+','+cx.numero+')">✕</b>';return '<span class="pill" title="'+esc(tip)+'" style="font-size:10px;background:'+(on?'#e6f4ea':'#eef3ff')+';color:'+(on?'#1e7a44':'#2b4a8b')+'">CX'+cx.numero+(on?' ✓':'')+' ('+cx.pecas+' pç)'+x+'</span>';}).join(' ')}</div>`:''}
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
+    ${confGradeHtml(c.grade)}
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`
       <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
@@ -6287,6 +6288,23 @@ async function formConferencia(id){
       </div>`}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — despacha e conclui sem bipar peça a peça" onclick="APP.despacharDireto(${id})">✔ Dar baixa (sem conferir)</button>`}</div>`);
   const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+}
+// Grade da conferência: por tamanho, quanto tem que bipar (esperado), quanto já bipou e o que falta.
+function confGradeHtml(grade){
+  if(!grade||!grade.length) return '';
+  const totFalta=grade.reduce((s,g)=>s+(g.falta||0),0);
+  const rows=grade.map(g=>{
+    const done=g.esperado>0 && g.conferido>=g.esperado;
+    const bg=done?'#e6f4ea':(g.conferido>0?'#fff7e6':'#fdecea');
+    const bcol=done?'#1e7a44':(g.conferido>0?'#9a5a00':'#c14a34');
+    return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 8px;border-radius:6px;background:${bg};margin:2px 0">
+      <span style="font-size:12px;min-width:0"><b style="font-size:13px">${esc(g.tamanho)}</b> <span class="muted">${esc(g.descricao)}${g.cor?' · '+esc(g.cor):''}</span></span>
+      <span style="font-size:13px;font-weight:800;color:${bcol};white-space:nowrap">${g.conferido}/${g.esperado} ${done?'✓':(g.falta>0?'· faltam <span style="font-size:15px">'+g.falta+'</span>':'')}</span>
+    </div>`;
+  }).join('');
+  return `<div style="border:1px solid #efe2b8;border-radius:8px;padding:8px;margin-bottom:8px;max-height:240px;overflow:auto">
+    <div style="font-weight:700;font-size:12px;margin-bottom:4px;display:flex;justify-content:space-between"><span>📋 Bipar por tamanho</span>${totFalta>0?`<span style="color:#c14a34">faltam ${totFalta} pç</span>`:'<span style="color:#1e7a44">tudo conferido ✓</span>'}</div>
+    ${rows}</div>`;
 }
 // Baixa direta (admin): despacha sem a conferência peça a peça.
 async function despacharDireto(id){
