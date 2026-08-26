@@ -1219,15 +1219,24 @@ function renderPedidos(){
       return hay.includes(q) || valBate;
     });
   }
-  const pecas=arr.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
-  const valor=arr.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
-  const bonif=arr.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
+  const ativos=arr.filter(p=>p.etapa!=='cancelado'); // cancelados não somam nos totais
+  const pecas=ativos.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
+  const valor=ativos.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
+  const bonif=ativos.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et||fil)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
   const tbl=$('ped_tbl'); if(!tbl) return;
   if(window.__pedKanban){ tbl.innerHTML = pedidosKanban(arr); return; }
-  tbl.innerHTML = panelTable(
-    ['Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
+  const bulkBar = arr.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding:8px 10px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
+      <span id="pedselinfo" class="muted" style="font-size:12px;font-weight:600">0 selecionado(s)</span>
+      <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-sm" onclick="APP.pedBaixarSel()">⬇️ Baixar PDF</button>
+        <button class="btn-sm" onclick="APP.pedEmailSel()">✉️ Enviar e-mail</button>
+        <button class="btn-sm danger" onclick="APP.pedCancelarSel()">🚫 Cancelar selecionados</button>
+      </div></div>` : '';
+  tbl.innerHTML = bulkBar + panelTable(
+    ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
+      `<input type="checkbox" class="pedck" value="${p.id}" onclick="APP.pedSelInfo()">`,
       `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}`,
       `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
@@ -1238,7 +1247,7 @@ function renderPedidos(){
       pedidoAcoes(p)
     ]), arr.length?null:'Nenhum pedido no filtro.');
 }
-function etapaColor(e){ if(e==='orcamento')return'gray'; if(e==='concluido'||e==='faturado')return'gold'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
+function etapaColor(e){ if(e==='cancelado')return'red'; if(e==='orcamento')return'gray'; if(e==='concluido'||e==='faturado')return'gold'; if(e==='producao'||e==='expedicao'||e==='estoque')return'green'; if(e==='compra')return'red'; return'blue'; }
 // Quanto ainda falta expedir do pedido (soma dos residuais por item/tamanho).
 function pedFaltaExpedir(p){
   return (p.itens||[]).reduce((s,it)=>{
@@ -1289,7 +1298,11 @@ function pedidoAcoes(p){
   if(['parcial','concluido','producao','estoque','expedicao'].includes(p.etapa)){
     b+=`<button class="btn-sm" style="color:#8a5a00" title="Retificar o pedido (preserva o que já foi expedido). Cancele a NF antes." onclick="APP.retificarPedido(${p.id})">✏️ Retificar</button> `;
   }
-  b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button>`;
+  b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button> `;
+  // Cancelar (mantém o registro) — disponível enquanto não estiver cancelado/concluído.
+  if(!['cancelado','concluido'].includes(p.etapa)){
+    b+=`<button class="btn-sm" style="color:#c14a34;border-color:#e0a99b" title="Cancelar o pedido (mantém o registro marcado como cancelado)" onclick="APP.cancelarPedido(${p.id},'${esc(p.numero)}')">🚫 Cancelar</button>`;
+  }
   return b||'<span class="muted">—</span>';
 }
 
@@ -2784,6 +2797,46 @@ async function excluirPedido(id,numero){
   if(!(await uiConfirm({tipo:'err', titulo:'Excluir pedido '+numero+'?', msg:'Só é permitido enquanto não gerou OP nem NF. Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
   try{ await api('/pedidos/'+id,{method:'DELETE'}); toast('Pedido '+numero+' excluído.','ok'); loadRoute(); }
   catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
+}
+async function cancelarPedido(id,numero){
+  if(!(await uiConfirm({tipo:'warn', titulo:'Cancelar pedido '+numero+'?', ok:'Cancelar pedido', cancel:'Voltar', msg:'O pedido fica marcado como CANCELADO (o registro é mantido no histórico). Se houver NF ativa, cancele a NF antes.'}))) return;
+  try{ await api('/pedidos/'+id+'/cancelar',{method:'POST'}); toast('Pedido '+numero+' cancelado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+// ===== Seleção múltipla de pedidos =====
+function pedSelIds(){ return [...document.querySelectorAll('.pedck:checked')].map(ck=>Number(ck.value)); }
+function pedSelInfo(){ const n=pedSelIds().length; const el=$('pedselinfo'); if(el) el.textContent=n+' selecionado(s)'; const all=$('pedallck'); if(all){ const tot=document.querySelectorAll('.pedck').length; all.checked=(n>0&&n===tot); } }
+function pedToggleAll(on){ document.querySelectorAll('.pedck').forEach(ck=>ck.checked=on); pedSelInfo(); }
+function pedById(id){ return (window.__PEDIDOS||[]).find(p=>p.id===id); }
+async function pedCancelarSel(){
+  const ids=pedSelIds(); if(!ids.length){ toast('Selecione ao menos um pedido.','err'); return; }
+  const canc=ids.filter(id=>{ const p=pedById(id); return p && !['cancelado','concluido'].includes(p.etapa); });
+  if(!canc.length){ toast('Nenhum dos selecionados pode ser cancelado.','err'); return; }
+  if(!(await uiConfirm({tipo:'warn', titulo:'Cancelar '+canc.length+' pedido(s)?', ok:'Cancelar pedidos', cancel:'Voltar', msg:'Os pedidos ficam marcados como CANCELADOS (registro mantido). Pedidos com NF ativa serão pulados.'}))) return;
+  let ok=0; const falhas=[];
+  for(const id of canc){ try{ await api('/pedidos/'+id+'/cancelar',{method:'POST',silent:true}); ok++; }catch(e){ const p=pedById(id); falhas.push((p?p.numero:id)); } }
+  toast(ok+' pedido(s) cancelado(s)'+(falhas.length?(' · '+falhas.length+' com NF ativa (pulados): '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
+  loadRoute();
+}
+async function pedBaixarSel(){
+  const ids=pedSelIds(); if(!ids.length){ toast('Selecione ao menos um pedido.','err'); return; }
+  toast('Baixando '+ids.length+' PDF(s)…','ok');
+  for(const id of ids){ const p=pedById(id); if(!p) continue; try{ await gerarDoc(p.etapa==='orcamento'?'proposta':'pedido', id); await new Promise(r=>setTimeout(r,400)); }catch(e){} }
+}
+async function pedEmailSel(){
+  const ids=pedSelIds(); if(!ids.length){ toast('Selecione ao menos um pedido.','err'); return; }
+  let clientes=[]; try{ clientes=await api('/clientes'); }catch(_){}
+  const emailDe={}; clientes.forEach(c=>emailDe[c.id]=c.email||'');
+  const comEmail=ids.filter(id=>{ const p=pedById(id); return p && emailDe[p.clienteId]; });
+  const semEmail=ids.length-comEmail.length;
+  if(!comEmail.length){ toast('Nenhum dos clientes selecionados tem e-mail cadastrado.','err'); return; }
+  if(!(await uiConfirm({tipo:'info', titulo:'Enviar '+comEmail.length+' e-mail(s)?', ok:'Enviar', cancel:'Cancelar', msg:'Envia cada documento para o e-mail do cliente cadastrado'+(semEmail?(' · '+semEmail+' sem e-mail serão pulados'):'')+'. O PDF vai anexo.'}))) return;
+  let ok=0; const falhas=[];
+  for(const id of comEmail){ const p=pedById(id); const tipo=p.etapa==='orcamento'?'proposta':'pedido';
+    try{ const d=await api('/documentos/'+tipo,{method:'POST',body:{referenciaId:id},silent:true}); await api('/documentos/'+d.id+'/enviar-email',{method:'POST',body:{para:emailDe[p.clienteId]},silent:true}); ok++; }
+    catch(e){ falhas.push(p.numero); }
+  }
+  toast(ok+' e-mail(s) enviado(s)'+(semEmail?(' · '+semEmail+' sem e-mail'):'')+(falhas.length?(' · falhas: '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
 }
 async function pedidoExpedir(id){
   if(!(await uiConfirm({tipo:'info', titulo:'Gerar expedição direta?', msg:'Gera a expedição direto deste pedido, sem passar pela produção/OP. Depois é só emitir a NF na tela de Expedição.', ok:'Gerar expedição'}))) return;
@@ -7704,7 +7757,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,

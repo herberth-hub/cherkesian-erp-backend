@@ -32,6 +32,7 @@ enum PedidoEtapa {
   expedicao
   parcial
   concluido
+  cancelado
 }
 
 enum PilotoStatus {

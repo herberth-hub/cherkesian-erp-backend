@@ -53,6 +53,13 @@ export class PedidosController {
   }
 
   @Areas('vendas')
+  @Post(':id/cancelar')
+  @HttpCode(HttpStatus.OK)
+  cancelar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.cancelar(id, user.empresaId);
+  }
+
+  @Areas('vendas')
   @Post(':id/aprovar')
   @HttpCode(HttpStatus.OK)
   aprovar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

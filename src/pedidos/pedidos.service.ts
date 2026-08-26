@@ -272,6 +272,19 @@ export class PedidosService {
     return { removido: true, id, numero: pedido.numero };
   }
 
+  /**
+   * CANCELA o pedido (mantém o registro, marca etapa=cancelado). Diferente de excluir.
+   * Não permite se houver NF ativa (autorizada/pendente) — cancele a NF antes.
+   */
+  async cancelar(id: number, empresaId: number) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
+    if (pedido.etapa === 'cancelado') return { ...pedido, jaCancelado: true };
+    const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
+    if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de cancelar o pedido.`);
+    return this.prisma.pedido.update({ where: { id }, data: { etapa: 'cancelado', status: 'Cancelado' } });
+  }
+
   /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);
