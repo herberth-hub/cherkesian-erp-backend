@@ -5468,13 +5468,24 @@ async function viewExpedicao(c){
 function expToggleDone(){ window.__expDone=!window.__expDone; renderExpedicoes(); }
 function renderExpedicoes(){
   const c=window.__EXPC; if(!c) return;
-  const nome=window.__EXPNOME||{}; const all=window.__EXPS||[];
+  const all=window.__EXPS||[];
   const done=!!window.__expDone;
   const nPend=all.filter(e=>e.conferenciaStatus!=='despachado').length;
   const nDone=all.filter(e=>e.conferenciaStatus==='despachado').length;
-  const arr=all.filter(e=> done ? e.conferenciaStatus==='despachado' : e.conferenciaStatus!=='despachado');
   const toggle=`<button class="btn-sm" onclick="APP.expToggleDone()" title="Alternar entre a expedir e concluídas">${done?('📋 A expedir ('+nPend+')'):('✅ Concluídas ('+nDone+')')}</button>`;
-  c.innerHTML = toolbar('Expedições'+(done?' · concluídas':' · a expedir'), 'Nova expedição', 'APP.formExpedicao()', toggle+' '+relBtn('expedicoes')) + panelTable(
+  c.innerHTML = toolbar('Expedições'+(done?' · concluídas':' · a expedir'), 'Nova expedição', 'APP.formExpedicao()', toggle+' '+relBtn('expedicoes'))
+    + `<div style="margin:0 0 12px"><input id="exp_q" class="inp" placeholder="🔍 Buscar por nº da expedição, pedido (PV), cliente ou NF-e…" value="${esc(window.__EXPQ||'')}" oninput="APP.expBuscar()" style="max-width:520px"></div>`
+    + `<div id="exp_tbl"></div>`;
+  renderExpTable();
+}
+function expBuscar(){ window.__EXPQ=val('exp_q')||''; renderExpTable(); }
+function renderExpTable(){
+  const box=$('exp_tbl'); if(!box) return;
+  const nome=window.__EXPNOME||{}; const all=window.__EXPS||[]; const done=!!window.__expDone;
+  const q=(window.__EXPQ||'').trim().toLowerCase();
+  let arr=all.filter(e=> done ? e.conferenciaStatus==='despachado' : e.conferenciaStatus!=='despachado');
+  if(q) arr=arr.filter(e=>[e.numero,e.pedidoNumero,e.clienteNome||nome[e.clienteId],e.nf].some(x=>String(x||'').toLowerCase().includes(q)));
+  box.innerHTML = panelTable(
     ['Número','Cliente','Peças','NF-e','Conferência','Saída','Ações'],
     arr.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>${e.pedidoNumero?`<div class="muted mono" style="font-size:10px">${esc(e.pedidoNumero)}</div>`:''}`, esc(e.clienteNome||nome[e.clienteId]||('#'+e.clienteId)),
@@ -7811,7 +7822,7 @@ window.APP = {
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
