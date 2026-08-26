@@ -97,6 +97,7 @@ export class EstoqueService {
         data: {
           empresaId, codigo, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
           descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
+          ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
           coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
           pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
         },
@@ -121,6 +122,7 @@ export class EstoqueService {
       pecas.push({
         codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
         loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
+        endereco: this.enderecoTxt(dto) ?? '', // endereçamento na etiqueta (se já informado)
         // No rolo/volume de matéria-prima, mostra a medida na etiqueta (ex.: 5,90 m).
         ...(granel ? { qtdLote: qtdFmt, unLote: unidadeMedida } : {}),
       });
@@ -224,6 +226,8 @@ export class EstoqueService {
     if (!codigo) throw new BadRequestException('Informe ou bipe a etiqueta.');
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    // Material vinculado (p/ movimentação/baixa manual da matéria-prima).
+    const mat = un.materialId ? await this.prisma.material.findUnique({ where: { id: un.materialId }, select: { id: true, codigo: true, unidade: true, saldo: true } }) : null;
     const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
     const statusLabel: Record<string, string> = {
       aguardando_endereco: 'Recebimento (aguardando endereço)', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado', quarentena: 'Quarentena',
@@ -241,6 +245,13 @@ export class EstoqueService {
       coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
       loteEntrada: un.loteEntrada,
       loteFornecedor: un.loteFornecedor,
+      // Vínculo p/ movimentação: material + quantidade da etiqueta + unidade de medida.
+      materialId: un.materialId ?? mat?.id ?? null,
+      produtoId: un.produtoId ?? null,
+      quantidade: un.quantidade != null ? Number(un.quantidade) : null,
+      unidadeMedida: mat?.unidade ?? null,
+      materialCodigo: mat?.codigo ?? null,
+      saldoMaterial: mat ? Number(mat.saldo) : null,
     };
   }
 
@@ -276,10 +287,11 @@ export class EstoqueService {
     const matIds = [...new Set(unidades.map((u) => u.materialId).filter((x): x is number => x != null))];
     const [prods, mats] = await Promise.all([
       prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : Promise.resolve([]),
-      matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, codigo: true } }) : Promise.resolve([]),
+      matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, codigo: true, unidade: true } }) : Promise.resolve([]),
     ]);
     const refProd = new Map(prods.map((p) => [p.id, p.codigo]));
     const refMat = new Map(mats.map((m) => [m.id, m.codigo]));
+    const unMat = new Map(mats.map((m) => [m.id, m.unidade]));
     // Preserva a ordem pedida (por código) para o operador.
     const porCodigo = new Map(unidades.map((u) => [u.codigo, u]));
     const pecas = [];
@@ -288,7 +300,12 @@ export class EstoqueService {
       if (!u) continue;
       const ref = (u.produtoId != null ? refProd.get(u.produtoId) : undefined) ?? (u.materialId != null ? refMat.get(u.materialId) : undefined) ?? '';
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: u.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
-      pecas.push({ codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '', loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64') });
+      pecas.push({
+        codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '',
+        loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
+        endereco: this.enderecoTxt({ coluna: u.coluna ?? undefined, andar: u.andar ?? undefined, caixaMaster: u.caixaMaster ?? undefined }) ?? '',
+        ...(u.quantidade != null ? { qtdLote: Number(u.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }), unLote: (u.materialId != null ? unMat.get(u.materialId) : '') || '' } : {}),
+      });
     }
     return { total: pecas.length, pecas };
   }

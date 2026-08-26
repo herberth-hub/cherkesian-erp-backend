@@ -5187,6 +5187,7 @@ function imprimirEtqUnidades(pecas, meta){
       <div class="ulp">${esc(abrevEtq(p.descricao))}</div>
       <div class="uld"><b>${p.tamanho?('TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+esc(p.qtdLote)+' '+esc(p.unLote||'un')):''}</b>${p.cor?((p.tamanho||p.qtdLote?' · ':'')+esc(p.cor)):''}</div>
       ${p.loteFornecedor?`<div class="ullote">LOTE ${esc(p.loteFornecedor)}</div>`:''}
+      ${p.endereco?`<div class="ulend">📍 ${esc(p.endereco)}</div>`:''}
       <img src="${p.barcode}">
       <div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
   const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir as etiquetas.','err'); return; }
@@ -5195,7 +5196,7 @@ function imprimirEtqUnidades(pecas, meta){
     <style>
     *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
-    .ulref{font-size:8pt;font-weight:700;color:#333} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ullote{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.3mm 0} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
+    .ulref{font-size:8pt;font-weight:700;color:#333} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ullote{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.3mm 0} .ulend{font-size:9pt;font-weight:800;background:#000;color:#fff;border-radius:3px;padding:0 5px;margin:.3mm 0} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
     /* Folha A4: grade de várias por página */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
     body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
@@ -5205,7 +5206,7 @@ function imprimirEtqUnidades(pecas, meta){
     body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm}
     body.z50mode .page:last-child{page-break-after:auto}
     body.z50mode .ul{width:100%;height:100%;padding:1.5mm 9mm 1.5mm 14mm}
-    body.z50mode .ulref{font-size:8.5pt} body.z50mode .ulp{font-size:11pt} body.z50mode .uld{font-size:9pt} body.z50mode .ullote{font-size:10.5pt} body.z50mode .ul img{height:13mm} body.z50mode .ulc{font-size:12pt;margin-top:.5mm}
+    body.z50mode .ulref{font-size:8.5pt} body.z50mode .ulp{font-size:11pt} body.z50mode .uld{font-size:9pt} body.z50mode .ullote{font-size:10.5pt} body.z50mode .ulend{font-size:10.5pt} body.z50mode .ul img{height:13mm} body.z50mode .ulc{font-size:12pt;margin-top:.5mm}
     @media print{ body{background:#fff} .bar{display:none!important} body.z50mode .page{margin:0} }
     body.z50mode{background:#eee}
     .bar{position:fixed;top:6px;left:6px;right:6px;display:flex;gap:6px;flex-wrap:wrap;background:#fff;padding:6px;border:1px solid #ccc;border-radius:6px;z-index:9}
@@ -5324,8 +5325,9 @@ async function formMov(){
     <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
       <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
     <div class="mrow" style="position:relative"><label class="fl" id="f_itemlab">Produto *</label>
-      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar (código, descrição ou cor)…" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()">
+      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar OU bipe a etiqueta (UN-…) p/ dar saída rápida" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.movBip();}">
       <div id="f_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div></div>
+    <div id="f_movinfo" style="display:none;margin:-4px 0 8px;font-size:12px;padding:7px 10px;background:#eef6ff;border:1px solid #bcd8f5;border-radius:8px"></div>
     <div class="grid3">
       <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp"><option value="entrada">entrada</option><option value="saida">saída</option></select></div>
       <div id="f_tamwrap">${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}</div>
@@ -5353,6 +5355,7 @@ function movLabel(x){ return x.codigo+' · '+x.descricao+(x.cor?' · 🎨 '+x.co
 function movItemDD(){
   const inp=$('f_item'), dd=$('f_itemdd'); if(!inp||!dd) return;
   window.__MOVITEMID=null; const unl=$('f_unlbl'); if(unl) unl.style.display='none';
+  const info=$('f_movinfo'); if(info) info.style.display='none';
   const qraw=(inp.value||'').trim().toLowerCase();
   let l=window.__MOVLIST||[];
   if(qraw){ const terms=qraw.split(/\s+/); l=l.filter(x=>{ const s=(x.codigo+' '+x.descricao+' '+(x.cor||'')).toLowerCase(); return terms.every(t=>s.includes(t)); }); }
@@ -5361,6 +5364,28 @@ function movItemDD(){
   dd.style.display='';
 }
 function movItemHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style.display='none'; }, 180); }
+// Bipar a etiqueta (UN-…) no Movimentar: puxa material, quantidade e endereço e prepara a SAÍDA.
+async function movBip(){
+  const v=(val('f_item')||'').trim();
+  if(!/^UN-/i.test(v)){ movItemDD(); return; } // não é etiqueta de unidade → busca normal
+  let u; try{ u=await api('/estoque/unidade/'+encodeURIComponent(v)); }catch(e){ toast(e.message,'err'); return; }
+  if(!u.materialId){ toast('Esta etiqueta não é de matéria-prima/aviamento vinculado — use a busca por material.','err'); return; }
+  const alvo=$('f_alvo'); if(alvo){ alvo.value=String(u.materialCodigo||'').startsWith('AVI-')?'aviamento':'materia'; }
+  movAlvo(); // aplica modo material (limpa seleção) — depois fixamos a etiqueta
+  window.__MOVITEMID=u.materialId;
+  const inp=$('f_item'); if(inp) inp.value=(u.materialCodigo||'')+' · '+(u.descricao||'')+(u.cor?' · 🎨 '+u.cor:'');
+  const tp=$('f_tipo'); if(tp) tp.value='saida';
+  const q=$('f_qtd'); if(q){ if(u.quantidade!=null){ q.value=u.quantidade; } q.focus(); q.select&&q.select(); }
+  const unl=$('f_unlbl'); if(unl && u.unidadeMedida){ unl.textContent=u.unidadeMedida; unl.style.display=''; }
+  const info=$('f_movinfo'); if(info){ info.style.display='';
+    info.innerHTML=`🏷 <b>${esc(v)}</b> → <b>${esc(u.materialCodigo||'')}</b> ${esc(u.descricao||'')}${u.cor?' · '+esc(u.cor):''}`
+      +`<div style="margin-top:2px">📍 <b>${esc(u.endereco||'sem endereço')}</b>${u.loteFornecedor?(' · Lote '+esc(u.loteFornecedor)):''}${u.quantidade!=null?(' · etiqueta: <b>'+u.quantidade+' '+esc(u.unidadeMedida||'')+'</b>'):''} · saldo atual: ${u.saldoMaterial!=null?u.saldoMaterial+' '+esc(u.unidadeMedida||''):'—'}</div>`
+      +(u.quantidade==null?'<div style="margin-top:2px;color:#9a5a00">Etiqueta antiga sem quantidade gravada — informe quanto vai dar saída.</div>':'');
+  }
+  const dd=$('f_itemdd'); if(dd) dd.style.display='none';
+  beepOk&&beepOk();
+  toast('Etiqueta lida: '+(u.materialCodigo||'')+(u.endereco?(' · '+u.endereco):'')+(u.quantidade!=null?(' · '+u.quantidade+' '+(u.unidadeMedida||'')):''),'ok');
+}
 function movItemPick(id){
   const x=(window.__MOVLIST||[]).find(m=>m.id===id); if(!x) return;
   window.__MOVITEMID=id;
@@ -7825,7 +7850,7 @@ window.APP = {
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
-  formMov, movAlvo, movItemDD, movItemHide, movItemPick, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
+  formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,

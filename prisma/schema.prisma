@@ -949,6 +949,7 @@ model UnidadeEstoque {
   descricao   String
   cor         String?
   tamanho     String?
+  quantidade  Decimal? @db.Decimal(12,3) // qtd física da etiqueta (matéria-prima: metro/kg do rolo)
   origem      String   @default("entrada") // entrada | producao
   // Endereçamento no armazém
   coluna      String?  // A | B
