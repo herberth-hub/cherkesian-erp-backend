@@ -1926,7 +1926,7 @@ async function formProduto(id, prefill){
     <h3>${id?'Editar':'Novo'} produto — ficha técnica</h3>
     ${secDivisor('IDENTIFICAÇÃO')}
     <div class="mrow" style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 10px;margin:0 0 8px"><label class="fl" style="font-weight:700">Tipo do produto *</label>
-      <select id="f_tipo" class="inp" onchange="APP.prodTipoToggle()"><option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>🏭 Produção própria (gera OP · usa tecido/consumo)</option><option value="revenda"${p.tipo==='revenda'?' selected':''}>🛒 Revenda (comprado pronto — não gera OP)</option></select>
+      <select id="p_tipo" class="inp" onchange="APP.prodTipoToggle()"><option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>🏭 Produção própria (gera OP · usa tecido/consumo)</option><option value="revenda"${p.tipo==='revenda'?' selected':''}>🛒 Revenda (comprado pronto — não gera OP)</option></select>
       <div id="f_tiporev" class="muted" style="font-size:11px;margin-top:4px;display:none">🛒 Revenda: preencha custo de compra, preço de venda e NCM. Tecido/consumo/peso não se aplicam.</div></div>
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
@@ -1992,7 +1992,7 @@ async function formProduto(id, prefill){
   prodTipoToggle();
 }
 // Mostra a dica de revenda conforme o Tipo do produto.
-function prodTipoToggle(){ const rev=$('f_tipo')&&val('f_tipo')==='revenda'; const h=$('f_tiporev'); if(h) h.style.display=rev?'':'none'; }
+function prodTipoToggle(){ const rev=$('p_tipo')&&val('p_tipo')==='revenda'; const h=$('f_tiporev'); if(h) h.style.display=rev?'':'none'; }
 // ----- Consumo de tecido POR TAMANHO (opcional, precisão na OP) -----
 const ESCADA_TAM=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8'];
 function tecTamSizes(){ const g=(val('f_grade')||'').toUpperCase(); const p=g.split(/[,;/ ]+/).map(s=>s.trim()).filter(Boolean); return p.length?p.slice(0,16):ESCADA_TAM; }
@@ -2099,7 +2099,7 @@ async function saveProduto(id){
     if(!(tecCons>0) && Object.keys(tecPT).length) tecCons=Math.max(...Object.values(tecPT));
     if(tecCons>0){ body.tecidoMaterialId=tecMat; body.tecidoConsumo=tecCons; body.tecidoUnidade=val('f_tecun')||'m'; body.tecidoConsumoPorTamanho=tecPT; }
   }
-  const tipo = val('f_tipo'); if(tipo) body.tipo = tipo;
+  const tipo = val('p_tipo'); if(tipo) body.tipo = tipo;
   const orig = val('f_orig'); if(orig!=='') body.origem = Number(orig);
   const ialq = val('f_ialq'); if(ialq) body.icmsAliquota = Number(ialq);
   if(!body.categoria||!body.descricao){
