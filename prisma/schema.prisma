@@ -552,6 +552,7 @@ model Pedido {
   status         String
   formaPagamento String?
   frete          String?      // condição de frete (ex.: "CIF — incluso" / "FOB — por conta do cliente")
+  valorFrete     Decimal      @default(0) @db.Decimal(12,2) // valor do frete cobrado no pedido (R$)
   etapa          PedidoEtapa  @default(orcamento)
   clienteNovo    Boolean      @default(false)
   producaoParcial Boolean     @default(false) // produziu só o que o estoque cobria; falta OP complementar

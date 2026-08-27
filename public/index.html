@@ -2485,6 +2485,7 @@ async function formPedido(id){
     <div id="ped_totais" style="display:flex;justify-content:flex-end;gap:22px;align-items:center;margin:10px 2px 4px;padding:8px 12px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px">
       <div style="font-size:12px;color:#6a675e">Total de peças: <b id="ped_totpc" style="font-size:15px;color:#242a26">0</b></div>
       <div style="font-size:12px;color:#6a675e">Valor total: <b id="ped_totvl" style="font-size:16px;color:#3a2f08">R$ 0,00</b></div>
+      <div id="ped_frete_box" style="display:flex;gap:22px;align-items:center"></div>
     </div>
     <div class="mrow"><label class="fl">Observações comerciais (saem na proposta e no pedido)</label>
       <textarea id="f_obscom" class="inp" rows="2" placeholder="ex.: piloto aprovado em 10/08, bordado do brasão incluso, etc.">${esc(ped&&ped.obsComercial||'')}</textarea></div>
@@ -2492,7 +2493,11 @@ async function formPedido(id){
       <textarea id="f_obs" class="inp" rows="2" placeholder="ex.: Empenho nº …, entrega no almoxarifado, etc.">${esc(ped&&ped.obs||'')}</textarea></div>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
-      <div class="mrow"><label class="fl">Frete</label><input id="f_frete" class="inp" list="fretes" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}"><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
+      <div class="mrow"><label class="fl">Frete <span class="muted">(condição + valor R$)</span></label>
+        <div style="display:flex;gap:6px">
+          <input id="f_frete" class="inp" list="fretes" style="flex:1" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}">
+          <input id="f_valfrete" class="inp" type="number" step="0.01" min="0" style="width:130px" placeholder="R$ valor" value="${ped&&ped.valorFrete&&Number(ped.valorFrete)>0?Number(ped.valorFrete):''}" oninput="APP.pedTotais()">
+        </div><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
     <div class="mrow" style="margin-top:6px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_bonif" ${ped&&ped.bonificacao?'checked':''}> <b>🎁 Pedido de bonificação</b> <span class="muted">— sem conta a receber; a NF sai como <b>remessa de bonificação</b> (CFOP 5910/6910), não gera cobrança</span></label></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
@@ -2711,6 +2716,10 @@ function pedTotais(){
   }
   $('ped_totpc').textContent=pc;
   const vlEl=$('ped_totvl'); if(vlEl) vlEl.textContent=money(vl);
+  // Frete: mostra o valor e o total com frete (não altera o valor dos itens — usado na NF/receber).
+  const frete=Number((val('f_valfrete')||'').replace(',','.'))||0;
+  const fb=$('ped_frete_box');
+  if(fb) fb.innerHTML = frete>0 ? `<div style="font-size:12px;color:#6a675e">+ Frete: <b style="color:#3a2f08">${money(frete)}</b></div><div style="font-size:12px;color:#6a675e">Total c/ frete: <b style="font-size:16px;color:#3a2f08">${money(vl+frete)}</b></div>` : '';
 }
 // Ao escolher o produto: resolve id, herda preço base e re-renderiza (traz os tamanhos do produto).
 function itemProd(i){
@@ -2803,6 +2812,7 @@ async function savePedido(id){
   const uni=Number(val('f_cliuni')); if(uni) body.clienteUnidadeId=uni;
   if($('f_bonif')&&$('f_bonif').checked) body.bonificacao=true;
   const frete=val('f_frete'); if(frete) body.frete=frete;
+  { const vf=(val('f_valfrete')||'').replace(',','.'); body.valorFrete = vf!==''?Number(vf):0; }
   const fil=val('f_filial'); if(fil) body.filialId=Number(fil);
   const prazo=val('f_prazo'); if(prazo) body.prazoEntrega=prazo;
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;

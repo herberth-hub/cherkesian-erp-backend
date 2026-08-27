@@ -378,6 +378,11 @@ export class DocumentosService {
     });
     pedidoGradeTabela(doc, { sizes, rows, totBySize, totPecas, totValor: money(totValor) });
     totalDestaque(doc, 'Valor total', money(pedido.valorTotal));
+    const vFrete = Number(pedido.valorFrete ?? 0);
+    if (vFrete > 0) {
+      totalDestaque(doc, 'Frete', money(vFrete));
+      totalDestaque(doc, 'Total com frete', money(Number(pedido.valorTotal) + vFrete));
+    }
 
     // Condições comerciais (pagamento, frete, prazo, validade).
     // Mantém o bloco junto: se não couber no restante da página, começa em nova.
@@ -386,7 +391,7 @@ export class DocumentosService {
     const prazoTxt = pedido.prazoEntrega ? dataBR(pedido.prazoEntrega) : 'a combinar';
     camposDuplos(doc, [
       ['Forma de pagamento', pag.texto],
-      ['Frete', pedido.frete ?? 'a combinar'],
+      ['Frete', (pedido.frete ?? 'a combinar') + (vFrete > 0 ? ` · ${money(vFrete)}` : '')],
       ['Prazo de entrega', prazoTxt],
       ['Validade da proposta', tipo === 'proposta' ? '15 dias' : '—'],
     ]);

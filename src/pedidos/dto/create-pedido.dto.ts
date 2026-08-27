@@ -88,6 +88,12 @@ export class CreatePedidoDto {
   @MaxLength(160)
   frete?: string;
 
+  /** Valor do frete cobrado no pedido (R$). */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valorFrete deve ter no máximo 2 casas.' })
+  @Min(0)
+  valorFrete?: number;
+
   /** Nº do pedido de compra do cliente (SAP/PO). */
   @IsOptional()
   @IsString()
