@@ -4990,7 +4990,8 @@ async function formEntradaEstoque(){
         <input id="en_item" class="inp" autocomplete="off" placeholder="digite p/ buscar…" oninput="APP.enItemFilter()" onfocus="APP.enItemFilter()" onblur="APP.enItemBlur()">
         <div id="en_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div>
       </div>
-      <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
+      <div class="grid3">${field('en_desc','Descrição *','placeholder="ex.: SUÉTER DECOTE V"')}${field('en_cor','Cor','placeholder="ex.: Cinza" list="en_corlist"')}${field('en_tam','Tamanho','placeholder="ex.: M"')}</div>
+      <datalist id="en_corlist">${coresConhecidas().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
       ${field('en_lote','Lote / partida do fornecedor (rastreio — sai na etiqueta)','placeholder="ex.: L2025-0788"')}
       <div class="grid2">
         <div class="mrow"><label class="fl" id="en_qtd_lab">Quantidade *</label>
@@ -5006,7 +5007,7 @@ async function formEntradaEstoque(){
     </div>
     <div id="en_retalho" style="display:none">
       <div class="muted" style="font-size:11px;margin:2px 0 6px">Pese o retalho na balança e registre o peso. Vai para o estoque de retalhos e você recicla no fim do mês.</div>
-      <div class="grid2">${field('re_desc','Descrição','placeholder="ex.: Retalho brim leve"')}${field('re_cor','Cor','placeholder="ex.: Azul marinho"')}</div>
+      <div class="grid2">${field('re_desc','Descrição','placeholder="ex.: Retalho brim leve"')}${field('re_cor','Cor','placeholder="ex.: Azul marinho" list="en_corlist"')}</div>
       <div class="grid3">${field('re_comp','Composição','placeholder="ex.: 67% poli 33% alg"')}${field('re_peso','Peso (kg) *','type="number" step="0.001" min="0" placeholder="ex.: 12,5"')}${field('re_local','Local / bag','placeholder="ex.: Bag 3"')}</div>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -5034,6 +5035,14 @@ function enTipo(){
 }
 // Rótulo do item: código · descrição · 🎨 COR (destaca a cor p/ achar entre iguais).
 function enItemLabel(p){ return p.codigo+' · '+p.descricao+(p.cor?' · 🎨 '+p.cor:''); }
+// Cores já usadas em produtos/materiais (p/ sugerir e padronizar — evita BRANCA/BRANCO).
+function coresConhecidas(){
+  const set=new Set();
+  const add=v=>String(v||'').split(/[,;\/·|]+/).map(s=>s.trim()).filter(Boolean).forEach(x=>set.add(x));
+  (window.__ESTPROD||[]).forEach(p=>add(p.cor));
+  (window.__ESTMAT||[]).forEach(m=>add(m.cor));
+  return [...set].sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base'}));
+}
 function enItemList(){ const t=val('en_tipo'); return t==='produto'?(window.__ESTPROD||[]):(window.__ESTMAT||[]); }
 function enItemFind(itemTxt, list){
   if(window.__ENITEMID){ const byId=list.find(p=>p.id===window.__ENITEMID); if(byId) return byId; }
