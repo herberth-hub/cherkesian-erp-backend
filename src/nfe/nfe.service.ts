@@ -142,10 +142,13 @@ export class NfeService {
     // BONIFICAÇÃO: pedido de brinde/doação — NF sai como REMESSA DE BONIFICAÇÃO
     // (CFOP 5910/6910, sem cobrança) e NÃO gera conta a receber.
     const bonificacao = !!pedido?.bonificacao;
+    // Frete cobrado do cliente (R$): entra no total da NF e no contas a receber.
+    const vFrete = bonificacao ? 0 : Number(pedido?.valorFrete ?? 0);
+    const valorComFrete = vFrete > 0 ? valor.plus(vFrete) : valor;
     // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
     const cobranca = bonificacao
       ? { duplicatas: undefined, primeiroVenc: new Date(), venctoTxt: undefined as string | undefined }
-      : this.duplicatasDePedido(pedido?.formaPagamento, Number(valor));
+      : this.duplicatasDePedido(pedido?.formaPagamento, Number(valorComFrete));
     const infoAdic = [
       pedido?.obs ? pedido.obs.trim() : null,
       pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
@@ -169,9 +172,10 @@ export class NfeService {
     const modFrete = transporte?.modalidadeFrete != null
       ? transporte.modalidadeFrete
       : (/cif/.test(freteTxt) ? 0 : /fob/.test(freteTxt) ? 1 : ((transportadora || exp.transportadora) ? 0 : 9));
-    const payload = await this.montarPayload(filial, destinatario, exp, itensNf, serie, numeroSeq, valor, infoAdic, {
+    const payload = await this.montarPayload(filial, destinatario, exp, itensNf, serie, numeroSeq, valorComFrete, infoAdic, {
       duplicatas: cobranca.duplicatas,
-      frete: modFrete,
+      frete: vFrete > 0 && modFrete === 9 ? 0 : modFrete,
+      valorFrete: vFrete,
       volumes: transporte?.volumes,
       especie: transporte?.especie,
       pesoLiquido: transporte?.pesoLiquido,
@@ -215,7 +219,7 @@ export class NfeService {
           status: emissao.status,
           protocolo: emissao.protocolo,
           motivo: emissao.motivo,
-          valor,
+          valor: valorComFrete,
           provedor: emissao.provedor,
           ordemCompraCliente: pedido?.ordemCompraCliente,
           emitidaPor: usuario,
@@ -231,7 +235,7 @@ export class NfeService {
       // BONIFICAÇÃO não gera cobrança — não lança a receber.
       if (!bonificacao) {
         await tx.contaReceber.create({
-          data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
+          data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: valorComFrete, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
         });
       }
       return criada;
@@ -261,11 +265,12 @@ export class NfeService {
     const token = this.tokenDaFilial(filial);
     const cliente = pedido.cliente;
 
-    const valor = new Prisma.Decimal(pedido.valorTotal);
+    const vFrete = Number(pedido.valorFrete ?? 0); // frete cobrado do cliente (R$)
+    const valor = new Prisma.Decimal(pedido.valorTotal).plus(vFrete); // total da NF = produtos + frete
     const itensNf = pedido.itens.map((it) => ({ descricao: this.descComCor(it.descricao, it.cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
     const totalPecas = pedido.itens.reduce((s, it) => s + it.quantidade, 0);
 
-    // Título = RESIDUAL (valor total − sinal já recebido fora da NF).
+    // Título = RESIDUAL (valor total c/ frete − sinal já recebido fora da NF).
     const sinal = Math.max(0, Math.min(Number(valor), Number(opts?.sinalRecebido || 0)));
     const residual = Number((Number(valor) - sinal).toFixed(2));
     const cobranca = this.duplicatasDePedido(pedido.formaPagamento, residual > 0 ? residual : Number(valor));
@@ -283,6 +288,7 @@ export class NfeService {
       cfopOverride: '5922',
       duplicatas: cobranca.duplicatas,
       volumes: opts?.volumes,
+      ...(vFrete > 0 ? { valorFrete: vFrete, frete: 0 } : {}),
     });
     (payload as Record<string, unknown>).natureza_operacao = 'Venda para entrega futura (simples faturamento)';
     (payload as Record<string, unknown>).finalidade_emissao = 1;
@@ -1232,7 +1238,7 @@ export class NfeService {
     numero: number,
     valorTotal: Prisma.Decimal,
     infoAdicional?: string,
-    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; bonificacao?: boolean; cfopOverride?: string; semImpostos?: boolean; placa?: string; transportadora?: { nome: string; cnpjCpf?: string | null; inscricaoEstadual?: string | null; logradouro?: string | null; municipio?: string | null; uf?: string | null; placaVeiculo?: string | null; ufVeiculo?: string | null; rntc?: string | null }; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
+    extra?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; frete?: number; valorFrete?: number; bonificacao?: boolean; cfopOverride?: string; semImpostos?: boolean; placa?: string; transportadora?: { nome: string; cnpjCpf?: string | null; inscricaoEstadual?: string | null; logradouro?: string | null; municipio?: string | null; uf?: string | null; placaVeiculo?: string | null; ufVeiculo?: string | null; rntc?: string | null }; duplicatas?: Array<{ numero: string; data_vencimento: string; valor: number }> },
   ) {
     const produtos = await this.prisma.produto.findMany({
       where: { id: { in: itens.map((i) => i.produtoId).filter((x): x is number => !!x) } },
@@ -1398,6 +1404,7 @@ export class NfeService {
       finalidade_emissao: 1, // 1 = normal
       presenca_comprador: 9,
       modalidade_frete: modalidadeFrete, // 0=emitente(CIF) 1=destinatário(FOB) 9=sem frete
+      ...(extra?.valorFrete && extra.valorFrete > 0 ? { valor_frete: Number(extra.valorFrete.toFixed(2)) } : {}),
       ...transportadorBloco,
       serie,
       numero,
