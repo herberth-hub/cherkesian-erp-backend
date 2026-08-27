@@ -2472,9 +2472,9 @@ async function formPedido(id){
   const filialOpts = ativas.map(f=>`<option value="${f.id}" ${selFil?(selFil===f.id?'selected':''):(f.matriz?'selected':'')}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):'Novo pedido'}</h3>
     <div class="grid2">
-      <div class="mrow"><label class="fl">Cliente *</label>
-        <input id="f_cli_txt" class="inp" list="clidatalist" placeholder="digite grupo, cliente ou filial (ex.: SACA)…" value="${esc(initLabel)}" onchange="APP.pedCliPick()" autocomplete="off">
-        ${cliDatalist}
+      <div class="mrow" style="position:relative"><label class="fl">Cliente *</label>
+        <input id="f_cli_txt" class="inp" placeholder="digite grupo, cliente, filial ou CNPJ…" value="${esc(initLabel)}" onchange="APP.pedCliPick()" oninput="APP.pedCliDD()" onfocus="APP.pedCliDD()" onblur="APP.pedCliDDHide()" autocomplete="off">
+        <div id="f_clidd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:300px;overflow-y:auto;margin-top:3px"></div>
         <input type="hidden" id="f_cli" value="${id?selCli:''}"><input type="hidden" id="f_cliuni" value="${id&&ped&&ped.clienteUnidadeId?ped.clienteUnidadeId:''}">
         <div id="f_cli_hint" class="muted" style="font-size:10.5px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="f_filial" class="inp">${filialOpts||'<option value="">— matriz —</option>'}</select></div>
@@ -2586,6 +2586,25 @@ function itemCorPick(i,ci){
   const box=$('it_cores_'+i); if(box) box.innerHTML=coresSwatchHtml(i,cores,PITENS[i].cor);
 }
 // Resolve a entrada digitada (GRUPO › cliente › unidade) → clienteId + unidadeId + filtro de produtos.
+// Dropdown PRÓPRIO de busca de cliente (texto completo: grupo · cliente · CNPJ · unidade).
+function pedCliDD(){
+  const inp=$('f_cli_txt'), dd=$('f_clidd'); if(!inp||!dd) return;
+  const q=(inp.value||'').trim().toLowerCase();
+  let list=(window.__CLIENTRIES||[]).map((e,i)=>({e,i}));
+  if(q){ const terms=q.split(/\s+/); list=list.filter(({e})=>{ const s=e.label.toLowerCase(); return terms.every(t=>s.includes(t)); }); }
+  list=list.slice(0,80);
+  dd.innerHTML = list.length
+    ? list.map(({e,i})=>`<div onmousedown="APP.pedCliDDPick(${i})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35">${esc(e.label)}</div>`).join('')
+    : '<div class="muted" style="padding:8px 10px">Nenhum cliente com esse termo — ao salvar, o texto vira um cliente novo.</div>';
+  dd.style.display='';
+}
+function pedCliDDHide(){ setTimeout(()=>{ const dd=$('f_clidd'); if(dd) dd.style.display='none'; }, 180); }
+function pedCliDDPick(i){
+  const e=(window.__CLIENTRIES||[])[i]; if(!e) return;
+  const inp=$('f_cli_txt'); if(inp) inp.value=e.label;
+  const dd=$('f_clidd'); if(dd) dd.style.display='none';
+  pedCliPick();
+}
 function pedCliPick(){
   const txt=(val('f_cli_txt')||'').trim();
   const e=(window.__CLIENTRIES||[]).find(x=>x.label===txt);
@@ -2594,7 +2613,9 @@ function pedCliPick(){
     $('f_cli').value=e.clienteId; $('f_cliuni').value=e.unidadeId||'';
     window.__PEDFILTER=e.filterKey||'';
     const n=filtrarProdCli(window.__PROD||[]).length, tot=(window.__PROD||[]).length;
-    if(hint) hint.innerHTML = (e.unidadeId?'📍 Unidade selecionada. ':'')+(window.__PEDFILTER&&n<tot?('Produtos filtrados por <b>'+esc(e.filterKey)+'</b> ('+n+').'):'');
+    // Mostra a info COMPLETA do cliente selecionado (quebra linha, não corta).
+    const full='<div style="color:#242a26;font-weight:600;white-space:normal">✔ '+esc(e.label)+'</div>';
+    if(hint) hint.innerHTML = full + (e.unidadeId?'📍 Unidade selecionada. ':'')+(window.__PEDFILTER&&n<tot?('Produtos filtrados por <b>'+esc(e.filterKey)+'</b> ('+n+').'):'');
     renderItens();
     pedPrefillCliente();
   } else {
@@ -7849,7 +7870,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
