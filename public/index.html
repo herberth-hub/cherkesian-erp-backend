@@ -4057,19 +4057,42 @@ async function opReimprimir(id){
 // ===== Envio automatizado p/ facção externa (gera controle + rastreio linear) =====
 async function opFaccaoExterna(o){
   let forns=[]; try{ forns=await api('/fornecedores'); }catch(e){ forns=[]; }
-  const optForn='<option value="">— selecione o destino —</option><option value="__INTERNA__">🏠 PRODUÇÃO INTERNA (feita aqui)</option>'+(forns||[]).map(f=>{const c=String(f.cnpjCpf||'').replace(/\D/g,'');return `<option value="${f.id}">${esc(f.nome||('Forn '+f.id))}${c.length===14?' · CNPJ':(c?' · CPF':' · s/ doc')}</option>`;}).join('');
+  window.__FXFORNS=forns;
   const OPER=['Estamparia/Bordado','Costura','Costura Externa','Lavanderia','Beneficiamento','Corte terceirizado'];
   const sug=OPER.find(x=>(o.setorAtual||'').toLowerCase().includes(x.toLowerCase().split('/')[0]))||'Costura';
   const oper=OPER.map(x=>`<option ${x===sug?'selected':''}>${x}</option>`).join('');
   openModal(`<h3>🏭 Enviar p/ facção externa · <span class="mono gold">${esc(o.numero)}</span></h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Gera um <b>código de controle automático</b>, cria/expede os kits da OP e vincula o lote do tecido — o rastreio fica linear (uma operação puxa a próxima), sem digitar nada manual.</div>
-    <div class="mrow"><label class="fl">Facção destino *</label><select id="fx_forn" class="inp">${optForn}</select></div>
+    <div class="mrow" style="position:relative"><label class="fl">Facção destino * <span class="muted">(digite p/ buscar)</span></label>
+      <input id="fx_forn_txt" class="inp" autocomplete="off" placeholder="digite o nome da facção ou 'interna'…" oninput="APP.fxFornDD()" onfocus="APP.fxFornDD()" onblur="APP.fxFornHide()">
+      <div id="fx_forndd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:300px;overflow-y:auto;margin-top:3px"></div>
+      <input type="hidden" id="fx_forn" value=""></div>
     ${field('fx_nome','...ou nome da facção (se não cadastrada)','placeholder="ex.: Estamparia Rosa"')}
     <div class="grid2"><div class="mrow"><label class="fl">Operação *</label><select id="fx_oper" class="inp">${oper}</select></div>${field('fx_lote','Lote/NF do tecido','placeholder="branco = puxa do romaneio"')}</div>
     <div class="grid2">${field('fx_transp','Transportador','placeholder="opcional"')}${field('fx_custo','💰 Mão de obra por peça (R$)','type="number" min="0" step="0.01" placeholder="terceiro; interno = branco"')}</div>
     <div class="muted" style="font-size:11px;margin:-2px 0 6px">O custo × peças aparece na <b>Ordem de Serviço</b> e vira <b>conta a pagar</b> automática no retorno (produção interna: deixe em branco).</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.opFaccaoEnviar(${o.id})">Gerar controle + enviar</button></div>`);
+}
+function fxFornLabel(f){ const c=String(f.cnpjCpf||'').replace(/\D/g,''); return (f.nome||('Forn '+f.id))+(c.length===14?' · CNPJ':(c?' · CPF':' · s/ doc'))+(f.faccao?' · 🏭 facção':''); }
+function fxFornDD(){
+  const inp=$('fx_forn_txt'), dd=$('fx_forndd'); if(!inp||!dd) return;
+  const h=$('fx_forn'); if(h) h.value=''; // texto mudou → limpa seleção até escolher
+  const q=(inp.value||'').trim().toLowerCase();
+  const forns=(window.__FXFORNS||[]).slice().sort((a,b)=>(b.faccao?1:0)-(a.faccao?1:0)); // facções primeiro
+  const list=forns.filter(f=>{ const s=((f.nome||'')+' '+(f.cnpjCpf||'')+' '+(f.tipo||'')).toLowerCase(); return !q || q.split(/\s+/).every(t=>s.includes(t)); }).slice(0,80);
+  const interna=(!q || 'producao interna'.includes(q) || 'interna'.includes(q))
+    ? `<div onmousedown="APP.fxFornPick('__INTERNA__')" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;font-weight:700;color:#1e7a44">🏠 PRODUÇÃO INTERNA (feita aqui)</div>` : '';
+  const rows=list.map(f=>`<div onmousedown="APP.fxFornPick('${f.id}')" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35">${esc(fxFornLabel(f))}</div>`).join('');
+  dd.innerHTML = (interna+rows) || '<div class="muted" style="padding:8px 10px">Não cadastrada — digite o nome no campo "...ou nome da facção" abaixo.</div>';
+  dd.style.display='';
+}
+function fxFornHide(){ setTimeout(()=>{ const dd=$('fx_forndd'); if(dd) dd.style.display='none'; }, 180); }
+function fxFornPick(v){
+  const inp=$('fx_forn_txt'), h=$('fx_forn'), dd=$('fx_forndd');
+  if(v==='__INTERNA__'){ if(h) h.value='__INTERNA__'; if(inp) inp.value='🏠 PRODUÇÃO INTERNA (feita aqui)'; }
+  else { const f=(window.__FXFORNS||[]).find(x=>x.id===Number(v)); if(f){ if(h) h.value=String(f.id); if(inp) inp.value=fxFornLabel(f); } }
+  if(dd) dd.style.display='none';
 }
 async function opFaccaoEnviar(opId){
   const fx=val('fx_forn'); const interna = fx==='__INTERNA__';
@@ -7885,7 +7908,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
