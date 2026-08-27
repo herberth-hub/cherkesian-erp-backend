@@ -137,7 +137,7 @@ export class EstoqueService {
 
   /** Endereça uma unidade (bipada) no armazém. Se já estiver endereçada em OUTRO
    *  lugar, NÃO troca sem confirmar: devolve `precisaConfirmar` com o endereço atual. */
-  async enderecar(dto: { codigo: string; coluna: string; andar: string; caixaMaster: string; confirmar?: boolean }, empresaId: number, usuario: string) {
+  async enderecar(dto: { codigo: string; coluna: string; andar: string; caixaMaster?: string; confirmar?: boolean }, empresaId: number, usuario: string) {
     const codigo = (dto.codigo ?? '').trim();
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Unidade ${codigo} não encontrada.`);
@@ -162,7 +162,7 @@ export class EstoqueService {
 
     const upd = await this.prisma.unidadeEstoque.update({
       where: { codigo },
-      data: { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status: 'em_estoque' },
+      data: { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster || null, status: 'em_estoque' },
     });
     return { codigo, descricao: upd.descricao, tamanho: upd.tamanho, endereco: fmt(dto.coluna, dto.andar, dto.caixaMaster), movido: jaEnderecado && mudou };
   }

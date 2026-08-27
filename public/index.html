@@ -5246,7 +5246,7 @@ function edCol(){
 }
 function edAndar(){
   const col=val('ed_col')||'A'; const c=$('ed_cx');
-  if(c) c.innerHTML=edCaixas(col, val('ed_and')).map(x=>'<option>'+x+'</option>').join('');
+  if(c) c.innerHTML='<option value="">— sem caixa (só coluna/andar) —</option>'+edCaixas(col, val('ed_and')).map(x=>'<option>'+x+'</option>').join('');
 }
 function enCol(){
   const col=val('en_col'); const a=$('en_and');
@@ -5264,7 +5264,7 @@ async function formEnderecar(){
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima. As opções de andar e caixa mudam conforme a coluna.</div>
     <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option>A</option><option>B</option></select></div>
       <div class="mrow"><label class="fl">Andar *</label><select id="ed_and" class="inp" onchange="APP.edAndar()"></select></div>
-      <div class="mrow"><label class="fl">Caixa Master *</label><select id="ed_cx" class="inp"></select></div></div>
+      <div class="mrow"><label class="fl">Caixa Master <span class="muted">(opcional)</span></label><select id="ed_cx" class="inp"></select></div></div>
     <div style="display:flex;gap:8px;align-items:end;margin-top:6px">
       <div style="flex:1"><label class="fl">Bipe a etiqueta da peça</label><input id="ed_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.enderecarBip()"></div>
       <button class="btn-primary" onclick="APP.enderecarBip()">Endereçar</button>

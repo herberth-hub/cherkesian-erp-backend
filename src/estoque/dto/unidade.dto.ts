@@ -30,6 +30,7 @@ export class EnderecarDto {
   @IsString() @IsNotEmpty() codigo!: string;
   @IsIn(['A', 'B']) coluna!: string;
   @IsString() @IsNotEmpty() @MaxLength(4) andar!: string;
-  @IsString() @IsNotEmpty() @MaxLength(10) caixaMaster!: string;
+  // Caixa Master é OPCIONAL — endereçar só por Coluna + Andar (gôndola aberta/prateleira).
+  @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
   @IsOptional() @IsBoolean() confirmar?: boolean;
 }
