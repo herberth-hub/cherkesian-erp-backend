@@ -151,6 +151,8 @@ export class NfeService {
       ? { duplicatas: undefined, primeiroVenc: new Date(), venctoTxt: undefined as string | undefined }
       : this.duplicatasDePedido(pedido?.formaPagamento, Number(valorComFrete));
     const infoAdic = [
+      // Nosso nº do pedido de venda — facilita rastrear o pedido de origem a partir da NF.
+      pedido?.numero ? `Pedido de venda: ${pedido.numero}` : null,
       pedido?.obs ? pedido.obs.trim() : null,
       pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null,
       pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
@@ -1273,6 +1275,19 @@ export class NfeService {
     const ibsCbsCst = emitente.ibsCbsCst ?? '000';
     const ibsCbsClassTrib = emitente.ibsCbsClassTrib ?? '000001';
 
+    // Frete rateado por item (a SEFAZ exige que o vFrete total = soma do frete dos itens).
+    const vFreteTotal = Number(extra?.valorFrete ?? 0);
+    const fretePorItem: number[] = [];
+    if (vFreteTotal > 0) {
+      const brutos = itens.map((it) => Number(it.valorUnit.mul(it.quantidade).toFixed(2)));
+      const somaBrutos = brutos.reduce((a, b) => a + b, 0) || 1;
+      let acumulado = 0;
+      for (let i = 0; i < brutos.length; i++) {
+        if (i < brutos.length - 1) { const f = Number(((vFreteTotal * brutos[i]) / somaBrutos).toFixed(2)); fretePorItem.push(f); acumulado += f; }
+        else { fretePorItem.push(Number((vFreteTotal - acumulado).toFixed(2))); }
+      }
+    }
+
     const items = itens.map((it, idx) => {
       const p = it.produtoId ? mapa.get(it.produtoId) : undefined;
       const bruto = it.valorUnit.mul(it.quantidade);
@@ -1294,6 +1309,8 @@ export class NfeService {
         valor_unitario_tributavel: valorUnit,
         valor_bruto: baseItem,
         icms_origem: p?.origem ?? 0,
+        // Frete rateado deste item — compõe o total da nota (vNF = produtos + frete).
+        ...(fretePorItem[idx] && fretePorItem[idx] > 0 ? { valor_frete: fretePorItem[idx], compoe_valor_total: 1 } : {}),
       };
       if (extra?.semImpostos) {
         // Remessa de venda para entrega futura: a mercadoria já foi tributada na NF de
