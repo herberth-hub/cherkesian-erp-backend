@@ -1911,7 +1911,7 @@ async function formProduto(id, prefill){
   window.__pesoPorTam=(p.pesoPorTamanho&&typeof p.pesoPorTamanho==='object')?Object.assign({},p.pesoPorTamanho):{};
   let __tecMat=null, __tecCons='', __tecUn='m'; window.__tecPorTam={};
   if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){ const c=cs.slice().sort((a,b)=>Number(b.quantidade)-Number(a.quantidade))[0]; __tecMat=(window.__MATLIST||[]).find(m=>m.id===c.materialId)||null; __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; } }catch(_){} }
-  const tecInit = __tecMat ? (__tecMat.descricao+' · '+__tecMat.codigo) : (p.tecido||'');
+  const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
@@ -1933,9 +1933,9 @@ async function formProduto(id, prefill){
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
     <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
     <div class="grid2" style="align-items:start">
-      <div class="mrow"><label class="fl">Tecido principal <span class="muted">(homologado do estoque)</span></label>
-        <input id="f_tec" class="inp" list="tecidoslist" value="${esc(tecInit)}" placeholder="digite p/ escolher o tecido cadastrado" oninput="APP.tecPick()" autocomplete="off">
-        <datalist id="tecidoslist">${(window.__MATLIST||[]).map(m=>'<option value="'+esc(m.descricao+' · '+m.codigo)+'">').join('')}</datalist>
+      <div class="mrow" style="position:relative"><label class="fl">Tecido principal <span class="muted">(homologado do estoque)</span></label>
+        <input id="f_tec" class="inp" value="${esc(tecInit)}" placeholder="digite p/ escolher o tecido (mostra a cor)" oninput="APP.tecDD()" onfocus="APP.tecDD()" onblur="APP.tecDDHide()" autocomplete="off">
+        <div id="f_tecdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:280px;overflow-y:auto;margin-top:3px"></div>
         <input type="hidden" id="f_tecmat" value="${__tecMat?__tecMat.id:''}">
         <div id="f_tec_hint" class="muted" style="font-size:10.5px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Consumo por peça <span class="muted">(p/ baixa automática)</span></label>
@@ -2049,6 +2049,26 @@ function tecPorTamValues(){
   return Object.values(src).map(Number).filter(n=>isFinite(n)&&n>0);
 }
 // Resolve o tecido homologado escolhido e mostra quantas peças o estoque rende.
+function tecMatLabel(m){ return m.descricao+(m.cor?' · 🎨 '+m.cor:'')+' · '+m.codigo; }
+function tecDD(){
+  const inp=$('f_tec'), dd=$('f_tecdd'); if(!inp||!dd) return;
+  const q=(inp.value||'').trim().toLowerCase();
+  let list=(window.__MATLIST||[]);
+  if(q){ const terms=q.split(/\s+/); list=list.filter(m=>{ const s=(m.codigo+' '+m.descricao+' '+(m.cor||'')).toLowerCase(); return terms.every(t=>s.includes(t)); }); }
+  list=list.slice(0,80);
+  dd.innerHTML = list.length
+    ? list.map(m=>`<div onmousedown="APP.tecDDPick(${m.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35"><span class="mono gold">${esc(m.codigo)}</span> ${esc(m.descricao)}${m.cor?` · <b style="color:#7a5b12">🎨 ${esc(m.cor)}</b>`:''}</div>`).join('')
+    : '<div class="muted" style="padding:8px 10px">Não cadastrado em Materiais — cadastre p/ vincular.</div>';
+  dd.style.display='';
+  tecPick();
+}
+function tecDDHide(){ setTimeout(()=>{ const dd=$('f_tecdd'); if(dd) dd.style.display='none'; }, 180); }
+function tecDDPick(id){
+  const m=(window.__MATLIST||[]).find(x=>x.id===id); if(!m) return;
+  const inp=$('f_tec'); if(inp) inp.value=tecMatLabel(m);
+  const dd=$('f_tecdd'); if(dd) dd.style.display='none';
+  tecPick();
+}
 function tecPick(){
   const txt=(val('f_tec')||'').trim(); const mats=window.__MATLIST||[];
   const m=mats.find(x=>(x.descricao+' · '+x.codigo)===txt) || mats.find(x=>x.descricao===txt) || mats.find(x=>x.codigo===((txt.split('·').pop()||'').trim()));
@@ -7900,7 +7920,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,

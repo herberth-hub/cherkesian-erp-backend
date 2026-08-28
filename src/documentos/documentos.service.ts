@@ -313,13 +313,23 @@ export class DocumentosService {
       ? `${unidade.municipio || ''}${unidade.uf ? '/' + unidade.uf : ''}`
       : (cli.cidadeUf ?? '—');
     const destContato = cli.contato ?? cli.telefone ?? unidade?.email ?? '—';
+    // Endereço + CEP: da unidade quando ela tiver; senão do cliente.
+    const usaEndUni = !!(unidade && (unidade.logradouro || unidade.bairro || unidade.cep));
+    const destCep = (usaEndUni ? unidade!.cep : cli.cep) || '—';
+    const destEndereco = [
+      usaEndUni ? unidade!.logradouro : cli.logradouro,
+      usaEndUni ? unidade!.numeroEndereco : cli.numeroEndereco,
+      usaEndUni ? unidade!.bairro : cli.bairro,
+    ].filter(Boolean).join(', ') || '—';
 
     secao(doc, 'Cliente');
     camposDuplos(doc, [
       ['Razão social / nome', destNome],
       ['CNPJ/CPF', destDoc],
-      ['Contato', destContato],
+      ['Endereço', destEndereco],
+      ['CEP', destCep],
       ['Cidade/UF', destCidadeUf],
+      ['Contato', destContato],
     ]);
 
     // Forma de pagamento + vencimento (converte "19" em data; ignora "50%").
