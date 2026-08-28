@@ -64,7 +64,7 @@ export class NfeService {
     expedicaoId: number,
     empresaId: number,
     usuario: string,
-    transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; dimensoes?: string; transportadoraId?: number; placaVeiculo?: string; modalidadeFrete?: number },
+    transporte?: { volumes?: number; especie?: string; pesoLiquido?: number; pesoBruto?: number; dimensoes?: string; transportadoraId?: number; placaVeiculo?: string; modalidadeFrete?: number; valorFrete?: number },
   ) {
     const exp = await this.prisma.expedicao.findUnique({ where: { id: expedicaoId } });
     if (!exp) throw new NotFoundException(`Expedição ${expedicaoId} não encontrada.`);
@@ -142,8 +142,9 @@ export class NfeService {
     // BONIFICAÇÃO: pedido de brinde/doação — NF sai como REMESSA DE BONIFICAÇÃO
     // (CFOP 5910/6910, sem cobrança) e NÃO gera conta a receber.
     const bonificacao = !!pedido?.bonificacao;
-    // Frete cobrado do cliente (R$): entra no total da NF e no contas a receber.
-    const vFrete = bonificacao ? 0 : Number(pedido?.valorFrete ?? 0);
+    // Frete cobrado do cliente (R$): informado na emissão (prioridade) ou o do pedido.
+    // Entra no total da NF e no contas a receber.
+    const vFrete = bonificacao ? 0 : Number(transporte?.valorFrete != null ? transporte.valorFrete : (pedido?.valorFrete ?? 0));
     const valorComFrete = vFrete > 0 ? valor.plus(vFrete) : valor;
     // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
     const cobranca = bonificacao
@@ -251,7 +252,7 @@ export class NfeService {
    * NÃO movimenta mercadoria: CFOP 5922/6922, finalidade normal. As entregas saem
    * depois com NF(s) de Remessa (CFOP 5116/6116) referenciando esta nota.
    */
-  async emitirFaturamento(pedidoId: number, empresaId: number, usuario: string, opts?: { sinalRecebido?: number; volumes?: number }) {
+  async emitirFaturamento(pedidoId: number, empresaId: number, usuario: string, opts?: { sinalRecebido?: number; volumes?: number; valorFrete?: number }) {
     const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { itens: true, cliente: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
     if (!pedido.itens.length) throw new BadRequestException('Pedido sem itens para faturar.');
@@ -265,7 +266,7 @@ export class NfeService {
     const token = this.tokenDaFilial(filial);
     const cliente = pedido.cliente;
 
-    const vFrete = Number(pedido.valorFrete ?? 0); // frete cobrado do cliente (R$)
+    const vFrete = Number(opts?.valorFrete != null ? opts.valorFrete : (pedido.valorFrete ?? 0)); // frete cobrado do cliente (R$)
     const valor = new Prisma.Decimal(pedido.valorTotal).plus(vFrete); // total da NF = produtos + frete
     const itensNf = pedido.itens.map((it) => ({ descricao: this.descComCor(it.descricao, it.cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
     const totalPecas = pedido.itens.reduce((s, it) => s + it.quantidade, 0);

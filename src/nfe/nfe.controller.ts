@@ -48,6 +48,9 @@ class EmitirNfeDto {
 
   /** Modalidade do frete: 0=emitente(CIF) 1=destinatário(FOB) 2=terceiros 9=sem frete. */
   @IsOptional() @IsInt() @Min(0) modalidadeFrete?: number;
+
+  /** Valor do frete a incluir na NF (R$) — sobrepõe o do pedido. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) valorFrete?: number;
 }
 
 class CancelarNfeDto {
@@ -87,6 +90,7 @@ export class NfeController {
       transportadoraId: dto.transportadoraId,
       placaVeiculo: dto.placaVeiculo,
       modalidadeFrete: dto.modalidadeFrete,
+      valorFrete: dto.valorFrete,
     });
   }
 
@@ -102,8 +106,8 @@ export class NfeController {
   @Post('faturamento')
   @Areas('vendas', 'expedicao', 'receber')
   @HttpCode(HttpStatus.CREATED)
-  faturamento(@Body() dto: { pedidoId: number; sinalRecebido?: number; volumes?: number }, @CurrentUser() user: AuthUser) {
-    return this.nfeService.emitirFaturamento(Number(dto.pedidoId), user.empresaId, user.usuario, { sinalRecebido: dto.sinalRecebido, volumes: dto.volumes });
+  faturamento(@Body() dto: { pedidoId: number; sinalRecebido?: number; volumes?: number; valorFrete?: number }, @CurrentUser() user: AuthUser) {
+    return this.nfeService.emitirFaturamento(Number(dto.pedidoId), user.empresaId, user.usuario, { sinalRecebido: dto.sinalRecebido, volumes: dto.volumes, valorFrete: dto.valorFrete });
   }
 
   /** NF de remessa (entrega futura) — acompanha a entrega parcial, ref. o faturamento. */
