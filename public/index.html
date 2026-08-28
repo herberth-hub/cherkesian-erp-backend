@@ -6624,10 +6624,19 @@ async function cartaPdfNaJanela(id, w, tentativas){
     w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">'+esc(m)+'</div>';
   }catch(e){ try{ w.document.body.innerHTML='<div style="font-family:Arial;padding:24px;color:#c14a34">Falha: '+esc(e.message||e)+'</div>'; }catch(_){} }
 }
-async function enviarNfeEmail(id, sugerido){
-  const email=prompt('Enviar a NF (DANFE + XML) para qual e-mail? (já preenchido com o cadastro do cliente — pode alterar)', sugerido||'');
-  if(email===null) return;
-  try{ const r=await api('/nfe/'+id+'/email',{method:'POST',body: email.trim()?{email:email.trim()}:{}});
+function enviarNfeEmail(id, sugerido){
+  openModal(`<h3>✉ Enviar NF-e por e-mail</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Envia a <b>DANFE (PDF)</b> + <b>XML</b> em anexo. O destinatário vem do cadastro do cliente — pode alterar. Dá pra colocar cópia (CC).</div>
+    ${field('nfe_para','Para (e-mail) *','value="'+esc(sugerido||'')+'" placeholder="cliente@empresa.com"')}
+    ${field('nfe_cc','Cópia (CC) — vários? separe por vírgula','placeholder="financeiro@..., contador@..."')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.enviarNfeEmailConfirmar(${id})">Enviar</button></div>`);
+  setTimeout(()=>{const i=$('nfe_para'); if(i)i.focus();},50);
+}
+async function enviarNfeEmailConfirmar(id){
+  const email=(val('nfe_para')||'').trim(); const cc=(val('nfe_cc')||'').trim();
+  const body={}; if(email) body.email=email; if(cc) body.copiaPara=cc;
+  try{ const r=await api('/nfe/'+id+'/email',{method:'POST',body}); closeModal();
     toast((r.simulado?'[SIMULADO] ':'')+'NF enviada para '+r.para+' ('+r.anexos+' anexo(s)).', r.simulado?'err':'ok'); }
   catch(e){ toast('Falha ao enviar: '+(e.message||e),'err'); }
 }
@@ -7950,7 +7959,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

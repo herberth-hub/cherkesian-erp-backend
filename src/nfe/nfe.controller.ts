@@ -65,6 +65,8 @@ class CartaCorrecaoDto {
 
 class EnviarNfeEmailDto {
   @IsOptional() @IsEmail({}, { message: 'E-mail inválido.' }) email?: string;
+  /** E-mail(s) de cópia (CC) — separados por vírgula. */
+  @IsOptional() @IsString() @MaxLength(300) copiaPara?: string;
 }
 
 // Expedição emite; financeiro consulta (área 'receber' cobre o perfil financeiro).
@@ -160,7 +162,7 @@ export class NfeController {
   @Areas('vendas', 'expedicao', 'receber')
   @HttpCode(HttpStatus.OK)
   enviarEmail(@Param('id', ParseIntPipe) id: number, @Body() dto: EnviarNfeEmailDto, @CurrentUser() user: AuthUser) {
-    return this.nfeService.enviarPorEmail(id, user.empresaId, dto.email);
+    return this.nfeService.enviarPorEmail(id, user.empresaId, dto.email, dto.copiaPara);
   }
 
   /** Baixa o DANFE (PDF) da nota para impressão/arquivo. */

@@ -733,7 +733,7 @@ export class NfeService {
    * na Focus quando a nota está autorizada. Aceita e-mail informado; senão
    * tenta o e-mail do cliente do pedido vinculado.
    */
-  async enviarPorEmail(id: number, empresaId: number, emailInformado?: string) {
+  async enviarPorEmail(id: number, empresaId: number, emailInformado?: string, copiaPara?: string) {
     const nota = await this.prisma.notaFiscal.findUnique({ where: { id } });
     if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
 
@@ -769,8 +769,12 @@ export class NfeService {
     // Nome do remetente = empresa/filial emissora da NF (HC QUALITY / YEREVAN / CHERKESIAN...).
     const filMarca = await this.prisma.filial.findFirst({ where: nota.filialId ? { id: nota.filialId } : { empresaId, matriz: true }, select: { nome: true, nomeFantasia: true } });
     const marca = (filMarca?.nomeFantasia || filMarca?.nome || 'GRUPO CHERKESIAN').trim();
+    // Cópia (CC): valida cada e-mail informado e junta aos destinatários.
+    const reEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    const ccs = (copiaPara || '').split(/[,;\s]+/).map((e) => e.trim()).filter((e) => e && reEmail.test(e));
+    const paraFinal = [destino, ...ccs].filter(Boolean).join(', ');
     const r = await this.email.enviar({
-      para: destino,
+      para: paraFinal,
       remetenteNome: marca,
       assunto: `NF-e ${nota.numero} — ${marca}`,
       texto: `Olá${nomeCliente ? ' ' + nomeCliente : ''},\n\nSegue em anexo a nota fiscal eletrônica nº ${nota.numero}` +
@@ -1006,7 +1010,11 @@ export class NfeService {
       const soma = ent.reduce((s, [, q]) => s + Number(q), 0);
       if (ent.length && soma === Number(it.quantidade)) {
         for (const [tam, qtd] of ent) {
-          out.push({ descricao: `${it.descricao} | TAM ${tam}`.slice(0, 120), quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
+          // Reserva espaço p/ o TAM: corta a base (que pode já ter " - COR: X") só o
+          // suficiente p/ o "| TAM XX" caber nos 120 caracteres — o tamanho NUNCA é cortado.
+          const suf = ` | TAM ${tam}`;
+          const base = it.descricao.slice(0, Math.max(0, 120 - suf.length));
+          out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
         }
       } else {
         out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId });
