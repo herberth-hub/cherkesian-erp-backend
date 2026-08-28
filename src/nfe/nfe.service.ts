@@ -708,6 +708,10 @@ export class NfeService {
     const podeReutilizar = nota.status === 'rejeitada' || nota.status === 'simulada';
     const resultado = await this.prisma.$transaction(async (tx) => {
       await tx.notaFiscal.delete({ where: { id } });
+      // Libera a expedição: se ela apontava esta NF, limpa o vínculo p/ poder REEMITIR.
+      if (nota.expedicaoId) {
+        await tx.expedicao.updateMany({ where: { id: nota.expedicaoId, nf: nota.numero }, data: { nf: null } });
+      }
       let numeroReutilizado: number | null = null;
       if (podeReutilizar && nota.filialId) {
         const filial = await tx.filial.findUnique({ where: { id: nota.filialId } });
@@ -1385,9 +1389,13 @@ export class NfeService {
           ...(tr?.logradouro ? { transportador_endereco: tr.logradouro } : {}),
           ...(tr?.municipio ? { transportador_nome_municipio: tr.municipio } : {}),
           ...(tr?.uf ? { transportador_uf: (tr.uf || '').toUpperCase() } : {}),
-          ...(placaVeic ? { veiculo_placa: placaVeic } : {}),
-          ...((tr?.ufVeiculo || tr?.uf) ? { veiculo_uf: ((tr?.ufVeiculo || tr?.uf) || '').toUpperCase() } : {}),
-          ...(tr?.rntc ? { veiculo_rntc: tr.rntc } : {}),
+          // Grupo do VEÍCULO é tudo-ou-nada: só entra quando há PLACA. Sem placa não
+          // mandamos veiculo_uf/rntc (senão a SEFAZ rejeita exigindo a placa).
+          ...(placaVeic ? {
+            veiculo_placa: placaVeic,
+            ...((tr?.ufVeiculo || tr?.uf) ? { veiculo_uf: ((tr?.ufVeiculo || tr?.uf) || '').toUpperCase() } : {}),
+            ...(tr?.rntc ? { veiculo_rntc: tr.rntc } : {}),
+          } : {}),
         }
       : {};
 
