@@ -620,6 +620,15 @@ export class ExpedicoesService {
     return { ok: true, mensagem: `Caixa ${numeroCaixa} zerada — ${box.pecas || 0} peça(s) devolvida(s) ao estoque.`, conferidas: novasPecas };
   }
 
+  /** Admin: conclui a conferência SEM bipar peça a peça — mas NÃO despacha.
+   *  Fica "conferida"; o despacho (com a data de saída correta) é um passo à parte. */
+  async conferirSemBip(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada.');
+    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'conferida', pecasConferidas: exp.pecas } });
+    return { ok: true, mensagem: 'Conferência concluída (sem bipar). Agora bipe a etiqueta MASTER para despachar e registrar a data de saída.' };
+  }
+
   /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.
    *  A saída é liberada bipando a ETIQUETA MASTER da caixa (codigoMaster) — 2ª leitura da dupla conferência. */
   async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false) {

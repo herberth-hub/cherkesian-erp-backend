@@ -249,13 +249,17 @@ export class PedidosService {
         if ((ex.quantidadeExpedida ?? 0) > 0) throw new ConflictException(`Não é possível remover "${ex.descricao}" — já tem ${ex.quantidadeExpedida} peça(s) expedida(s).`);
         await tx.pedidoItem.delete({ where: { id: ex.id } });
       }
+      // ===== SINCRONIZA as OPs com o pedido retificado (evita erro de produção) =====
+      const { opsSincronizadas, opsAviso } = await this.sincronizarOps(tx, pedido.ops, novos, norm);
+
       // Reavalia a etapa pela expedição real dos itens finais.
       const finais = await tx.pedidoItem.findMany({ where: { pedidoId: id } });
       const tot = finais.reduce((s, i) => s + i.quantidade, 0);
       const exp = finais.reduce((s, i) => s + (i.quantidadeExpedida ?? 0), 0);
       const etapaNova = exp <= 0 ? pedido.etapa : exp >= tot ? 'concluido' : 'parcial';
       const statusNovo = exp <= 0 ? pedido.status : exp >= tot ? 'Concluído' : 'Expedição parcial';
-      return tx.pedido.update({ where: { id }, data: { ...dadosPedido, etapa: etapaNova, status: statusNovo }, include: { itens: true } });
+      const atualizado = await tx.pedido.update({ where: { id }, data: { ...dadosPedido, etapa: etapaNova, status: statusNovo }, include: { itens: true } });
+      return { ...atualizado, opsSincronizadas, opsAviso };
     });
   }
 
@@ -272,6 +276,75 @@ export class PedidosService {
       await tx.pedido.delete({ where: { id } });
     });
     return { removido: true, id, numero: pedido.numero };
+  }
+
+  /**
+   * Sincroniza as OPs com o pedido retificado: ajusta quantidade + grade por tamanho
+   * de cada OP ao novo item (produto+cor). NUNCA reduz abaixo do que já foi cortado;
+   * flags para casos ambíguos (várias OPs, item removido, OP concluída). Escala o
+   * romaneio de materiais proporcional à nova quantidade.
+   */
+  private async sincronizarOps(
+    tx: Prisma.TransactionClient,
+    ops: Array<{ id: number; numero: string; produtoId: number | null; cor: string | null; quantidade: number; quantidadeCortada: number | null; gradeCortada: unknown; romaneioMateriais: unknown; status: string }>,
+    novos: Array<{ produtoId: number | null; cor: string | null; quantidade: number; grade: Prisma.InputJsonValue | null }>,
+    norm: (s?: string | null) => string,
+  ): Promise<{ opsSincronizadas: string[]; opsAviso: string[] }> {
+    const opsSincronizadas: string[] = [];
+    const opsAviso: string[] = [];
+    if (!ops.length) return { opsSincronizadas, opsAviso };
+
+    // Agrega os itens novos por produto+cor (base+especial do mesmo produto/cor somam).
+    const agg = new Map<string, { qty: number; grade: Record<string, number> }>();
+    for (const nv of novos) {
+      const k = `${nv.produtoId ?? 0}|${norm(nv.cor)}`;
+      const cur = agg.get(k) ?? { qty: 0, grade: {} };
+      cur.qty += nv.quantidade;
+      if (nv.grade && typeof nv.grade === 'object') for (const [t, q] of Object.entries(nv.grade as Record<string, number>)) cur.grade[norm(t)] = (cur.grade[norm(t)] ?? 0) + Number(q);
+      agg.set(k, cur);
+    }
+    // Agrupa OPs por produto+cor.
+    const opsPorChave = new Map<string, typeof ops>();
+    for (const op of ops) { const k = `${op.produtoId ?? 0}|${norm(op.cor)}`; const a = opsPorChave.get(k) ?? []; a.push(op); opsPorChave.set(k, a); }
+
+    for (const [k, lista] of opsPorChave) {
+      const alvo = agg.get(k);
+      if (lista.length > 1) { opsAviso.push(`${lista.map((o) => o.numero).join('/')}: mais de uma OP p/ o mesmo produto/cor — ajuste manual.`); continue; }
+      const op = lista[0];
+      const cortado = Number(op.quantidadeCortada ?? 0);
+      const gradeCort = (op.gradeCortada as Record<string, number> | null) ?? {};
+      if (!alvo || alvo.qty <= 0) {
+        opsAviso.push(`${op.numero}: item removido/zerado no pedido — revise ou cancele a OP (${op.quantidade} pç).`);
+        await tx.oP.update({ where: { id: op.id }, data: { corteObs: '⚠ Item removido/zerado na retificação do pedido. Revise ou cancele esta OP.' } });
+        continue;
+      }
+      if (op.status === 'concluido') { if (alvo.qty !== op.quantidade) opsAviso.push(`${op.numero}: já concluída, mas o pedido mudou p/ ${alvo.qty} pç — revise.`); continue; }
+      if (alvo.qty < cortado) { opsAviso.push(`${op.numero}: nova qtd ${alvo.qty} < já cortado ${cortado} — mantive o corte.`); continue; }
+
+      // Grade nova: nunca abaixo do já cortado por tamanho.
+      const novaGrade: Record<string, number> | undefined = Object.keys(alvo.grade).length ? { ...alvo.grade } : undefined;
+      if (novaGrade) for (const [t, qc] of Object.entries(gradeCort)) { const tn = norm(t); if ((novaGrade[tn] ?? 0) < Number(qc)) novaGrade[tn] = Number(qc); }
+      const novaQtd = Math.max(alvo.qty, cortado);
+
+      // Escala o romaneio de materiais proporcional à nova quantidade.
+      let romaneio = op.romaneioMateriais as Array<{ quantidade: number; [x: string]: unknown }> | null;
+      if (romaneio && Array.isArray(romaneio) && op.quantidade > 0 && novaQtd !== op.quantidade) {
+        const ratio = novaQtd / op.quantidade;
+        romaneio = romaneio.map((r) => ({ ...r, quantidade: Number((Number(r.quantidade) * ratio).toFixed(4)) }));
+      }
+
+      await tx.oP.update({
+        where: { id: op.id },
+        data: {
+          quantidade: novaQtd,
+          gradeTamanhos: (novaGrade as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+          ...(romaneio ? { romaneioMateriais: romaneio as Prisma.InputJsonValue } : {}),
+          corteObs: `Grade/quantidade sincronizada com a retificação do pedido (${new Date().toISOString().slice(0, 10)}).`,
+        },
+      });
+      opsSincronizadas.push(op.numero);
+    }
+    return { opsSincronizadas, opsAviso };
   }
 
   /**

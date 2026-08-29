@@ -117,6 +117,14 @@ export class ExpedicoesController {
     return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin);
   }
 
+  /** Admin: conclui a conferência sem bipar (marca "conferida", NÃO despacha). */
+  @Post(':id/conferir-direto')
+  @HttpCode(HttpStatus.OK)
+  conferirDireto(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') throw new ForbiddenException('Somente o administrador pode concluir a conferência sem bipar.');
+    return this.expedicoesService.conferirSemBip(id, user.empresaId);
+  }
+
   /** Estorna a expedição (volta a operação pro pedido de venda p/ reexpedir/parcial). */
   @Post(':id/estornar')
   @HttpCode(HttpStatus.OK)

@@ -2839,7 +2839,12 @@ async function savePedido(id){
   const obs=(($('f_obs')&&$('f_obs').value)||'').trim(); body.obs=obs||undefined;
   const obsCom=(($('f_obscom')&&$('f_obscom').value)||'').trim(); body.obsComercial=obsCom||undefined;
   try{
-    if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal(); toast('Pedido '+p.numero+' atualizado.','ok'); }
+    if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
+      let m='Pedido '+p.numero+' atualizado.';
+      if(p.opsSincronizadas&&p.opsSincronizadas.length) m+=' OP sincronizada: '+p.opsSincronizadas.join(', ')+'.';
+      toast(m,'ok');
+      if(p.opsAviso&&p.opsAviso.length){ await uiAlert({tipo:'warn', titulo:'⚠ Revisar OPs após a retificação', ok:'Entendi', msg:p.opsAviso.join('\n')}); }
+    }
     else { const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); }
     loadRoute();
   } catch(e){ toast(e.message,'err'); }
@@ -6422,7 +6427,7 @@ async function formConferencia(id){
         <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>`}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — despacha e conclui sem bipar peça a peça" onclick="APP.despacharDireto(${id})">✔ Dar baixa (sem conferir)</button>`}</div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
   const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
 }
 // Grade da conferência: por tamanho, quanto tem que bipar (esperado), quanto já bipou e o que falta.
@@ -6442,10 +6447,11 @@ function confGradeHtml(grade){
     <div style="font-weight:700;font-size:12px;margin-bottom:4px;display:flex;justify-content:space-between"><span>📋 Bipar por tamanho</span>${totFalta>0?`<span style="color:#c14a34">faltam ${totFalta} pç</span>`:'<span style="color:#1e7a44">tudo conferido ✓</span>'}</div>
     ${rows}</div>`;
 }
-// Baixa direta (admin): despacha sem a conferência peça a peça.
+// Admin: conclui a conferência SEM bipar peça a peça — marca CONFERIDA (não despacha).
+// O despacho continua sendo um passo à parte (bipar a etiqueta master) p/ registrar a saída certa.
 async function despacharDireto(id){
-  if(!(await uiConfirm({tipo:'warn', titulo:'Dar baixa sem conferir?', ok:'Despachar', cancel:'Cancelar', msg:'Marca a expedição como DESPACHADA e conclui o pedido, sem bipar peça por peça. Use quando a conferência foi feita fora do sistema. (Somente admin.)'}))) return;
-  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{forcar:true}}); toast(r.mensagem||'Mercadoria despachada.','ok'); closeModal(); loadRoute(); }
+  if(!(await uiConfirm({tipo:'warn', titulo:'Concluir conferência sem bipar?', ok:'Concluir conferência', cancel:'Cancelar', msg:'Marca a expedição como CONFERIDA sem bipar peça por peça (use quando a conferência foi feita fora do sistema). NÃO despacha — depois você bipa a etiqueta master para despachar e registrar a data de saída. (Somente admin.)'}))) return;
+  try{ const r=await api('/expedicoes/'+id+'/conferir-direto',{method:'POST'}); toast(r.mensagem||'Conferência concluída.','ok'); formConferencia(id); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // Zera UMA caixa da conferência — devolve só as peças dela ao estoque.
