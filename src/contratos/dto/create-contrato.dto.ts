@@ -33,6 +33,9 @@ export class CreateContratoDto {
   @IsInt({ message: 'Selecione o cliente do contrato.' })
   clienteId!: number;
 
+  /** Empresa/CNPJ do grupo que atende/fatura o contrato (filial emissora). */
+  @IsOptional() @IsInt() filialId?: number;
+
   /** Vendedor dono da carteira (controle de comissão / de quem o cliente pertence). */
   @IsOptional() @IsString() @MaxLength(120) vendedor?: string;
 

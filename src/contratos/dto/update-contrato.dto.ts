@@ -4,6 +4,7 @@ import { ContratoItemDto } from './create-contrato.dto';
 
 export class UpdateContratoDto {
   @IsOptional() @IsInt() clienteId?: number;
+  @IsOptional() @IsInt() filialId?: number;
   @IsOptional() @IsString() @MaxLength(120) vendedor?: string;
   @IsOptional() @IsString() @MaxLength(60) numero?: string;
   @IsOptional() @IsString() @MaxLength(200) descricao?: string;

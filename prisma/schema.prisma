@@ -161,6 +161,7 @@ model Filial {
   contasPagar       ContaPagar[]
   contasReceber     ContaReceber[]
   contasBancarias   ContaBancaria[]
+  contratos         Contrato[]
 }
 
 /// Conta bancária estruturada da empresa/CNPJ (várias por filial) — usada para
@@ -1073,6 +1074,8 @@ model Contrato {
   empresa           Empresa  @relation(fields: [empresaId], references: [id])
   clienteId         Int
   cliente           Cliente  @relation(fields: [clienteId], references: [id])
+  filialId          Int?     // empresa/CNPJ do grupo que atende/fatura o contrato (emissora)
+  filial            Filial?  @relation(fields: [filialId], references: [id])
   vendedor          String?  // vendedor dono da carteira (controle de comissão / a quem o cliente pertence)
   numero            String?  // identificação/número do contrato
   descricao         String?

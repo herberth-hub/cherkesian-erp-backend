@@ -38,6 +38,7 @@ export class ContratosService {
       orderBy: [{ ativo: 'desc' }, { id: 'desc' }],
       include: {
         cliente: { select: { id: true, nome: true, fantasia: true, cnpjCpf: true, cidadeUf: true } },
+        filial: { select: { id: true, nome: true, cnpj: true } },
         _count: { select: { itens: true } },
       },
     });
@@ -49,6 +50,7 @@ export class ContratosService {
       where: { id },
       include: {
         cliente: { select: { id: true, nome: true, fantasia: true, cnpjCpf: true, cidadeUf: true, telefone: true, email: true, contato: true } },
+        filial: { select: { id: true, nome: true, cnpj: true } },
         itens: { orderBy: { id: 'asc' } },
       },
     });
@@ -63,6 +65,7 @@ export class ContratosService {
       data: {
         empresaId,
         clienteId: dto.clienteId,
+        filialId: dto.filialId ?? null,
         vendedor: dto.vendedor?.trim() || null,
         numero: dto.numero?.trim() || null,
         descricao: dto.descricao?.trim() || null,
@@ -91,6 +94,7 @@ export class ContratosService {
         where: { id },
         data: {
           clienteId: dto.clienteId ?? undefined,
+          filialId: dto.filialId !== undefined ? (dto.filialId ?? null) : undefined,
           vendedor: dto.vendedor !== undefined ? dto.vendedor?.trim() || null : undefined,
           numero: dto.numero !== undefined ? dto.numero?.trim() || null : undefined,
           descricao: dto.descricao !== undefined ? dto.descricao?.trim() || null : undefined,
