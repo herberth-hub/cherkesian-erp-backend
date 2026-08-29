@@ -1405,21 +1405,21 @@ export class NfeService {
     const modalidadeFrete = extra?.frete != null ? extra.frete : (transportadoraNome ? 0 : 9);
     const trDoc = tr?.cnpjCpf ? digitos(tr.cnpjCpf) : '';
     const placaVeic = (extra?.placa || tr?.placaVeiculo || '').toString().trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    // Nomes de campo da Focus NFe: <atributo>_transportador (mesmo padrão de valor_frete).
+    // Antes estavam invertidos (transportador_nome) e a Focus ignorava → transportador vazio no DANFE.
     const transportadorBloco: Record<string, unknown> = transportadoraNome
       ? {
-          transportador_nome: transportadoraNome.slice(0, 60),
-          transportador_razao_social: transportadoraNome.slice(0, 60),
-          ...(trDoc ? (trDoc.length === 11 ? { transportador_cpf: trDoc } : { transportador_cnpj: trDoc }) : {}),
-          ...(tr?.inscricaoEstadual ? { transportador_inscricao_estadual: tr.inscricaoEstadual } : {}),
-          ...(tr?.logradouro ? { transportador_endereco: tr.logradouro } : {}),
-          ...(tr?.municipio ? { transportador_nome_municipio: tr.municipio } : {}),
-          ...(tr?.uf ? { transportador_uf: (tr.uf || '').toUpperCase() } : {}),
-          // Grupo do VEÍCULO é tudo-ou-nada: só entra quando há PLACA. Sem placa não
-          // mandamos veiculo_uf/rntc (senão a SEFAZ rejeita exigindo a placa).
+          nome_transportador: transportadoraNome.slice(0, 60),
+          ...(trDoc ? (trDoc.length === 11 ? { cpf_transportador: trDoc } : { cnpj_transportador: trDoc }) : {}),
+          ...(tr?.inscricaoEstadual ? { inscricao_estadual_transportador: tr.inscricaoEstadual } : {}),
+          ...(tr?.logradouro ? { endereco_transportador: tr.logradouro } : {}),
+          ...(tr?.municipio ? { municipio_transportador: tr.municipio } : {}),
+          ...(tr?.uf ? { uf_transportador: (tr.uf || '').toUpperCase() } : {}),
+          // Grupo do VEÍCULO é tudo-ou-nada: só entra quando há PLACA (senão a SEFAZ exige a placa).
           ...(placaVeic ? {
-            veiculo_placa: placaVeic,
-            ...((tr?.ufVeiculo || tr?.uf) ? { veiculo_uf: ((tr?.ufVeiculo || tr?.uf) || '').toUpperCase() } : {}),
-            ...(tr?.rntc ? { veiculo_rntc: tr.rntc } : {}),
+            placa_veiculo: placaVeic,
+            ...((tr?.ufVeiculo || tr?.uf) ? { uf_veiculo: ((tr?.ufVeiculo || tr?.uf) || '').toUpperCase() } : {}),
+            ...(tr?.rntc ? { rntc: tr.rntc } : {}),
           } : {}),
         }
       : {};
