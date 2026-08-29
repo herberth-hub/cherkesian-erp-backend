@@ -17,9 +17,13 @@ export class PedidosService {
     private readonly credito: CreditoService,
   ) {}
 
-  async findAll(empresaId: number) {
+  async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string }) {
+    // Escopo do vendedor: só os pedidos dele (vendedorId) ou criados por ele (legado).
+    const where: Prisma.PedidoWhereInput = scope
+      ? { empresaId, OR: [{ vendedorId: scope.vendedorId }, { criadoPor: scope.usuario }] }
+      : { empresaId };
     const pedidos = await this.prisma.pedido.findMany({
-      where: { empresaId },
+      where,
       include: {
         itens: true,
         cliente: { select: { id: true, nome: true } },
@@ -85,7 +89,7 @@ export class PedidosService {
   }
 
   /** Cria orçamento/pedido. Cliente novo ⇒ exigePiloto (trava a produção depois). */
-  async create(dto: CreatePedidoDto, empresaId: number, criadoPor: string) {
+  async create(dto: CreatePedidoDto, empresaId: number, criadoPor: string, vendedorId?: number) {
     const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) {
       throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
@@ -147,6 +151,7 @@ export class PedidosService {
         obs: dto.obs,
         obsComercial: dto.obsComercial,
         criadoPor,
+        vendedorId: vendedorId ?? null,
         itens: { create: itensData },
       },
       include: { itens: true },

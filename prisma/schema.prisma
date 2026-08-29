@@ -13,6 +13,7 @@ datasource db {
 enum Acesso {
   total
   comercial
+  vendedor
   producao
   chao
   expedicao
@@ -565,6 +566,7 @@ model Pedido {
   ordemCompraCliente String?  // nº do pedido de compra do cliente (SAP/PO) — sai na NF
   obs            String?    // observação FISCAL: vai nas informações complementares da NF-e
   obsComercial   String?    // observação COMERCIAL: sai na proposta e no pedido (não vai na NF-e)
+  vendedorId     Int?         // vendedor dono (Usuario) — escopo do CRM/comissão
   itens          PedidoItem[]
   ops            OP[]
   pilotos        Piloto[]
@@ -1107,4 +1109,47 @@ model ContratoItem {
   obs        String?
 
   @@index([contratoId])
+}
+
+// ===== CRM / Funil de vendas (leads e prospects do comercial) =====
+// Cada vendedor trabalha sua carteira de leads no funil; ao "ganhar", o lead
+// vira (ou é vinculado a) um Cliente e pode gerar orçamento/pedido.
+model Lead {
+  id            Int       @id @default(autoincrement())
+  empresaId     Int
+  vendedorId    Int?      // dono do lead (Usuario) — base do escopo por vendedor
+  vendedorNome  String?   // nome do vendedor (snapshot p/ exibição/relatório)
+  nome          String    // nome do contato ou do prospect
+  empresa       String?   // razão social / empresa do prospect
+  cnpjCpf       String?
+  contato       String?
+  telefone      String?
+  email         String?
+  cidadeUf      String?
+  origem        String?   // indicação, site, feira, WhatsApp, marketplace…
+  etapa         String    @default("novo") // novo|contato|qualificado|proposta|negociacao|ganho|perdido
+  valorEstimado Decimal?  @db.Decimal(12,2)
+  proximaAcao   String?   // próximo passo combinado
+  proximaAcaoEm DateTime? // quando fazer o próximo contato (radar de follow-up)
+  obs           String?   @db.Text
+  clienteId     Int?      // cliente gerado/vinculado ao ganhar
+  perdaMotivo   String?   // motivo quando etapa=perdido
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+  interacoes    LeadInteracao[]
+
+  @@index([empresaId, vendedorId])
+  @@index([empresaId, etapa])
+}
+
+model LeadInteracao {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tipo      String   @default("nota") // nota|ligacao|email|reuniao|whatsapp|proposta
+  texto     String   @db.Text
+  autor     String?  // usuário que registrou
+  criadoEm  DateTime @default(now())
+
+  @@index([leadId])
 }

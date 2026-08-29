@@ -249,9 +249,12 @@ export class FinanceiroService {
 
   // ===== Comissões =====
 
-  listarComissoes(empresaId: number): Promise<Comissao[]> {
+  listarComissoes(empresaId: number, vendedorNome?: string): Promise<Comissao[]> {
+    // Vendedor vê só as próprias comissões (casadas pelo nome do vendedor).
     return this.prisma.comissao.findMany({
-      where: { empresaId },
+      where: vendedorNome
+        ? { empresaId, vendedor: { equals: vendedorNome, mode: 'insensitive' } }
+        : { empresaId },
       orderBy: { id: 'desc' },
     });
   }

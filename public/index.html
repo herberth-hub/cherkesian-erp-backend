@@ -207,7 +207,8 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','contratos','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
+  comercial:['dashboard','tv','vendas','crm','contratos','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
+  vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas'],
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
   chao:['tv','producao','kits','piloto','estoque'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente'],
@@ -217,7 +218,7 @@ const ACCESS = {
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
-  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['contratos','Contratos','file'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
+  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['contratos','Contratos','file'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
@@ -226,11 +227,12 @@ const NAVDEF = [
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','bi','clientes','contratos','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
+const READY = new Set(['dashboard','bi','clientes','contratos','crm','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
+  crm:['CRM · Funil de Vendas','Leads e prospects · funil, follow-up e orçamentos'],
   contratos:['Contratos','Clientes com tabela de preço fixa · base do robô de pedidos'],
   clientes:['Clientes','Cadastro central de clientes'],
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
@@ -514,6 +516,7 @@ async function loadRoute(){
     if(S.route==='fornecedores') return await viewFornecedores(c);
     if(S.route==='vendas') return await viewPedidos(c);
     if(S.route==='contratos') return await viewContratos(c);
+    if(S.route==='crm') return await viewCrm(c);
     if(S.route==='receber') return await viewReceber(c);
     if(S.route==='pagar') return await viewPagar(c);
     if(S.route==='fluxo') return await viewFluxo(c);
@@ -2632,6 +2635,221 @@ async function saveContrato(id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ================= CRM · FUNIL DE VENDAS (leads/prospects) =================
+const CRM_ETAPAS = [
+  {k:'novo', t:'Novo', c:'#6d6857', bg:'#eeece5'},
+  {k:'contato', t:'Contato feito', c:'#2563a8', bg:'#e5eefb'},
+  {k:'qualificado', t:'Qualificado', c:'#7a5b12', bg:'#f7efd3'},
+  {k:'proposta', t:'Proposta enviada', c:'#8a5a00', bg:'#fdeccb'},
+  {k:'negociacao', t:'Negociação', c:'#6b3fa0', bg:'#f0e6ff'},
+  {k:'ganho', t:'Ganho ✅', c:'#1f8a4c', bg:'#e3f5e9'},
+  {k:'perdido', t:'Perdido', c:'#c14a34', bg:'#fbe6e2'},
+];
+function crmEtapa(k){ return CRM_ETAPAS.find(e=>e.k===k)||CRM_ETAPAS[0]; }
+function crmFmtD(s){ if(!s) return ''; const d=String(s).slice(0,10).split('-'); return d.length===3?`${d[2]}/${d[1]}/${d[0]}`:s; }
+async function viewCrm(c){
+  const [leads, resumo, vends] = await Promise.all([api('/crm/leads'), api('/crm/resumo').catch(()=>({porEtapa:{}})), api('/crm/vendedores').catch(()=>[])]);
+  window.__LEADS = leads||[]; window.__CRM_RESUMO = resumo||{porEtapa:{}}; window.__CRM_VENDS = vends||[];
+  const ehVend = S.user.acesso==='vendedor';
+  const vendFiltro = (!ehVend && (vends||[]).length>1)
+    ? `<select id="crm_vend" class="inp" style="width:auto;font-size:12px;padding:6px 8px" onchange="APP.crmRender()"><option value="">Todos os vendedores</option>${(vends||[]).map(v=>`<option value="${v.id}">${esc(v.nome)}</option>`).join('')}</select>` : '';
+  c.innerHTML = toolbar('Funil de vendas', 'Novo lead', 'APP.formLead()',
+      `<input id="crm_busca" class="inp" placeholder="buscar lead, empresa, contato…" oninput="APP.crmRender()" style="width:220px;font-size:12px;padding:6px 8px"> ${vendFiltro} <button class="btn-sm" onclick="APP.crmTabelaPrecos()" title="Tabela de preços p/ montar orçamento">🏷 Tabela de preços</button>`)
+    + `<div id="crm_cards" style="margin:0 0 12px"></div>`
+    + `<div id="crm_kanban" style="overflow-x:auto"></div>`;
+  crmRender();
+}
+function crmLeadsFiltrados(){
+  let list=window.__LEADS||[];
+  const q=(val('crm_busca')||'').toLowerCase();
+  const vf=val('crm_vend');
+  if(vf) list=list.filter(l=>String(l.vendedorId||'')===vf);
+  if(q){ const t=q.split(/\s+/); list=list.filter(l=>{ const s=((l.nome||'')+' '+(l.empresa||'')+' '+(l.contato||'')+' '+(l.cnpjCpf||'')+' '+(l.cidadeUf||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  return list;
+}
+function crmRender(){
+  const list=crmLeadsFiltrados();
+  // Resumo por etapa (contagem + valor estimado) a partir da lista filtrada
+  const agg={}; CRM_ETAPAS.forEach(e=>agg[e.k]={qtd:0,valor:0});
+  list.forEach(l=>{ const a=agg[l.etapa]||(agg[l.etapa]={qtd:0,valor:0}); a.qtd++; a.valor+=Number(l.valorEstimado||0); });
+  const cardsEl=$('crm_cards');
+  if(cardsEl){
+    const abertos=list.filter(l=>l.etapa!=='ganho'&&l.etapa!=='perdido');
+    const totalAberto=abertos.reduce((s,l)=>s+Number(l.valorEstimado||0),0);
+    const ganhos=agg['ganho']||{qtd:0,valor:0};
+    cardsEl.innerHTML=`<div class="cards">
+      <div class="card kpi"><div class="k">Leads em aberto</div><div class="v">${abertos.length}</div><div class="s">${money(totalAberto)} em pipeline</div></div>
+      <div class="card kpi"><div class="k">Ganhos</div><div class="v" style="color:#1f8a4c">${ganhos.qtd}</div><div class="s">${money(ganhos.valor)}</div></div>
+      <div class="card kpi"><div class="k">Perdidos</div><div class="v" style="color:#c14a34">${(agg['perdido']||{}).qtd||0}</div><div class="s">no período</div></div>
+      <div class="card kpi"><div class="k">Total de leads</div><div class="v">${list.length}</div><div class="s">na sua carteira</div></div>
+    </div>`;
+  }
+  const kb=$('crm_kanban'); if(!kb) return;
+  const ehVend=S.user.acesso==='vendedor';
+  kb.innerHTML=`<div style="display:flex;gap:10px;min-width:${CRM_ETAPAS.length*220}px;align-items:flex-start">${CRM_ETAPAS.map(e=>{
+    const col=list.filter(l=>l.etapa===e.k);
+    const val0=col.reduce((s,l)=>s+Number(l.valorEstimado||0),0);
+    return `<div style="flex:1;min-width:210px;background:#faf8f2;border:1px solid #ece5d2;border-radius:10px;padding:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-weight:800;font-size:12px;color:${e.c}">${esc(e.t)}</span>
+        <span class="pill" style="background:${e.bg};color:${e.c};font-size:10px">${col.length}${val0?' · '+money(val0):''}</span></div>
+      ${col.map(l=>crmCard(l,ehVend)).join('')||'<div class="muted" style="font-size:11px;padding:6px 2px">—</div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+function crmCard(l, ehVend){
+  const e=crmEtapa(l.etapa);
+  const prox=l.proximaAcao?`<div style="font-size:10.5px;color:#8a6d1e;margin-top:3px">📌 ${esc(l.proximaAcao)}${l.proximaAcaoEm?(' · '+crmFmtD(l.proximaAcaoEm)):''}</div>`:'';
+  const opts=CRM_ETAPAS.map(x=>`<option value="${x.k}" ${x.k===l.etapa?'selected':''}>${esc(x.t)}</option>`).join('');
+  return `<div style="background:#fff;border:1px solid #e7e0cd;border-left:3px solid ${e.c};border-radius:8px;padding:7px 8px;margin-bottom:7px;cursor:pointer" onclick="APP.crmDetalhe(${l.id})" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow=''">
+    <div style="font-weight:700;font-size:12.5px;line-height:1.25">${esc(l.empresa||l.nome)}</div>
+    ${l.empresa&&l.nome&&l.nome!==l.empresa?`<div class="muted" style="font-size:11px">${esc(l.nome)}</div>`:''}
+    ${l.valorEstimado?`<div style="font-size:12px;font-weight:700;color:#1f8a4c;margin-top:2px">${money(l.valorEstimado)}</div>`:''}
+    ${!ehVend&&l.vendedorNome?`<div class="muted" style="font-size:10.5px;margin-top:2px">👤 ${esc(l.vendedorNome)}</div>`:''}
+    ${prox}
+    <div style="margin-top:6px" onclick="event.stopPropagation()"><select class="inp" style="font-size:11px;padding:3px 6px" onchange="APP.crmMover(${l.id},this.value)">${opts}</select></div>
+  </div>`;
+}
+function crmFiltrar(){ crmRender(); }
+async function formLead(id){
+  let l=null;
+  if(id){ try{ l=await api('/crm/leads/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  const ehVend=S.user.acesso==='vendedor';
+  const vends=window.__CRM_VENDS||[];
+  const vendSel = (!ehVend && vends.length)
+    ? `<div class="mrow"><label class="fl">👤 Vendedor responsável</label><select id="lead_vend" class="inp">${vends.map(v=>`<option value="${v.id}" ${(l&&l.vendedorId===v.id)?'selected':(!l&&v.id===S.user.id?'selected':'')}>${esc(v.nome)}</option>`).join('')}</select></div>` : '';
+  const etOpts=CRM_ETAPAS.map(e=>`<option value="${e.k}" ${(l&&l.etapa===e.k)?'selected':(!l&&e.k==='novo'?'selected':'')}>${esc(e.t)}</option>`).join('');
+  const pae=(l&&l.proximaAcaoEm)?String(l.proximaAcaoEm).slice(0,10):'';
+  openModal(`<h3>${id?'Editar lead':'Novo lead'}</h3>
+    <div class="grid2">${field('lead_nome','Nome do contato / lead *','value="'+esc((l&&l.nome)||'')+'"')}${field('lead_emp','Empresa','value="'+esc((l&&l.empresa)||'')+'"')}</div>
+    <div class="grid3">${field('lead_cnpj','CNPJ/CPF','value="'+esc((l&&l.cnpjCpf)||'')+'"')}${field('lead_tel','Telefone','value="'+esc((l&&l.telefone)||'')+'"')}${field('lead_cid','Cidade/UF','value="'+esc((l&&l.cidadeUf)||'')+'"')}</div>
+    <div class="grid2">${field('lead_email','E-mail','value="'+esc((l&&l.email)||'')+'"')}${field('lead_contato','Pessoa de contato','value="'+esc((l&&l.contato)||'')+'"')}</div>
+    ${vendSel}
+    <div class="grid3">
+      <div class="mrow"><label class="fl">Etapa do funil</label><select id="lead_etapa" class="inp">${etOpts}</select></div>
+      ${field('lead_valor','Valor estimado (R$)','type="number" step="0.01" min="0" value="'+((l&&l.valorEstimado!=null)?Number(l.valorEstimado):'')+'"')}
+      ${field('lead_origem','Origem','value="'+esc((l&&l.origem)||'')+'" placeholder="indicação, site, feira…"')}
+    </div>
+    <div class="grid2">${field('lead_prox','Próxima ação','value="'+esc((l&&l.proximaAcao)||'')+'" placeholder="ligar, enviar proposta…"')}${field('lead_proxem','Quando (follow-up)','type="date" value="'+pae+'"')}</div>
+    <div class="mrow"><label class="fl">Observações</label><textarea id="lead_obs" class="inp" rows="2" style="resize:vertical">${esc((l&&l.obs)||'')}</textarea></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveLead(${id||0})">Salvar</button></div>`, {wide:true});
+}
+async function saveLead(id){
+  const nome=val('lead_nome'); if(!nome){ toast('Informe o nome do lead.','err'); return; }
+  const body={ nome, empresa:val('lead_emp'), cnpjCpf:val('lead_cnpj'), telefone:val('lead_tel'), cidadeUf:val('lead_cid'),
+    email:val('lead_email'), contato:val('lead_contato'), etapa:val('lead_etapa'), origem:val('lead_origem'),
+    proximaAcao:val('lead_prox'), proximaAcaoEm:val('lead_proxem'), obs:val('lead_obs') };
+  const ve=val('lead_valor'); if(ve!=='') body.valorEstimado=Number(ve);
+  if($('lead_vend')) body.vendedorId=Number(val('lead_vend'));
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api(id?('/crm/leads/'+id):'/crm/leads',{method:id?'PATCH':'POST',body}); closeModal(); toast('Lead salvo.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function crmMover(id, etapa){
+  const l=(window.__LEADS||[]).find(x=>x.id===id); if(l&&l.etapa===etapa) return;
+  if(etapa==='perdido'){ return crmPerder(id); }
+  try{
+    await api('/crm/leads/'+id+'/etapa',{method:'PATCH',body:{etapa}});
+    if(etapa==='ganho'){
+      if(await uiConfirm({tipo:'info', titulo:'Lead ganho! 🎉', msg:'Converter este lead em cliente agora para gerar o orçamento?', ok:'Converter em cliente'})){ return crmConverter(id); }
+    }
+    toast('Etapa atualizada.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+function crmPerder(id){
+  openModal(`<h3>Marcar lead como perdido</h3>
+    <div class="mrow"><label class="fl">Motivo da perda</label><textarea id="lead_perda" class="inp" rows="3" style="resize:vertical" placeholder="preço, prazo, concorrente, sem retorno…"></textarea></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" style="background:#c14a34;border-color:#c14a34" onclick="APP.crmPerderOk(${id})">Marcar perdido</button></div>`);
+}
+async function crmPerderOk(id){
+  try{ await api('/crm/leads/'+id+'/etapa',{method:'PATCH',body:{etapa:'perdido',perdaMotivo:val('lead_perda')}}); closeModal(); toast('Lead marcado como perdido.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function crmDetalhe(id){
+  let l; try{ l=await api('/crm/leads/'+id); }catch(e){ toast(e.message,'err'); return; }
+  const e=crmEtapa(l.etapa);
+  const inter=(l.interacoes||[]).map(x=>`<div style="border-left:2px solid #e0d9c4;padding:4px 0 4px 10px;margin-bottom:6px">
+    <div style="font-size:12.5px">${esc(x.texto)}</div>
+    <div class="muted" style="font-size:10.5px">${crmTipoIco(x.tipo)} ${esc(x.autor||'')} · ${new Date(x.criadoEm).toLocaleString('pt-BR')}</div></div>`).join('')||'<div class="muted" style="font-size:12px">Sem interações ainda.</div>';
+  const cli=l.clienteId?`<span class="pill green">Cliente #${l.clienteId}</span>`:'';
+  openModal(`<h3>${esc(l.empresa||l.nome)}</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-4px 0 8px">
+      <span class="pill" style="background:${e.bg};color:${e.c}">${esc(e.t)}</span>
+      ${l.vendedorNome?`<span class="pill gold">👤 ${esc(l.vendedorNome)}</span>`:''} ${cli}
+      ${l.valorEstimado?`<span style="font-weight:800;color:#1f8a4c">${money(l.valorEstimado)}</span>`:''}
+    </div>
+    <div class="muted" style="font-size:12px;line-height:1.6;margin-bottom:8px">
+      ${l.contato?('👤 '+esc(l.contato)+' &nbsp; '):''}${l.telefone?('📞 '+esc(l.telefone)+' &nbsp; '):''}${l.email?('✉ '+esc(l.email)+' &nbsp; '):''}${l.cidadeUf?('📍 '+esc(l.cidadeUf)):''}
+      ${l.cnpjCpf?('<br>CNPJ/CPF: '+esc(l.cnpjCpf)):''}${l.origem?('<br>Origem: '+esc(l.origem)):''}
+      ${l.proximaAcao?('<br>📌 Próx.: '+esc(l.proximaAcao)+(l.proximaAcaoEm?(' ('+crmFmtD(l.proximaAcaoEm)+')'):'')):''}
+      ${l.perdaMotivo?('<br>❌ Perda: '+esc(l.perdaMotivo)):''}
+      ${l.obs?('<br>📝 '+esc(l.obs)):''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-sm" onclick="APP.formLead(${l.id})">✏ Editar</button>
+      ${l.clienteId?'':`<button class="btn-sm" style="color:#1f8a4c" onclick="APP.crmConverter(${l.id})">🤝 Converter em cliente</button>`}
+      <button class="btn-primary" style="padding:2px 10px" onclick="APP.crmGerarOrcamento(${l.id})">💰 Gerar orçamento</button>
+      <button class="btn-sm" style="color:#c14a34" onclick="APP.crmExcluir(${l.id})">Excluir</button>
+    </div>
+    <div style="border-top:1px solid var(--line);padding-top:8px">
+      <label class="fl">Registrar interação</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <select id="lead_itipo" class="inp" style="width:auto"><option value="nota">📝 Nota</option><option value="ligacao">📞 Ligação</option><option value="whatsapp">💬 WhatsApp</option><option value="email">✉ E-mail</option><option value="reuniao">🤝 Reunião</option><option value="proposta">📄 Proposta</option></select>
+        <input id="lead_itexto" class="inp" style="flex:1" placeholder="o que aconteceu?" onkeydown="if(event.key==='Enter')APP.crmAddInter(${l.id})">
+        <button class="btn-sm" onclick="APP.crmAddInter(${l.id})">Adicionar</button>
+      </div>
+      <div style="max-height:220px;overflow-y:auto">${inter}</div>
+    </div>`, {wide:true});
+}
+function crmTipoIco(t){ return ({nota:'📝',ligacao:'📞',whatsapp:'💬',email:'✉',reuniao:'🤝',proposta:'📄'})[t]||'📝'; }
+async function crmAddInter(id){
+  const texto=val('lead_itexto'); if(!texto){ toast('Escreva a interação.','err'); return; }
+  try{ await api('/crm/leads/'+id+'/interacao',{method:'POST',body:{tipo:val('lead_itipo'),texto}}); toast('Interação registrada.','ok'); crmDetalhe(id); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function crmConverter(id){
+  try{ const r=await api('/crm/leads/'+id+'/converter',{method:'POST',body:{}}); toast(r.jaConvertido?'Já vinculado ao cliente #'+r.clienteId+'.':'Cliente #'+r.clienteId+' criado a partir do lead.','ok'); loadRoute(); return r.clienteId; }
+  catch(e){ toast(e.message,'err'); return null; }
+}
+async function crmGerarOrcamento(id){
+  const clienteId=await crmConverter(id);
+  if(!clienteId) return;
+  closeModal();
+  window.__CRM_PRECLI=clienteId;   // formPedido pré-seleciona este cliente
+  go('vendas');
+  setTimeout(()=>{ try{ formPedido(); }catch(_){ } }, 350);
+}
+async function crmExcluir(id){
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir lead?', msg:'Remove o lead e seu histórico de interações.', ok:'Excluir'}))) return;
+  try{ await api('/crm/leads/'+id,{method:'DELETE'}); closeModal(); toast('Lead excluído.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function crmTabelaPrecos(){
+  let prods; try{ prods=await api('/produtos'); }catch(e){ toast(e.message,'err'); return; }
+  window.__CRM_TAB=prods||[];
+  openModal(`<h3>🏷 Tabela de preços</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Consulte os preços para montar o orçamento. Clique num produto para copiar código + preço.</div>
+    <input id="crm_tab_busca" class="inp" placeholder="🔍 buscar código, descrição, cor…" oninput="APP.crmTabRender()" style="margin-bottom:8px">
+    <div id="crm_tab_wrap" style="max-height:60vh;overflow:auto"></div>`, {wide:true});
+  crmTabRender();
+}
+function crmTabRender(){
+  const wrap=$('crm_tab_wrap'); if(!wrap) return;
+  const q=(val('crm_tab_busca')||'').toLowerCase();
+  let list=window.__CRM_TAB||[];
+  if(q){ const t=q.split(/\s+/); list=list.filter(p=>{ const s=((p.codigo||'')+' '+(p.descricao||'')+' '+(p.cor||'')+' '+(p.categoria||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  list=list.slice(0,400);
+  wrap.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Cor</th><th style="padding:5px 8px;text-align:right">Preço base</th><th style="padding:5px 8px;text-align:right">Especial</th></tr></thead><tbody>${
+    list.map(p=>`<tr style="border-top:1px solid #eee;cursor:pointer" onclick="APP.crmCopiaPreco('${esc(p.codigo||'')}',${p.precoBase!=null?Number(p.precoBase):'null'})" title="Copiar código + preço"><td style="padding:5px 8px"><span class="mono gold">${esc(p.codigo||'')}</span></td><td style="padding:5px 8px">${esc(p.descricao||'')}</td><td style="padding:5px 8px">${esc(p.cor||'—')}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${p.precoBase!=null?money(p.precoBase):'—'}</td><td style="padding:5px 8px;text-align:right">${p.precoEspecial!=null?money(p.precoEspecial):'—'}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="padding:10px">Nenhum produto.</td></tr>'
+  }</tbody></table>`;
+}
+function crmCopiaPreco(codigo, preco){
+  const txt=codigo+(preco!=null?(' · '+money(preco)):'');
+  try{ navigator.clipboard.writeText(txt); toast('Copiado: '+txt,'ok'); }catch(_){ toast(txt,'ok'); }
+}
+
 // Pedido: cliente + itens dinâmicos
 let PITENS = [];
 async function formPedido(id){
@@ -2643,7 +2861,8 @@ async function formPedido(id){
     ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
-  const selCli = ped?ped.clienteId:null;
+  const preCli = (!id && window.__CRM_PRECLI) ? Number(window.__CRM_PRECLI) : null; window.__CRM_PRECLI=null;
+  const selCli = ped?ped.clienteId:preCli;
   const selFil = ped?ped.filialId:null;
   window.__PEDNEW = !id; // pedido novo → habilita puxar condições do último pedido do cliente
   // Entradas de busca: GRUPO › cliente › unidade (SACA). Cada entrada resolve p/ clienteId + unidadeId.
@@ -2660,6 +2879,7 @@ async function formPedido(id){
   window.__PEDFILTER = '';
   let initLabel='';
   if(id){ const e=cliEntries.find(x=>x.clienteId===selCli && (ped.clienteUnidadeId? x.unidadeId===ped.clienteUnidadeId : !x.unidadeId)); if(e){ initLabel=e.label; window.__PEDFILTER=e.filterKey; } }
+  else if(preCli){ const e=cliEntries.find(x=>x.clienteId===preCli && !x.unidadeId); if(e){ initLabel=e.label; window.__PEDFILTER=e.filterKey; } }
   const cliDatalist = `<datalist id="clidatalist">${cliEntries.map(e=>`<option value="${esc(e.label)}"></option>`).join('')}</datalist>`;
   const filialOpts = ativas.map(f=>`<option value="${f.id}" ${selFil?(selFil===f.id?'selected':''):(f.matriz?'selected':'')}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):'Novo pedido'}</h3>
@@ -2667,7 +2887,7 @@ async function formPedido(id){
       <div class="mrow" style="position:relative"><label class="fl">Cliente *</label>
         <input id="f_cli_txt" class="inp" placeholder="digite grupo, cliente, filial ou CNPJ…" value="${esc(initLabel)}" onchange="APP.pedCliPick()" oninput="APP.pedCliDD()" onfocus="APP.pedCliDD()" onblur="APP.pedCliDDHide()" autocomplete="off">
         <div id="f_clidd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:300px;overflow-y:auto;margin-top:3px"></div>
-        <input type="hidden" id="f_cli" value="${id?selCli:''}"><input type="hidden" id="f_cliuni" value="${id&&ped&&ped.clienteUnidadeId?ped.clienteUnidadeId:''}">
+        <input type="hidden" id="f_cli" value="${selCli||''}"><input type="hidden" id="f_cliuni" value="${id&&ped&&ped.clienteUnidadeId?ped.clienteUnidadeId:''}">
         <div id="f_cli_hint" class="muted" style="font-size:10.5px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="f_filial" class="inp">${filialOpts||'<option value="">— matriz —</option>'}</select></div>
     </div>
@@ -3912,11 +4132,13 @@ async function formComissao(id){
   if(k){
     openModal(`<h3>Editar comissão · pedido #${k.pedidoId}</h3>
       ${field('f_vend','Vendedor *','value="'+esc(k.vendedor)+'"')}
-      <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01" value="'+Number(k.valorVenda)+'"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="'+Number(k.percentual)+'"')}</div>
+      <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01" value="'+Number(k.valorVenda)+'" oninput="APP.comPrev()"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="'+Number(k.percentual)+'" oninput="APP.comPrev()"')}</div>
+      <div id="f_comprev" style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin:6px 0;font-size:13px">Comissão sugerida: <b>R$ 0,00</b></div>
       <div class="mrow"><label class="fl">Status</label><select id="f_st" class="inp"><option value="A pagar"${k.statusPgto!=='Pago'?' selected':''}>A pagar</option><option value="Pago"${k.statusPgto==='Pago'?' selected':''}>Pago</option></select></div>
       <p class="muted" style="font-size:12px;margin:4px 0 0">Deixe a comissão recalcular por venda × percentual. Ajuste o valor da venda/percentual se necessário.</p>
       <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
         <button class="btn-primary" onclick="APP.saveComissao(${k.id})">Salvar</button></div>`);
+    comPrev();
     return;
   }
   const pedidos = await api('/pedidos');
@@ -3924,12 +4146,14 @@ async function formComissao(id){
   openModal(`<h3>Nova comissão</h3>
     <div class="mrow"><label class="fl">Pedido *</label><select id="f_ped" class="inp" onchange="APP.comTot()">${opts||'<option>—</option>'}</select></div>
     ${field('f_vend','Vendedor *','')}
-    <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="0.05"')}</div>
+    <div class="grid2">${field('f_venda','Valor da venda *','type="number" step="0.01" oninput="APP.comPrev()"')}${field('f_pct','Percentual (ex.: 0.05) *','type="number" step="0.0001" value="0.05" oninput="APP.comPrev()"')}</div>
+    <div id="f_comprev" style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin:6px 0;font-size:13px">Comissão sugerida: <b>R$ 0,00</b></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveComissao()">Salvar</button></div>`);
   comTot();
 }
-function comTot(){ const s=$('f_ped'); const t=s&&s.selectedOptions[0]?s.selectedOptions[0].getAttribute('data-tot'):''; if(t && $('f_venda') && !$('f_venda').value) $('f_venda').value=t; }
+function comTot(){ const s=$('f_ped'); const t=s&&s.selectedOptions[0]?s.selectedOptions[0].getAttribute('data-tot'):''; if(t && $('f_venda') && !$('f_venda').value) $('f_venda').value=t; comPrev(); }
+function comPrev(){ const c=$('f_comprev'); if(!c) return; const v=Number(val('f_venda')||0), p=Number(val('f_pct')||0); const comis=(isNaN(v)?0:v)*(isNaN(p)?0:p); const pctTxt=Math.round((isNaN(p)?0:p)*10000)/100; c.innerHTML='Comissão sugerida: <b>'+money(comis)+'</b> <span class="muted">('+pctTxt+'% de '+money(isNaN(v)?0:v)+')</span>'; }
 async function saveComissao(id){
   if(id){ // edição
     const body = { vendedor:val('f_vend'), valorVenda:Number(val('f_venda')), percentual:Number(val('f_pct')), statusPgto:val('f_st') };
@@ -5928,7 +6152,7 @@ async function saveExpedicao(){
 }
 
 // ---------- Bloco Administração ----------
-const ACESSOS = ['total','comercial','producao','chao','expedicao','financeiro','contabilidade','consultoria'];
+const ACESSOS = ['total','comercial','vendedor','producao','chao','expedicao','financeiro','contabilidade','consultoria'];
 async function viewUsuarios(c){
   const list = await api('/usuarios');
   c.innerHTML = toolbar('Usuários & acessos', 'Novo usuário', 'APP.formUsuario()') + panelTable(
@@ -8127,7 +8351,8 @@ window.APP = {
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
-  formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
+  viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco,
+  formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,

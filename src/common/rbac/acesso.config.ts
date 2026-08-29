@@ -9,6 +9,7 @@ export type Area =
   | 'dashboard'
   | 'tv'
   | 'vendas'
+  | 'crm'
   | 'clientes'
   | 'medidas'
   | 'comissoes'
@@ -39,11 +40,23 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
   total: ALL_AREAS,
   comercial: [
     'vendas',
+    'crm',
     'clientes',
     'medidas',
     'comissoes',
     'precificacao',
     'receber',
+    'dashboard',
+    'tv',
+  ],
+  // Vendedor: carteira própria (CRM/funil, orçamentos, comissões e vendas dele).
+  // O escopo "só o que é dele" é aplicado nos serviços (pedidos/comissões/leads).
+  vendedor: [
+    'crm',
+    'vendas',
+    'clientes',
+    'comissoes',
+    'medidas',
     'dashboard',
     'tv',
   ],

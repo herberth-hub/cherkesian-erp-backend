@@ -243,7 +243,7 @@ export class FinanceiroController {
   @Areas('comissoes')
   @Get('comissoes')
   listarComissoes(@CurrentUser() user: AuthUser) {
-    return this.financeiro.listarComissoes(user.empresaId);
+    return this.financeiro.listarComissoes(user.empresaId, user.acesso === 'vendedor' ? user.nome : undefined);
   }
 
   @Areas('comissoes')
