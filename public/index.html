@@ -207,17 +207,17 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
+  comercial:['dashboard','tv','vendas','contratos','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
   chao:['tv','producao','kits','piloto','estoque'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente'],
   financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas','agente'],
-  contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','clientes','notas','entrada','agente'],
+  contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','notas','entrada','agente'],
   consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes'],
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
-  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
+  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['contratos','Contratos','file'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
@@ -226,11 +226,12 @@ const NAVDEF = [
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','bi','clientes','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
+const READY = new Set(['dashboard','bi','clientes','contratos','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
+  contratos:['Contratos','Clientes com tabela de preço fixa · base do robô de pedidos'],
   clientes:['Clientes','Cadastro central de clientes'],
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
   materia:['Matéria-prima','Tecidos e insumos · MP-CAT-0000'],
@@ -512,6 +513,7 @@ async function loadRoute(){
     if(S.route==='materia') return await viewMateriais(c);
     if(S.route==='fornecedores') return await viewFornecedores(c);
     if(S.route==='vendas') return await viewPedidos(c);
+    if(S.route==='contratos') return await viewContratos(c);
     if(S.route==='receber') return await viewReceber(c);
     if(S.route==='pagar') return await viewPagar(c);
     if(S.route==='fluxo') return await viewFluxo(c);
@@ -2460,6 +2462,167 @@ async function delRec(path, id){
   catch(e){ toast(e.message,'err'); }
 }
 
+// ================= CONTRATOS (cliente com tabela de preço fixa) =================
+// Base para o robô de pedidos: cada contrato guarda cliente, vendedor da carteira,
+// condições (pagamento/prazo/transportadora) e a tabela de preço por produto.
+let CITENS = [];
+function ctrFmtD(s){ if(!s) return ''; const d=String(s).slice(0,10).split('-'); return d.length===3?`${d[2]}/${d[1]}/${d[0]}`:s; }
+async function viewContratos(c){
+  const list = await api('/contratos');
+  window.__CONTRATOS = list || [];
+  c.innerHTML = toolbar('Contratos de clientes', 'Novo contrato', 'APP.formContrato()',
+      `<input id="ctr_busca" class="inp" placeholder="buscar cliente, vendedor, nº…" oninput="APP.ctrFiltrar()" style="width:230px;font-size:12px;padding:6px 8px">`)
+    + `<div class="muted" style="font-size:12px;margin:-4px 0 10px">Tabela de preço fixa por cliente/produto + condições comerciais — base do robô de pedidos por contrato.</div>`
+    + `<div id="ctr_wrap"></div>`;
+  ctrRender();
+}
+function ctrFiltrar(){ ctrRender(); }
+function ctrRender(){
+  const wrap=$('ctr_wrap'); if(!wrap) return;
+  const q=(val('ctr_busca')||'').toLowerCase();
+  let list=window.__CONTRATOS||[];
+  if(q){ const t=q.split(/\s+/); list=list.filter(k=>{ const s=(((k.cliente&&k.cliente.nome)||'')+' '+(k.vendedor||'')+' '+(k.numero||'')+' '+(k.descricao||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  if(!list.length){ wrap.innerHTML=panelTable(null,null, (window.__CONTRATOS||[]).length?'Nenhum contrato para esse filtro.':'Nenhum contrato cadastrado ainda. Clique “+ Novo contrato”.'); return; }
+  wrap.innerHTML = panelTable(
+    ['Cliente','Vendedor','Nº / descrição','Cond. pagamento','Itens','Vigência','Situação','Ações'],
+    list.map(k=>{
+      const cliNome=(k.cliente&&k.cliente.nome)?esc(k.cliente.nome):('#'+k.clienteId);
+      const cnpj=(k.cliente&&k.cliente.cnpjCpf)?('<br><span class="muted" style="font-size:11px">'+esc(k.cliente.cnpjCpf)+'</span>'):'';
+      const nItens=k._count?k._count.itens:(k.itens?k.itens.length:0);
+      const vig=(k.vigenciaInicio?ctrFmtD(k.vigenciaInicio):'')+(k.vigenciaFim?(' → '+ctrFmtD(k.vigenciaFim)):'');
+      const cond=k.condicaoPagamento?esc(k.condicaoPagamento):(k.formaPagamento?esc(k.formaPagamento):'<span class="muted">—</span>');
+      const numDesc=(k.numero?('<b>'+esc(k.numero)+'</b>'):'')+(k.descricao?((k.numero?'<br>':'')+'<span class="muted" style="font-size:11px">'+esc(k.descricao)+'</span>'):(k.numero?'':'<span class="muted">—</span>'));
+      const sit=k.ativo?'<span class="pill green">Ativo</span>':'<span class="pill gray">Inativo</span>';
+      return [
+        `<b>${cliNome}</b>${cnpj}`,
+        k.vendedor?('<span class="pill gold">'+esc(k.vendedor)+'</span>'):'<span class="muted">—</span>',
+        numDesc,
+        cond,
+        `<b>${nItens}</b>`,
+        vig||'<span class="muted">—</span>',
+        sit,
+        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn-sm" onclick="APP.formContrato(${k.id})">Editar</button>
+          <button class="btn-sm" onclick="APP.ctrToggle(${k.id},${k.ativo?0:1})">${k.ativo?'Inativar':'Ativar'}</button>
+          <button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/contratos',${k.id})">Excluir</button>
+        </div>`,
+      ];
+    })
+  );
+}
+async function ctrToggle(id, ativo){
+  try{ await api('/contratos/'+id+'/ativo',{method:'PATCH',body:{ativo:!!ativo}}); toast('Contrato '+(ativo?'ativado':'inativado')+'.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function formContrato(id){
+  const [clientes, produtos] = await Promise.all([api('/clientes'), api('/produtos')]);
+  window.__CTR_CLIENTES = clientes||[]; window.__CTR_PRODUTOS = produtos||[];
+  let k=null;
+  if(id){ try{ k=await api('/contratos/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  CITENS = (k&&k.itens&&k.itens.length)
+    ? k.itens.map(it=>{ const p=(produtos||[]).find(x=>x.id===it.produtoId); return { produtoId:it.produtoId||null, produtoLabel: p?((p.codigo?p.codigo+' — ':'')+p.descricao+(p.cor?' · '+p.cor:'')):'', codigo:it.codigo||'', descricao:it.descricao||'', preco:Number(it.preco), unidade:it.unidade||'UN' }; })
+    : [{unidade:'UN'}];
+  const cli=(k&&k.cliente)?k.cliente:null;
+  const cliLabel=cli?(cli.nome+(cli.cnpjCpf?' · '+cli.cnpjCpf:'')):'';
+  const di=(k&&k.vigenciaInicio)?String(k.vigenciaInicio).slice(0,10):'';
+  const df=(k&&k.vigenciaFim)?String(k.vigenciaFim).slice(0,10):'';
+  openModal(`<h3>${id?'Editar contrato':'Novo contrato'}</h3>
+    <div class="grid2">
+      <div class="mrow" style="position:relative"><label class="fl">Cliente *</label>
+        <input id="ctr_cli_txt" class="inp" placeholder="digite nome ou CNPJ…" value="${esc(cliLabel)}" oninput="APP.ctrCliDD()" onfocus="APP.ctrCliDD()" onblur="APP.ctrCliDDHide()" autocomplete="off">
+        <div id="ctr_cli_dd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:70;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:280px;overflow-y:auto;margin-top:3px"></div>
+        <input type="hidden" id="ctr_cli_id" value="${k?k.clienteId:''}"></div>
+      ${field('ctr_vend','👤 Vendedor da carteira','value="'+esc((k&&k.vendedor)||'')+'" placeholder="responsável / comissão · de quem o cliente é"')}
+    </div>
+    <div class="grid2">${field('ctr_num','Nº do contrato','value="'+esc((k&&k.numero)||'')+'"')}${field('ctr_desc','Descrição','value="'+esc((k&&k.descricao)||'')+'"')}</div>
+    <div class="grid3">${field('ctr_fpag','Forma de pagamento','value="'+esc((k&&k.formaPagamento)||'')+'" placeholder="Boleto, PIX…"')}${field('ctr_cpag','Condição','value="'+esc((k&&k.condicaoPagamento)||'')+'" placeholder="28 dias, à vista…"')}${field('ctr_prazo','Prazo de entrega','value="'+esc((k&&k.prazoEntrega)||'')+'"')}</div>
+    <div class="grid3">${field('ctr_transp','Transportadora','value="'+esc((k&&k.transportadora)||'')+'"')}${field('ctr_vini','Vigência início','type="date" value="'+di+'"')}${field('ctr_vfim','Vigência fim','type="date" value="'+df+'"')}</div>
+    <div class="mrow"><label class="fl">Observações</label><textarea id="ctr_obs" class="inp" rows="2" style="resize:vertical">${esc((k&&k.observacoes)||'')}</textarea></div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 6px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+      <label class="fl" style="margin:0">🧾 Tabela de preço (produtos do contrato)</label>
+      <button type="button" class="btn-sm" onclick="APP.ctrAddItem()">+ Item</button></div>
+    <div id="ctr_itens"></div>
+    <label style="font-size:12.5px;cursor:pointer;display:block;margin-top:6px"><input type="checkbox" id="ctr_ativo" ${(!k||k.ativo)?'checked':''}> Contrato ativo</label>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveContrato(${id||0})">Salvar</button></div>`, {wide:true});
+  ctrRenderItens();
+}
+function ctrRenderItens(){
+  const wrap=$('ctr_itens'); if(!wrap) return;
+  if(!CITENS.length){ wrap.innerHTML='<div class="muted" style="font-size:12px;padding:6px 0">Sem itens — clique “+ Item”. (O contrato pode existir só com as condições comerciais.)</div>'; return; }
+  wrap.innerHTML = CITENS.map((it,i)=>`
+    <div style="border:1px solid #ece5d2;border-radius:8px;padding:8px;margin-bottom:8px;position:relative">
+      <button type="button" class="btn-sm" style="position:absolute;top:6px;right:6px;color:#c14a34;padding:0 7px" title="Remover item" onclick="APP.ctrDelItem(${i})">✕</button>
+      <div class="mrow" style="position:relative;margin-right:26px"><label class="fl">Produto (opcional — vincula ao catálogo p/ o robô)</label>
+        <input id="ctr_pd_txt_${i}" class="inp" placeholder="digite código ou descrição…" value="${esc(it.produtoLabel||'')}" oninput="APP.ctrProdDD(${i})" onfocus="APP.ctrProdDD(${i})" onblur="APP.ctrProdDDHide(${i})" autocomplete="off">
+        <div id="ctr_pd_dd_${i}" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:80;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:240px;overflow-y:auto;margin-top:3px"></div>
+        <input type="hidden" id="ctr_pd_id_${i}" value="${it.produtoId||''}"></div>
+      <div class="mrow"><label class="fl">Descrição *</label><input id="ctr_it_desc_${i}" class="inp" value="${esc(it.descricao||'')}"></div>
+      <div class="grid2"><div class="mrow"><label class="fl">Preço tabelado (R$) *</label><input id="ctr_it_preco_${i}" class="inp" type="number" step="0.01" min="0" value="${(it.preco!=null&&it.preco!=='')?it.preco:''}"></div>${field('ctr_it_un_'+i,'Unidade','value="'+esc(it.unidade||'UN')+'"')}</div>
+    </div>`).join('');
+}
+function ctrSyncItens(){
+  CITENS.forEach((it,i)=>{
+    const d=$('ctr_it_desc_'+i), pr=$('ctr_it_preco_'+i), un=$('ctr_it_un_'+i), tx=$('ctr_pd_txt_'+i);
+    if(d) it.descricao=d.value.trim();
+    if(pr) it.preco=pr.value.trim();
+    if(un) it.unidade=un.value.trim();
+    if(tx){ it.produtoLabel=tx.value.trim(); if(!it.produtoLabel) it.produtoId=null; }
+  });
+}
+function ctrAddItem(){ ctrSyncItens(); CITENS.push({unidade:'UN'}); ctrRenderItens(); }
+function ctrDelItem(i){ ctrSyncItens(); CITENS.splice(i,1); ctrRenderItens(); }
+function ctrCliDD(){
+  const inp=$('ctr_cli_txt'), dd=$('ctr_cli_dd'); if(!inp||!dd) return;
+  const q=(inp.value||'').trim().toLowerCase();
+  let list=window.__CTR_CLIENTES||[];
+  if(q){ const t=q.split(/\s+/); list=list.filter(c=>{ const s=((c.nome||'')+' '+(c.fantasia||'')+' '+(c.cnpjCpf||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  list=list.slice(0,80);
+  dd.innerHTML=list.length? list.map(c=>`<div onmousedown="APP.ctrCliPick(${c.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px">${esc(c.nome)}${c.cnpjCpf?' · '+esc(c.cnpjCpf):''}${c.cidadeUf?' — '+esc(c.cidadeUf):''}</div>`).join('') : '<div class="muted" style="padding:8px 10px">Nenhum cliente com esse termo.</div>';
+  dd.style.display='';
+}
+function ctrCliDDHide(){ setTimeout(()=>{ const dd=$('ctr_cli_dd'); if(dd) dd.style.display='none'; },180); }
+function ctrCliPick(id){
+  const c=(window.__CTR_CLIENTES||[]).find(x=>x.id===id); if(!c) return;
+  const inp=$('ctr_cli_txt'); if(inp) inp.value=c.nome+(c.cnpjCpf?' · '+c.cnpjCpf:'');
+  const h=$('ctr_cli_id'); if(h) h.value=c.id;
+  const dd=$('ctr_cli_dd'); if(dd) dd.style.display='none';
+}
+function ctrProdDD(i){
+  const inp=$('ctr_pd_txt_'+i), dd=$('ctr_pd_dd_'+i); if(!inp||!dd) return;
+  const q=(inp.value||'').trim().toLowerCase();
+  let list=window.__CTR_PRODUTOS||[];
+  if(q){ const t=q.split(/\s+/); list=list.filter(p=>{ const s=((p.codigo||'')+' '+(p.descricao||'')+' '+(p.cor||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  list=list.slice(0,60);
+  dd.innerHTML=list.length? list.map(p=>`<div onmousedown="APP.ctrProdPick(${i},${p.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:6px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12px"><b>${esc(p.codigo||'')}</b> — ${esc(p.descricao||'')}${p.cor?' · '+esc(p.cor):''}${p.precoBase!=null?' <span class="muted">('+money(p.precoBase)+')</span>':''}</div>`).join('') : '<div class="muted" style="padding:8px 10px">Nenhum produto — pode deixar só a descrição.</div>';
+  dd.style.display='';
+}
+function ctrProdDDHide(i){ setTimeout(()=>{ const dd=$('ctr_pd_dd_'+i); if(dd) dd.style.display='none'; },180); }
+function ctrProdPick(i, pid){
+  const p=(window.__CTR_PRODUTOS||[]).find(x=>x.id===pid); if(!p) return;
+  ctrSyncItens();
+  CITENS[i]=CITENS[i]||{};
+  CITENS[i].produtoId=p.id;
+  CITENS[i].produtoLabel=(p.codigo?p.codigo+' — ':'')+p.descricao+(p.cor?' · '+p.cor:'');
+  CITENS[i].codigo=p.codigo||'';
+  if(!CITENS[i].descricao) CITENS[i].descricao=p.descricao+(p.cor?' '+p.cor:'');
+  if(CITENS[i].preco==null||CITENS[i].preco==='') CITENS[i].preco=(p.precoBase!=null?Number(p.precoBase):'');
+  if(!CITENS[i].unidade) CITENS[i].unidade=p.unidadeComercial||'UN';
+  ctrRenderItens();
+}
+async function saveContrato(id){
+  ctrSyncItens();
+  const clienteId=Number(val('ctr_cli_id'));
+  if(!clienteId){ toast('Selecione o cliente do contrato.','err'); return; }
+  const itens=CITENS.filter(it=>(it.descricao||'').trim()!=='').map(it=>{ const o={ descricao:it.descricao.trim(), preco:Number(it.preco||0), unidade:(it.unidade||'UN').trim()||'UN' }; if(it.produtoId) o.produtoId=it.produtoId; if(it.codigo) o.codigo=it.codigo; return o; });
+  for(const it of itens){ if(isNaN(it.preco)||it.preco<0){ toast('Preço inválido no item: '+it.descricao,'err'); return; } }
+  const ativo = $('ctr_ativo') ? $('ctr_ativo').checked : true;
+  const body={ clienteId, vendedor:val('ctr_vend'), numero:val('ctr_num'), descricao:val('ctr_desc'), formaPagamento:val('ctr_fpag'), condicaoPagamento:val('ctr_cpag'), prazoEntrega:val('ctr_prazo'), transportadora:val('ctr_transp'), vigenciaInicio:val('ctr_vini'), vigenciaFim:val('ctr_vfim'), observacoes:val('ctr_obs'), ativo, itens };
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api(id?('/contratos/'+id):'/contratos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Contrato salvo.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // Pedido: cliente + itens dinâmicos
 let PITENS = [];
 async function formPedido(id){
@@ -4391,7 +4554,9 @@ async function formNotaEntrada(prefill){
       <label class="fl" style="margin-top:8px"><input type="checkbox" id="ne_cp" checked onchange="APP.neCpToggle()"> Gerar conta a pagar</label>
     </div>
     <div id="ne_cpbox">
-      ${field('ne_cat','Categoria','value="Matéria-prima"')}
+      ${(()=>{ const cats=['Matéria-prima','Aviamento','Embalagem','Uso e Consumo','Revenda','Imobilizado','Serviço / Facção','Frete','Outras despesas']; const cur=p.categoria||'Matéria-prima'; const known=cats.includes(cur); return `<div class="mrow"><label class="fl">Categoria (plano de contas)</label>
+        <select id="ne_cat" class="inp" onchange="APP.neCatToggle()">${cats.map(o=>`<option${o===cur?' selected':''}>${o}</option>`).join('')}<option value="__outra"${known?'':' selected'}>Outra (digitar)…</option></select>
+        <input id="ne_cat_out" class="inp" style="margin-top:6px;${known?'display:none':''}" placeholder="Digite a categoria" value="${known?'':esc(cur)}"></div>`; })()}
       <div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap;margin-top:6px">
         <div class="mrow" style="flex:0 0 84px"><label class="fl">Parcelas</label><input id="ne_np" class="inp" type="number" min="1" step="1" value="1"></div>
         <div class="mrow" style="flex:0 0 120px"><label class="fl">Intervalo (dias)</label><input id="ne_pint" class="inp" type="number" min="0" step="1" value="30"></div>
@@ -4478,6 +4643,7 @@ function neSync(){ NEITENS.forEach((it,i)=>{ const d=$('ne_desc_'+i); if(!d) ret
 function neAdd(){ neSync(); NEITENS.push({unidade:'un'}); neRender(); }
 function neDel(i){ neSync(); NEITENS.splice(i,1); neRender(); }
 function neCpToggle(){ $('ne_cpbox').style.display=$('ne_cp').checked?'':'none'; }
+function neCatToggle(){ const s=$('ne_cat'), o=$('ne_cat_out'); if(!s||!o)return; const outra=s.value==='__outra'; o.style.display=outra?'':'none'; if(outra) setTimeout(()=>{try{o.focus();}catch(_){ }},30); }
 function neTotalEntrada(){ neSync(); return NEITENS.reduce((s,it)=>s+(Number(it.quantidade)||0)*(Number(it.valorUnit)||0),0); }
 function neParcGerar(){
   const n=Math.max(1,parseInt(val('ne_np')||'1')||1);
@@ -4518,7 +4684,7 @@ async function saveNotaEntrada(){
   body.lancarEstoque = $('ne_est').checked;
   body.gerarContaPagar = $('ne_cp').checked;
   if(body.gerarContaPagar){
-    const cat=val('ne_cat'); if(cat) body.categoria=cat;
+    let cat=val('ne_cat'); if(cat==='__outra') cat=val('ne_cat_out'); if(cat) body.categoria=cat;
     neParcSync();
     const parc=NEPARC.filter(p=>p.vencimento&&Number(p.valor)>0);
     if(parc.length>1){ body.parcelas=parc.map(p=>({vencimento:p.vencimento, valor:Number(Number(p.valor).toFixed(2))})); }
@@ -4730,9 +4896,10 @@ async function puxarSefazChave(){
   const itens = (Array.isArray(itensRaw)?itensRaw:[]).map(it=>{
     const p = it.produto || it.prod || it;
     return { descricao: g(p,['descricao','descricao_produto','xProd'])||'Item',
+      codigo: g(p,['codigo','cProd','codigo_produto'])||'',
       quantidade: Number(g(p,['quantidade_comercial','quantidade','qCom'])||1),
       unidade: g(p,['unidade_comercial','unidade','uCom'])||'un',
-      valorUnit: Number(g(p,['valor_unitario_comercial','valor_unitario','vUnCom'])||0) };
+      valorUnit: Number(g(p,['valorUnit','valor_unitario_comercial','valor_unitario','vUnCom','valor_unit'])||0) };
   });
   const cnpjE=String(g(d,['cnpj_emitente','documento_emitente','cnpj','cpf_cnpj_emitente'])||'').replace(/\D/g,'');
   const nomeE=g(d,['nome_emitente','razao_social_emitente','xNome','nome'])||'';
@@ -7950,13 +8117,14 @@ window.APP = {
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
+  viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
   formComissao, comTot, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
-  formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,

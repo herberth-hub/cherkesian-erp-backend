@@ -42,6 +42,7 @@ import { EmbalagensModule } from './embalagens/embalagens.module';
 import { TransportadorasModule } from './transportadoras/transportadoras.module';
 import { RetalhosModule } from './retalhos/retalhos.module';
 import { CobrancaModule } from './cobranca/cobranca.module';
+import { ContratosModule } from './contratos/contratos.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -108,6 +109,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     TransportadorasModule,
     RetalhosModule,
     CobrancaModule,
+    ContratosModule,
   ],
   controllers: [AppController],
   providers: [

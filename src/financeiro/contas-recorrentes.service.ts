@@ -120,4 +120,21 @@ export class ContasRecorrentesService {
     }
     return { criados };
   }
+
+  /**
+   * Gera as recorrentes do mês corrente + os próximos `mesesAdiante` meses,
+   * para que os títulos futuros já apareçam/somem quando o usuário filtra
+   * meses à frente na tela de Contas a Pagar.
+   */
+  async gerarProximos(empresaId: number, refDate: Date, mesesAdiante = 2): Promise<{ criados: number }> {
+    const ano = refDate.getUTCFullYear();
+    const mes = refDate.getUTCMonth();
+    let criados = 0;
+    for (let i = 0; i <= mesesAdiante; i++) {
+      const ref = new Date(Date.UTC(ano, mes + i, 1));
+      const r = await this.gerarDoMes(empresaId, ref);
+      criados += r.criados;
+    }
+    return { criados };
+  }
 }

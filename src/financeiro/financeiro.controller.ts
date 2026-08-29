@@ -178,7 +178,7 @@ export class FinanceiroController {
   @Post('recorrentes/gerar')
   @HttpCode(HttpStatus.OK)
   gerarRecorrentes(@CurrentUser() user: AuthUser) {
-    return this.recorrentes.gerarDoMes(user.empresaId, new Date());
+    return this.recorrentes.gerarProximos(user.empresaId, new Date(), 2);
   }
 
   @Areas('pagar')

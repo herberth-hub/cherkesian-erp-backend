@@ -80,6 +80,7 @@ model Empresa {
   usuarios  Usuario[]
   clientes  Cliente[]
   filiais   Filial[]
+  contratos Contrato[]
 
   // ===== Dados fiscais (emitente da NF-e) =====
   cnpj              String?
@@ -241,6 +242,7 @@ model Cliente {
   cep               String?
 
   unidades          ClienteUnidade[]
+  contratos         Contrato[]
 }
 
 // Filial / unidade DENTRO de um cliente (ex.: rede INTS → unidade "SACA").
@@ -490,6 +492,8 @@ model Produto {
   pisCst          String? @default("01")
   cofinsCst       String? @default("01")
   icmsAliquota    Decimal? @db.Decimal(5,2)
+
+  contratoItens   ContratoItem[]
 }
 
 model ProdutoMedida { // Tabela de medidas da ficha técnica — 1 linha por medida, valores por tamanho
@@ -1058,4 +1062,46 @@ model Embalagem {
   capacidade  Int?     // capacidade padrão (peças) — informativo
   ativo       Boolean  @default(true)
   criadoEm    DateTime @default(now())
+}
+
+// ===== Contratos (clientes com tabela de preço fixa por produto) =====
+// Base de dados para automação/robô: cliente de contrato pede pelo robô e o
+// pedido é montado com produto + preço tabelado + condição de pagamento do contrato.
+model Contrato {
+  id                Int      @id @default(autoincrement())
+  empresaId         Int
+  empresa           Empresa  @relation(fields: [empresaId], references: [id])
+  clienteId         Int
+  cliente           Cliente  @relation(fields: [clienteId], references: [id])
+  vendedor          String?  // vendedor dono da carteira (controle de comissão / a quem o cliente pertence)
+  numero            String?  // identificação/número do contrato
+  descricao         String?
+  formaPagamento    String?  // ex.: "Boleto", "PIX", "Cartão"
+  condicaoPagamento String?  // ex.: "28 dias", "à vista", "30/60/90"
+  prazoEntrega      String?  // ex.: "10 dias úteis"
+  transportadora    String?  // transportadora padrão do contrato
+  vigenciaInicio    DateTime?
+  vigenciaFim       DateTime?
+  observacoes       String?  @db.Text
+  ativo             Boolean  @default(true)
+  criadoEm          DateTime @default(now())
+  atualizadoEm      DateTime @updatedAt
+  itens             ContratoItem[]
+
+  @@index([empresaId, clienteId])
+}
+
+model ContratoItem {
+  id         Int      @id @default(autoincrement())
+  contratoId Int
+  contrato   Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  produtoId  Int?
+  produto    Produto? @relation(fields: [produtoId], references: [id])
+  codigo     String?  // código do produto (snapshot)
+  descricao  String   // descrição do produto/serviço tabelado
+  preco      Decimal  @db.Decimal(12,2) // preço fixo do contrato
+  unidade    String?  @default("UN")
+  obs        String?
+
+  @@index([contratoId])
 }

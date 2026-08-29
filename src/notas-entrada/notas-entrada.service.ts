@@ -495,33 +495,78 @@ export class NotasEntradaService {
     // O JSON de notas recebidas NÃO traz os itens — eles só vêm no XML completo.
     // Se não houver itens, baixa o XML e extrai os produtos (descrição, qtd, un, valor).
     const temItens = Array.isArray(body.itens) && (body.itens as unknown[]).length > 0;
-    if (!temItens) {
-      const xmlPath = (body.caminho_xml_nota_fiscal || body.caminho_xml || body.caminho_completo_xml) as string | undefined;
-      if (xmlPath) {
-        try {
-          const xres = await fetch(xmlPath.startsWith('http') ? xmlPath : `https://${host}${xmlPath}`, { headers });
-          const xml = await xres.text();
-          const itens = this.extrairItensXml(xml);
-          if (itens.length) body.itens = itens;
-          // Emitente/número pelo XML (reforço), caso o resumo não tenha.
-          const cnpjXml = /<emit>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1];
-          const nomeXml = /<emit>[\s\S]*?<xNome>([\s\S]*?)<\/xNome>/.exec(xml)?.[1];
-          if (cnpjXml && !body.cnpj_emitente) body.cnpj_emitente = cnpjXml;
-          if (nomeXml && !body.nome_emitente) body.nome_emitente = this.decodeXml(nomeXml.trim());
-          const nNF = /<ide>[\s\S]*?<nNF>(\d+)<\/nNF>/.exec(xml)?.[1];
-          if (nNF && !body.numero) body.numero = nNF;
-          const serieX = /<ide>[\s\S]*?<serie>(\d+)<\/serie>/.exec(xml)?.[1];
-          if (serieX && !body.serie) body.serie = serieX;
-          // CNPJ do DESTINATÁRIO (quem recebeu) — permite selecionar a empresa/filial certa.
-          const cnpjDest = /<dest>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1] || /<dest>[\s\S]*?<CPF>(\d+)<\/CPF>/.exec(xml)?.[1];
-          if (cnpjDest && !body.cnpj_destinatario) body.cnpj_destinatario = cnpjDest;
-          // Volumes declarados (transp/vol/qVol) — total p/ etiquetas por volume.
-          const qVol = [...xml.matchAll(/<qVol>(\d+)<\/qVol>/g)].reduce((s, m) => s + Number(m[1] || 0), 0);
-          if (qVol && !body.quantidade_volumes) body.quantidade_volumes = qVol;
-        } catch { /* mantém o resumo se o XML falhar */ }
+    const temNumero = body.numero != null && String(body.numero) !== '';
+    if (!temItens || !temNumero) {
+      // Busca o XML completo por vários caminhos possíveis do resumo e, como
+      // reforço, pelo endpoint direto .xml (o resumo da distribuição NÃO traz
+      // número nem itens — só o XML completo depois da ciência).
+      const xml = await this.baixarXmlRecebida(host, headers, ch, body);
+      if (xml && /<det\b/.test(xml)) {
+        const itens = this.extrairItensXml(xml);
+        if (itens.length) body.itens = itens;
+        // Emitente/número/série pelo XML (o que sai destacado na NF do fornecedor).
+        const cnpjXml = /<emit>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1];
+        const nomeXml = /<emit>[\s\S]*?<xNome>([\s\S]*?)<\/xNome>/.exec(xml)?.[1];
+        if (cnpjXml && !body.cnpj_emitente) body.cnpj_emitente = cnpjXml;
+        if (nomeXml && !body.nome_emitente) body.nome_emitente = this.decodeXml(nomeXml.trim());
+        const nNF = /<ide>[\s\S]*?<nNF>(\d+)<\/nNF>/.exec(xml)?.[1];
+        if (nNF) body.numero = nNF;
+        const serieX = /<ide>[\s\S]*?<serie>(\d+)<\/serie>/.exec(xml)?.[1];
+        if (serieX && !body.serie) body.serie = serieX;
+        // CNPJ do DESTINATÁRIO (quem recebeu) — permite selecionar a empresa/filial certa.
+        const cnpjDest = /<dest>[\s\S]*?<CNPJ>(\d+)<\/CNPJ>/.exec(xml)?.[1] || /<dest>[\s\S]*?<CPF>(\d+)<\/CPF>/.exec(xml)?.[1];
+        if (cnpjDest && !body.cnpj_destinatario) body.cnpj_destinatario = cnpjDest;
+        // Volumes declarados (transp/vol/qVol) — total p/ etiquetas por volume.
+        const qVol = [...xml.matchAll(/<qVol>(\d+)<\/qVol>/g)].reduce((s, m) => s + Number(m[1] || 0), 0);
+        if (qVol && !body.quantidade_volumes) body.quantidade_volumes = qVol;
       }
     }
     return body;
+  }
+
+  /**
+   * Baixa o XML COMPLETO de uma NF-e recebida (destaca número e itens iguais à
+   * NF do fornecedor). Tenta, em ordem: caminhos declarados no resumo, o endpoint
+   * direto `.xml` e, por fim, o campo XML embutido no próprio JSON.
+   */
+  private async baixarXmlRecebida(
+    host: string,
+    headers: Record<string, string>,
+    chave: string,
+    body: Record<string, unknown>,
+  ): Promise<string | null> {
+    const candidatos = [
+      body.caminho_xml_nota_fiscal,
+      body.caminho_xml,
+      body.caminho_completo_xml,
+      body.caminho_xml_completo,
+      body.caminho_completo_nota_fiscal,
+      body.caminho_xml_nfe,
+    ].filter((x): x is string => typeof x === 'string' && x.length > 0);
+    for (const path of candidatos) {
+      try {
+        const url = path.startsWith('http') ? path : `https://${host}${path}`;
+        const r = await fetch(url, { headers });
+        if (r.ok) {
+          const xml = await r.text();
+          if (xml && /<det\b/.test(xml)) return xml;
+        }
+      } catch { /* tenta o próximo */ }
+    }
+    // Fallback: endpoint direto do XML da nota recebida (por chave).
+    try {
+      const r = await fetch(`https://${host}/v2/nfes_recebidas/${chave}.xml`, { headers });
+      if (r.ok) {
+        const xml = await r.text();
+        if (xml && /<det\b/.test(xml)) return xml;
+      }
+    } catch { /* ignora */ }
+    // Último recurso: XML embutido no JSON de resposta.
+    for (const k of ['xml', 'xml_nota_fiscal', 'xml_completo']) {
+      const v = body[k];
+      if (typeof v === 'string' && /<det\b/.test(v)) return v;
+    }
+    return null;
   }
 
   /** Extrai os itens (produtos) de um XML de NF-e: descrição, qtd, unidade, valor, NCM. */
