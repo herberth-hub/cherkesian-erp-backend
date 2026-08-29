@@ -25,6 +25,7 @@ export type Area =
   | 'estoque'
   | 'expedicao'
   | 'cadastros'
+  | 'rh'
   // áreas administrativas — só o perfil `total` possui:
   | 'usuarios'
   | 'logs';
@@ -73,8 +74,8 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
   ],
   chao: ['tv', 'producao', 'piloto', 'estoque'],
   expedicao: ['dashboard', 'tv', 'estoque', 'expedicao'],
-  financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes'],
-  // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e.
+  financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh'],
+  // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e + RH.
   contabilidade: [
     'dashboard',
     'tv',
@@ -88,6 +89,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'compras',
     'estoque',
     'expedicao',
+    'rh',
   ],
   // Consultoria: leitura ampla p/ BI de produtividade da cadeia produtiva.
   consultoria: [

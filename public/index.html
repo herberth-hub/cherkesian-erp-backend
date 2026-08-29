@@ -212,8 +212,8 @@ const ACCESS = {
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
   chao:['tv','producao','kits','piloto','estoque'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente'],
-  financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','notas','agente'],
-  contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','notas','entrada','agente'],
+  financeiro:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente'],
+  contabilidade:['dashboard','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente'],
   consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes'],
 };
 const NAVDEF = [
@@ -222,12 +222,13 @@ const NAVDEF = [
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
+  ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','bi','clientes','contratos','crm','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
+const READY = new Set(['dashboard','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
@@ -240,6 +241,7 @@ const TITLES = {
   fornecedores:['Fornecedores','Fornecedores e facções'],
   receber:['Contas a Receber','O que os clientes devem'],
   pagar:['Contas a Pagar','Fornecedores, facção e despesas'],
+  rh:['RH / Funcionários','Ponto, horas extras, férias e folha p/ contabilidade'],
   fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
   comissoes:['Comissões','Comissão por venda e por vendedor'],
   impostos:['Impostos por empresa','Estimativa de tributos federais por regime (Real/Presumido/Simples)'],
@@ -517,6 +519,7 @@ async function loadRoute(){
     if(S.route==='vendas') return await viewPedidos(c);
     if(S.route==='contratos') return await viewContratos(c);
     if(S.route==='crm') return await viewCrm(c);
+    if(S.route==='rh') return await viewRh(c);
     if(S.route==='receber') return await viewReceber(c);
     if(S.route==='pagar') return await viewPagar(c);
     if(S.route==='fluxo') return await viewFluxo(c);
@@ -6283,6 +6286,233 @@ function logsPdf(){
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+// ================= RH / FUNCIONÁRIOS (ponto, horas extras, férias, folha) =================
+function rhFmtD(s){ if(!s) return ''; const d=String(s).slice(0,10).split('-'); return d.length===3?`${d[2]}/${d[1]}/${d[0]}`:s; }
+function rhMesAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function rhBaixarCsv(nome, csv){
+  try{ const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); setTimeout(()=>{a.remove();URL.revokeObjectURL(url);},1500); }
+  catch(e){ toast('Falha ao baixar: '+e.message,'err'); }
+}
+async function viewRh(c){
+  const list = await api('/rh/funcionarios');
+  window.__FUNCS = list||[];
+  c.innerHTML = toolbar('Funcionários', 'Novo funcionário', 'APP.formFuncionario()',
+      `<button class="btn-sm" onclick="APP.rhImportar()">📤 Importar ponto</button> <button class="btn-sm" onclick="APP.rhFerias()">📅 Férias / afastamentos</button> <button class="btn-primary" style="padding:2px 10px" onclick="APP.rhFolha()">📊 Folha do mês</button>`)
+    + `<div class="muted" style="font-size:12px;margin:-4px 0 10px">Cadastro, ponto (entrada/almoço/saída), horas extras e férias. A contabilidade acessa e baixa a folha aqui.</div>`
+    + panelTable(
+      ['Nome','Cargo / Setor','Admissão','Salário','Jornada','Registros','Situação','Ações'],
+      (list||[]).map(f=>{
+        const jornada=Number(f.jornadaDiaria||8)+'h/dia · '+(f.diasSemana||5)+'d';
+        const reg=f._count?f._count.pontos:0;
+        return [
+          `<b>${esc(f.nome)}</b>${f.cpf?'<br><span class="muted" style="font-size:11px">'+esc(f.cpf)+'</span>':''}`,
+          (f.cargo?esc(f.cargo):'—')+(f.setor?'<br><span class="muted" style="font-size:11px">'+esc(f.setor)+'</span>':''),
+          f.admissao?rhFmtD(f.admissao):'<span class="muted">—</span>',
+          f.salario!=null?('<b>'+money(f.salario)+'</b>'):'<span class="muted">—</span>',
+          jornada,
+          `<span class="pill gray">${reg}</span>`,
+          f.ativo?'<span class="pill green">Ativo</span>':'<span class="pill gray">Inativo</span>',
+          `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+            <button class="btn-sm" onclick="APP.rhPonto(${f.id})">🕐 Ponto</button>
+            <button class="btn-sm" onclick="APP.formFuncionario(${f.id})">Editar</button>
+            <button class="btn-sm" style="color:#c14a34" onclick="APP.rhDelFunc(${f.id})">Excluir</button>
+          </div>`,
+        ];
+      }), (list&&list.length)?null:'Nenhum funcionário cadastrado. Clique “+ Novo funcionário”.');
+}
+async function formFuncionario(id){
+  let f=null;
+  if(id){ try{ f=await api('/rh/funcionarios/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  const g=(k,d)=>{ const v=f&&f[k]; return v!=null?v:(d!=null?d:''); };
+  openModal(`<h3>${id?'Editar funcionário':'Novo funcionário'}</h3>
+    <div class="grid2">${field('fu_nome','Nome *','value="'+esc(g('nome'))+'"')}${field('fu_cpf','CPF','value="'+esc(g('cpf'))+'"')}</div>
+    <div class="grid2">${field('fu_cargo','Cargo','value="'+esc(g('cargo'))+'"')}${field('fu_setor','Setor','value="'+esc(g('setor'))+'"')}</div>
+    <div class="grid3">${field('fu_adm','Admissão','type="date" value="'+(f&&f.admissao?String(f.admissao).slice(0,10):'')+'"')}${field('fu_sal','Salário (R$)','type="number" step="0.01" min="0" value="'+(f&&f.salario!=null?Number(f.salario):'')+'"')}${field('fu_vt','Vale-transporte (R$)','type="number" step="0.01" min="0" value="'+(f&&f.valeTransporte!=null?Number(f.valeTransporte):'')+'"')}</div>
+    <div class="grid3">${field('fu_jor','Jornada (h/dia)','type="number" step="0.5" min="0" value="'+(f?Number(f.jornadaDiaria||8):8)+'"')}${field('fu_dias','Dias/semana','type="number" step="1" min="1" max="7" value="'+(f?(f.diasSemana||5):5)+'"')}${field('fu_dem','Demissão','type="date" value="'+(f&&f.demissao?String(f.demissao).slice(0,10):'')+'"')}</div>
+    <div class="grid2">${field('fu_banco','Banco','value="'+esc(g('banco'))+'"')}${field('fu_pix','Chave PIX','value="'+esc(g('pixChave'))+'"')}</div>
+    <div class="mrow"><label class="fl">Observações</label><textarea id="fu_obs" class="inp" rows="2" style="resize:vertical">${esc(g('obs'))}</textarea></div>
+    <label style="font-size:12.5px;cursor:pointer;display:block;margin-top:4px"><input type="checkbox" id="fu_ativo" ${(!f||f.ativo)?'checked':''}> Funcionário ativo</label>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveFuncionario(${id||0})">Salvar</button></div>`, {wide:true});
+}
+async function saveFuncionario(id){
+  const nome=val('fu_nome'); if(!nome){ toast('Informe o nome.','err'); return; }
+  const body={ nome, cpf:val('fu_cpf'), cargo:val('fu_cargo'), setor:val('fu_setor'),
+    admissao:val('fu_adm'), demissao:val('fu_dem'), banco:val('fu_banco'), pixChave:val('fu_pix'), obs:val('fu_obs'),
+    ativo: $('fu_ativo')?$('fu_ativo').checked:true };
+  const num=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
+  const sal=num('fu_sal'); if(sal!=null) body.salario=sal;
+  const vt=num('fu_vt'); if(vt!=null) body.valeTransporte=vt;
+  const jor=num('fu_jor'); if(jor!=null) body.jornadaDiaria=jor;
+  const dias=num('fu_dias'); if(dias!=null) body.diasSemana=dias;
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api(id?('/rh/funcionarios/'+id):'/rh/funcionarios',{method:id?'PATCH':'POST',body}); closeModal(); toast('Funcionário salvo.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function rhDelFunc(id){
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir funcionário?', msg:'Remove o funcionário e todos os registros de ponto/férias dele.', ok:'Excluir'}))) return;
+  try{ await api('/rh/funcionarios/'+id,{method:'DELETE'}); toast('Funcionário excluído.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function rhPonto(id, mes){
+  const f=(window.__FUNCS||[]).find(x=>x.id===id)||{id};
+  mes=mes||rhMesAtual();
+  let pontos; try{ pontos=await api('/rh/funcionarios/'+id+'/pontos?mes='+mes); }catch(e){ toast(e.message,'err'); return; }
+  window.__RH_PONTO={id,mes};
+  const totH=pontos.reduce((s,p)=>s+Number(p.horasTrabalhadas||0),0);
+  const totE=pontos.reduce((s,p)=>s+Number(p.horasExtras||0),0);
+  const rows=pontos.map(p=>`<tr>
+    <td style="padding:4px 6px">${rhFmtD(p.data)}</td>
+    <td style="padding:4px 6px">${esc(p.entrada||'—')}</td>
+    <td style="padding:4px 6px">${esc(p.saidaAlmoco||'—')}</td>
+    <td style="padding:4px 6px">${esc(p.voltaAlmoco||'—')}</td>
+    <td style="padding:4px 6px">${esc(p.saida||'—')}</td>
+    <td style="padding:4px 6px;text-align:right">${p.falta?'<span class="pill red">falta</span>':(p.horasTrabalhadas!=null?Number(p.horasTrabalhadas).toFixed(2)+'h':'—')}</td>
+    <td style="padding:4px 6px;text-align:right;color:#b5731a;font-weight:700">${Number(p.horasExtras||0)>0?Number(p.horasExtras).toFixed(2)+'h':'—'}</td>
+    <td style="padding:4px 6px;text-align:center"><button class="btn-sm" style="color:#c14a34;padding:0 7px" onclick="APP.rhDelPonto(${p.id})">✕</button></td></tr>`).join('');
+  openModal(`<h3>🕐 Ponto — ${esc(f.nome||('#'+id))}</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 10px;flex-wrap:wrap">
+      <input id="rh_mes" class="inp" type="month" value="${mes}" style="width:auto" onchange="APP.rhPonto(${id},this.value)">
+      <span class="muted" style="font-size:12px">Trabalhadas: <b>${totH.toFixed(2)}h</b> · Extras: <b style="color:#b5731a">${totE.toFixed(2)}h</b></span>
+    </div>
+    <div class="panel" style="overflow-x:auto;margin-bottom:10px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e">
+      <th style="padding:5px 6px;text-align:left">Data</th><th style="padding:5px 6px;text-align:left">Entrada</th><th style="padding:5px 6px;text-align:left">Saída almoço</th><th style="padding:5px 6px;text-align:left">Volta almoço</th><th style="padding:5px 6px;text-align:left">Saída</th><th style="padding:5px 6px;text-align:right">Trab.</th><th style="padding:5px 6px;text-align:right">Extra</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=8 class="muted" style="padding:10px">Sem registros neste mês.</td></tr>'}</tbody></table></div>
+    <div style="border-top:1px solid var(--line);padding-top:8px">
+      <label class="fl">Adicionar / corrigir dia</label>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:6px;align-items:end">
+        ${field('rh_pdata','Data','type="date"')}
+        ${field('rh_pent','Entrada','type="time"')}
+        ${field('rh_psa','Saída almoço','type="time"')}
+        ${field('rh_pva','Volta almoço','type="time"')}
+        ${field('rh_psaida','Saída','type="time"')}
+        <button class="btn-primary" style="height:38px" onclick="APP.rhAddPonto(${id})">Salvar dia</button>
+      </div>
+      <label style="font-size:12px;cursor:pointer;display:inline-block;margin-top:6px"><input type="checkbox" id="rh_pfalta"> marcar como falta</label>
+    </div>`, {wide:true});
+}
+async function rhAddPonto(id){
+  const data=val('rh_pdata'); if(!data){ toast('Informe a data.','err'); return; }
+  const body={ funcionarioId:id, data, entrada:val('rh_pent'), saidaAlmoco:val('rh_psa'), voltaAlmoco:val('rh_pva'), saida:val('rh_psaida'), falta: $('rh_pfalta')&&$('rh_pfalta').checked };
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ await api('/rh/pontos',{method:'POST',body}); toast('Dia salvo.','ok'); const st=window.__RH_PONTO||{}; rhPonto(id, st.mes); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function rhDelPonto(id){
+  try{ await api('/rh/pontos/'+id,{method:'DELETE'}); toast('Registro removido.','ok'); const st=window.__RH_PONTO||{}; if(st.id) rhPonto(st.id, st.mes); }
+  catch(e){ toast(e.message,'err'); }
+}
+function rhImportar(){
+  openModal(`<h3>📤 Importar ponto (lote)</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Cole as linhas ou selecione um arquivo <b>.csv</b>. Uma linha por dia, colunas separadas por <b>;</b> (ou vírgula):<br>
+    <code style="font-size:11.5px">identificador ; data ; entrada ; saída almoço ; volta almoço ; saída</code><br>
+    O <b>identificador</b> pode ser o <b>CPF</b> ou o <b>nome</b> do funcionário. Data em AAAA-MM-DD ou DD/MM/AAAA.</div>
+    <div style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:7px 10px;font-size:11.5px;margin-bottom:8px">Exemplo:<br>
+    <code>João Silva;2026-08-01;08:00;12:00;13:00;18:00</code><br><code>123.456.789-00;2026-08-01;08:05;;;17:30</code></div>
+    <input type="file" id="rh_file" accept=".csv,text/csv" class="inp" style="padding:6px" onchange="APP.rhFileToTxt(event)">
+    <textarea id="rh_csv" class="inp" rows="8" style="resize:vertical;font-family:monospace;font-size:12px;margin-top:8px" placeholder="cole aqui as linhas…"></textarea>
+    <div id="rh_imp_res" class="muted" style="font-size:12px;margin-top:6px"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.rhImportarGo()">Importar</button></div>`, {wide:true});
+}
+function rhFileToTxt(ev){
+  const file=ev.target.files&&ev.target.files[0]; if(!file) return;
+  const r=new FileReader(); r.onload=()=>{ const t=$('rh_csv'); if(t) t.value=String(r.result||''); }; r.readAsText(file);
+}
+function rhParseCsv(txt){
+  const linhas=String(txt||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!linhas.length) return [];
+  let start=0; const first=linhas[0].toLowerCase();
+  if(/(nome|cpf|identific)/.test(first) && !/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/.test(first)) start=1;
+  const regs=[];
+  for(let i=start;i<linhas.length;i++){
+    const cols=linhas[i].split(/[;,\t]/).map(x=>x.trim());
+    if(cols.length<2 || !cols[0]) continue;
+    const ident=cols[0], digits=ident.replace(/\D/g,'');
+    const reg={ data:cols[1]||'', entrada:cols[2]||'', saidaAlmoco:cols[3]||'', voltaAlmoco:cols[4]||'', saida:cols[5]||'' };
+    if(digits.length>=11) reg.cpf=ident; else reg.nome=ident;
+    if(reg.data) regs.push(reg);
+  }
+  return regs;
+}
+async function rhImportarGo(){
+  const regs=rhParseCsv(val('rh_csv'));
+  if(!regs.length){ toast('Nada para importar — confira o formato.','err'); return; }
+  try{ const r=await api('/rh/pontos/importar',{method:'POST',body:{registros:regs}});
+    const res=$('rh_imp_res');
+    if(res) res.innerHTML=`✔ <b>${r.importados}</b>/${r.total} importados.`+(r.erros&&r.erros.length?('<br><span style="color:#c14a34">'+r.erros.slice(0,8).map(esc).join('<br>')+(r.erros.length>8?'<br>…':'')+'</span>'):'');
+    toast(r.importados+' registro(s) importado(s).', r.erros&&r.erros.length?'':'ok');
+    if(!r.erros||!r.erros.length){ setTimeout(()=>{ closeModal(); loadRoute(); },1200); }
+  }catch(e){ toast(e.message,'err'); }
+}
+async function rhFolha(mes){
+  mes=mes||rhMesAtual();
+  let d; try{ d=await api('/rh/resumo?mes='+mes); }catch(e){ toast(e.message,'err'); return; }
+  window.__RH_FOLHA=d;
+  const t=d.totais||{};
+  const rows=(d.linhas||[]).map(l=>`<tr>
+    <td style="padding:4px 6px">${esc(l.nome)}${l.cargo?'<br><span class="muted" style="font-size:10.5px">'+esc(l.cargo)+'</span>':''}</td>
+    <td style="padding:4px 6px;text-align:right">${money(l.salario)}</td>
+    <td style="padding:4px 6px;text-align:center">${l.diasTrabalhados}</td>
+    <td style="padding:4px 6px;text-align:center">${l.faltas||0}</td>
+    <td style="padding:4px 6px;text-align:right">${l.horasTrabalhadas.toFixed(2)}h</td>
+    <td style="padding:4px 6px;text-align:right;color:#b5731a;font-weight:700">${l.horasExtras.toFixed(2)}h</td>
+    <td style="padding:4px 6px;text-align:right">${money(l.valorExtras)}</td>
+    <td style="padding:4px 6px;text-align:right;font-weight:700">${money(l.totalComExtras)}</td></tr>`).join('');
+  openModal(`<h3>📊 Folha do mês</h3>
+    <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 10px;flex-wrap:wrap">
+      <input id="rh_fmes" class="inp" type="month" value="${mes}" style="width:auto" onchange="APP.rhFolha(this.value)">
+      <span class="muted" style="font-size:12px">${d.linhas?d.linhas.length:0} funcionário(s) · Extras: <b style="color:#b5731a">${(t.horasExtras||0).toFixed(2)}h</b> (${money(t.valorExtras||0)}) · Folha: <b>${money(t.folha||0)}</b></span>
+      <button class="btn-sm" onclick="APP.rhFolhaCsv()">⬇ Baixar CSV (contabilidade)</button>
+    </div>
+    <div class="panel" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e">
+      <th style="padding:5px 6px;text-align:left">Funcionário</th><th style="padding:5px 6px;text-align:right">Salário</th><th style="padding:5px 6px;text-align:center">Dias</th><th style="padding:5px 6px;text-align:center">Faltas</th><th style="padding:5px 6px;text-align:right">Horas</th><th style="padding:5px 6px;text-align:right">Extras</th><th style="padding:5px 6px;text-align:right">R$ Extras</th><th style="padding:5px 6px;text-align:right">Total</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=8 class="muted" style="padding:10px">Sem funcionários.</td></tr>'}</tbody></table></div>`, {wide:true});
+}
+function rhFolhaCsv(){
+  const d=window.__RH_FOLHA; if(!d){ return; }
+  const head=['Funcionario','CPF','Cargo','Salario','Dias trabalhados','Faltas','Horas trabalhadas','Horas extras','Valor hora','Valor hora extra','Valor extras','Total com extras'];
+  const linhas=(d.linhas||[]).map(l=>[l.nome,l.cpf||'',l.cargo||'',l.salario,l.diasTrabalhados,l.faltas||0,l.horasTrabalhadas,l.horasExtras,l.valorHora,l.valorHoraExtra,l.valorExtras,l.totalComExtras]);
+  const esc2=v=>{ const s=String(v==null?'':v); return /[";\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
+  const csv=[head.join(';')].concat(linhas.map(r=>r.map(esc2).join(';'))).join('\n');
+  rhBaixarCsv('folha_ponto_'+(d.mes||'mes')+'.csv', csv);
+}
+async function rhFerias(){
+  let list; try{ list=await api('/rh/ferias'); }catch(e){ toast(e.message,'err'); return; }
+  const funcs=window.__FUNCS||(await api('/rh/funcionarios').catch(()=>[]));
+  window.__FUNCS=funcs;
+  const fopts=(funcs||[]).map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
+  const rows=(list||[]).map(fe=>`<tr>
+    <td style="padding:4px 6px">${esc(fe.funcionario?fe.funcionario.nome:('#'+fe.funcionarioId))}</td>
+    <td style="padding:4px 6px">${rhFmtD(fe.inicio)} → ${rhFmtD(fe.fim)}</td>
+    <td style="padding:4px 6px;text-align:center">${fe.dias}</td>
+    <td style="padding:4px 6px"><span class="pill gray">${esc(fe.tipo)}</span></td>
+    <td style="padding:4px 6px"><span class="pill ${fe.status==='gozada'?'green':'gold'}">${esc(fe.status)}</span></td>
+    <td style="padding:4px 6px;text-align:center"><button class="btn-sm" style="color:#c14a34;padding:0 7px" onclick="APP.rhDelFerias(${fe.id})">✕</button></td></tr>`).join('');
+  openModal(`<h3>📅 Férias / afastamentos</h3>
+    <div style="border:1px solid #ece5d2;border-radius:8px;padding:8px;margin-bottom:10px">
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr auto;gap:6px;align-items:end">
+        <div class="mrow"><label class="fl">Funcionário</label><select id="fe_func" class="inp">${fopts||'<option>—</option>'}</select></div>
+        ${field('fe_ini','Início','type="date"')}
+        ${field('fe_fim','Fim','type="date"')}
+        <div class="mrow"><label class="fl">Tipo</label><select id="fe_tipo" class="inp"><option value="ferias">Férias</option><option value="abono">Abono</option><option value="licenca">Licença</option><option value="atestado">Atestado</option></select></div>
+        <button class="btn-primary" style="height:38px" onclick="APP.rhAddFerias()">Adicionar</button>
+      </div>
+    </div>
+    <div class="panel" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 6px;text-align:left">Funcionário</th><th style="padding:5px 6px;text-align:left">Período</th><th style="padding:5px 6px;text-align:center">Dias</th><th style="padding:5px 6px;text-align:left">Tipo</th><th style="padding:5px 6px;text-align:left">Status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan=6 class="muted" style="padding:10px">Nenhum registro.</td></tr>'}</tbody></table></div>`, {wide:true});
+}
+async function rhAddFerias(){
+  const funcionarioId=Number(val('fe_func')); const inicio=val('fe_ini'), fim=val('fe_fim');
+  if(!funcionarioId||!inicio||!fim){ toast('Preencha funcionário, início e fim.','err'); return; }
+  try{ await api('/rh/ferias',{method:'POST',body:{funcionarioId,inicio,fim,tipo:val('fe_tipo')}}); toast('Registro adicionado.','ok'); rhFerias(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function rhDelFerias(id){
+  try{ await api('/rh/ferias/'+id,{method:'DELETE'}); toast('Registro removido.','ok'); rhFerias(); }
+  catch(e){ toast(e.message,'err'); }
+}
+
 // ---------- Telas finais: medidas, precificação, aviamentos, TV, regras ----------
 async function viewMedidas(c){
   const list = await api('/medidas');
@@ -8438,6 +8668,7 @@ window.APP = {
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
+  viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,

@@ -44,6 +44,7 @@ import { RetalhosModule } from './retalhos/retalhos.module';
 import { CobrancaModule } from './cobranca/cobranca.module';
 import { ContratosModule } from './contratos/contratos.module';
 import { CrmModule } from './crm/crm.module';
+import { RhModule } from './rh/rh.module';
 import { AppController } from './app.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -112,6 +113,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     CobrancaModule,
     ContratosModule,
     CrmModule,
+    RhModule,
   ],
   controllers: [AppController],
   providers: [

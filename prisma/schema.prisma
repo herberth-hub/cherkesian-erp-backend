@@ -1153,3 +1153,62 @@ model LeadInteracao {
 
   @@index([leadId])
 }
+
+// ===== RH / Funcionários (ponto, horas extras, férias) =====
+// Base para passar a folha ao escritório de contabilidade de forma automatizada.
+model Funcionario {
+  id             Int       @id @default(autoincrement())
+  empresaId      Int
+  nome           String
+  cpf            String?
+  cargo          String?
+  setor          String?
+  admissao       DateTime?
+  demissao       DateTime?
+  salario        Decimal?  @db.Decimal(12,2)
+  jornadaDiaria  Decimal   @default(8) @db.Decimal(5,2) // horas/dia
+  diasSemana     Int       @default(5)
+  valeTransporte Decimal?  @db.Decimal(12,2)
+  banco          String?
+  pixChave       String?
+  ativo          Boolean   @default(true)
+  obs            String?
+  criadoEm       DateTime  @default(now())
+  pontos         PontoRegistro[]
+  ferias         Ferias[]
+
+  @@index([empresaId])
+}
+
+model PontoRegistro {
+  id               Int         @id @default(autoincrement())
+  funcionarioId    Int
+  funcionario      Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  data             DateTime    // dia do registro
+  entrada          String?     // "08:00"
+  saidaAlmoco      String?     // "12:00"
+  voltaAlmoco      String?     // "13:00"
+  saida            String?     // "18:00"
+  horasTrabalhadas Decimal?    @db.Decimal(6,2)
+  horasExtras      Decimal?    @db.Decimal(6,2)
+  falta            Boolean     @default(false)
+  obs              String?
+  criadoEm         DateTime    @default(now())
+
+  @@index([funcionarioId, data])
+}
+
+model Ferias {
+  id            Int         @id @default(autoincrement())
+  funcionarioId Int
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  inicio        DateTime
+  fim           DateTime
+  dias          Int
+  tipo          String      @default("ferias") // ferias|abono|licenca|atestado
+  status        String      @default("agendada") // agendada|gozada
+  obs           String?
+  criadoEm      DateTime    @default(now())
+
+  @@index([funcionarioId])
+}
