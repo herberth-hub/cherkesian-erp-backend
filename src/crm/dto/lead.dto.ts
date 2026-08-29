@@ -17,6 +17,12 @@ export class CreateLeadDto {
   @IsOptional() @IsString() @MaxLength(200) proximaAcao?: string;
   @IsOptional() @IsString() @MaxLength(30) proximaAcaoEm?: string;
   @IsOptional() @IsString() @MaxLength(2000) obs?: string;
+  // ===== Qualificação =====
+  @IsOptional() @IsInt() @Min(0) qtdColaboradores?: number;
+  @IsOptional() @IsInt() @Min(0) trocasUniforme?: number;
+  @IsOptional() @IsString() @MaxLength(30) frequenciaCompra?: string;
+  @IsOptional() @IsString() @MaxLength(120) precoAtual?: string;
+  @IsOptional() @IsString() @MaxLength(120) formaPagamentoAtual?: string;
   /** Só managers (total/comercial) podem atribuir a outro vendedor. */
   @IsOptional() @IsInt() vendedorId?: number;
   @IsOptional() @IsString() @MaxLength(120) vendedorNome?: string;

@@ -1132,6 +1132,12 @@ model Lead {
   proximaAcao   String?   // próximo passo combinado
   proximaAcaoEm DateTime? // quando fazer o próximo contato (radar de follow-up)
   obs           String?   @db.Text
+  // ===== Qualificação (levantamento do vendedor) =====
+  qtdColaboradores   Int?     // quantos colaboradores a empresa tem
+  trocasUniforme     Int?     // trocas de uniforme por funcionário (por período)
+  frequenciaCompra   String?  // mensal|bimestral|trimestral|semestral|anual
+  precoAtual         String?  // quanto paga hoje nos conjuntos/peças
+  formaPagamentoAtual String? // forma de pagamento atual do cliente
   clienteId     Int?      // cliente gerado/vinculado ao ganhar
   perdaMotivo   String?   // motivo quando etapa=perdido
   criadoEm      DateTime  @default(now())

@@ -94,6 +94,11 @@ export class CrmService {
         proximaAcao: dto.proximaAcao?.trim() || null,
         proximaAcaoEm: this.parseData(dto.proximaAcaoEm),
         obs: dto.obs?.trim() || null,
+        qtdColaboradores: dto.qtdColaboradores ?? null,
+        trocasUniforme: dto.trocasUniforme ?? null,
+        frequenciaCompra: dto.frequenciaCompra?.trim() || null,
+        precoAtual: dto.precoAtual?.trim() || null,
+        formaPagamentoAtual: dto.formaPagamentoAtual?.trim() || null,
       },
     });
   }
@@ -117,6 +122,11 @@ export class CrmService {
         proximaAcao: dto.proximaAcao !== undefined ? dto.proximaAcao?.trim() || null : undefined,
         proximaAcaoEm: dto.proximaAcaoEm !== undefined ? this.parseData(dto.proximaAcaoEm) : undefined,
         obs: dto.obs !== undefined ? dto.obs?.trim() || null : undefined,
+        qtdColaboradores: dto.qtdColaboradores !== undefined ? (dto.qtdColaboradores ?? null) : undefined,
+        trocasUniforme: dto.trocasUniforme !== undefined ? (dto.trocasUniforme ?? null) : undefined,
+        frequenciaCompra: dto.frequenciaCompra !== undefined ? dto.frequenciaCompra?.trim() || null : undefined,
+        precoAtual: dto.precoAtual !== undefined ? dto.precoAtual?.trim() || null : undefined,
+        formaPagamentoAtual: dto.formaPagamentoAtual !== undefined ? dto.formaPagamentoAtual?.trim() || null : undefined,
         vendedorId: podeReatribuir && dto.vendedorId != null ? dto.vendedorId : undefined,
         vendedorNome: podeReatribuir && dto.vendedorNome !== undefined ? dto.vendedorNome?.trim() || null : undefined,
       },

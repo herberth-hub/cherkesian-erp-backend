@@ -2756,7 +2756,20 @@ async function formLead(id){
       ${field('lead_origem','Origem','value="'+esc((l&&l.origem)||'')+'" placeholder="indicação, site, feira…"')}
     </div>
     <div class="grid2">${field('lead_prox','Próxima ação','value="'+esc((l&&l.proximaAcao)||'')+'" placeholder="ligar, enviar proposta…"')}${field('lead_proxem','Quando (follow-up)','type="date" value="'+pae+'"')}</div>
+    <div style="border-top:1px solid var(--line);margin:8px 0 4px;padding-top:8px"><label class="fl" style="margin:0">📋 Qualificação do cliente</label></div>
+    <div class="grid3">
+      ${field('lead_qtdcol','Quantos colaboradores?','type="number" min="0" value="'+((l&&l.qtdColaboradores!=null)?l.qtdColaboradores:'')+'"')}
+      ${field('lead_trocas','Trocas de uniforme / funcionário','type="number" min="0" value="'+((l&&l.trocasUniforme!=null)?l.trocasUniforme:'')+'"')}
+      <div class="mrow"><label class="fl">Frequência de compra</label><select id="lead_freq" class="inp">
+        ${['','mensal','bimestral','trimestral','semestral','anual'].map(o=>`<option value="${o}" ${((l&&l.frequenciaCompra)||'')===o?'selected':''}>${o?o.charAt(0).toUpperCase()+o.slice(1):'—'}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="grid2">
+      ${field('lead_preco','Quanto paga hoje (conjunto/peça)','value="'+esc((l&&l.precoAtual)||'')+'" placeholder="ex.: R$ 45 / conjunto"')}
+      ${field('lead_fpag','Forma de pagamento atual','value="'+esc((l&&l.formaPagamentoAtual)||'')+'" placeholder="boleto 28d, PIX, cartão…"')}
+    </div>
     <div class="mrow"><label class="fl">Observações</label><textarea id="lead_obs" class="inp" rows="2" style="resize:vertical">${esc((l&&l.obs)||'')}</textarea></div>
+    <div style="background:#fff7e6;border:1px solid #f0dca6;border-radius:8px;padding:7px 10px;font-size:11.5px;color:#7a5b12">💡 Antes de fechar: pesquise <b>protestos e o nome no Serasa/SPC</b> pelo CNPJ/CPF para checar a referência de crédito do cliente na praça. Use o botão <b>🔎 Consultar Serasa/SPC</b> na ficha do lead.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveLead(${id||0})">Salvar</button></div>`, {wide:true});
 }
@@ -2764,8 +2777,11 @@ async function saveLead(id){
   const nome=val('lead_nome'); if(!nome){ toast('Informe o nome do lead.','err'); return; }
   const body={ nome, empresa:val('lead_emp'), cnpjCpf:val('lead_cnpj'), telefone:val('lead_tel'), cidadeUf:val('lead_cid'),
     email:val('lead_email'), contato:val('lead_contato'), etapa:val('lead_etapa'), origem:val('lead_origem'),
-    proximaAcao:val('lead_prox'), proximaAcaoEm:val('lead_proxem'), obs:val('lead_obs') };
+    proximaAcao:val('lead_prox'), proximaAcaoEm:val('lead_proxem'), obs:val('lead_obs'),
+    frequenciaCompra:val('lead_freq'), precoAtual:val('lead_preco'), formaPagamentoAtual:val('lead_fpag') };
   const ve=val('lead_valor'); if(ve!=='') body.valorEstimado=Number(ve);
+  const qc=val('lead_qtdcol'); if(qc!=='') body.qtdColaboradores=Number(qc);
+  const tu=val('lead_trocas'); if(tu!=='') body.trocasUniforme=Number(tu);
   if($('lead_vend')) body.vendedorId=Number(val('lead_vend'));
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/crm/leads/'+id):'/crm/leads',{method:id?'PATCH':'POST',body}); closeModal(); toast('Lead salvo.','ok'); loadRoute(); }
@@ -2794,6 +2810,7 @@ async function crmPerderOk(id){
 }
 async function crmDetalhe(id){
   let l; try{ l=await api('/crm/leads/'+id); }catch(e){ toast(e.message,'err'); return; }
+  window.__CRM_LEADCUR=l;
   const e=crmEtapa(l.etapa);
   const inter=(l.interacoes||[]).map(x=>`<div style="border-left:2px solid #e0d9c4;padding:4px 0 4px 10px;margin-bottom:6px">
     <div style="font-size:12.5px">${esc(x.texto)}</div>
@@ -2812,8 +2829,18 @@ async function crmDetalhe(id){
       ${l.perdaMotivo?('<br>❌ Perda: '+esc(l.perdaMotivo)):''}
       ${l.obs?('<br>📝 '+esc(l.obs)):''}
     </div>
+    ${(l.qtdColaboradores!=null||l.trocasUniforme!=null||l.frequenciaCompra||l.precoAtual||l.formaPagamentoAtual)?`<div style="background:#faf8f2;border:1px solid #ece5d2;border-radius:8px;padding:7px 10px;font-size:12px;line-height:1.7;margin-bottom:8px">
+      <b style="color:#8a6d1e">📋 Qualificação</b>
+      ${l.qtdColaboradores!=null?('<br>👥 Colaboradores: <b>'+l.qtdColaboradores+'</b>'):''}
+      ${l.trocasUniforme!=null?(' &nbsp;·&nbsp; 👕 Trocas/func.: <b>'+l.trocasUniforme+'</b>'):''}
+      ${l.frequenciaCompra?(' &nbsp;·&nbsp; 🔁 Frequência: <b>'+esc(l.frequenciaCompra)+'</b>'):''}
+      ${l.precoAtual?('<br>💵 Paga hoje: <b>'+esc(l.precoAtual)+'</b>'):''}
+      ${l.formaPagamentoAtual?(' &nbsp;·&nbsp; 💳 Pgto atual: <b>'+esc(l.formaPagamentoAtual)+'</b>'):''}
+    </div>`:''}
+    <div id="lead_serasa" style="margin-bottom:8px"></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn-sm" onclick="APP.formLead(${l.id})">✏ Editar</button>
+      <button class="btn-sm" style="color:#2563a8" onclick="APP.crmSerasa(${l.id})" title="Consulta Serasa/SPC pelo CNPJ/CPF do lead">🔎 Consultar Serasa/SPC</button>
       ${l.clienteId?'':`<button class="btn-sm" style="color:#1f8a4c" onclick="APP.crmConverter(${l.id})">🤝 Converter em cliente</button>`}
       <button class="btn-primary" style="padding:2px 10px" onclick="APP.crmGerarOrcamento(${l.id})">💰 Gerar orçamento</button>
       <button class="btn-sm" style="color:#c14a34" onclick="APP.crmExcluir(${l.id})">Excluir</button>
@@ -2833,6 +2860,24 @@ async function crmAddInter(id){
   const texto=val('lead_itexto'); if(!texto){ toast('Escreva a interação.','err'); return; }
   try{ await api('/crm/leads/'+id+'/interacao',{method:'POST',body:{tipo:val('lead_itipo'),texto}}); toast('Interação registrada.','ok'); crmDetalhe(id); }
   catch(e){ toast(e.message,'err'); }
+}
+async function crmSerasa(id){
+  const l=window.__CRM_LEADCUR||{};
+  const doc=(l.cnpjCpf||'').replace(/\D/g,'');
+  const box=$('lead_serasa');
+  if(!doc){ if(box) box.innerHTML='<div style="color:#c14a34;font-size:12px">Informe o CNPJ/CPF do lead (edite o lead) para consultar o Serasa/SPC.</div>'; else toast('Informe o CNPJ/CPF do lead.','err'); return; }
+  if(box) box.innerHTML='<div class="muted" style="font-size:12px">🔎 Consultando Serasa/SPC…</div>';
+  try{
+    const r=await api('/credito/testar',{method:'POST',body:{documento:doc}});
+    const sit=String(r.situacao||'—');
+    const cor = sit==='regular'?'#1f8a4c':(sit==='restricao'?'#c14a34':'#6d6857');
+    const linhas=[r.resumo, r.detalhe].filter(Boolean).map(x=>esc(String(x))).join('<br>');
+    if(box) box.innerHTML=`<div style="border:1px solid ${cor}66;background:${cor}14;border-radius:8px;padding:8px 11px;font-size:12.5px">
+      <b style="color:${cor}">Serasa/SPC: ${esc(sit.toUpperCase())}</b>${r.score!=null?(' · score <b>'+esc(String(r.score))+'</b>'):''}${r.fonte?(' <span class="muted" style="font-size:10.5px">('+esc(r.fonte)+')</span>'):''}
+      ${linhas?('<br>'+linhas):''}
+      <br><span class="muted" style="font-size:10.5px">Documento ${esc(r.documento||doc)}</span></div>`;
+    toast('Consulta concluída.','ok');
+  }catch(e){ if(box) box.innerHTML='<div style="color:#c14a34;font-size:12px">Falha na consulta: '+esc(e.message)+'</div>'; else toast(e.message,'err'); }
 }
 async function crmConverter(id){
   try{ const r=await api('/crm/leads/'+id+'/converter',{method:'POST',body:{}}); toast(r.jaConvertido?'Já vinculado ao cliente #'+r.clienteId+'.':'Cliente #'+r.clienteId+' criado a partir do lead.','ok'); loadRoute(); return r.clienteId; }
@@ -8656,7 +8701,7 @@ window.APP = {
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
-  viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco,
+  viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
