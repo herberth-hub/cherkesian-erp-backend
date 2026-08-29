@@ -869,6 +869,28 @@ function barsH(entries, vazio){
     </div>`).join('') +`</div>`;
 }
 
+// Gráfico de COLUNAS em SVG inline (sem libs externas — CSP/offline safe).
+// entries: [{label, value, fmt?, color?}]. opts:{h, color, vazio}
+function svgCols(entries, opts){
+  opts=opts||{};
+  if(!entries||!entries.length) return `<div class="chart"><div class="muted" style="font-size:13px">${esc(opts.vazio||'Sem dados.')}</div></div>`;
+  const n=entries.length, H=opts.h||200, padB=32, padT=20, padL=10, padR=10;
+  const W=Math.max(300, n*56+padL+padR);
+  const max=Math.max(1, ...entries.map(e=>Number(e.value)||0));
+  const bw=(W-padL-padR)/n, base=opts.color||'#C9A227';
+  // 3 linhas de grade horizontais (0, 50%, 100%)
+  const grid=[0,0.5,1].map(g=>{ const y=(H-padB)-(g*(H-padB-padT)); return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#efeada" stroke-width="1"/>`; }).join('');
+  const bars=entries.map((e,i)=>{
+    const v=Number(e.value)||0, bh=(v/max)*(H-padB-padT);
+    const x=padL+i*bw+bw*0.16, w=bw*0.68, y=(H-padB)-bh;
+    const val=e.fmt!=null?e.fmt:String(v);
+    const cx=(padL+i*bw+bw/2).toFixed(1);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0,bh).toFixed(1)}" rx="3" fill="${e.color||base}"><title>${esc(e.label)}: ${esc(val)}</title></rect>`
+      + (v>0?`<text x="${cx}" y="${(y-5).toFixed(1)}" text-anchor="middle" font-size="10" fill="#5a544a" font-weight="700">${esc(val)}</text>`:'')
+      + `<text x="${cx}" y="${(H-padB+14).toFixed(1)}" text-anchor="middle" font-size="10" fill="#8a8577">${esc(e.label)}</text>`;
+  }).join('');
+  return `<div class="chart" style="padding:14px 12px"><svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="max-width:100%;height:auto;display:block">${grid}<line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="#d9d2be" stroke-width="1.2"/>${bars}</svg></div>`;
+}
 function creditoBadge(cl){
   if(cl.creditoLiberado) return '<span class="pill blue" title="Liberado pelo administrador">liberado ✓</span>';
   const co = cl.consultasCredito && cl.consultasCredito[0];
@@ -6198,14 +6220,67 @@ async function desbloquearUsuario(id){
   catch(e){ toast(e.message,'err'); }
 }
 async function viewLogs(c){
-  const list = await api('/logs?limit=200');
-  c.innerHTML = `<div class="toolbar"><h3 style="font-size:15px">Auditoria · ${list.length} registros</h3></div>` + panelTable(
-    ['Quando','Usuário','Ação','Entidade','Detalhe'],
-    list.map(l=>[
+  // operadores p/ o filtro (usuários cadastrados) — admin tem acesso
+  if(!window.__LOG_USERS){ try{ window.__LOG_USERS = await api('/usuarios'); }catch(_){ window.__LOG_USERS=[]; } }
+  const usinho = (window.__LOG_USERS||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+  const opOpts = usinho.map(u=>`<option value="${esc(u.usuario)}">${esc(u.nome)} (@${esc(u.usuario)})</option>`).join('');
+  c.innerHTML = toolbar('Auditoria / Logs', null, null,
+      `<select id="log_op" class="inp" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Todos os operadores</option>${opOpts}</select>
+       <input id="log_ent" class="inp" placeholder="entidade (ex.: nfe, pedido)" style="width:150px;font-size:12px;padding:6px 8px">
+       <select id="log_lim" class="inp" style="width:auto;font-size:12px;padding:6px 8px"><option value="200">200</option><option value="500">500</option><option value="100">100</option></select>
+       <button class="btn-sm" onclick="APP.logsFiltrar()">🔎 Filtrar</button>
+       <button class="btn-sm" onclick="APP.logsLimpar()">Limpar</button>
+       <button class="btn-primary" style="padding:2px 10px" onclick="APP.logsPdf()">🖨 Gerar PDF</button>`)
+    + `<div id="log_info" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>`
+    + `<div id="log_wrap"></div>`;
+  await logsFiltrar();
+}
+async function logsFiltrar(){
+  const op=val('log_op'), ent=val('log_ent'), lim=val('log_lim')||'200';
+  const qs=new URLSearchParams(); qs.set('limit',lim); if(op) qs.set('usuario',op); if(ent) qs.set('entidade',ent);
+  let list; try{ list=await api('/logs?'+qs.toString()); }catch(e){ toast(e.message,'err'); return; }
+  window.__LOGS=list||[]; window.__LOGS_FILTRO={op,ent,lim};
+  const info=$('log_info'); if(info){
+    const nomeOp = op ? ((window.__LOG_USERS||[]).find(u=>u.usuario===op)||{}).nome||op : 'todos os operadores';
+    info.innerHTML = `<b>${list.length}</b> registro(s) · operador: <b>${esc(nomeOp)}</b>${ent?(' · entidade: <b>'+esc(ent)+'</b>'):''}`;
+  }
+  const wrap=$('log_wrap'); if(!wrap) return;
+  wrap.innerHTML = panelTable(
+    ['Quando','Operador','Ação','Entidade','Detalhe'],
+    (list||[]).map(l=>[
       `<span class="mono" style="font-size:11.5px">${l.timestamp?new Date(l.timestamp).toLocaleString('pt-BR'):'—'}</span>`,
       esc(l.usuario), `<span class="mono" style="font-size:11.5px">${esc(l.acao)}</span>`,
       esc(l.entidade||'—'), esc(l.detalhe||'—')
-    ]), list.length?null:'Sem registros de auditoria.');
+    ]), (list&&list.length)?null:'Sem registros para esse filtro.');
+}
+function logsLimpar(){ const o=$('log_op'),e=$('log_ent'),l=$('log_lim'); if(o)o.value=''; if(e)e.value=''; if(l)l.value='200'; logsFiltrar(); }
+function logsPdf(){
+  const list=window.__LOGS||[]; const f=window.__LOGS_FILTRO||{};
+  const nomeOp = f.op ? (((window.__LOG_USERS||[]).find(u=>u.usuario===f.op)||{}).nome||f.op)+' (@'+f.op+')' : 'Todos os operadores';
+  const agora=new Date().toLocaleString('pt-BR');
+  const rows=list.map(l=>`<tr>
+    <td>${l.timestamp?new Date(l.timestamp).toLocaleString('pt-BR'):'—'}</td>
+    <td>${esc(l.usuario||'')}</td>
+    <td>${esc(l.acao||'')}</td>
+    <td>${esc(l.entidade||'')}</td>
+    <td>${esc(l.detalhe||'')}</td></tr>`).join('');
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Auditoria - ${esc(nomeOp)}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:24px}
+      h1{font-size:18px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:14px}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th,td{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top}
+      th{background:#f0ead6} tr:nth-child(even){background:#faf8f2}
+      @media print{ @page{ size:A4 landscape; margin:12mm } }
+    </style></head><body>
+    <h1>Relatório de Auditoria — Cherkesian ERP</h1>
+    <div class="sub">Operador: <b>${esc(nomeOp)}</b>${f.ent?(' &nbsp;·&nbsp; Entidade: <b>'+esc(f.ent)+'</b>'):''} &nbsp;·&nbsp; ${list.length} registro(s) &nbsp;·&nbsp; Gerado em ${agora}</div>
+    <table><thead><tr><th style="width:130px">Quando</th><th style="width:90px">Operador</th><th>Ação</th><th style="width:80px">Entidade</th><th>Detalhe</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan=5>Sem registros.</td></tr>'}</tbody></table>
+    <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+    </body></html>`;
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o PDF.','err'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
 // ---------- Telas finais: medidas, precificação, aviamentos, TV, regras ----------
@@ -7939,13 +8014,13 @@ async function viewBi(c){
     <div class="sect"><h3>Produtividade mensal</h3>
       <div class="charts2">
         <div><div class="muted" style="font-size:12px;margin-bottom:6px">Peças produzidas / mês</div>
-          ${barsH(meses.map(m=>({label:m.mes, value:m.pecas, fmt:String(m.pecas)})),'Sem produção registrada.')}</div>
+          ${svgCols(meses.map(m=>({label:m.mes, value:m.pecas, fmt:String(m.pecas)})),{vazio:'Sem produção registrada.'})}</div>
         <div><div class="muted" style="font-size:12px;margin-bottom:6px">Faturamento NF-e / mês</div>
-          ${barsH(meses.map(m=>({label:m.mes, value:m.faturamento, fmt:money(m.faturamento), color:'#3a8f4f'})),'Sem faturamento.')}</div>
+          ${svgCols(meses.map(m=>({label:m.mes, value:m.faturamento, fmt:money(m.faturamento), color:'#3a8f4f'})),{color:'#3a8f4f',vazio:'Sem faturamento.'})}</div>
       </div>
     </div>
     <div class="sect"><h3>Produção por tamanho (peças)</h3>
-      ${barsH(Object.entries(tam).map(([t,v])=>({label:t, value:Number(v), fmt:String(v)})),'Sem kits ainda.')}
+      ${svgCols(Object.entries(tam).map(([t,v])=>({label:t, value:Number(v), fmt:String(v)})),{color:'#2b6cb0',vazio:'Sem kits ainda.'})}
     </div>
     <div class="sect"><h3>Produtividade por facção</h3>
       ${panelTable(['Facção','Em facção','Retornados','Tempo médio'], facRows, facRows.length?null:'Nenhum kit em facção ainda.')}
@@ -8362,6 +8437,7 @@ window.APP = {
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
+  logsFiltrar, logsLimpar, logsPdf,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
