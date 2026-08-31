@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { Workbook } from 'exceljs';
 import {
   BadRequestException,
   ForbiddenException,
@@ -21,6 +22,15 @@ export interface ChatMsg {
   role: 'user' | 'assistant';
   content: string;
 }
+
+/** Arquivo anexado pelo usuário para o assistente ler (base64). */
+export interface AnexoIn {
+  nome: string;
+  mediaType: string;
+  data: string; // base64 (sem o prefixo data:)
+}
+
+const IMAGENS_SUPORTADAS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 /** Proposta de ação registrada durante a conversa, aguardando confirmação do usuário. */
 export interface PropostaAcao {
@@ -78,7 +88,7 @@ export class AgenteService {
     return this.client !== null;
   }
 
-  async chat(user: AuthUser, mensagem: string, historico: ChatMsg[] = []) {
+  async chat(user: AuthUser, mensagem: string, historico: ChatMsg[] = [], anexos: AnexoIn[] = []) {
     if (!this.client) {
       return {
         resposta:
@@ -94,19 +104,23 @@ export class AgenteService {
     );
     const tools = ferramentas.map((f) => f.def);
 
+    const anexoBlocks = await this.blocosAnexos(anexos);
+    const conteudoUser: string | Anthropic.ContentBlockParam[] = anexoBlocks.length
+      ? [{ type: 'text', text: mensagem || 'Analise os arquivos anexados e me responda.' }, ...anexoBlocks]
+      : mensagem;
     const messages: Anthropic.MessageParam[] = [
       ...historico
         .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && m.content)
         .slice(-12)
         .map((m) => ({ role: m.role, content: m.content })),
-      { role: 'user' as const, content: mensagem },
+      { role: 'user' as const, content: conteudoUser },
     ];
 
     try {
       for (let i = 0; i < 6; i++) {
         const resp = await this.client.messages.create({
           model: this.model,
-          max_tokens: 2048,
+          max_tokens: anexoBlocks.length ? 3600 : 2048,
           system: this.systemPrompt(user, ferramentas),
           tools,
           messages,
@@ -156,6 +170,70 @@ export class AgenteService {
         acoes: [],
       };
     }
+  }
+
+  /** Converte os anexos do usuário em blocos de conteúdo p/ o Claude ler
+   *  (imagem, PDF nativo, planilha Excel→texto, CSV/texto). Máx. 6 arquivos. */
+  private async blocosAnexos(anexos: AnexoIn[] = []): Promise<Anthropic.ContentBlockParam[]> {
+    const blocks: Anthropic.ContentBlockParam[] = [];
+    for (const a of (anexos || []).slice(0, 6)) {
+      const nome = (a?.nome || 'arquivo').slice(0, 200);
+      const mt = (a?.mediaType || '').toLowerCase();
+      const data = a?.data || '';
+      if (!data) continue;
+      try {
+        if (mt.startsWith('image/')) {
+          const media = IMAGENS_SUPORTADAS.includes(mt) ? mt : 'image/png';
+          blocks.push({ type: 'image', source: { type: 'base64', media_type: media as Anthropic.Base64ImageSource['media_type'], data } });
+        } else if (mt === 'application/pdf' || /\.pdf$/i.test(nome)) {
+          blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: nome });
+        } else if (mt.includes('spreadsheet') || mt.includes('excel') || /\.xlsx?$/i.test(nome)) {
+          const txt = await this.excelParaTexto(data);
+          blocks.push({ type: 'text', text: `Conteúdo da planilha "${nome}" (separado por ;):\n${txt}` });
+        } else if (mt.startsWith('text/') || /\.(csv|txt|tsv)$/i.test(nome)) {
+          const txt = Buffer.from(data, 'base64').toString('utf8').slice(0, 60000);
+          blocks.push({ type: 'text', text: `Conteúdo do arquivo "${nome}":\n${txt}` });
+        } else {
+          const txt = Buffer.from(data, 'base64').toString('utf8').slice(0, 20000);
+          blocks.push({ type: 'text', text: `Arquivo "${nome}" (interpretado como texto):\n${txt}` });
+        }
+      } catch (e) {
+        blocks.push({ type: 'text', text: `(Não consegui ler o arquivo "${nome}": ${e instanceof Error ? e.message : 'erro'})` });
+      }
+    }
+    return blocks;
+  }
+
+  /** Lê um .xlsx (base64) e devolve o conteúdo das planilhas como texto (CSV). */
+  private async excelParaTexto(base64: string): Promise<string> {
+    const buf = Buffer.from(base64, 'base64');
+    const wb = new Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const partes: string[] = [];
+    wb.eachSheet((ws) => {
+      const linhas: string[] = [];
+      ws.eachRow({ includeEmpty: false }, (row) => {
+        const cells: string[] = [];
+        row.eachCell({ includeEmpty: true }, (cell) => cells.push(this.celStr(cell.value)));
+        linhas.push(cells.join(';'));
+      });
+      if (linhas.length) partes.push(`# Planilha: ${ws.name}\n${linhas.join('\n')}`);
+    });
+    return partes.join('\n\n').slice(0, 90000) || '(planilha vazia)';
+  }
+
+  private celStr(v: unknown): string {
+    if (v == null) return '';
+    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      if (o.text != null) return String(o.text);
+      if (o.result != null) return String(o.result);
+      if (o.richText && Array.isArray(o.richText)) return (o.richText as Array<{ text?: string }>).map((r) => r.text || '').join('');
+      if (o.hyperlink != null) return String(o.hyperlink);
+      return '';
+    }
+    return String(v);
   }
 
   /** Executa uma ação previamente PROPOSTA pelo agente, após confirmação do usuário. */

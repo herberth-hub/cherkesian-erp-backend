@@ -7524,7 +7524,7 @@ async function consultarNfe(id){
 }
 
 // ---------- Assistente IA (Fase 5) ----------
-const AG = { hist: [], busy: false };
+const AG = { hist: [], busy: false, files: [] };
 const AG_SUGESTOES = [
   'Quantos pedidos estão em produção?',
   'Quais materiais estão abaixo do estoque mínimo?',
@@ -7613,11 +7613,15 @@ async function viewAgente(c){
     <div class="ag-wrap">
       <div class="ag-tools"><button class="ag-clear" onclick="APP.agenteClear()">Limpar conversa</button></div>
       <div id="agMsgs" class="ag-msgs"></div>
+      <div id="agFiles" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 14px 0"></div>
       <div class="ag-input">
-        <textarea id="agInput" rows="1" placeholder="Escreva sua pergunta e tecle Enter…" onkeydown="APP.agenteKey(event)" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+        <input type="file" id="agFileInp" multiple accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" style="display:none" onchange="APP.agenteFilePick(event)">
+        <button class="ag-no" title="Anexar arquivo (Excel, PDF, imagem)" onclick="document.getElementById('agFileInp').click()" style="padding:0 14px">📎</button>
+        <textarea id="agInput" rows="1" placeholder="Escreva sua pergunta e tecle Enter… (ou anexe Excel/PDF/imagem)" onkeydown="APP.agenteKey(event)" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
         <button id="agSend" class="ag-send" onclick="APP.agenteSend()">Enviar</button>
       </div>
     </div>`;
+  AG.files=[];
   renderAgMsgs();
   const ta = $('agInput'); if(ta) ta.focus();
 }
@@ -7625,22 +7629,52 @@ function agenteKey(e){
   if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); agenteSend(); }
 }
 function agenteSug(txt){ const ta=$('agInput'); if(ta){ ta.value=txt; agenteSend(); } }
-function agenteClear(){ AG.hist=[]; renderAgMsgs(); const ta=$('agInput'); if(ta) ta.focus(); }
+function agenteClear(){ AG.hist=[]; AG.files=[]; renderAgFiles(); renderAgMsgs(); const ta=$('agInput'); if(ta) ta.focus(); }
+function agIcoArq(mt,nome){ if((mt||'').startsWith('image/'))return '🖼️'; if(mt==='application/pdf'||/\.pdf$/i.test(nome))return '📕'; if(/\.xlsx?$/i.test(nome)||/(excel|spreadsheet)/i.test(mt))return '📊'; return '📄'; }
+function renderAgFiles(){
+  const box=$('agFiles'); if(!box) return;
+  if(!AG.files.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='flex';
+  box.innerHTML=AG.files.map((f,i)=>`<span class="ag-chip" style="cursor:default;display:inline-flex;align-items:center;gap:6px;padding:6px 10px">${agIcoArq(f.mediaType,f.nome)} ${esc(f.nome)} <b style="color:#c14a34;cursor:pointer" onclick="APP.agenteFileDel(${i})">✕</b></span>`).join('');
+}
+async function agenteFilePick(ev){
+  const files=Array.from((ev.target&&ev.target.files)||[]);
+  ev.target.value='';
+  for(const f of files){
+    if(AG.files.length>=6){ toast('Máximo de 6 arquivos por mensagem.','err'); break; }
+    if(f.size>10*1024*1024){ toast('"'+f.name+'" tem mais de 10 MB — muito grande.','err'); continue; }
+    try{
+      const durl=await arquivoParaDataURL(f);
+      const b64=String(durl).split(',')[1]||'';
+      const mt=(String(durl).match(/^data:([^;]+);/)||[])[1] || f.type || 'application/octet-stream';
+      AG.files.push({ nome:f.name, mediaType:mt, data:b64 });
+    }catch(_){ toast('Falha ao ler "'+f.name+'".','err'); }
+  }
+  // limite total ~14 MB de base64 (corpo do servidor é 16 MB)
+  let tot=AG.files.reduce((s,f)=>s+f.data.length,0);
+  while(tot>14*1024*1024 && AG.files.length){ AG.files.pop(); tot=AG.files.reduce((s,f)=>s+f.data.length,0); toast('Anexos excederam o limite — removi o último.','err'); }
+  renderAgFiles();
+}
+function agenteFileDel(i){ AG.files.splice(i,1); renderAgFiles(); }
 async function agenteSend(){
   if(AG.busy) return;
   const ta = $('agInput'); if(!ta) return;
-  const msg = ta.value.trim(); if(!msg) return;
+  const msg = ta.value.trim();
+  const anexos = AG.files.slice();
+  if(!msg && !anexos.length) return;
   const prev = AG.hist.slice(-12);
   ta.value=''; ta.style.height='auto';
   AG.busy=true; const btn=$('agSend'); if(btn) btn.disabled=true;
-  renderAgMsgs(msg);
+  const msgVisu = msg + (anexos.length?('\n📎 '+anexos.map(a=>a.nome).join(', ')):'');
+  AG.files=[]; renderAgFiles();
+  renderAgMsgs(msgVisu);
   try{
-    const r = await api('/agente/chat', { method:'POST', body:{ mensagem: msg, historico: prev.filter(x=>x.role==='user'||x.role==='assistant') } });
-    AG.hist.push({role:'user', content: msg});
+    const r = await api('/agente/chat', { method:'POST', body:{ mensagem: msg, historico: prev.filter(x=>x.role==='user'||x.role==='assistant'), anexos } });
+    AG.hist.push({role:'user', content: msgVisu});
     AG.hist.push({role:'assistant', content: r.resposta || '—'});
     (r.acoes||[]).forEach(a=> AG.hist.push({role:'acao', tipo:a.tipo, dados:a.dados, descricao:a.descricao, estado:'pendente'}));
   }catch(e){
-    AG.hist.push({role:'user', content: msg});
+    AG.hist.push({role:'user', content: msgVisu});
     AG.hist.push({role:'assistant', content: 'Desculpe, não consegui responder agora ('+esc(e.message)+').'});
   }finally{
     AG.busy=false; if(btn) btn.disabled=false;
@@ -8759,7 +8793,7 @@ window.APP = {
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
-  agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel,
+  agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel,
   relatorio, relGerar, sugerirCompraTecido,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

@@ -15,16 +15,38 @@ class ChatMsgDto {
   content!: string;
 }
 
+class AnexoDto {
+  @IsString()
+  @MaxLength(200)
+  nome!: string;
+
+  @IsString()
+  @MaxLength(100)
+  mediaType!: string;
+
+  /** Conteúdo em base64 (sem o prefixo data:). ~20 MB de base64. */
+  @IsString()
+  @MaxLength(28_000_000)
+  data!: string;
+}
+
 class ChatDto {
+  @IsOptional()
   @IsString()
   @MaxLength(4000)
-  mensagem!: string;
+  mensagem?: string;
 
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ChatMsgDto)
   historico?: ChatMsgDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AnexoDto)
+  anexos?: AnexoDto[];
 }
 
 class ExecutarDto {
@@ -48,7 +70,7 @@ export class AgenteController {
 
   @Post('chat')
   chat(@Body() dto: ChatDto, @CurrentUser() user: AuthUser) {
-    return this.agenteService.chat(user, dto.mensagem, dto.historico ?? []);
+    return this.agenteService.chat(user, dto.mensagem ?? '', dto.historico ?? [], dto.anexos ?? []);
   }
 
   @Post('executar')
