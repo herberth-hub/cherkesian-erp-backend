@@ -405,6 +405,11 @@ export class AgenteService {
         def: { name: 'listar_titulos_pagar', description: 'Contas a pagar em aberto (categoria, vencimento, valor, pago, saldo, vencido) + total.', input_schema: { type: 'object', properties: { somente_vencidos: { type: 'boolean' }, limite: { type: 'integer' } } } },
         run: (empresaId, input) => this.titulos('pagar', empresaId, input),
       },
+      {
+        areas: ['pagar', 'fluxo', 'receber'],
+        def: { name: 'consultar_contas_bancarias', description: 'Dados bancários das empresas/CNPJs do grupo: banco, agência, conta, tipo, chave PIX e apelido, por empresa. Use quando perguntarem a conta/banco/agência/PIX de uma empresa (ex.: "qual a conta da HC Quality?").', input_schema: { type: 'object', properties: { empresa: { type: 'string', description: 'Filtra por nome/CNPJ da empresa (opcional).' } } } },
+        run: (empresaId, input) => this.contasBancarias(empresaId, input),
+      },
 
       // ===== AÇÕES (propostas — confirmadas pelo usuário) =====
       acao(
@@ -591,6 +596,40 @@ export class AgenteService {
   private async notasLista(empresaId: number, input: Record<string, unknown>) {
     const registros = await this.prisma.notaFiscal.findMany({ where: { empresaId }, orderBy: { id: 'desc' }, take: clampLimite(input.limite, 30), select: { numero: true, serie: true, status: true, valor: true, provedor: true, emitidaEm: true } });
     return registros.map((n) => ({ numero: n.numero, serie: n.serie, status: n.status, valor: num(n.valor), provedor: n.provedor, data: n.emitidaEm.toISOString().slice(0, 10) }));
+  }
+
+  private async contasBancarias(empresaId: number, input: Record<string, unknown> = {}) {
+    const filtro = String(input?.empresa ?? '').trim().toLowerCase();
+    const filiais = await this.prisma.filial.findMany({
+      where: { empresaId },
+      select: {
+        nome: true,
+        cnpj: true,
+        matriz: true,
+        contasBancarias: {
+          where: { ativa: true },
+          orderBy: [{ principal: 'desc' }, { id: 'asc' }],
+          select: { banco: true, agencia: true, conta: true, tipo: true, pixChave: true, apelido: true, principal: true },
+        },
+      },
+      orderBy: [{ matriz: 'desc' }, { id: 'asc' }],
+    });
+    const contas = filiais
+      .filter((f) => !filtro || (f.nome || '').toLowerCase().includes(filtro) || (f.cnpj || '').replace(/\D/g, '').includes(filtro.replace(/\D/g, '')))
+      .flatMap((f) =>
+        f.contasBancarias.map((c) => ({
+          empresa: f.nome,
+          cnpj: f.cnpj,
+          banco: c.banco,
+          agencia: c.agencia,
+          conta: c.conta,
+          tipo: c.tipo,
+          pix: c.pixChave,
+          apelido: c.apelido,
+          principal: c.principal,
+        })),
+      );
+    return { total: contas.length, contas };
   }
 
   private async titulos(tipo: 'receber' | 'pagar', empresaId: number, input: Record<string, unknown>) {
