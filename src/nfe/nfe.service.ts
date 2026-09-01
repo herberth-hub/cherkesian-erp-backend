@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma, Transportadora } from '@prisma/client';
+import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma, Produto, Transportadora } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 
@@ -1165,6 +1165,104 @@ export class NfeService {
       });
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       await tx.kit.updateMany({ where: { empresaId, controleFaccao }, data: { remessaNfNumero: criada.numero } });
+      return criada;
+    });
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /**
+   * NF de REMESSA para industrialização AVULSA (sem passar pela OS de facção):
+   * escolhe o destinatário (facção/fornecedor com CNPJ) e os itens manualmente.
+   * CFOP 5901/6901, ICMS suspenso, sem faturamento (não gera conta a receber).
+   */
+  async emitirRemessaAvulsa(
+    dto: {
+      fornecedorId: number;
+      filialId?: number;
+      itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>;
+      naturezaOperacao?: string;
+      referencia?: string;
+      observacoes?: string;
+    },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const faccao = await this.prisma.fornecedor.findUnique({ where: { id: dto.fornecedorId } });
+    if (!faccao || faccao.empresaId !== empresaId) throw new NotFoundException('Facção / fornecedor destinatário não encontrado.');
+
+    let filial = dto.filialId ? await this.prisma.filial.findUnique({ where: { id: dto.filialId } }) : null;
+    if (filial && filial.empresaId !== empresaId) filial = null;
+    if (!filial) filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
+    const token = this.tokenDaFilial(filial);
+
+    if (!dto.itens?.length) throw new BadRequestException('Informe ao menos um item para a remessa.');
+    const itens: Array<{ numero_item: number; codigo_produto: string; descricao: string; ncm: string; unidade: string; quantidade: number; valorUnit: number; origem: number }> = [];
+    let valorTotal = 0;
+    for (let idx = 0; idx < dto.itens.length; idx++) {
+      const it = dto.itens[idx];
+      let p: Produto | null = null;
+      if (it.produtoId) {
+        p = await this.prisma.produto.findUnique({ where: { id: it.produtoId } });
+        if (!p || p.empresaId !== empresaId) throw new NotFoundException(`Produto ${it.produtoId} não encontrado.`);
+      }
+      const descricao = (it.descricao ?? p?.descricao ?? '').trim();
+      if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produto válido.');
+      const quantidade = Number(it.quantidade);
+      if (!(quantidade > 0)) throw new BadRequestException('Quantidade inválida em um item.');
+      const valorUnit = Number(it.valorUnit != null ? it.valorUnit : p?.custo != null ? Number(p.custo) : 0);
+      itens.push({
+        numero_item: idx + 1,
+        codigo_produto: p?.codigo ?? `ITEM${idx + 1}`,
+        descricao: descricao.slice(0, 120),
+        ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
+        unidade: p?.unidadeComercial ?? 'UN',
+        quantidade,
+        valorUnit,
+        origem: p?.origem ?? 0,
+      });
+      valorTotal += valorUnit * quantidade;
+    }
+
+    if (token) {
+      const cnpj = digitos(faccao.cnpjCpf || '');
+      const faltas: string[] = [];
+      if (cnpj.length !== 14) faltas.push('CNPJ do destinatário');
+      if (!faccao.logradouro) faltas.push('logradouro');
+      if (!faccao.municipio) faltas.push('município');
+      if (!faccao.uf) faltas.push('UF');
+      if (!faccao.cep) faltas.push('CEP');
+      if (faltas.length) throw new BadRequestException(`Dados fiscais do destinatário incompletos para emissão real: ${faltas.join('; ')}.`);
+    }
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const referencia = (dto.referencia || 'AVULSA').trim().slice(0, 40);
+    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, referencia) as Record<string, unknown>;
+    if (dto.naturezaOperacao?.trim()) payload.natureza_operacao = dto.naturezaOperacao.trim().slice(0, 60);
+    if (dto.observacoes?.trim()) {
+      payload.informacoes_adicionais_contribuinte = `${dto.observacoes.trim()} | ${payload.informacoes_adicionais_contribuinte ?? ''}`.slice(0, 5000);
+    }
+
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEREMAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      : this.emitirSimulada();
+
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          ...this.resumoFiscalPayload(payload),
+          empresaId, filialId: filial!.id, tipo: 'remessa', fornecedorId: faccao.id,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial!.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       return criada;
     });
     return token ? nota : { ...nota, payloadPreview: payload };

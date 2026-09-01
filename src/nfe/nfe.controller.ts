@@ -128,6 +128,17 @@ export class NfeController {
     return this.nfeService.emitirAvulsa(dto, user.empresaId, user.usuario);
   }
 
+  /** NF de remessa para industrialização AVULSA: destinatário (facção/fornecedor) + itens. */
+  @Post('remessa-avulsa')
+  @Areas('vendas', 'expedicao', 'producao', 'compras')
+  @HttpCode(HttpStatus.CREATED)
+  remessaAvulsa(
+    @Body() dto: { fornecedorId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; referencia?: string; observacoes?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.nfeService.emitirRemessaAvulsa(dto, user.empresaId, user.usuario);
+  }
+
   /** Cruza e corrige o CFOP das notas com o CFOP real do XML autorizado (contabilidade). */
   @Post('cfop/sincronizar')
   @Areas('expedicao', 'receber')
