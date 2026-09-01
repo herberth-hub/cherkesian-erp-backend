@@ -2358,18 +2358,18 @@ async function formMaterial(id){
   const fa = m.fornecedorId ? (forn.find(f=>f.id===m.fornecedorId)||{}) : {};
   const fdl=`<datalist id="fabriclist">${forn.map(f=>`<option value="${esc(f.nomeFantasia||f.nome)}">`).join('')}</datalist>`;
   openModal(`<h3>${id?'Editar':'Novo'} material / tecido</h3>
-    ${field('f_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
-    ${field('f_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
-    <div class="grid3">${field('f_cor',id?'Cor':'Cor(es) — vírgula p/ criar várias','value="'+esc(m.cor||'')+'"'+(id?'':' placeholder="ex.: AZUL ROYAL, BRANCO, PRETO"'))}${field('f_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('f_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
+    ${field('mt_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
+    ${field('mt_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
+    <div class="grid3">${field('mt_cor',id?'Cor':'Cor(es) — vírgula p/ criar várias','value="'+esc(m.cor||'')+'"'+(id?'':' placeholder="ex.: AZUL ROYAL, BRANCO, PRETO"'))}${field('mt_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('mt_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
     ${id?'':'<div class="muted" style="font-size:10.5px;margin:-4px 0 6px">Digite várias cores separadas por vírgula para criar um material por cor (mesmo artigo). O saldo inicial vale só p/ 1 cor — para várias, use "Entrada de estoque" por cor depois.</div>'}
-    <div class="grid2">${field('f_saldo','Saldo'+(id?'':' inicial'),'type="number" step="0.001" value="'+(m.saldo!=null?m.saldo:0)+'"')}${field('f_min','Mínimo','type="number" step="0.001" value="'+(m.minimo!=null?m.minimo:0)+'"')}</div>
-    ${field('f_local','Localização na prateleira (aparece no romaneio de corte)','value="'+esc(m.localizacao||'')+'" placeholder="ex.: B3, Prateleira 12"')}
+    <div class="grid2">${field('mt_saldo','Saldo'+(id?'':' inicial'),'type="number" step="0.001" value="'+(m.saldo!=null?m.saldo:0)+'"')}${field('mt_min','Mínimo','type="number" step="0.001" value="'+(m.minimo!=null?m.minimo:0)+'"')}</div>
+    ${field('mt_local','Localização na prateleira (aparece no romaneio de corte)','value="'+esc(m.localizacao||'')+'" placeholder="ex.: B3, Prateleira 12"')}
     <div class="secdiv" style="font-size:11px;color:#9a7d1e;margin:8px 0 4px;font-weight:700">FICHA DO TECIDO / ARTIGO (da etiqueta do fabricante)</div>
     <div class="mrow"><label class="fl">Fabricante <span class="muted" style="font-size:10px">(sugere os cadastrados; novo é cadastrado e vinculado à ficha dele ao salvar)</span></label>
-      <input class="inp" id="f_fabric" list="fabriclist" value="${esc(fa.nomeFantasia||fa.nome||'')}" placeholder="ex.: ROVACH INDUSTRIA TEXTIL LTDA" autocomplete="off">${fdl}</div>
-    <div class="grid2">${field('f_artigo','Artigo','value="'+esc(m.artigo||'')+'" placeholder="ex.: ROVASOL PELETIZADO"')}${field('f_ordem','Ordem / código do artigo','value="'+esc(m.codigoArtigo||'')+'" placeholder="ex.: 02.116.001.1"')}</div>
-    ${field('f_comp','Composição','value="'+esc(m.composicao||'')+'" placeholder="ex.: 70% ALGODÃO 30% POLIÉSTER"')}
-    <div class="grid3">${field('f_larg','Largura (m)','type="number" step="0.01" value="'+(m.largura!=null?m.largura:'')+'" placeholder="1,60"')}${field('f_gram','Gramatura (g/m²)','type="number" step="0.01" value="'+(m.gramatura!=null?m.gramatura:'')+'" placeholder="127,00"')}${field('f_grml','Gr/ml','type="number" step="0.001" value="'+(m.gramaturaLinear!=null?m.gramaturaLinear:'')+'" placeholder="0,215"')}</div>
+      <input class="inp" id="mt_fabric" list="fabriclist" value="${esc(fa.nomeFantasia||fa.nome||'')}" placeholder="ex.: ROVACH INDUSTRIA TEXTIL LTDA" autocomplete="off">${fdl}</div>
+    <div class="grid2">${field('mt_artigo','Artigo','value="'+esc(m.artigo||'')+'" placeholder="ex.: ROVASOL PELETIZADO"')}${field('mt_ordem','Ordem / código do artigo','value="'+esc(m.codigoArtigo||'')+'" placeholder="ex.: 02.116.001.1"')}</div>
+    ${field('mt_comp','Composição','value="'+esc(m.composicao||'')+'" placeholder="ex.: 70% ALGODÃO 30% POLIÉSTER"')}
+    <div class="grid3">${field('mt_larg','Largura (m)','type="number" step="0.01" value="'+(m.largura!=null?m.largura:'')+'" placeholder="1,60"')}${field('mt_gram','Gramatura (g/m²)','type="number" step="0.01" value="'+(m.gramatura!=null?m.gramatura:'')+'" placeholder="127,00"')}${field('mt_grml','Gr/ml','type="number" step="0.001" value="'+(m.gramaturaLinear!=null?m.gramaturaLinear:'')+'" placeholder="0,215"')}</div>
     ${id?'<div id="mat_cores"></div>':''}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMaterial(${id||0})">Salvar</button></div>`);
@@ -2413,7 +2413,7 @@ async function addCorArtigo(){
 }
 // Resolve o fabricante digitado: usa o existente (por nome) ou cadastra um novo fornecedor.
 async function resolverFabricante(){
-  const txt=(val('f_fabric')||'').trim(); if(!txt) return null;
+  const txt=(val('mt_fabric')||'').trim(); if(!txt) return null;
   const lista=window.__FORNMAT||[]; const low=txt.toLowerCase();
   const achou=lista.find(f=>String(f.nomeFantasia||'').trim().toLowerCase()===low) || lista.find(f=>String(f.nome||'').trim().toLowerCase()===low);
   if(achou) return achou.id;
@@ -2422,26 +2422,26 @@ async function resolverFabricante(){
   return nf.id;
 }
 async function saveMaterial(id){
-  const base = { categoria:val('f_cat'), descricao:val('f_desc'), unidade:val('f_un')||'un',
-    custo:Number(val('f_custo')||0), minimo:Number(val('f_min')||0), localizacao:val('f_local')||undefined,
-    artigo:val('f_artigo')||undefined, codigoArtigo:val('f_ordem')||undefined, composicao:val('f_comp')||undefined };
-  const larg=val('f_larg'); if(larg) base.largura=Number(larg);
-  const gram=val('f_gram'); if(gram) base.gramatura=Number(gram);
-  const grml=val('f_grml'); if(grml) base.gramaturaLinear=Number(grml);
+  const base = { categoria:val('mt_cat'), descricao:val('mt_desc'), unidade:val('mt_un')||'un',
+    custo:Number(val('mt_custo')||0), minimo:Number(val('mt_min')||0), localizacao:val('mt_local')||undefined,
+    artigo:val('mt_artigo')||undefined, codigoArtigo:val('mt_ordem')||undefined, composicao:val('mt_comp')||undefined };
+  const larg=val('mt_larg'); if(larg) base.largura=Number(larg);
+  const gram=val('mt_gram'); if(gram) base.gramatura=Number(gram);
+  const grml=val('mt_grml'); if(grml) base.gramaturaLinear=Number(grml);
   if(!base.categoria||!base.descricao){ toast('Categoria e descrição são obrigatórias.','err'); return; }
   let fid=null;
   try{ fid=await resolverFabricante(); }catch(e){ toast('Fabricante: '+(e.message||e),'err'); return; }
   if(fid) base.fornecedorId=fid;
   // Cores: 1 ou várias (vírgula/;). Edição = 1 cor. Cadastro novo com várias = 1 material por cor.
-  const cores=(val('f_cor')||'').split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
+  const cores=(val('mt_cor')||'').split(/[,;]+/).map(s=>s.trim()).filter(Boolean);
   if(id){
-    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('f_saldo')||0) });
+    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('mt_saldo')||0) });
     try{ await api('/materiais/'+id,{method:'PATCH',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
     catch(e){ toast(e.message,'err'); }
     return;
   }
   if(cores.length<=1){
-    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('f_saldo')||0) });
+    const body=Object.assign({}, base, { cor:cores[0]||undefined, saldo:Number(val('mt_saldo')||0) });
     try{ await api('/materiais',{method:'POST',body}); closeModal(); toast('Material salvo.','ok'); loadRoute(); }
     catch(e){ toast(e.message,'err'); }
     return;
