@@ -1250,10 +1250,12 @@ function renderPedidos(){
     });
   }
   const ativos=arr.filter(p=>p.etapa!=='cancelado'); // cancelados não somam nos totais
-  const pecas=ativos.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
+  // Peças: só conta o que foi APROVADO (não soma orçamento, p/ não confundir).
+  const aprovados=ativos.filter(p=>p.etapa!=='orcamento');
+  const pecas=aprovados.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=ativos.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const bonif=ativos.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
-  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et||fil)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'somatório') + kpi('Valor total', money(valor), 'somatório') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
+  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et||fil)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'aprovados (sem orçamento)') + kpi('Valor total', money(valor), 'somatório') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
   const tbl=$('ped_tbl'); if(!tbl) return;
   if(window.__pedKanban){ tbl.innerHTML = pedidosKanban(arr); return; }
   const bulkBar = arr.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding:8px 10px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
