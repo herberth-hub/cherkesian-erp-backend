@@ -14,9 +14,59 @@ type FilialResumo = { id: number; nome: string; cnpj: string | null };
 /** Título a receber com status recalculado e saldo em aberto. */
 export type ContaReceberView = ContaReceber & { status: TituloStatus; saldo: string; filial?: FilialResumo | null };
 
+/**
+ * Regra de comissão automática: ao QUITAR uma venda, gera comissão "a receber"
+ * (registro em Comissões, status "A pagar") para cada participante, calculada
+ * sobre o LÍQUIDO da venda (valor − imposto da filial emissora).
+ * Para mudar os participantes ou o percentual, edite esta constante.
+ */
+const REGRA_COMISSAO_VENDA: Array<{ vendedor: string; percentual: number }> = [
+  { vendedor: 'HERBERTH', percentual: 0.025 },
+  { vendedor: 'MARCELLO GAMERO', percentual: 0.025 },
+];
+
 @Injectable()
 export class ContasReceberService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Gera as comissões da venda quando o título a receber é totalmente quitado.
+   * Idempotente (flag comissaoGerada). Só comissiona títulos ligados a um pedido
+   * (venda); o líquido usa o imposto (%) configurado na filial emissora.
+   */
+  private async gerarComissoesVenda(tituloId: number, empresaId: number): Promise<void> {
+    const t = await this.prisma.contaReceber.findUnique({
+      where: { id: tituloId },
+      include: { filial: { select: { impostoVendaPercent: true } } },
+    });
+    if (!t || t.comissaoGerada) return;
+    if (t.valor.minus(t.pago).greaterThan(0.005)) return; // ainda não quitado
+    if (!t.pedidoId) {
+      // Título sem venda vinculada: marca como processado p/ não reavaliar sempre.
+      await this.prisma.contaReceber.update({ where: { id: tituloId }, data: { comissaoGerada: true } });
+      return;
+    }
+    const impostoPct = Number(t.filial?.impostoVendaPercent ?? 0);
+    const bruto = Number(t.valor);
+    const liquido = Number((bruto * (1 - impostoPct / 100)).toFixed(2));
+    await this.prisma.$transaction(async (tx) => {
+      for (const r of REGRA_COMISSAO_VENDA) {
+        const comissao = Number((liquido * r.percentual).toFixed(2));
+        await tx.comissao.create({
+          data: {
+            empresaId,
+            pedidoId: t.pedidoId as number,
+            vendedor: r.vendedor,
+            valorVenda: new Prisma.Decimal(liquido),
+            percentual: new Prisma.Decimal(r.percentual),
+            comissao: new Prisma.Decimal(comissao),
+            statusPgto: 'A pagar',
+          },
+        });
+      }
+      await tx.contaReceber.update({ where: { id: tituloId }, data: { comissaoGerada: true } });
+    });
+  }
 
   async findAll(empresaId: number, status?: TituloStatus): Promise<ContaReceberView[]> {
     const titulos = await this.prisma.contaReceber.findMany({
@@ -88,6 +138,10 @@ export class ContasReceberService {
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
       },
     });
+    // Regra de comissão automática ao quitar (não bloqueia a baixa se falhar).
+    if (novoPago.greaterThanOrEqualTo(titulo.valor)) {
+      try { await this.gerarComissoesVenda(id, empresaId); } catch { /* segue a baixa */ }
+    }
     return this.comStatus(atualizado);
   }
 
@@ -137,6 +191,7 @@ export class ContasReceberService {
         where: { id: t.id },
         data: { pago: t.valor, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento) },
       });
+      try { await this.gerarComissoesVenda(t.id, empresaId); } catch { /* segue */ }
       baixados++;
     }
     return { baixados };

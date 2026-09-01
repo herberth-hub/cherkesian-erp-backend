@@ -7729,36 +7729,52 @@ function agenteMic(){
 
 // ===== Modo LIGAÇÃO: conversa por voz, hands-free (dirigindo) =====
 function agCallSupported(){ return !!agSpeechRec() && !!window.speechSynthesis; }
+let AG_VOICE=null;
+function agPickVoice(){
+  try{
+    const vs=(window.speechSynthesis&&window.speechSynthesis.getVoices())||[];
+    if(!vs.length) return AG_VOICE;
+    const brs=vs.filter(v=>/pt.?BR/i.test(v.lang));
+    const pref=['luciana','google português do brasil','google portugues do brasil','microsoft francisca','francisca','microsoft maria','maria','microsoft antonio','antonio','microsoft daniel','daniel','natural','online'];
+    for(const name of pref){ const v=brs.find(x=>x.name.toLowerCase().includes(name)); if(v){ AG_VOICE=v; return v; } }
+    AG_VOICE = brs[0] || vs.find(v=>/^pt/i.test(v.lang)) || null;
+    return AG_VOICE;
+  }catch(_){ return AG_VOICE; }
+}
 function agCallOpen(){
   if(!agCallSupported()){ toast('A ligação por voz precisa do Google Chrome (no celular, Chrome Android) com microfone.','err'); return; }
   if(AG.call && AG.call.active) return;
   AG.call={ active:true, rec:null, muted:false, pending:null };
+  try{ agPickVoice(); if(window.speechSynthesis) window.speechSynthesis.onvoiceschanged=()=>{ try{agPickVoice();}catch(_){} }; }catch(_){}
   const ov=document.createElement('div'); ov.id='agCallOv';
   ov.innerHTML=`<style>
-    #agCallOv{position:fixed;inset:0;z-index:99998;background:linear-gradient(160deg,#0f1a14,#0a0a0a);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#eee;font-family:inherit}
-    .acall-orb{width:150px;height:150px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2fae6a,#1f8a4c);box-shadow:0 0 0 0 rgba(47,174,106,.5);display:flex;align-items:center;justify-content:center;font-size:54px;transition:.3s}
-    .acall-orb.listening{animation:acp 1.4s infinite}
-    .acall-orb.speaking{background:radial-gradient(circle at 35% 30%,#e6b23a,#C9A227)}
-    .acall-orb.thinking{background:radial-gradient(circle at 35% 30%,#4a90d9,#2b6cb0)}
-    @keyframes acp{0%{box-shadow:0 0 0 0 rgba(47,174,106,.5)}70%{box-shadow:0 0 0 34px rgba(47,174,106,0)}100%{box-shadow:0 0 0 0 rgba(47,174,106,0)}}
-    .acall-st{margin-top:26px;font-size:18px;font-weight:700}
-    .acall-sub{margin-top:12px;max-width:640px;padding:0 24px;text-align:center;font-size:15px;line-height:1.5;min-height:48px;color:#cbc4b4}
-    .acall-btns{position:absolute;bottom:48px;display:flex;gap:20px}
-    .acall-b{width:66px;height:66px;border-radius:50%;border:0;font-size:26px;cursor:pointer;color:#fff;display:flex;align-items:center;justify-content:center}
-    .acall-mute{background:#3a3a3a}.acall-end{background:#d33a2c}
-    .acall-hint{position:absolute;top:22px;font-size:12px;color:#8a857a}
+    #agCallOv{position:fixed;top:74px;right:16px;z-index:99997;width:312px;max-width:calc(100vw - 24px);background:rgba(15,22,18,.96);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);border:1px solid #294034;border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.5);color:#eee;padding:14px;font-family:inherit}
+    #agCallOv .ac-h{display:flex;align-items:center;gap:10px}
+    #agCallOv .ac-orb{width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2fae6a,#1f8a4c);display:flex;align-items:center;justify-content:center;font-size:20px;flex:0 0 auto;transition:.3s}
+    #agCallOv .ac-orb.listening{animation:acp 1.4s infinite}
+    #agCallOv .ac-orb.speaking{background:radial-gradient(circle at 35% 30%,#e6b23a,#C9A227)}
+    #agCallOv .ac-orb.thinking{background:radial-gradient(circle at 35% 30%,#4a90d9,#2b6cb0)}
+    @keyframes acp{0%{box-shadow:0 0 0 0 rgba(47,174,106,.55)}70%{box-shadow:0 0 0 15px rgba(47,174,106,0)}100%{box-shadow:0 0 0 0 rgba(47,174,106,0)}}
+    #agCallOv .ac-meta{flex:1;min-width:0}
+    #agCallOv .ac-st{font-weight:700;font-size:13.5px}
+    #agCallOv .ac-sub{font-size:12px;color:#b6afa1;margin-top:2px;max-height:54px;overflow:hidden;line-height:1.35}
+    #agCallOv .ac-tip{font-size:11px;color:#7e8a80;margin-top:10px;line-height:1.4}
+    #agCallOv .ac-btns{display:flex;gap:10px;margin-top:12px;justify-content:flex-end}
+    #agCallOv .ac-b{width:42px;height:42px;border-radius:50%;border:0;font-size:18px;cursor:pointer;color:#fff}
+    #agCallOv .ac-mute{background:#3a3a3a}#agCallOv .ac-end{background:#d33a2c}
   </style>
-  <div class="acall-hint">🚗 Modo ligação — fale à vontade. Toque em 📞 vermelho para desligar.</div>
-  <div id="acallOrb" class="acall-orb">🎧</div>
-  <div id="acallSt" class="acall-st">Conectando…</div>
-  <div id="acallSub" class="acall-sub"></div>
-  <div class="acall-btns">
-    <button id="acallMute" class="acall-b acall-mute" title="Mudo" onclick="APP.agCallMute()">🎤</button>
-    <button class="acall-b acall-end" title="Desligar" onclick="APP.agCallEnd()">📞</button>
+  <div class="ac-h">
+    <div id="acallOrb" class="ac-orb">🎧</div>
+    <div class="ac-meta"><div id="acallSt" class="ac-st">Conectando…</div><div id="acallSub" class="ac-sub">em ligação com o assistente</div></div>
+  </div>
+  <div class="ac-tip">📎 Pode anexar Excel/PDF/foto ali embaixo enquanto fala — eu leio junto na próxima fala.</div>
+  <div class="ac-btns">
+    <button id="acallMute" class="ac-b ac-mute" title="Mudo" onclick="APP.agCallMute()">🎤</button>
+    <button class="ac-b ac-end" title="Desligar" onclick="APP.agCallEnd()">📞</button>
   </div>`;
   document.body.appendChild(ov);
   const nome=(S.user&&S.user.nome)?String(S.user.nome).split(' ')[0]:'';
-  agCallSpeak(`Alô${nome?', '+nome:''}! Aqui é o assistente comercial. Pode falar: eu monto orçamento, consulto preço, pedido ou estoque. O que você precisa?`, ()=>agCallListen());
+  agCallSpeak(`Oi${nome?', '+nome:''}! Tô aqui com você. Pode falar, como que eu te ajudo?`, ()=>agCallListen());
 }
 function agCallEnd(){
   if(!AG.call) return; AG.call.active=false;
@@ -7767,22 +7783,23 @@ function agCallEnd(){
   const ov=$('agCallOv'); if(ov) ov.remove();
   renderAgMsgs();
 }
-function agCallPhase(cls, texto){ const o=$('acallOrb'); if(o) o.className='acall-orb '+cls; const s=$('acallSt'); if(s&&texto!=null) s.textContent=texto; }
+function agCallPhase(cls, texto){ const o=$('acallOrb'); if(o) o.className='ac-orb '+cls; const s=$('acallSt'); if(s&&texto!=null) s.textContent=texto; }
 function agCallSub(t){ const s=$('acallSub'); if(s) s.textContent=t||''; }
 function agCallSpeak(text, cb){
   if(!AG.call||!AG.call.active){ return; }
   if(AG.call.rec){ try{AG.call.rec.abort();}catch(_){}; AG.call.rec=null; }
-  agCallPhase('speaking','🔊 Assistente'); agCallSub(text);
-  const clean=String(text||'').replace(/[*_#`>|]+/g,'').slice(0,1400);
-  if(!window.speechSynthesis){ setTimeout(()=>cb&&cb(),400); return; }
+  // Limpa marcação e QUEBRAS DE LINHA para a fala sair fluida (sem pausas longas).
+  const clean=String(text||'').replace(/[*_#`>|~]+/g,'').replace(/\s*\n+\s*/g,'. ').replace(/\.\s*\.\s*/g,'. ').replace(/\s{2,}/g,' ').trim().slice(0,1600);
+  agCallPhase('speaking','Assistente'); agCallSub(clean);
+  if(!window.speechSynthesis){ setTimeout(()=>{ if(AG.call&&AG.call.active) cb&&cb(); },400); return; }
   try{
     window.speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(clean); u.lang='pt-BR'; u.rate=1.04;
-    const vs=window.speechSynthesis.getVoices()||[]; const v=vs.find(x=>/pt.?BR/i.test(x.lang))||vs.find(x=>/^pt/i.test(x.lang)); if(v)u.voice=v;
+    const u=new SpeechSynthesisUtterance(clean); u.lang='pt-BR'; u.rate=1.02; u.pitch=1.03;
+    const v=AG_VOICE||agPickVoice(); if(v)u.voice=v;
     u.onend=()=>{ if(AG.call&&AG.call.active) cb&&cb(); };
     u.onerror=()=>{ if(AG.call&&AG.call.active) cb&&cb(); };
     window.speechSynthesis.speak(u);
-  }catch(_){ setTimeout(()=>cb&&cb(),400); }
+  }catch(_){ setTimeout(()=>{ if(AG.call&&AG.call.active) cb&&cb(); },400); }
 }
 function agCallListen(){
   if(!AG.call||!AG.call.active||AG.call.muted) return;
@@ -7807,11 +7824,14 @@ async function agCallHandle(text){
     if(/\b(confirmar|confirma|pode confirmar|sim|isso|aprova|manda|fecha|fechado|ok|beleza|positivo)\b/.test(low)){ const idx=AG.call.pending; AG.call.pending=null; return agCallExec(idx); }
     if(/\b(cancela|cancelar|n[aã]o|nao|deixa|esquece|negativo)\b/.test(low)){ const idx=AG.call.pending; AG.call.pending=null; agenteCancel(idx); return agCallSpeak('Ok, cancelei. Mais alguma coisa?', ()=>agCallListen()); }
   }
-  agCallPhase('thinking','💭 Pensando…'); agCallSub(text);
+  // Anexos subidos durante a ligação (📎) entram junto com a fala.
+  const anexos=(AG.files||[]).slice();
+  if(anexos.length){ AG.files=[]; try{renderAgFiles();}catch(_){} }
+  agCallPhase('thinking','💭 Pensando…'); agCallSub((anexos.length?('📎 '+anexos.length+' anexo(s) · '):'')+text);
   try{
     const prev=AG.hist.slice(-12).filter(x=>x.role==='user'||x.role==='assistant');
-    const r=await api('/agente/chat',{method:'POST',body:{mensagem:text, historico:prev}});
-    AG.hist.push({role:'user',content:text});
+    const r=await api('/agente/chat',{method:'POST',body:{mensagem:text, historico:prev, anexos}});
+    AG.hist.push({role:'user',content:text+(anexos.length?('\n📎 '+anexos.map(a=>a.nome).join(', ')):'')});
     AG.hist.push({role:'assistant',content:r.resposta||'—'});
     (r.acoes||[]).forEach(a=>AG.hist.push({role:'acao',tipo:a.tipo,dados:a.dados,descricao:a.descricao,estado:'pendente'}));
     renderAgMsgs();

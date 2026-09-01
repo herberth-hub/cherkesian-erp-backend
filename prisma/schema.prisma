@@ -137,6 +137,7 @@ model Filial {
   ibsCbsCst         String?  @default("000")        // CST do IBS/CBS
   ibsCbsClassTrib   String?  @default("000001")     // cClassTrib (classificação tributária)
   pesoMedioPeca     Decimal? @db.Decimal(8,3)       // kg por peça (estimativa p/ peso bruto/líquido na NF)
+  impostoVendaPercent Decimal? @db.Decimal(5,2)     // imposto total sobre a venda (%) — usado p/ o líquido na comissão automática
   nomeFantasia      String?
   logradouro        String?
   numeroEndereco    String?
@@ -724,6 +725,7 @@ model ContaReceber {
   status        TituloStatus @default(a_vencer)
   ultimaCobrancaEm  DateTime? // última cobrança por e-mail enviada (régua)
   cobrancasEnviadas Int      @default(0) // nº de cobranças já disparadas
+  comissaoGerada    Boolean  @default(false) // regra de comissão automática já aplicada ao quitar
 }
 
 /// Régua de cobrança por e-mail dos títulos em aberto (a receber).
