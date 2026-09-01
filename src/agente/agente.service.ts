@@ -14,6 +14,7 @@ import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { RhService } from '../rh/rh.service';
 import { CreateClienteDto } from '../clientes/dto/create-cliente.dto';
 import { CreatePedidoDto } from '../pedidos/dto/create-pedido.dto';
 
@@ -78,6 +79,7 @@ export class AgenteService {
     private readonly config: ConfigService,
     private readonly pedidos: PedidosService,
     private readonly clientes: ClientesService,
+    private readonly rh: RhService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
@@ -374,6 +376,26 @@ export class AgenteService {
         areas: ['estoque'],
         def: { name: 'consultar_estoque_materiais', description: 'Saldo de matéria-prima/insumos (código, descrição, saldo, mínimo, unidade). Use somente_abaixo_minimo para o que precisa comprar.', input_schema: { type: 'object', properties: { somente_abaixo_minimo: { type: 'boolean' }, limite: { type: 'integer' } } } },
         run: (empresaId, input) => this.materiaisLista(empresaId, input),
+      },
+      {
+        areas: ['estoque'],
+        def: { name: 'consultar_estoque_produtos', description: 'Saldo de PRODUTO ACABADO por produto e tamanho (entradas, saídas, saldo, mínimo, localização). Use somente_abaixo_minimo para o que está faltando. Ex.: "quanto tenho da camisa polo?".', input_schema: { type: 'object', properties: { busca: { type: 'string' }, somente_abaixo_minimo: { type: 'boolean' } } } },
+        run: (empresaId, input) => this.estoqueProdutos(empresaId, input),
+      },
+      {
+        areas: ['estoque'],
+        def: { name: 'consultar_retalhos', description: 'Retalhos de tecido em estoque (ainda não reciclados): descrição, cor, peso em kg, localização e origem. Retorna o peso total. Ex.: "quantos kg de retalho eu tenho?".', input_schema: { type: 'object', properties: { busca: { type: 'string' } } } },
+        run: (empresaId, input) => this.retalhosLista(empresaId, input),
+      },
+      {
+        areas: ['producao', 'estoque'],
+        def: { name: 'consultar_kits', description: 'Kits de corte / rastreabilidade: código, cliente, modelo, cor, tamanho, peças, status (em_corte, aguardando_expedicao, em_faccao, retornado, em_conferencia, finalizado) e facção. Filtre por status. Ex.: "kits em facção", "status do kit X".', input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['criado', 'em_corte', 'aguardando_expedicao', 'em_faccao', 'retornado', 'em_conferencia', 'finalizado'] }, busca: { type: 'string' } } } },
+        run: (empresaId, input) => this.kitsLista(empresaId, input),
+      },
+      {
+        areas: ['rh'],
+        def: { name: 'consultar_rh', description: 'RH: folha do mês por funcionário (dias, faltas, horas trabalhadas, HORAS EXTRAS, valor das extras e total) + totais. Informe o mês AAAA-MM (padrão: mês atual). Ex.: "horas extras do mês", "folha de setembro".', input_schema: { type: 'object', properties: { mes: { type: 'string', description: 'AAAA-MM (opcional; padrão mês atual).' } } } },
+        run: (empresaId, input) => this.rhResumo(empresaId, input),
       },
       {
         areas: ['producao', 'pcp'],
@@ -697,6 +719,65 @@ export class AgenteService {
         cidade: l.cidadeUf,
       }));
     return { total: lista.length, leads: lista };
+  }
+
+  private async estoqueProdutos(empresaId: number, input: Record<string, unknown> = {}) {
+    const busca = String(input?.busca ?? '').trim().toLowerCase();
+    const linhas = await this.prisma.estoque.findMany({
+      where: { produto: { empresaId } },
+      include: { produto: { select: { codigo: true, descricao: true, cor: true } } },
+      orderBy: { produtoId: 'asc' },
+    });
+    let itens = linhas
+      .map((e) => {
+        const saldo = (e.entradas || 0) - (e.saidas || 0);
+        return { codigo: e.produto?.codigo, produto: e.produto?.descricao, cor: e.produto?.cor, tamanho: e.tamanho, saldo, minimo: e.minimo, localizacao: e.localizacao, abaixoMinimo: saldo < (e.minimo || 0) };
+      })
+      .filter((i) => !busca || `${i.codigo ?? ''} ${i.produto ?? ''} ${i.cor ?? ''}`.toLowerCase().includes(busca));
+    if (input?.somente_abaixo_minimo) itens = itens.filter((i) => i.abaixoMinimo);
+    const totalPecas = itens.reduce((s, i) => s + Math.max(0, i.saldo), 0);
+    return { total: itens.length, totalPecas, itens: itens.slice(0, 120) };
+  }
+
+  private async retalhosLista(empresaId: number, input: Record<string, unknown> = {}) {
+    const busca = String(input?.busca ?? '').trim().toLowerCase();
+    const retalhos = await this.prisma.retalho.findMany({
+      where: { empresaId, reciclado: false },
+      orderBy: { criadoEm: 'desc' },
+      take: 120,
+    });
+    const lista = retalhos
+      .filter((r) => !busca || `${r.descricao} ${r.cor ?? ''} ${r.composicao ?? ''}`.toLowerCase().includes(busca))
+      .map((r) => ({ descricao: r.descricao, cor: r.cor, composicao: r.composicao, pesoKg: num(r.pesoKg), localizacao: r.localizacao, origem: r.origem }));
+    const pesoTotalKg = Number(lista.reduce((s, r) => s + r.pesoKg, 0).toFixed(3));
+    return { total: lista.length, pesoTotalKg, retalhos: lista };
+  }
+
+  private async kitsLista(empresaId: number, input: Record<string, unknown> = {}) {
+    const status = String(input?.status ?? '').trim();
+    const busca = String(input?.busca ?? '').trim().toLowerCase();
+    const kits = await this.prisma.kit.findMany({
+      where: { empresaId, ...(status ? { status } : {}) },
+      orderBy: { id: 'desc' },
+      take: 120,
+      select: { codigo: true, clienteNome: true, modelo: true, cor: true, tamanho: true, pecasTotal: true, status: true, faccaoNome: true, remessaNfNumero: true, retornoNfNumero: true },
+    });
+    const porStatus: Record<string, number> = {};
+    for (const k of kits) porStatus[k.status] = (porStatus[k.status] || 0) + 1;
+    const lista = kits
+      .filter((k) => !busca || `${k.codigo} ${k.clienteNome ?? ''} ${k.modelo ?? ''}`.toLowerCase().includes(busca))
+      .map((k) => ({ codigo: k.codigo, cliente: k.clienteNome, modelo: k.modelo, cor: k.cor, tamanho: k.tamanho, pecas: k.pecasTotal, status: k.status, faccao: k.faccaoNome, nfRemessa: k.remessaNfNumero, nfRetorno: k.retornoNfNumero }));
+    return { total: lista.length, porStatus, kits: lista.slice(0, 60) };
+  }
+
+  private async rhResumo(empresaId: number, input: Record<string, unknown> = {}) {
+    const agora = new Date();
+    const mes = String(input?.mes ?? '').trim() || `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`;
+    try {
+      return await this.rh.resumoMes(empresaId, mes);
+    } catch (e) {
+      return { erro: e instanceof Error ? e.message : 'Não foi possível montar a folha do mês.' };
+    }
   }
 
   private async titulos(tipo: 'receber' | 'pagar', empresaId: number, input: Record<string, unknown>) {
