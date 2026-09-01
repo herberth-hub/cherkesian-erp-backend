@@ -356,6 +356,16 @@ export class AgenteService {
         run: (empresaId, input) => this.clientesLista(empresaId, input),
       },
       {
+        areas: ['vendas', 'clientes'],
+        def: { name: 'consultar_contratos', description: 'Contratos de clientes: cliente, vendedor da carteira, empresa emissora, forma/condição de pagamento, prazo e a TABELA DE PREÇO (produtos e preço fixo). Use para "qual o contrato do cliente X", "preço do produto no contrato", "condição de pagamento do contrato".', input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'Nome do cliente ou vendedor (opcional).' }, somente_ativos: { type: 'boolean' } } } },
+        run: (empresaId, input) => this.contratosLista(empresaId, input),
+      },
+      {
+        areas: ['crm'],
+        def: { name: 'consultar_leads', description: 'Funil de vendas (CRM): leads/prospects com etapa, valor estimado, vendedor, próxima ação e contato. Filtre por etapa. Use para "meus leads", "o que tem no funil", "leads em negociação".', input_schema: { type: 'object', properties: { etapa: { type: 'string', enum: ['novo', 'contato', 'qualificado', 'proposta', 'negociacao', 'ganho', 'perdido'] }, busca: { type: 'string' } } } },
+        run: (empresaId, input) => this.leadsLista(empresaId, input, user),
+      },
+      {
         areas: ['precificacao', 'cadastros'],
         def: { name: 'listar_produtos', description: 'Lista produtos (código, categoria, descrição, preço base).', input_schema: { type: 'object', properties: { busca: { type: 'string' }, limite: { type: 'integer' } } } },
         run: (empresaId, input) => this.produtosLista(empresaId, input),
@@ -630,6 +640,63 @@ export class AgenteService {
         })),
       );
     return { total: contas.length, contas };
+  }
+
+  private async contratosLista(empresaId: number, input: Record<string, unknown> = {}) {
+    const busca = String(input?.cliente ?? input?.busca ?? '').trim().toLowerCase();
+    const contratos = await this.prisma.contrato.findMany({
+      where: { empresaId, ...(input?.somente_ativos ? { ativo: true } : {}) },
+      include: {
+        cliente: { select: { nome: true, cnpjCpf: true } },
+        filial: { select: { nome: true } },
+        itens: { select: { descricao: true, preco: true, unidade: true } },
+      },
+      orderBy: [{ ativo: 'desc' }, { id: 'desc' }],
+      take: 50,
+    });
+    const lista = contratos
+      .filter((c) => !busca || (c.cliente?.nome ?? '').toLowerCase().includes(busca) || (c.vendedor ?? '').toLowerCase().includes(busca))
+      .map((c) => ({
+        cliente: c.cliente?.nome,
+        cnpj: c.cliente?.cnpjCpf,
+        vendedor: c.vendedor,
+        empresaEmissora: c.filial?.nome,
+        numero: c.numero,
+        formaPagamento: c.formaPagamento,
+        condicaoPagamento: c.condicaoPagamento,
+        prazoEntrega: c.prazoEntrega,
+        ativo: c.ativo,
+        itens: c.itens.map((i) => ({ produto: i.descricao, preco: num(i.preco), unidade: i.unidade })),
+      }));
+    return { total: lista.length, contratos: lista };
+  }
+
+  private async leadsLista(empresaId: number, input: Record<string, unknown> = {}, user?: AuthUser) {
+    const where: Record<string, unknown> = { empresaId };
+    if (user && user.acesso === 'vendedor') where.vendedorId = user.sub; // vendedor vê só a carteira dele
+    const etapa = String(input?.etapa ?? '').trim();
+    if (etapa) where.etapa = etapa;
+    const busca = String(input?.busca ?? '').trim().toLowerCase();
+    const leads = await this.prisma.lead.findMany({
+      where: where as never,
+      orderBy: { atualizadoEm: 'desc' },
+      take: 60,
+      select: { nome: true, empresa: true, etapa: true, valorEstimado: true, vendedorNome: true, proximaAcao: true, proximaAcaoEm: true, telefone: true, cidadeUf: true },
+    });
+    const lista = leads
+      .filter((l) => !busca || (l.nome ?? '').toLowerCase().includes(busca) || (l.empresa ?? '').toLowerCase().includes(busca))
+      .map((l) => ({
+        nome: l.nome,
+        empresa: l.empresa,
+        etapa: l.etapa,
+        valorEstimado: num(l.valorEstimado),
+        vendedor: l.vendedorNome,
+        proximaAcao: l.proximaAcao,
+        proximaAcaoEm: l.proximaAcaoEm ? String(l.proximaAcaoEm).slice(0, 10) : null,
+        telefone: l.telefone,
+        cidade: l.cidadeUf,
+      }));
+    return { total: lista.length, leads: lista };
   }
 
   private async titulos(tipo: 'receber' | 'pagar', empresaId: number, input: Record<string, unknown>) {
