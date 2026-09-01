@@ -1045,8 +1045,16 @@ export class NfeService {
   /** Referência da nota na Focus (avulsa usa prefixo NFEAV-, normal usa NFE-). */
   private refDaNota(nota: NotaFiscal): string {
     const numeroSeq = Number(String(nota.numero).split('/').pop());
-    const prefixo = nota.expedicaoId ? 'NFE' : 'NFEAV';
-    return `${prefixo}-${nota.filialId ?? 0}-${nota.serie}-${numeroSeq}`;
+    const fid = nota.filialId ?? 0;
+    // O prefixo TEM que ser o mesmo usado na emissão (emitirFocusNfe), senão a
+    // consulta/cancelamento/DANFE pergunta por uma referência que não existe.
+    let prefixo: string;
+    if (nota.tipo === 'faturamento') prefixo = 'NFEFAT';
+    else if (nota.tipo === 'remessa_futura') prefixo = 'NFEREMF';
+    else if (nota.tipo === 'remessa') prefixo = nota.controleFaccao ? 'NFEREM' : 'NFEREMAV';
+    else if (nota.expedicaoId) prefixo = 'NFE';
+    else prefixo = 'NFEAV';
+    return `${prefixo}-${fid}-${nota.serie}-${numeroSeq}`;
   }
 
   /** Monta a cobrança (duplicatas) da NF a partir da forma de pagamento do pedido.
