@@ -7524,7 +7524,7 @@ async function consultarNfe(id){
 }
 
 // ---------- Assistente IA (Fase 5) ----------
-const AG = { hist: [], busy: false, files: [] };
+const AG = { hist: [], busy: false, files: [], call: null };
 const AG_SUGESTOES = [
   'Quantos pedidos estão em produção?',
   'Quais materiais estão abaixo do estoque mínimo?',
@@ -7545,7 +7545,13 @@ function agCard(m,i){
         <button class="ag-no" onclick="APP.agenteCancel(${i})">Cancelar</button>
       </div></div>`;
   }
-  if(m.estado==='feito') return `<div class="ag-card ok"><div class="ag-card-h">✅ Executado</div><div class="ag-card-d">${esc(m.resultado||m.descricao)}</div></div>`;
+  if(m.estado==='feito'){
+    let extra='';
+    if(m.tipo==='criar_orcamento' && m.entidade && m.entidade.id){
+      extra=`<div class="ag-card-b"><button class="ag-ok" onclick="APP.gerarDoc('proposta',${m.entidade.id})">📄 Gerar proposta (PDF) p/ enviar ao cliente</button></div>`;
+    }
+    return `<div class="ag-card ok"><div class="ag-card-h">✅ Executado</div><div class="ag-card-d">${esc(m.resultado||m.descricao)}</div>${extra}</div>`;
+  }
   if(m.estado==='erro')  return `<div class="ag-card err"><div class="ag-card-h">❌ Não executado</div><div class="ag-card-d">${esc(m.descricao)} — ${esc(m.resultado||'')}</div></div>`;
   return `<div class="ag-card canc"><div class="ag-card-d">✖ Ação cancelada: ${esc(m.descricao)}</div></div>`;
 }
@@ -7611,13 +7617,17 @@ async function viewAgente(c){
     </style>
     ${aviso}
     <div class="ag-wrap">
-      <div class="ag-tools"><button class="ag-clear" onclick="APP.agenteClear()">Limpar conversa</button></div>
+      <div class="ag-tools" style="justify-content:space-between">
+        <button onclick="APP.agCallOpen()" style="background:#1f8a4c;color:#fff;border:0;border-radius:20px;padding:8px 16px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px">📞 Ligar para o assistente</button>
+        <button class="ag-clear" onclick="APP.agenteClear()">Limpar conversa</button>
+      </div>
       <div id="agMsgs" class="ag-msgs"></div>
       <div id="agFiles" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 14px 0"></div>
       <div class="ag-input">
         <input type="file" id="agFileInp" multiple accept=".xlsx,.xls,.csv,.txt,.pdf,image/*" style="display:none" onchange="APP.agenteFilePick(event)">
         <button class="ag-no" title="Anexar arquivo (Excel, PDF, imagem)" onclick="document.getElementById('agFileInp').click()" style="padding:0 14px">📎</button>
-        <textarea id="agInput" rows="1" placeholder="Escreva sua pergunta e tecle Enter… (ou anexe Excel/PDF/imagem)" onkeydown="APP.agenteKey(event)" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+        <button id="agMic" class="ag-no" title="Ditar por voz" onclick="APP.agenteMic()" style="padding:0 14px">🎤</button>
+        <textarea id="agInput" rows="1" placeholder="Escreva, dite (🎤) ou ligue (📞)… pode anexar Excel/PDF/imagem" onkeydown="APP.agenteKey(event)" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
         <button id="agSend" class="ag-send" onclick="APP.agenteSend()">Enviar</button>
       </div>
     </div>`;
@@ -7689,6 +7699,7 @@ async function agenteExec(i){
     const r = await api('/agente/executar', { method:'POST', body:{ tipo:a.tipo, dados:a.dados } });
     a.estado = r && r.ok ? 'feito' : 'erro';
     a.resultado = (r && r.resumo) || '';
+    a.entidade = r && r.resultado;
     if(a.estado==='feito') toast(a.resultado,'ok');
   }catch(e){
     a.estado='erro'; a.resultado = e.message || 'Falha ao executar.';
@@ -7698,6 +7709,128 @@ async function agenteExec(i){
 function agenteCancel(i){
   const a = AG.hist[i]; if(!a || a.estado!=='pendente') return;
   a.estado='cancelado'; renderAgMsgs();
+}
+
+// ===== Voz: ditado (mic) para o campo de texto =====
+function agSpeechRec(){ return window.SpeechRecognition || window.webkitSpeechRecognition; }
+let AG_MICREC=null;
+function agenteMic(){
+  const Rec=agSpeechRec();
+  if(!Rec){ toast('Ditado por voz não suportado neste navegador. Use o Google Chrome.','err'); return; }
+  if(AG_MICREC){ try{AG_MICREC.stop();}catch(_){}; return; }
+  const rec=new Rec(); AG_MICREC=rec; rec.lang='pt-BR'; rec.interimResults=true; rec.continuous=false;
+  const b=$('agMic'); if(b){ b.textContent='●'; b.style.background='#c14a34'; b.style.color='#fff'; }
+  let fin='';
+  rec.onresult=(e)=>{ let it=''; for(let k=e.resultIndex;k<e.results.length;k++){ const t=e.results[k][0].transcript; if(e.results[k].isFinal) fin+=t+' '; else it+=t; } const ta=$('agInput'); if(ta){ ta.value=(fin+it).trim(); ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; } };
+  rec.onerror=()=>{};
+  rec.onend=()=>{ AG_MICREC=null; const b2=$('agMic'); if(b2){ b2.textContent='🎤'; b2.style.background=''; b2.style.color=''; } const ta=$('agInput'); if(ta&&ta.value.trim()) agenteSend(); };
+  try{ rec.start(); }catch(_){ AG_MICREC=null; }
+}
+
+// ===== Modo LIGAÇÃO: conversa por voz, hands-free (dirigindo) =====
+function agCallSupported(){ return !!agSpeechRec() && !!window.speechSynthesis; }
+function agCallOpen(){
+  if(!agCallSupported()){ toast('A ligação por voz precisa do Google Chrome (no celular, Chrome Android) com microfone.','err'); return; }
+  if(AG.call && AG.call.active) return;
+  AG.call={ active:true, rec:null, muted:false, pending:null };
+  const ov=document.createElement('div'); ov.id='agCallOv';
+  ov.innerHTML=`<style>
+    #agCallOv{position:fixed;inset:0;z-index:99998;background:linear-gradient(160deg,#0f1a14,#0a0a0a);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#eee;font-family:inherit}
+    .acall-orb{width:150px;height:150px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2fae6a,#1f8a4c);box-shadow:0 0 0 0 rgba(47,174,106,.5);display:flex;align-items:center;justify-content:center;font-size:54px;transition:.3s}
+    .acall-orb.listening{animation:acp 1.4s infinite}
+    .acall-orb.speaking{background:radial-gradient(circle at 35% 30%,#e6b23a,#C9A227)}
+    .acall-orb.thinking{background:radial-gradient(circle at 35% 30%,#4a90d9,#2b6cb0)}
+    @keyframes acp{0%{box-shadow:0 0 0 0 rgba(47,174,106,.5)}70%{box-shadow:0 0 0 34px rgba(47,174,106,0)}100%{box-shadow:0 0 0 0 rgba(47,174,106,0)}}
+    .acall-st{margin-top:26px;font-size:18px;font-weight:700}
+    .acall-sub{margin-top:12px;max-width:640px;padding:0 24px;text-align:center;font-size:15px;line-height:1.5;min-height:48px;color:#cbc4b4}
+    .acall-btns{position:absolute;bottom:48px;display:flex;gap:20px}
+    .acall-b{width:66px;height:66px;border-radius:50%;border:0;font-size:26px;cursor:pointer;color:#fff;display:flex;align-items:center;justify-content:center}
+    .acall-mute{background:#3a3a3a}.acall-end{background:#d33a2c}
+    .acall-hint{position:absolute;top:22px;font-size:12px;color:#8a857a}
+  </style>
+  <div class="acall-hint">🚗 Modo ligação — fale à vontade. Toque em 📞 vermelho para desligar.</div>
+  <div id="acallOrb" class="acall-orb">🎧</div>
+  <div id="acallSt" class="acall-st">Conectando…</div>
+  <div id="acallSub" class="acall-sub"></div>
+  <div class="acall-btns">
+    <button id="acallMute" class="acall-b acall-mute" title="Mudo" onclick="APP.agCallMute()">🎤</button>
+    <button class="acall-b acall-end" title="Desligar" onclick="APP.agCallEnd()">📞</button>
+  </div>`;
+  document.body.appendChild(ov);
+  const nome=(S.user&&S.user.nome)?String(S.user.nome).split(' ')[0]:'';
+  agCallSpeak(`Alô${nome?', '+nome:''}! Aqui é o assistente comercial. Pode falar: eu monto orçamento, consulto preço, pedido ou estoque. O que você precisa?`, ()=>agCallListen());
+}
+function agCallEnd(){
+  if(!AG.call) return; AG.call.active=false;
+  if(AG.call.rec){ try{AG.call.rec.abort();}catch(_){}} AG.call.rec=null;
+  try{ window.speechSynthesis.cancel(); }catch(_){}
+  const ov=$('agCallOv'); if(ov) ov.remove();
+  renderAgMsgs();
+}
+function agCallPhase(cls, texto){ const o=$('acallOrb'); if(o) o.className='acall-orb '+cls; const s=$('acallSt'); if(s&&texto!=null) s.textContent=texto; }
+function agCallSub(t){ const s=$('acallSub'); if(s) s.textContent=t||''; }
+function agCallSpeak(text, cb){
+  if(!AG.call||!AG.call.active){ return; }
+  if(AG.call.rec){ try{AG.call.rec.abort();}catch(_){}; AG.call.rec=null; }
+  agCallPhase('speaking','🔊 Assistente'); agCallSub(text);
+  const clean=String(text||'').replace(/[*_#`>|]+/g,'').slice(0,1400);
+  if(!window.speechSynthesis){ setTimeout(()=>cb&&cb(),400); return; }
+  try{
+    window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(clean); u.lang='pt-BR'; u.rate=1.04;
+    const vs=window.speechSynthesis.getVoices()||[]; const v=vs.find(x=>/pt.?BR/i.test(x.lang))||vs.find(x=>/^pt/i.test(x.lang)); if(v)u.voice=v;
+    u.onend=()=>{ if(AG.call&&AG.call.active) cb&&cb(); };
+    u.onerror=()=>{ if(AG.call&&AG.call.active) cb&&cb(); };
+    window.speechSynthesis.speak(u);
+  }catch(_){ setTimeout(()=>cb&&cb(),400); }
+}
+function agCallListen(){
+  if(!AG.call||!AG.call.active||AG.call.muted) return;
+  const Rec=agSpeechRec(); if(!Rec) return;
+  const rec=new Rec(); AG.call.rec=rec; rec.lang='pt-BR'; rec.interimResults=true; rec.continuous=false; rec.maxAlternatives=1;
+  agCallPhase('listening','🎤 Pode falar…'); agCallSub('');
+  let fin='';
+  rec.onresult=(e)=>{ let it=''; for(let k=e.resultIndex;k<e.results.length;k++){ const t=e.results[k][0].transcript; if(e.results[k].isFinal) fin+=t+' '; else it+=t; } agCallSub((fin+it).trim()); };
+  rec.onerror=(e)=>{ if(e.error==='not-allowed'||e.error==='service-not-allowed'){ agCallPhase('','🎤 Permita o microfone no navegador para conversar.'); } };
+  rec.onend=()=>{ AG.call.rec=null; if(!AG.call.active) return; const txt=fin.trim(); if(txt){ agCallHandle(txt); } else if(!AG.call.muted){ agCallListen(); } };
+  try{ rec.start(); }catch(_){ }
+}
+function agCallMute(){
+  if(!AG.call) return; AG.call.muted=!AG.call.muted; const b=$('acallMute');
+  if(AG.call.muted){ if(AG.call.rec){try{AG.call.rec.abort();}catch(_){}} AG.call.rec=null; if(b){b.textContent='🔇';b.style.background='#8a3222';} agCallPhase('','🔇 Microfone mudo — toque 🔇 para voltar'); }
+  else { if(b){b.textContent='🎤';b.style.background='#3a3a3a';} agCallListen(); }
+}
+async function agCallHandle(text){
+  // confirmação/cancelamento de ação pendente por voz
+  if(AG.call.pending!=null){
+    const low=text.toLowerCase();
+    if(/\b(confirmar|confirma|pode confirmar|sim|isso|aprova|manda|fecha|fechado|ok|beleza|positivo)\b/.test(low)){ const idx=AG.call.pending; AG.call.pending=null; return agCallExec(idx); }
+    if(/\b(cancela|cancelar|n[aã]o|nao|deixa|esquece|negativo)\b/.test(low)){ const idx=AG.call.pending; AG.call.pending=null; agenteCancel(idx); return agCallSpeak('Ok, cancelei. Mais alguma coisa?', ()=>agCallListen()); }
+  }
+  agCallPhase('thinking','💭 Pensando…'); agCallSub(text);
+  try{
+    const prev=AG.hist.slice(-12).filter(x=>x.role==='user'||x.role==='assistant');
+    const r=await api('/agente/chat',{method:'POST',body:{mensagem:text, historico:prev}});
+    AG.hist.push({role:'user',content:text});
+    AG.hist.push({role:'assistant',content:r.resposta||'—'});
+    (r.acoes||[]).forEach(a=>AG.hist.push({role:'acao',tipo:a.tipo,dados:a.dados,descricao:a.descricao,estado:'pendente'}));
+    renderAgMsgs();
+    let pend=null; for(let k=AG.hist.length-1;k>=0;k--){ if(AG.hist[k].role==='acao'&&AG.hist[k].estado==='pendente'){ pend=k; break; } }
+    AG.call.pending=pend;
+    let fala=r.resposta||(pend!=null?'Preparei a ação. Posso confirmar?':'Certo.');
+    if(pend!=null && !/confirm|posso|pode/i.test(fala)) fala+=' Posso confirmar?';
+    agCallSpeak(fala, ()=>agCallListen());
+  }catch(e){ agCallSpeak('Tive um probleminha para responder. Pode repetir?', ()=>agCallListen()); }
+}
+async function agCallExec(idx){
+  agCallPhase('thinking','⚙️ Executando…');
+  try{
+    const a=AG.hist[idx]; const r=await api('/agente/executar',{method:'POST',body:{tipo:a.tipo,dados:a.dados}});
+    a.estado=r&&r.ok?'feito':'erro'; a.resultado=(r&&r.resumo)||''; a.entidade=r&&r.resultado; renderAgMsgs();
+    let fala=a.resultado||'Feito.';
+    if(a.tipo==='criar_orcamento'&&a.entidade&&a.entidade.id) fala+=' A proposta em PDF já está pronta na tela do assistente para você enviar ao cliente.';
+    agCallSpeak(fala+' Mais alguma coisa?', ()=>agCallListen());
+  }catch(e){ agCallSpeak('Não consegui executar. '+(e.message||'')+' Quer tentar de novo?', ()=>agCallListen()); }
 }
 
 // ---------- Config fiscal da empresa (NF-e) ----------
@@ -8793,7 +8926,7 @@ window.APP = {
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
-  agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel,
+  agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
   relatorio, relGerar, sugerirCompraTecido,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
