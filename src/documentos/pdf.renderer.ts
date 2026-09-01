@@ -457,14 +457,17 @@ export function pedidoGradeTabela(
   ];
   const headers = ['#', 'CÓDIGO', 'DESCRIÇÃO', 'COR', ...data.sizes, ...(sv ? [] : ['V.UN', 'V.TOTAL'])];
 
-  const drawRow = (cells: string[], o: { header?: boolean; total?: boolean } = {}) => {
+  // Altura de uma linha (pela coluna mais alta — descrição/cor quebram linha).
+  const alturaLinha = (cells: string[], o: { header?: boolean; total?: boolean } = {}) => {
     const fs = o.header ? 6.8 : 7.4;
     doc.font(o.header || o.total ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs);
-    // altura pela coluna mais alta (descrição OU cor, que também quebram linha)
     const hDesc = doc.heightOfString(cells[2] || '', { width: cols[2].w - 6 });
     const hCor = doc.heightOfString(cells[3] || '', { width: cols[3].w - 6 });
-    const rowH = Math.max(o.header ? 16 : 15, Math.max(hDesc, hCor) + 6);
-    if (doc.y + rowH > doc.page.height - 80) { doc.addPage(); }
+    return Math.max(o.header ? 16 : 15, Math.max(hDesc, hCor) + 6);
+  };
+  // Desenha a linha na posição atual (SEM decidir quebra de página).
+  const desenha = (cells: string[], rowH: number, o: { header?: boolean; total?: boolean } = {}) => {
+    const fs = o.header ? 6.8 : 7.4;
     let x = x0; const y = doc.y;
     for (let i = 0; i < cols.length; i++) {
       if (o.header) doc.rect(x, y, cols[i].w, rowH).fill('#f4f0e2');
@@ -476,12 +479,21 @@ export function pedidoGradeTabela(
     }
     doc.x = x0; doc.y = y + rowH;
   };
+  const desenhaCabecalho = () => desenha(headers, alturaLinha(headers, { header: true }), { header: true });
 
-  drawRow(headers, { header: true });
+  // Cabeçalho na primeira página e repetido a cada quebra.
+  desenhaCabecalho();
+  const linhaFim = doc.page.height - 80;
   for (const r of data.rows) {
-    drawRow([r.num, r.codigo ?? '—', r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), ...(sv ? [] : [r.vUnit, r.vTotal])]);
+    const cells = [r.num, r.codigo ?? '—', r.descricao, r.cor ?? '—', ...data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : '')), ...(sv ? [] : [r.vUnit, r.vTotal])];
+    const rowH = alturaLinha(cells);
+    if (doc.y + rowH > linhaFim) { doc.addPage(); desenhaCabecalho(); }
+    desenha(cells, rowH);
   }
-  drawRow(['', '', 'TOTAL', sv ? `${data.totPecas} pç` : '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), ...(sv ? [] : [String(data.totPecas), data.totValor])], { total: true });
+  const totalCells = ['', '', 'TOTAL', sv ? `${data.totPecas} pç` : '', ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '0')), ...(sv ? [] : [String(data.totPecas), data.totValor])];
+  const totalH = alturaLinha(totalCells, { total: true });
+  if (doc.y + totalH > linhaFim) { doc.addPage(); desenhaCabecalho(); }
+  desenha(totalCells, totalH, { total: true });
   doc.x = x0; doc.moveDown(0.6);
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
 }
