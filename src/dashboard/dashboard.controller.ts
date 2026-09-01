@@ -13,4 +13,10 @@ export class DashboardController {
   kpis(@CurrentUser() user: AuthUser) {
     return this.dashboardService.kpis(user.empresaId, user.acesso);
   }
+
+  /** Painel do Diretor: índices (0–100) por pilar da empresa. */
+  @Get('indices')
+  indices(@CurrentUser() user: AuthUser) {
+    return this.dashboardService.indices(user.empresaId);
+  }
 }

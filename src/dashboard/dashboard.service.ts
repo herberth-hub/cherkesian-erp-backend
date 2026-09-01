@@ -320,4 +320,124 @@ export class DashboardService {
     }
     return resposta;
   }
+
+  /**
+   * Painel do Diretor: um índice (0–100) por pilar da empresa — Clientes, Pedidos,
+   * Produção, Entrega e Faturamento — com as métricas que compõem cada índice.
+   */
+  async indices(empresaId: number) {
+    const agora = new Date();
+    const y = agora.getUTCFullYear(), mo = agora.getUTCMonth();
+    const iniMes = new Date(Date.UTC(y, mo, 1));
+    const iniMesAnt = new Date(Date.UTC(y, mo - 1, 1));
+    const hoje0 = new Date(); hoje0.setHours(0, 0, 0, 0);
+    const dias90 = new Date(Date.now() - 90 * 86400000);
+
+    const [clientesTot, novosMes, pedidos, ops, nfsMes, nfsMesAnt, receber] = await Promise.all([
+      this.prisma.cliente.count({ where: { empresaId } }),
+      this.prisma.cliente.count({ where: { empresaId, criadoEm: { gte: iniMes } } }),
+      this.prisma.pedido.findMany({ where: { empresaId }, select: { clienteId: true, etapa: true, valorTotal: true, data: true, prazoEntrega: true } }),
+      this.prisma.oP.findMany({ where: { pedido: { empresaId } }, select: { status: true, entregaPrev: true } }),
+      this.prisma.notaFiscal.findMany({ where: { empresaId, status: 'autorizada', emitidaEm: { gte: iniMes } }, select: { valor: true } }),
+      this.prisma.notaFiscal.findMany({ where: { empresaId, status: 'autorizada', emitidaEm: { gte: iniMesAnt, lt: iniMes } }, select: { valor: true } }),
+      this.prisma.contaReceber.findMany({ where: { empresaId }, select: { clienteId: true, valor: true, pago: true, vencimento: true } }),
+    ]);
+
+    const round = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+    const statusDe = (i: number) => (i >= 80 ? 'bom' : i >= 60 ? 'atencao' : 'critico');
+
+    // ===== CLIENTES: ativação da carteira =====
+    const ativos90 = new Set(pedidos.filter((p) => p.data >= dias90).map((p) => p.clienteId)).size;
+    const inadimplentes = new Set(
+      receber.filter((r) => Number(r.valor) - Number(r.pago) > 0.005 && r.vencimento < hoje0).map((r) => r.clienteId),
+    ).size;
+    const idxClientes = round(clientesTot > 0 ? (ativos90 / clientesTot) * 100 : 0);
+
+    // ===== PEDIDOS: conversão orçamento -> aprovado =====
+    const orcamentos = pedidos.filter((p) => p.etapa === 'orcamento');
+    const aprovados = pedidos.filter((p) => p.etapa !== 'orcamento' && p.etapa !== 'cancelado');
+    const baseConv = aprovados.length + orcamentos.length;
+    const conversao = baseConv > 0 ? (aprovados.length / baseConv) * 100 : 0;
+    const pedidosMes = pedidos.filter((p) => p.data >= iniMes && p.etapa !== 'cancelado').length;
+    const ticket = aprovados.length ? aprovados.reduce((s, p) => s + Number(p.valorTotal), 0) / aprovados.length : 0;
+    const pipeline = orcamentos.reduce((s, p) => s + Number(p.valorTotal), 0);
+    const idxPedidos = round(conversao);
+
+    // ===== PRODUÇÃO: OPs no prazo =====
+    const opsAtivas = ops.filter((o) => o.status !== 'concluido');
+    const opsAtras = opsAtivas.filter((o) => o.entregaPrev && new Date(o.entregaPrev) < hoje0);
+    const opsConcl = ops.filter((o) => o.status === 'concluido').length;
+    const idxProducao = round(opsAtivas.length > 0 ? ((opsAtivas.length - opsAtras.length) / opsAtivas.length) * 100 : 100);
+
+    // ===== ENTREGA: pedidos no prazo =====
+    const emEntrega = pedidos.filter((p) => !['orcamento', 'cancelado', 'concluido'].includes(p.etapa));
+    const atrasadosEnt = emEntrega.filter((p) => p.prazoEntrega && new Date(p.prazoEntrega) < hoje0);
+    const entregues = pedidos.filter((p) => p.etapa === 'concluido').length;
+    const idxEntrega = round(emEntrega.length > 0 ? ((emEntrega.length - atrasadosEnt.length) / emEntrega.length) * 100 : 100);
+
+    // ===== FATURAMENTO: crescimento + saúde da cobrança =====
+    const fatMes = nfsMes.reduce((s, n) => s + Number(n.valor), 0);
+    const fatAnt = nfsMesAnt.reduce((s, n) => s + Number(n.valor), 0);
+    const aReceber = receber.reduce((s, r) => s + Math.max(0, Number(r.valor) - Number(r.pago)), 0);
+    const vencido = receber.filter((r) => r.vencimento < hoje0).reduce((s, r) => s + Math.max(0, Number(r.valor) - Number(r.pago)), 0);
+    const cobrancaSaude = aReceber > 0 ? (1 - vencido / aReceber) * 100 : 100;
+    const crescIdx = fatAnt > 0 ? Math.min(100, (fatMes / fatAnt) * 100) : fatMes > 0 ? 100 : 50;
+    const idxFaturamento = round(0.5 * cobrancaSaude + 0.5 * crescIdx);
+    const crescPct = fatAnt > 0 ? ((fatMes - fatAnt) / fatAnt) * 100 : null;
+
+    const brl = (n: number) => n;
+    const pilares = [
+      {
+        chave: 'clientes', nome: 'Clientes', icone: '👥', indice: idxClientes, status: statusDe(idxClientes),
+        resumo: `${ativos90} de ${clientesTot} ativos (90 dias)`,
+        metricas: [
+          { label: 'Total de clientes', valor: clientesTot },
+          { label: 'Novos no mês', valor: novosMes },
+          { label: 'Ativos (compraram em 90 dias)', valor: ativos90 },
+          { label: 'Inadimplentes', valor: inadimplentes, alerta: inadimplentes > 0 },
+        ],
+      },
+      {
+        chave: 'pedidos', nome: 'Pedidos', icone: '🛒', indice: idxPedidos, status: statusDe(idxPedidos),
+        resumo: `${conversao.toFixed(0)}% de conversão de orçamentos`,
+        metricas: [
+          { label: 'Conversão (aprovado / total)', valor: `${conversao.toFixed(0)}%` },
+          { label: 'Orçamentos em aberto', valor: orcamentos.length },
+          { label: 'Pedidos no mês', valor: pedidosMes },
+          { label: 'Ticket médio', valor: brl(ticket), moeda: true },
+          { label: 'Pipeline (orçamentos)', valor: brl(pipeline), moeda: true },
+        ],
+      },
+      {
+        chave: 'producao', nome: 'Produção', icone: '🏭', indice: idxProducao, status: statusDe(idxProducao),
+        resumo: `${opsAtras.length} OP(s) atrasada(s) de ${opsAtivas.length} ativas`,
+        metricas: [
+          { label: 'OPs ativas', valor: opsAtivas.length },
+          { label: 'OPs concluídas', valor: opsConcl },
+          { label: 'OPs atrasadas', valor: opsAtras.length, alerta: opsAtras.length > 0 },
+        ],
+      },
+      {
+        chave: 'entrega', nome: 'Entrega', icone: '🚚', indice: idxEntrega, status: statusDe(idxEntrega),
+        resumo: `${atrasadosEnt.length} pedido(s) atrasado(s) na entrega`,
+        metricas: [
+          { label: 'A entregar (em aberto)', valor: emEntrega.length },
+          { label: 'Atrasados', valor: atrasadosEnt.length, alerta: atrasadosEnt.length > 0 },
+          { label: 'Entregues (concluídos)', valor: entregues },
+        ],
+      },
+      {
+        chave: 'faturamento', nome: 'Faturamento', icone: '💰', indice: idxFaturamento, status: statusDe(idxFaturamento),
+        resumo: crescPct == null ? `${brl(fatMes)}` : `${crescPct >= 0 ? '+' : ''}${crescPct.toFixed(0)}% vs mês anterior`,
+        metricas: [
+          { label: 'Faturado no mês (NF-e)', valor: brl(fatMes), moeda: true },
+          { label: 'Mês anterior', valor: brl(fatAnt), moeda: true },
+          { label: 'A receber em aberto', valor: brl(aReceber), moeda: true },
+          { label: 'Vencido (inadimplência)', valor: brl(vencido), moeda: true, alerta: vencido > 0 },
+        ],
+      },
+    ];
+    const geral = round(pilares.reduce((s, p) => s + p.indice, 0) / pilares.length);
+    return { geral, statusGeral: statusDe(geral), pilares, atualizadoEm: agora.toISOString() };
+  }
 }
