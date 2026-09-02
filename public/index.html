@@ -4789,13 +4789,41 @@ async function saveCorte(id){
 
 async function viewPiloto(c){
   const list = await api('/pilotos');
-  c.innerHTML = toolbar('Peças piloto', 'Solicitar piloto', 'APP.formPiloto()') + panelTable(
-    ['Código','Pedido','Status','Liberado','Tentativa','Ações'],
-    list.map(p=>[
-      `<span class="mono gold">${esc(p.codigo)}</span>`, '#'+p.pedidoId, pilPill(p.status),
-      p.liberado?'<span class="pill green">sim</span>':'<span class="pill gray">não</span>', p.tentativa,
-      p.liberado?'<span class="muted">—</span>':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`
-    ]), list.length?null:'Nenhuma peça-piloto.');
+  c.innerHTML = toolbar('Peças piloto', 'Solicitar piloto', 'APP.formPiloto()', `<button class="btn-sm" onclick="APP.formPilotoAvulso()">🧵 Piloto avulso</button>`) + panelTable(
+    ['Código','Pedido / Cliente','Status','Liberado','Tentativa','Ações'],
+    list.map(p=>{
+      const det=[p.modelagem&&('Mod: '+p.modelagem), p.artigo&&('Art: '+p.artigo), p.marca&&('Marca: '+p.marca), p.cor&&('Cor: '+p.cor), p.setor&&('Setor: '+p.setor)].filter(Boolean).map(esc).join(' · ');
+      const pedCol = p.pedidoId
+        ? '#'+p.pedidoId
+        : (p.clienteNome?('<b>'+esc(p.clienteNome)+'</b>'):'<span class="muted">avulso</span>')+(det?('<br><span class="muted" style="font-size:10.5px">'+det+'</span>'):'');
+      return [
+        `<span class="mono gold">${esc(p.codigo)}</span>${p.pedidoId?'':' <span class="pill gray" style="font-size:9px">avulso</span>'}`,
+        pedCol, pilPill(p.status),
+        p.liberado?'<span class="pill green">sim</span>':'<span class="pill gray">não</span>', p.tentativa,
+        p.liberado?'<span class="muted">—</span>':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`
+      ];
+    }), list.length?null:'Nenhuma peça-piloto.');
+}
+async function formPilotoAvulso(){
+  let clientes=[]; try{ clientes=await api('/clientes'); }catch(_){}
+  const cliList=`<datalist id="pilclilist">${(clientes||[]).map(c=>`<option value="${esc(c.nome)}">`).join('')}</datalist>`;
+  openModal(`<h3>Nova peça-piloto avulsa</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Amostra em desenvolvimento sem pedido vinculado. Depois de aprovada, dá pra gerar o pedido normalmente.</div>
+    <div class="mrow"><label class="fl">Cliente *</label><input id="pa_cli" class="inp" list="pilclilist" placeholder="nome do cliente" autocomplete="off">${cliList}</div>
+    <div class="grid2">${field('pa_modelagem','Modelagem','placeholder="ref. Audaces / modelo"')}${field('pa_artigo','Artigo','placeholder="tecido / artigo"')}</div>
+    <div class="grid3">${field('pa_marca','Marca do fornecedor','')}${field('pa_cor','Cor','')}${field('pa_setor','Setor','placeholder="ex.: enfermagem, cozinha"')}</div>
+    <div class="grid2">${field('pa_prazo','Prazo de retorno','type="date"')}${field('pa_obs','Observação','')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.savePilotoAvulso()">Criar piloto</button></div>`, {wide:true});
+}
+async function savePilotoAvulso(){
+  const clienteNome=val('pa_cli'); if(!clienteNome){ toast('Informe o cliente.','err'); return; }
+  const body={ clienteNome, modelagem:val('pa_modelagem'), artigo:val('pa_artigo'), marca:val('pa_marca'), cor:val('pa_cor'), setor:val('pa_setor') };
+  const pz=val('pa_prazo'); if(pz) body.prazoRetorno=pz;
+  const ob=val('pa_obs'); if(ob) body.obs=ob;
+  Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
+  try{ const p=await api('/pilotos/avulso',{method:'POST',body}); closeModal(); toast('Piloto avulso '+p.codigo+' criado.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 async function formPiloto(){
   const pedidos = await api('/pedidos');
@@ -9017,7 +9045,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, aprovarPiloto,
+  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,

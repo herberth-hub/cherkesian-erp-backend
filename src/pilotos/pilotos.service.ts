@@ -6,6 +6,7 @@ import {
 import { Piloto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePilotoDto } from './dto/create-piloto.dto';
+import { CreatePilotoAvulsoDto } from './dto/create-piloto-avulso.dto';
 import { UpdatePilotoDto } from './dto/update-piloto.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
@@ -14,8 +15,9 @@ export class PilotosService {
   constructor(private readonly prisma: PrismaService) {}
 
   findAll(empresaId: number): Promise<Piloto[]> {
+    // Cobre pilotos de pedido (empresaId preenchido no backfill) e avulsos.
     return this.prisma.piloto.findMany({
-      where: { pedido: { empresaId } },
+      where: { OR: [{ empresaId }, { pedido: { empresaId } }] },
       orderBy: { id: 'desc' },
     });
   }
@@ -25,7 +27,8 @@ export class PilotosService {
       where: { id },
       include: { pedido: { select: { empresaId: true } } },
     });
-    if (!piloto || piloto.pedido.empresaId !== empresaId) {
+    const dono = piloto?.empresaId ?? piloto?.pedido?.empresaId;
+    if (!piloto || dono !== empresaId) {
       throw new NotFoundException(`Piloto ${id} não encontrado.`);
     }
     return piloto;
@@ -40,6 +43,7 @@ export class PilotosService {
     const codigo = await this.gerarCodigo();
     return this.prisma.piloto.create({
       data: {
+        empresaId,
         codigo,
         pedidoId: pedido.id,
         clienteId: pedido.clienteId,
@@ -49,6 +53,30 @@ export class PilotosService {
         status: 'em_desenvolvimento',
         liberado: false,
         obs: dto.obs,
+      },
+    });
+  }
+
+  /** Peça-piloto AVULSA: desenvolvimento de amostra sem pedido vinculado. */
+  async criarAvulso(dto: CreatePilotoAvulsoDto, empresaId: number): Promise<Piloto> {
+    const codigo = await this.gerarCodigo();
+    return this.prisma.piloto.create({
+      data: {
+        empresaId,
+        codigo,
+        clienteId: dto.clienteId ?? undefined,
+        clienteNome: dto.clienteNome?.trim() || null,
+        produtoId: dto.produtoId ?? undefined,
+        modelagem: dto.modelagem?.trim() || null,
+        artigo: dto.artigo?.trim() || null,
+        marca: dto.marca?.trim() || null,
+        cor: dto.cor?.trim() || null,
+        setor: dto.setor?.trim() || null,
+        solicitacao: new Date(),
+        prazoRetorno: dto.prazoRetorno ? new Date(dto.prazoRetorno) : undefined,
+        status: 'em_desenvolvimento',
+        liberado: false,
+        obs: dto.obs?.trim() || null,
       },
     });
   }
@@ -73,16 +101,17 @@ export class PilotosService {
     if (piloto.liberado) {
       throw new ConflictException(`Piloto ${piloto.codigo} já está liberado.`);
     }
-    const [atualizado] = await this.prisma.$transaction([
-      this.prisma.piloto.update({
-        where: { id },
-        data: { status: 'aprovada', liberado: true },
-      }),
-      this.prisma.pedido.updateMany({
+    const atualizado = await this.prisma.piloto.update({
+      where: { id },
+      data: { status: 'aprovada', liberado: true },
+    });
+    // Piloto de PEDIDO avança a etapa; piloto AVULSO (sem pedido) só é aprovado.
+    if (piloto.pedidoId != null) {
+      await this.prisma.pedido.updateMany({
         where: { id: piloto.pedidoId, etapa: 'piloto' },
         data: { etapa: 'material' },
-      }),
-    ]);
+      });
+    }
     return atualizado;
   }
 

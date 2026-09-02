@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { PilotosService } from './pilotos.service';
 import { CreatePilotoDto } from './dto/create-piloto.dto';
+import { CreatePilotoAvulsoDto } from './dto/create-piloto-avulso.dto';
 import { UpdatePilotoDto } from './dto/update-piloto.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -35,6 +36,12 @@ export class PilotosController {
   @Post()
   create(@Body() dto: CreatePilotoDto, @CurrentUser() user: AuthUser) {
     return this.pilotosService.create(dto, user.empresaId);
+  }
+
+  /** Peça-piloto AVULSA (amostra sem pedido). */
+  @Post('avulso')
+  criarAvulso(@Body() dto: CreatePilotoAvulsoDto, @CurrentUser() user: AuthUser) {
+    return this.pilotosService.criarAvulso(dto, user.empresaId);
   }
 
   @Patch(':id')

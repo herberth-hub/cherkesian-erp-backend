@@ -591,11 +591,19 @@ model PedidoItem {
 
 model Piloto {
   id          Int          @id @default(autoincrement())
+  empresaId   Int?         // escopo (necessário p/ piloto AVULSO, sem pedido)
   codigo      String       @unique // PIL-0007
-  pedidoId    Int
-  pedido      Pedido       @relation(fields: [pedidoId], references: [id])
-  clienteId   Int
+  pedidoId    Int?
+  pedido      Pedido?      @relation(fields: [pedidoId], references: [id])
+  clienteId   Int?
   produtoId   Int?
+  // ===== Piloto AVULSO (desenvolvimento de amostra sem pedido) =====
+  clienteNome String?      // nome do cliente (quando não vem de pedido)
+  modelagem   String?      // referência da modelagem (Audaces etc.)
+  artigo      String?      // artigo do tecido
+  marca       String?      // marca do fornecedor
+  cor         String?
+  setor       String?      // setor de uso (ex.: cozinha, enfermagem…)
   solicitacao DateTime?
   envio       DateTime?
   prazoRetorno DateTime?
