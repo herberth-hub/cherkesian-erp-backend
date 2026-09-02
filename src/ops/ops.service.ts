@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OP, Prisma } from '@prisma/client';
+import { OP, Prioridade, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
+import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
+import { proximoSequencial } from '../common/utils/codigo.util';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
@@ -14,7 +16,7 @@ export class OpsService {
 
   async findAll(empresaId: number) {
     const ops = await this.prisma.oP.findMany({
-      where: { pedido: { empresaId } },
+      where: { OR: [{ empresaId }, { pedido: { empresaId } }] },
       include: { pedido: { select: { numero: true, clienteId: true } } },
       orderBy: [{ prioridade: 'asc' }, { id: 'desc' }],
     });
@@ -31,12 +33,83 @@ export class OpsService {
     });
   }
 
+  /** Consumo de material do item (usa porTamanho quando há grade; senão qtd × BOM). */
+  private consumoDoItem(b: { quantidade: Prisma.Decimal; porTamanho?: unknown }, item: { quantidade: number; grade?: unknown }): Prisma.Decimal {
+    const porTam = b.porTamanho as Record<string, number> | null | undefined;
+    const grade = item.grade as Record<string, number> | null | undefined;
+    if (porTam && grade && typeof grade === 'object') {
+      let total = new Prisma.Decimal(0);
+      for (const [tam, qtd] of Object.entries(grade)) {
+        const q = Number(qtd) || 0;
+        const c = Number(porTam[String(tam).toUpperCase()] ?? porTam[String(tam)] ?? 0);
+        if (q > 0 && c > 0) total = total.plus(new Prisma.Decimal(c).mul(q));
+      }
+      if (total.greaterThan(0)) return total;
+    }
+    return b.quantidade.mul(item.quantidade);
+  }
+
+  /** Cria uma OP AVULSA (produção sem pedido) — para estoque, amostra, reposição. */
+  async criarAvulsa(dto: CreateOpAvulsaDto, empresaId: number): Promise<OP> {
+    const produto = await this.prisma.produto.findFirst({ where: { id: dto.produtoId, empresaId }, select: { id: true, cor: true } });
+    if (!produto) throw new NotFoundException('Produto não encontrado nesta empresa.');
+    const grade =
+      dto.gradeTamanhos && Object.keys(dto.gradeTamanhos).length
+        ? Object.fromEntries(
+            Object.entries(dto.gradeTamanhos)
+              .map(([t, q]) => [t.toUpperCase(), Number(q) || 0] as [string, number])
+              .filter(([, q]) => q > 0),
+          )
+        : null;
+    const total = grade ? Object.values(grade).reduce((a, b) => a + Number(b), 0) : Math.floor(Number(dto.quantidade) || 0);
+    if (!(total > 0)) throw new BadRequestException('Informe a quantidade (ou a grade de tamanhos) da OP.');
+
+    // Romaneio de materiais (BOM × quantidade) — referência para o corte.
+    const bom = await this.prisma.consumo.findMany({ where: { produtoId: produto.id } });
+    const mats = bom.length ? await this.prisma.material.findMany({ where: { id: { in: bom.map((b) => b.materialId) } } }) : [];
+    const item = { quantidade: total, grade };
+    const romaneio = bom.map((b) => {
+      const m = mats.find((x) => x.id === b.materialId)!;
+      return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, item).toFixed(4)), unidade: m.unidade, conferido: false };
+    });
+
+    let filialId = dto.filialId;
+    if (filialId) {
+      const f = await this.prisma.filial.findFirst({ where: { id: filialId, empresaId }, select: { id: true } });
+      if (!f) throw new BadRequestException('Filial não encontrada nesta empresa.');
+    } else {
+      const matriz = await this.prisma.filial.findFirst({ where: { empresaId }, orderBy: [{ matriz: 'desc' }, { id: 'asc' }], select: { id: true } });
+      filialId = matriz?.id;
+    }
+
+    const existentes = await this.prisma.oP.findMany({ select: { numero: true } });
+    const numero = proximoSequencial('OP', existentes.map((o) => o.numero), { pad: 4, separador: '-' });
+    return this.prisma.oP.create({
+      data: {
+        empresaId,
+        numero,
+        pedidoId: null,
+        filialId: filialId ?? null,
+        produtoId: produto.id,
+        cor: dto.cor?.trim() || produto.cor || null,
+        quantidade: total,
+        status: 'a_iniciar',
+        pilotoLiberado: true,
+        progresso: 0,
+        gradeTamanhos: (grade ?? undefined) as Prisma.InputJsonValue | undefined,
+        romaneioMateriais: romaneio as unknown as Prisma.InputJsonValue,
+        prioridade: dto.prioridade ? (dto.prioridade as Prioridade) : undefined,
+        corteObs: dto.obs?.trim() || 'OP avulsa (sem pedido).',
+      },
+    });
+  }
+
   async findOne(id: number, empresaId: number): Promise<OP> {
     const op = await this.prisma.oP.findUnique({
       where: { id },
       include: { pedido: { select: { empresaId: true } }, lotes: true },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) {
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) {
       throw new NotFoundException(`OP ${id} não encontrada.`);
     }
     return op;
@@ -48,7 +121,7 @@ export class OpsService {
       where: { id },
       include: { pedido: { select: { empresaId: true, numero: true } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true } }) : null;
     const itens = ((op.romaneioMateriais as unknown as RomLinha[]) ?? []);
     // Localização do material (vale até para OPs antigas). Prioridade:
@@ -95,7 +168,7 @@ export class OpsService {
       where: { id },
       include: { pedido: { select: { empresaId: true } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
     if (!rom.length) throw new BadRequestException('Esta OP não tem romaneio de materiais.');
     const codigo = (codigoRaw ?? '').trim();
@@ -136,7 +209,7 @@ export class OpsService {
       where: { id },
       include: { pedido: { select: { empresaId: true } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const rom = (op.romaneioMateriais as unknown as RomLinha[]) ?? [];
     if (!rom.length) throw new BadRequestException('Esta OP não tem romaneio de materiais.');
     let gravados = 0;
@@ -264,7 +337,7 @@ export class OpsService {
         pedido: { select: { empresaId: true, numero: true, obs: true, cliente: { select: { nome: true } } } },
       },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
     const produto = op.produtoId
       ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true, cor: true } })
       : null;

@@ -4434,7 +4434,42 @@ async function viewProducao(c){
     ? `<button class="btn-sm" onclick="APP.opToggleFin(false)">← Voltar às ativas (${ativas.length})</button>`
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
   const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+  const btnAvulsa = canAccess('pcp')?`<button class="btn-primary" style="padding:2px 10px" onclick="APP.formOpAvulsa()">+ OP avulsa</button> `:'';
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+}
+async function formOpAvulsa(){
+  const [produtos, filiais] = await Promise.all([api('/produtos'), api('/filiais').catch(()=>[])]);
+  window.__OPAV_PROD = produtos||[];
+  const prodDl = `<datalist id="opav_prodlist">${(produtos||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>`;
+  const filAtivas=(filiais||[]).filter(f=>f.ativa!==false);
+  const filOpts = filAtivas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}</option>`).join('');
+  openModal(`<h3>Nova OP avulsa</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Ordem de produção <b>sem pedido</b> — para estoque, amostra ou reposição. Segue no corte e vira kit de facção normalmente.</div>
+    <div class="mrow"><label class="fl">Produto *</label><input id="opav_prod" class="inp" list="opav_prodlist" placeholder="digite código ou descrição" autocomplete="off">${prodDl}</div>
+    <div class="grid2">${field('opav_qtd','Quantidade *','type="number" min="1" placeholder="ex.: 50"')}${field('opav_grade','Grade por tamanho (opcional)','placeholder="ex.: P:10, M:20, G:8"')}</div>
+    <div class="muted" style="font-size:10.5px;margin:-4px 0 6px">Se preencher a grade, a quantidade é a soma dela. Sem grade, produz a quantidade em tamanho único.</div>
+    <div class="grid3">${field('opav_cor','Cor','')}
+      <div class="mrow"><label class="fl">Empresa</label><select id="opav_fil" class="inp">${filOpts||'<option value="">—</option>'}</select></div>
+      <div class="mrow"><label class="fl">Prioridade</label><select id="opav_prior" class="inp"><option value="media">Média</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select></div></div>
+    ${field('opav_obs','Observação','')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveOpAvulsa()">Gerar OP</button></div>`, {wide:true});
+}
+async function saveOpAvulsa(){
+  const txt=(val('opav_prod')||'').trim();
+  const prods=window.__OPAV_PROD||[];
+  const prod=prods.find(p=>((p.codigo||'')+' · '+(p.descricao||''))===txt) || prods.find(p=>String(p.codigo||'').toLowerCase()===txt.toLowerCase());
+  if(!prod){ toast('Selecione um produto válido da lista.','err'); return; }
+  const body={ produtoId: prod.id };
+  const gradeTxt=(val('opav_grade')||'').trim();
+  if(gradeTxt){ const g={}; gradeTxt.split(/[,;]+/).forEach(par=>{ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Number((m[1]||'').trim()); if(t&&q>0) g[t]=q; }); if(Object.keys(g).length) body.gradeTamanhos=g; }
+  if(!body.gradeTamanhos){ const q=Number(val('opav_qtd')); if(!(q>0)){ toast('Informe a quantidade ou a grade.','err'); return; } body.quantidade=q; }
+  const cor=val('opav_cor'); if(cor) body.cor=cor;
+  const fil=val('opav_fil'); if(fil) body.filialId=Number(fil);
+  const prior=val('opav_prior'); if(prior) body.prioridade=prior;
+  const obs=val('opav_obs'); if(obs) body.obs=obs;
+  try{ const op=await api('/ops/avulsa',{method:'POST',body}); closeModal(); toast('OP '+op.numero+' criada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 // Lista de OPs AGRUPADA por pedido: um cabeçalho por pedido (com OP do Pedido / OS
 // oficina) e as OPs do pedido embaixo — evita poluir com OPs soltas do mesmo pedido.
@@ -9045,7 +9080,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,

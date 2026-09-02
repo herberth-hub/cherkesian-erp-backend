@@ -615,6 +615,7 @@ model Piloto {
 
 model OP {
   id             Int      @id @default(autoincrement())
+  empresaId      Int?     // escopo (necessário p/ OP AVULSA, sem pedido)
   numero         String   @unique // OP-0031
   pedidoId       Int?
   pedido         Pedido?  @relation(fields: [pedidoId], references: [id])

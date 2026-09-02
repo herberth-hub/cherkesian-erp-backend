@@ -123,7 +123,7 @@ export class KitsService {
       where: { id: dto.opId },
       include: { pedido: { select: { empresaId: true, numero: true, obs: true, cliente: { select: { nome: true } } } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
 
     // Lote de tecido é opcional: pode ser vinculado depois (rastreabilidade).
     const lote = dto.loteTecidoId ? await this.prisma.loteTecido.findUnique({ where: { id: dto.loteTecidoId } }) : null;
@@ -510,7 +510,7 @@ export class KitsService {
       where: { id: dto.opId },
       include: { pedido: { select: { empresaId: true, numero: true, cliente: { select: { nome: true } } } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${dto.opId} não encontrada.`);
     const operacao = (dto.operacao ?? '').trim();
     if (!operacao) throw new BadRequestException('Informe a operação da facção (ex.: Estamparia/Bordado, Costura).');
 

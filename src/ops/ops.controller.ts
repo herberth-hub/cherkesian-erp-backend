@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { OpsService } from './ops.service';
 import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
+import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -24,6 +25,12 @@ export class OpsController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.opsService.findAll(user.empresaId);
+  }
+
+  /** Cria uma OP AVULSA (produção sem pedido). */
+  @Post('avulsa')
+  criarAvulsa(@Body() dto: CreateOpAvulsaDto, @CurrentUser() user: AuthUser) {
+    return this.opsService.criarAvulsa(dto, user.empresaId);
   }
 
   @Get(':id')
