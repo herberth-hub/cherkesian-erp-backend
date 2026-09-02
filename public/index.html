@@ -339,6 +339,19 @@ async function tryRefresh(){
     return true;
   }catch(e){ logout(true); return false; }
 }
+// fetch autenticado que RENOVA o token no 401 e repete (p/ downloads: DANFE, XML,
+// boleto, relatórios, PDFs — que não passam pelo api()). Evita "Token inválido ou expirado".
+async function fetchAuth(url, opts, _retry){
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers||{});
+  if(S.access) headers['Authorization'] = 'Bearer '+S.access;
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if(res.status===401 && !_retry && S.refresh){
+    const ok = await tryRefresh();
+    if(ok) return fetchAuth(url, opts, true);
+  }
+  return res;
+}
 
 // ---------- Auth ----------
 async function doLogin(usuario, senha){
@@ -1197,7 +1210,7 @@ async function fornecedorResumo(id){
     <div class="mactions"><button class="btn-sm" onclick="APP.fornecedorSituacaoReceita(${id})">🔎 Situação na Receita</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
 }
 async function verCatalogoForn(id){
-  try{ const rr=await fetch(API+'/fornecedores/'+id+'/catalogo',{headers:{Authorization:'Bearer '+S.access}});
+  try{ const rr=await fetchAuth(API+'/fornecedores/'+id+'/catalogo',{headers:{Authorization:'Bearer '+S.access}});
     if(!rr.ok){ toast('Catálogo não encontrado.','err'); return; }
     const blob=await rr.blob();
     if(/image\//.test(blob.type)&&!isMobile()){ const url=URL.createObjectURL(blob); openModal(`<h3>📎 Catálogo</h3><div style="margin:-2px 0 8px"><a class="btn-sm" href="${url}" download="catalogo-${id}" style="text-decoration:none">⬇ Baixar</a></div><img src="${url}" style="max-width:100%;border:1px solid #e7e3d8;border-radius:8px">`,{wide:true}); setTimeout(()=>{try{URL.revokeObjectURL(url);}catch(e){}},600000); }
@@ -1506,7 +1519,7 @@ function relGerar(tipo, fmt){
 async function baixarRel(tipo, qs, fmt){
   fmt = fmt||'pdf';
   try{
-    const r = await fetch(API+'/relatorios/'+tipo+'/'+fmt+(qs?'?'+qs:''), { headers:{ Authorization:'Bearer '+S.access } });
+    const r = await fetchAuth(API+'/relatorios/'+tipo+'/'+fmt+(qs?'?'+qs:''), { headers:{ Authorization:'Bearer '+S.access } });
     if(!r.ok){ let m='Falha ao gerar relatório ('+r.status+').'; try{ const j=await r.json(); m=j.message||m; }catch(e){} throw new Error(m); }
     const blob = await r.blob();
     if(fmt==='xlsx'){
@@ -3925,7 +3938,7 @@ function fluxoDiaDet(key){
 async function fluxoExcel(){
   const {de,ate}=fluxoRange();
   try{
-    const r=await fetch(API+'/financeiro/fluxo/calendario/xlsx?de='+de+'&ate='+ate,{headers:{Authorization:'Bearer '+S.access}});
+    const r=await fetchAuth(API+'/financeiro/fluxo/calendario/xlsx?de='+de+'&ate='+ate,{headers:{Authorization:'Bearer '+S.access}});
     if(!r.ok){ let m='Falha ao gerar Excel ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
     const blob=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='fluxo-caixa-'+de+'_'+ate+'.xlsx';
     document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(),120); toast('Excel gerado — verifique os downloads.','ok');
@@ -4097,7 +4110,7 @@ async function savePagar(){
 // Abre/baixa o boleto anexado (PDF ou imagem), autenticado.
 async function verBoleto(id){
   try{
-    const r=await fetch(API+'/financeiro/pagar/'+id+'/boleto',{headers:{Authorization:'Bearer '+S.access}});
+    const r=await fetchAuth(API+'/financeiro/pagar/'+id+'/boleto',{headers:{Authorization:'Bearer '+S.access}});
     if(!r.ok){ toast('Boleto não encontrado.','err'); return; }
     const blob=await r.blob();
     if(/image\//.test(blob.type) && !isMobile()){
@@ -6877,7 +6890,7 @@ async function gerarOS(pedidoId){
   if(prodEls.length<allProd) body.produtoIds=prodEls;
   if(tamEls.length<allTam) body.tamanhos=tamEls;
   try{
-    const r=await fetch(API+'/documentos/os/gerar',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+S.access},body:JSON.stringify(body)});
+    const r=await fetchAuth(API+'/documentos/os/gerar',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+S.access},body:JSON.stringify(body)});
     if(!r.ok){ let m='Falha ao gerar OS ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
     const blob=await r.blob(); closeModal();
     abrirPdfBlob(blob,{titulo:'📋 Ordem de Serviço · '+pedidoId, nome:'OS-'+pedidoId});
@@ -6886,7 +6899,7 @@ async function gerarOS(pedidoId){
 async function gerarDoc(tipo, refId){
   try{
     const d = await api('/documentos/'+tipo, {method:'POST', body:{referenciaId:refId}});
-    const r = await fetch(d.urlPdf, { headers: { Authorization:'Bearer '+S.access } });
+    const r = await fetchAuth(d.urlPdf, { headers: { Authorization:'Bearer '+S.access } });
     if(!r.ok) throw new Error('Falha ao baixar o PDF ('+r.status+').');
     const blob = await r.blob();
     // Abre o PDF numa janela interna (desktop) ou botões Abrir/Baixar (celular).
@@ -7411,7 +7424,7 @@ function nfAcoes(n){
 }
 async function baixarNfeArquivo(id,tipo){
   try{
-    const r = await fetch(API+'/nfe/'+id+'/'+tipo, { headers:{ Authorization:'Bearer '+S.access } });
+    const r = await fetchAuth(API+'/nfe/'+id+'/'+tipo, { headers:{ Authorization:'Bearer '+S.access } });
     if(!r.ok){ let m='Falha ao baixar '+(tipo==='danfe'?'DANFE':'XML')+' ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
     const blob = await r.blob();
     if(tipo==='danfe'){ abrirPdfBlob(blob, {titulo:'📄 DANFE · NF '+id, nome:'DANFE-'+id}); }
@@ -7452,7 +7465,7 @@ function baixarCartaCorrecao(id){
 }
 async function cartaPdfNaJanela(id, w, tentativas){
   try{
-    const r=await fetch(API+'/nfe/'+id+'/carta-correcao/pdf',{headers:{Authorization:'Bearer '+S.access}});
+    const r=await fetchAuth(API+'/nfe/'+id+'/carta-correcao/pdf',{headers:{Authorization:'Bearer '+S.access}});
     if(r.ok){ const blob=await r.blob(); const url=URL.createObjectURL(blob); w.location=url; setTimeout(()=>{try{w.print()}catch(e){}},800); return; }
     if(tentativas>0){ setTimeout(()=>cartaPdfNaJanela(id,w,tentativas-1), 3000); return; }
     let m='A CC-e ainda está processando na SEFAZ. Feche e clique em "🖨 CC-e" em alguns segundos.'; try{const j=await r.json();m=j.message||m;}catch(e){}
