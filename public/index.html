@@ -7501,6 +7501,8 @@ async function etiquetasUnitariasExp(id){
 // ---------- Dupla conferência + despacho ----------
 async function formConferencia(id){
   if(window.__confCaixa==null) window.__confCaixa=1;
+  // Abrir uma expedição diferente reinicia o modo (conferir, não devolver).
+  if(window.__confId!==id){ window.__confDevolver=false; window.__confId=id; }
   let c; try{ c=await api('/expedicoes/'+id+'/conferencia'); }catch(e){ toast(e.message,'err'); return; }
   const pct=c.esperadas?Math.min(100,Math.round((c.conferidas/c.esperadas)*100)):0;
   const conferida=c.status==='conferida'||c.status==='despachado';
@@ -7526,11 +7528,13 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha a caixa atual e começa a próxima">➕ Nova caixa</button>
         <span class="muted" style="font-size:11px">tudo que bipar entra <b>nesta caixa</b> — mude o número ao trocar de caixa</span>
       </div>
-      <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
-        <div style="flex:1"><label class="fl">Bipe a PEÇA, o KIT ou a CAIXA${c.totalCaixas?' (📦 QR da caixa)':''}</label><input id="conf_bip" class="inp" placeholder="Bipe peça, kit ou caixa (leitor USB ou digite)" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
-        <button class="btn-primary" onclick="APP.conferirBip(${id})">Bipar</button>
+      ${window.__confDevolver?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 9px;background:#fdecea;border:1px solid #f0b3a6;border-radius:8px"><b style="color:#c14a34;font-size:12px">↩ MODO DEVOLVER</b><span class="muted" style="font-size:11px">bipe a peça/kit p/ TIRAR da caixa — depois aponte a “Caixa atual” e bipe de novo</span></div>`:''}
+      <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
+        <div style="flex:1"><label class="fl">${window.__confDevolver?'Bipe a PEÇA/KIT a DEVOLVER':'Bipe a PEÇA, o KIT ou a CAIXA'+(c.totalCaixas?' (📦 QR da caixa)':'')}</label><input id="conf_bip" class="inp" placeholder="${window.__confDevolver?'Bipe a peça que quer tirar da caixa':'Bipe peça, kit ou caixa (leitor USB ou digite)'}" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
+        <button class="btn-primary" style="${window.__confDevolver?'background:#c14a34':''}" onclick="APP.conferirBip(${id})">${window.__confDevolver?'↩ Devolver':'Bipar'}</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
-      </div>`}
+      </div>
+      <div style="margin-bottom:6px"><button class="btn-sm" style="${window.__confDevolver?'color:#1e7a44;font-weight:700':'color:#c14a34'}" onclick="APP.confToggleDevolver(${id})">${window.__confDevolver?'✅ Voltar a conferir':'↩ Devolver peça (passei na caixa errada)'}</button></div>`}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
   const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
 }
@@ -7574,7 +7578,15 @@ async function zerarConferencia(id){
 function confSetCaixa(){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; }
 function confNovaCaixa(id){ confSetCaixa(); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
 window.__bipBusy = window.__bipBusy || {};
+function confToggleDevolver(id){ window.__confDevolver=!window.__confDevolver; formConferencia(id); }
+async function devolverBip(id, codigo){
+  const cod=(codigo||val('conf_bip')||'').trim(); if(!cod){ toast('Bipe a peça a devolver.','err'); const i=$('conf_bip'); if(i)i.focus(); return; }
+  try{ const r=await api('/expedicoes/'+id+'/devolver-peca',{method:'POST',body:{codigo:cod}});
+    beepOk(); toast('↩ '+(r.mensagem||'Peça devolvida.'),'ok'); formConferencia(id);
+  }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); }
+}
 async function conferirBip(id, codigo){
+  if(window.__confDevolver){ return devolverBip(id, codigo); }
   const cod=(codigo||val('conf_bip')||'').trim(); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
   const key=cod.toUpperCase();
   // Trava anti-duplo-envio: mesmo código bipado 2x muito rápido não dispara 2 leituras.
@@ -9291,7 +9303,7 @@ window.APP = {
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,

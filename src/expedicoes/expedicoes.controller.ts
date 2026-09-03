@@ -88,6 +88,13 @@ export class ExpedicoesController {
     return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa);
   }
 
+  /** Devolve UMA peça/kit já conferido (tira da caixa) para rebipar na caixa certa. */
+  @Post(':id/devolver-peca')
+  @HttpCode(HttpStatus.OK)
+  devolverPeca(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.devolverPeca(id, user.empresaId, codigo, user.usuario);
+  }
+
   @Post(':id/zerar-conferencia')
   @HttpCode(HttpStatus.OK)
   zerarConferencia(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

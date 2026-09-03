@@ -706,6 +706,92 @@ export class ExpedicoesService {
     return { ok: true, mensagem: `Caixa ${numeroCaixa} zerada — ${box.pecas || 0} peça(s) devolvida(s) ao estoque.`, conferidas: novasPecas };
   }
 
+  /**
+   * DEVOLVE uma peça (ou kit) já conferido: tira da caixa em que está, volta ao
+   * estoque e decrementa a contagem — para o operador RE-BIPAR na caixa certa.
+   * Ex.: passou tudo na Caixa 1 e esqueceu a Caixa 2 — bipa a peça aqui e depois
+   * bipa de novo com a "Caixa atual" apontando para a 2.
+   */
+  async devolverPeca(id: number, empresaId: number, codigoRaw: string, usuario: string) {
+    const codigo = this.extrairCodigo(codigoRaw);
+    if (!codigo) throw new BadRequestException('Bipe a peça que deseja devolver.');
+    if (/-CX\d+$/i.test(codigo)) {
+      throw new BadRequestException('Para uma CAIXA inteira use “Zerar caixa”. Aqui devolve-se peça a peça (ou kit).');
+    }
+    await this.getExp(id, empresaId);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Expedicao" WHERE id = ${id} FOR UPDATE`;
+      const exp = await tx.expedicao.findUnique({ where: { id } });
+      if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+      if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível devolver peças.');
+
+      const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
+      if (!conferidos.includes(codigo)) {
+        throw new BadRequestException(`"${codigo}" não está conferido nesta expedição — nada a devolver.`);
+      }
+
+      // Descobre quantas peças esse código representa e a linha (desc·cor·tam).
+      let add = 1;
+      let linhaDesc: string | null = null, linhaCor: string | null = null, linhaTam: string | null = null;
+      if (/^KIT-/i.test(codigo)) {
+        const kit = await tx.kit.findUnique({ where: { codigo } });
+        add = kit?.jogos || 1;
+        linhaDesc = kit?.modelo ?? codigo; linhaCor = kit?.cor ?? null; linhaTam = this.normTamanho(kit?.tamanho);
+      } else {
+        const un = await tx.unidadeEstoque.findFirst({ where: { codigo, empresaId } });
+        // Casa com a linha do pedido (mesma regra da bipagem) p/ acertar o conteúdo da caixa.
+        const snapItens = (exp.itens as Array<{ produtoId: number | null; descricao?: string; cor: string | null }> | null) ?? [];
+        const linha = un ? snapItens.find((it) => it.produtoId === un.produtoId && this.corCombina(it.cor, un.cor)) : undefined;
+        linhaDesc = linha?.descricao ?? un?.descricao ?? codigo;
+        linhaCor = linha?.cor ?? un?.cor ?? null;
+        linhaTam = this.normTamanho(un?.tamanho);
+        // Devolve a unidade ao estoque (reservado) p/ poder rebipar.
+        if (un) {
+          await tx.unidadeEstoque.updateMany({ where: { id: un.id, status: 'despachado' }, data: { status: 'reservado', expedicaoId: null, saidaEm: null } });
+        }
+      }
+
+      // Tira o código da caixa que o contém e ajusta pecas/conteudo.
+      type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; codigos?: string[]; conferida?: boolean; viaBip?: boolean };
+      const caixas = ((exp.caixas as Cx[] | null) ?? []).slice();
+      const box = caixas.find((c) => (c.codigos ?? []).includes(codigo));
+      let ondeCaixa: number | null = null;
+      if (box) {
+        ondeCaixa = box.numero;
+        box.codigos = (box.codigos ?? []).filter((c) => c !== codigo);
+        box.pecas = Math.max(0, (box.pecas ?? 0) - add);
+        const nt = (s: unknown) => String(s ?? '').trim().toUpperCase();
+        const linha = (box.conteudo ?? []).find((l) => nt(l.descricao) === nt(linhaDesc) && nt(l.tamanho) === nt(linhaTam) && nt(l.cor) === nt(linhaCor))
+          || (box.conteudo ?? []).find((l) => nt(l.descricao) === nt(linhaDesc) && nt(l.tamanho) === nt(linhaTam));
+        if (linha) { linha.qtd = Math.max(0, (linha.qtd ?? 0) - add); }
+        box.conteudo = (box.conteudo ?? []).filter((l) => (l.qtd ?? 0) > 0);
+        // Caixa vazia sai da lista.
+        const vazia = (box.pecas ?? 0) <= 0 && !(box.conteudo ?? []).length;
+        if (vazia) caixas.splice(caixas.indexOf(box), 1);
+        else box.conferida = false; // reabre a caixa (mudou o conteúdo)
+      }
+
+      const novosConferidos = conferidos.filter((c) => c !== codigo);
+      const novasPecas = Math.max(0, (exp.pecasConferidas || 0) - add);
+      await tx.expedicao.update({
+        where: { id },
+        data: {
+          conferidos: novosConferidos,
+          pecasConferidas: novasPecas,
+          caixas: caixas as unknown as Prisma.InputJsonValue,
+          conferenciaStatus: novasPecas >= exp.pecas ? 'conferida' : novasPecas > 0 ? 'conferindo' : 'pendente',
+          conferidoPor: usuario,
+          ...(novasPecas < exp.pecas ? { conferidoEm: null } : {}),
+        },
+      });
+      return {
+        ok: true,
+        mensagem: `${codigo} devolvido${ondeCaixa ? ` da Caixa ${ondeCaixa}` : ''} (${add} pç). Aponte a “Caixa atual” e bipe de novo. ${novasPecas}/${exp.pecas}.`,
+        conferidas: novasPecas, esperadas: exp.pecas, caixa: ondeCaixa,
+      };
+    });
+  }
+
   /** Admin: conclui a conferência SEM bipar peça a peça — mas NÃO despacha.
    *  Fica "conferida"; o despacho (com a data de saída correta) é um passo à parte. */
   async conferirSemBip(id: number, empresaId: number) {
