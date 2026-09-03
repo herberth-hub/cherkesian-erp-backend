@@ -304,6 +304,10 @@ function icon(k){ const d=ICONS[k]||'M5 12h14'; return '<svg viewBox="0 0 24 24"
 const BRL = new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'});
 const money = v => BRL.format(Number(v||0));
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Busca "amigável": ignora ACENTO e MAIÚSC/minúsc (ex.: "camisao" acha "CAMISÃO",
+// "sao paulo" acha "São Paulo"). Use bnorm() nos dois lados (consulta e dado).
+const semAcento = s => String(s==null?'':s).normalize('NFD').replace(/\p{Diacritic}/gu,'');
+const bnorm = s => semAcento(s).toLowerCase().trim();
 const iniciais = n => String(n||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
 const $ = id => document.getElementById(id);
 function toast(msg, kind){ const el=document.createElement('div'); el.className='tst '+(kind||''); el.textContent=msg; $('toast').appendChild(el); setTimeout(()=>el.remove(), 4200); }
@@ -1071,10 +1075,10 @@ async function viewClientes(c){
 function cliFiltrar(){
   const box=$('cliwrap'); if(!box) return;
   const admin = S.user.acesso==='total';
-  const g=val('cli_grupo'), q=(val('cli_busca')||'').toLowerCase();
+  const g=val('cli_grupo'), q=bnorm(val('cli_busca'));
   let list=(window.__CLILIST||[]);
   if(g) list=list.filter(cl=>cl.grupo===g);
-  if(q) list=list.filter(cl=>[cl.nome,cl.fantasia,cl.grupo,cl.cnpjCpf,cl.cidadeUf].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q) list=list.filter(cl=>[cl.nome,cl.fantasia,cl.grupo,cl.cnpjCpf,cl.cidadeUf].some(x=>bnorm(x).includes(q)));
   box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${list.length} cliente(s)${(g||q)?' no filtro':''}</div>` + panelTable(
     ['Nome','Grupo','Cidade/UF','Crédito','Novo?','Ações'],
     list.map(cl=>{
@@ -1241,10 +1245,10 @@ function prodTabela(list){
     ]), list.length?null:'Nenhum produto ainda.');
 }
 function prodFiltrar(){
-  const q=(val('prod_busca')||'').toLowerCase(); const g=val('prod_grupo');
+  const q=bnorm(val('prod_busca')); const g=val('prod_grupo');
   let list=(window.__PRODLIST||[]);
   if(g) list=list.filter(p=>p.clienteGrupo===g);
-  if(q) list=list.filter(p=> [p.codigo,p.descricao,p.categoria,p.cor,p.ncm,p.clienteGrupo,p.setor].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q) list=list.filter(p=> [p.codigo,p.descricao,p.categoria,p.cor,p.ncm,p.clienteGrupo,p.setor].some(x=>bnorm(x).includes(q)));
   const w=$('prodwrap'); if(w) w.innerHTML=prodTabela(list);
 }
 async function viewMateriais(c){
@@ -1390,14 +1394,14 @@ function pedidosKanban(arr){
 }
 function renderPedidos(){
   const list = window.__PEDIDOS||[];
-  const q=(val('ped_q')||'').toLowerCase(), et=val('ped_etapa'), fil=val('ped_filial');
+  const q=bnorm(val('ped_q')), et=val('ped_etapa'), fil=val('ped_filial');
   let arr=list;
   if(et) arr=arr.filter(p=>p.etapa===et);
   if(fil) arr=arr.filter(p=>p.unidadeNome===fil);
   if(q){
     const qn=_numBusca(q); // normaliza "7.710,00"/"7710" p/ comparar com o valor
     arr=arr.filter(p=>{
-      const hay=[p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.ordemCompraCliente, p.filial&&p.filial.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].join(' ').toLowerCase();
+      const hay=bnorm([p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.ordemCompraCliente, p.filial&&p.filial.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].join(' '));
       const valBate = qn && Number(p.valorTotal||0).toFixed(2).includes(qn);
       return hay.includes(q) || valBate;
     });
@@ -2662,9 +2666,9 @@ async function viewContratos(c){
 function ctrFiltrar(){ ctrRender(); }
 function ctrRender(){
   const wrap=$('ctr_wrap'); if(!wrap) return;
-  const q=(val('ctr_busca')||'').toLowerCase();
+  const q=bnorm(val('ctr_busca'));
   let list=window.__CONTRATOS||[];
-  if(q){ const t=q.split(/\s+/); list=list.filter(k=>{ const s=(((k.cliente&&k.cliente.nome)||'')+' '+(k.vendedor||'')+' '+(k.numero||'')+' '+(k.descricao||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  if(q){ const t=q.split(/\s+/); list=list.filter(k=>{ const s=bnorm(((k.cliente&&k.cliente.nome)||'')+' '+(k.vendedor||'')+' '+(k.numero||'')+' '+(k.descricao||'')); return t.every(x=>s.includes(x)); }); }
   if(!list.length){ wrap.innerHTML=panelTable(null,null, (window.__CONTRATOS||[]).length?'Nenhum contrato para esse filtro.':'Nenhum contrato cadastrado ainda. Clique “+ Novo contrato”.'); return; }
   wrap.innerHTML = panelTable(
     ['Cliente','Empresa emissora','Vendedor','Nº / descrição','Cond. pagamento','Itens','Vigência','Situação','Ações'],
@@ -2841,10 +2845,10 @@ async function viewCrm(c){
 }
 function crmLeadsFiltrados(){
   let list=window.__LEADS||[];
-  const q=(val('crm_busca')||'').toLowerCase();
+  const q=bnorm(val('crm_busca'));
   const vf=val('crm_vend');
   if(vf) list=list.filter(l=>String(l.vendedorId||'')===vf);
-  if(q){ const t=q.split(/\s+/); list=list.filter(l=>{ const s=((l.nome||'')+' '+(l.empresa||'')+' '+(l.contato||'')+' '+(l.cnpjCpf||'')+' '+(l.cidadeUf||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  if(q){ const t=q.split(/\s+/); list=list.filter(l=>{ const s=bnorm((l.nome||'')+' '+(l.empresa||'')+' '+(l.contato||'')+' '+(l.cnpjCpf||'')+' '+(l.cidadeUf||'')); return t.every(x=>s.includes(x)); }); }
   return list;
 }
 function crmRender(){
@@ -3062,9 +3066,9 @@ async function crmTabelaPrecos(){
 }
 function crmTabRender(){
   const wrap=$('crm_tab_wrap'); if(!wrap) return;
-  const q=(val('crm_tab_busca')||'').toLowerCase();
+  const q=bnorm(val('crm_tab_busca'));
   let list=window.__CRM_TAB||[];
-  if(q){ const t=q.split(/\s+/); list=list.filter(p=>{ const s=((p.codigo||'')+' '+(p.descricao||'')+' '+(p.cor||'')+' '+(p.categoria||'')).toLowerCase(); return t.every(x=>s.includes(x)); }); }
+  if(q){ const t=q.split(/\s+/); list=list.filter(p=>{ const s=bnorm((p.codigo||'')+' '+(p.descricao||'')+' '+(p.cor||'')+' '+(p.categoria||'')); return t.every(x=>s.includes(x)); }); }
   list=list.slice(0,400);
   wrap.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Cor</th><th style="padding:5px 8px;text-align:right">Preço base</th><th style="padding:5px 8px;text-align:right">Especial</th></tr></thead><tbody>${
     list.map(p=>`<tr style="border-top:1px solid #eee;cursor:pointer" onclick="APP.crmCopiaPreco('${esc(p.codigo||'')}',${p.precoBase!=null?Number(p.precoBase):'null'})" title="Copiar código + preço"><td style="padding:5px 8px"><span class="mono gold">${esc(p.codigo||'')}</span></td><td style="padding:5px 8px">${esc(p.descricao||'')}</td><td style="padding:5px 8px">${esc(p.cor||'—')}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${p.precoBase!=null?money(p.precoBase):'—'}</td><td style="padding:5px 8px;text-align:right">${p.precoEspecial!=null?money(p.precoEspecial):'—'}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="padding:10px">Nenhum produto.</td></tr>'
@@ -3608,7 +3612,7 @@ function receberEmp(enc){ const k=decodeURIComponent(enc); window.__RCEMP = (win
 function receberFiltrar(){
   const list=window.__RECS||[], nome=window.__RECNOME||{}, cnpj=window.__RECCNPJ||{};
   const de=val('rc_de'), ate=val('rc_ate'), st=val('rc_status');
-  const qraw=(val('rc_busca')||'').trim(); const q=qraw.toLowerCase(); const qn=_numBusca(q); const emp=window.__RCEMP||'';
+  const qraw=(val('rc_busca')||'').trim(); const q=bnorm(qraw); const qn=_numBusca(q); const emp=window.__RCEMP||'';
   window.__RCFILTERS = { q:qraw, de, ate, st, emp };
   try{ sessionStorage.setItem('rcfilt', JSON.stringify(window.__RCFILTERS)); }catch(_){}
   const fil=list.filter(t=>{
@@ -3619,7 +3623,7 @@ function receberFiltrar(){
     if(st==='pago' && t.status!=='pago') return false;
     if(emp){ const en=t.filial?t.filial.nome:'Sem empresa'; if(en!==emp) return false; }
     if(q){
-      const hay=[nome[t.clienteId]||'', cnpj[t.clienteId]||'', t.documento||'', t.filial?t.filial.nome:''].join(' ').toLowerCase();
+      const hay=bnorm([nome[t.clienteId]||'', cnpj[t.clienteId]||'', t.documento||'', t.filial?t.filial.nome:''].join(' '));
       const valBate = qn && (Number(t.valor).toFixed(2).includes(qn) || Number(t.saldo).toFixed(2).includes(qn));
       if(!hay.includes(q) && !valBate) return false;
     }
@@ -3839,7 +3843,7 @@ function pagarEmp(enc){ const k=decodeURIComponent(enc); window.__PGEMP = (windo
 function pagarFiltrar(){
   const list=window.__PAGS||[], nome=window.__PAGNOME||{}, cnpj=window.__PAGCNPJ||{};
   const de=val('pg_de'), ate=val('pg_ate'), st=val('pg_status');
-  const qraw=(val('pg_busca')||'').trim(); const q=qraw.toLowerCase(); const qn=_numBusca(q); const emp=window.__PGEMP||'';
+  const qraw=(val('pg_busca')||'').trim(); const q=bnorm(qraw); const qn=_numBusca(q); const emp=window.__PGEMP||'';
   // Guarda o estado dos filtros p/ manter aplicado após executar tarefas (baixa, exclusão…) e após F5.
   window.__PGFILTERS = { q:qraw, de, ate, st, emp };
   try{ sessionStorage.setItem('pgfilt', JSON.stringify(window.__PGFILTERS)); }catch(_){}
@@ -3851,7 +3855,7 @@ function pagarFiltrar(){
     if(st==='pago' && t.status!=='pago') return false;
     if(emp){ const en=t.filial?t.filial.nome:'Sem empresa'; if(en!==emp) return false; }
     if(q){
-      const hay=[nome[t.fornecedorId]||'', cnpj[t.fornecedorId]||'', t.referencia||'', t.categoria||'', t.filial?t.filial.nome:''].join(' ').toLowerCase();
+      const hay=bnorm([nome[t.fornecedorId]||'', cnpj[t.fornecedorId]||'', t.referencia||'', t.categoria||'', t.filial?t.filial.nome:''].join(' '));
       const valBate = qn && (Number(t.valor).toFixed(2).includes(qn) || Number(t.saldo).toFixed(2).includes(qn));
       if(!hay.includes(q) && !valBate) return false;
     }
@@ -5536,15 +5540,20 @@ function estAreaSet(a){ const s=$('und_area'); if(s){ s.value=a; renderUnidades(
 function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u.status==='aguardando_endereco') return 'recebimento'; if(u.status==='em_estoque'||u.status==='reservado') return 'estoque'; return u.status; }
 function renderUnidades(){
   const box=$('unidsbox'); if(!box) return;
-  const tipo=val('und_tipo'), area=val('und_area'), col=val('und_col'), andar=val('und_andar'), cx=val('und_cx'), q=(val('und_q')||'').toLowerCase(); const _admin=S.user.acesso==='total';
+  const tipo=val('und_tipo'), area=val('und_area'), col=val('und_col'), andar=val('und_andar'), cx=val('und_cx'), q=bnorm(val('und_q')); const _admin=S.user.acesso==='total';
   let arr=(window.__UNIDS_ALL||[]);
   if(area) arr=arr.filter(u=>areaDaUnidade(u)===area);
   if(tipo) arr=arr.filter(u=>u.tipo===tipo);
   if(col) arr=arr.filter(u=>u.coluna===col);
   if(andar) arr=arr.filter(u=>String(u.andar)===String(andar));
   if(cx) arr=arr.filter(u=>u.caixaMaster===cx);
-  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.areaMotivo].some(x=>String(x||'').toLowerCase().includes(q)));
-  window.__UNIDS=arr.slice(0,300);
+  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.areaMotivo].some(x=>bnorm(x).includes(q)));
+  // "Acesso direto" a partir de uma sugestão clicada: a TABELA mostra só o item
+  // escolhido; o resumo (chips) segue com todos, p/ trocar a seleção.
+  const pick = window.__UND_PICK;
+  let arrTab = arr;
+  if(pick) arrTab = arr.filter(u => (u.descricao||'')===pick.desc && (u.cor||'')===pick.cor && (u.tamanho||'—')===pick.tam);
+  window.__UNIDS=arrTab.slice(0,300);
   if(!window.__UNSEL) window.__UNSEL=new Set();
   const uRows=window.__UNIDS.map(u=>{
     const ender=(u.coluna||u.andar!=null||u.caixaMaster)?`Col ${esc(u.coluna||'—')} · And ${u.andar!=null?u.andar:'—'} · Cx ${esc(u.caixaMaster||'—')}`
@@ -5570,7 +5579,8 @@ function renderUnidades(){
       ${_admin?`<button class="btn-sm" style="color:#c14a34" onclick="APP.unBulkExcluir()">🗑 Excluir selecionadas</button>`:''}
     </div>
     ${(col||cx||andar||q)?resumoGondola(arr,{col,andar,cx,q}):''}
-    <div class="muted" style="font-size:11.5px;margin-bottom:6px">${arr.length} unidade(s)${(tipo||area||col||andar||cx||q)?' no filtro':''}${arr.length>300?' · mostrando 300':''}</div>`
+    ${pick?`<div style="display:inline-flex;gap:8px;align-items:center;background:#fff6d8;border:1px solid #d9b84a;border-radius:8px;padding:5px 10px;margin-bottom:8px;font-size:12px">🎯 Mostrando só: <b>${esc(pick.tam)}</b> · ${esc(pick.desc)}${pick.cor?' · '+esc(pick.cor):''} <button class="btn-sm" style="padding:1px 8px" onclick="window.__UND_PICK=null;APP.renderUnidades()">✕ limpar</button></div><br>`:''}
+    <div class="muted" style="font-size:11.5px;margin-bottom:6px">${pick?arrTab.length:arr.length} unidade(s)${(tipo||area||col||andar||cx||q||pick)?' no filtro':''}${(pick?arrTab.length:arr.length)>300?' · mostrando 300':''}</div>`
     + panelTable(['Sel','Código','Tipo','Item','Status','Endereço / Motivo','Ações'], uRows, uRows.length?null:'Nenhuma unidade neste filtro.');
   unSelCount();
 }
@@ -5578,14 +5588,30 @@ function renderUnidades(){
 // busca por produto/código quanto ao filtrar uma gôndola (Coluna · Andar · Caixa).
 function resumoGondola(arr, opts){
   opts=opts||{};
-  const g=new Map(); // desc¦cor¦tam -> {desc,cor,tam,n}
-  (arr||[]).forEach(u=>{ const k=[u.descricao||'',u.cor||'',u.tamanho||''].join('¦'); const cur=g.get(k)||{desc:u.descricao||'',cor:u.cor||'',tam:u.tamanho||'—',n:0}; cur.n++; g.set(k,cur); });
-  const linhas=[...g.values()].sort((a,b)=> a.desc===b.desc ? String(a.tam).localeCompare(String(b.tam),'pt',{numeric:true}) : a.desc.localeCompare(b.desc))
-    .map(x=>`<span style="display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid #efe2b8;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px"><b style="font-size:13px">${esc(x.tam)}</b> <span class="muted">${esc(x.desc)}${x.cor?' · '+esc(x.cor):''}</span> <b class="gold" style="font-size:13px">${x.n}</b></span>`).join('');
+  const g=new Map(); // desc¦cor¦tam -> {desc,cor,tam,codigo,n}
+  (arr||[]).forEach(u=>{ const k=[u.descricao||'',u.cor||'',u.tamanho||''].join('¦'); const cur=g.get(k)||{desc:u.descricao||'',cor:u.cor||'',tam:u.tamanho||'—',codigo:u.codigo||'',n:0}; cur.n++; g.set(k,cur); });
+  // Guarda as sugestões p/ o clique (acesso direto ao item exato).
+  const sug=[...g.values()].sort((a,b)=> a.desc===b.desc ? String(a.tam).localeCompare(String(b.tam),'pt',{numeric:true}) : a.desc.localeCompare(b.desc));
+  window.__UND_SUG = sug;
+  const pick = window.__UND_PICK;
+  const linhas=sug.map((x,i)=>{
+    const ativo = pick && pick.desc===x.desc && pick.cor===x.cor && pick.tam===x.tam;
+    return `<span onclick="APP.estSugestao(${i})" title="Clique para ver só este item" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center;background:${ativo?'#fff6d8':'#fff'};border:1px solid ${ativo?'#d9b84a':'#efe2b8'};border-radius:6px;padding:3px 9px;margin:2px;font-size:12px;transition:background .12s" onmouseover="this.style.background='#fdf6e0'" onmouseout="this.style.background='${ativo?'#fff6d8':'#fff'}'"><b style="font-size:13px">${esc(x.tam)}</b> <span class="muted">${esc(x.desc)}${x.cor?' · '+esc(x.cor):''}</span> <b class="gold" style="font-size:13px">${x.n}</b></span>`;
+  }).join('');
   const partes=[opts.col?('Coluna '+opts.col):'', opts.andar?('Andar '+opts.andar):'', opts.cx?('Gôndola '+opts.cx):'', opts.q?('Busca "'+opts.q+'"'):''].filter(Boolean).join(' · ');
   return `<div style="background:#faf8f0;border:1px solid #efe2b8;border-radius:8px;padding:8px 10px;margin-bottom:8px">
-    <div style="font-weight:700;font-size:12px;margin-bottom:4px">📊 ${esc(partes||'Resumo')} — <b>${arr.length}</b> unidade(s) · ${g.size} tamanho(s)/item(ns)</div>
+    <div style="font-weight:700;font-size:12px;margin-bottom:4px">📊 ${esc(partes||'Resumo')} — <b>${arr.length}</b> unidade(s) · ${g.size} tamanho(s)/item(ns) <span class="muted" style="font-weight:500">· clique num item para ir direto</span></div>
     <div style="display:flex;flex-wrap:wrap">${linhas||'<span class="muted">vazio</span>'}</div></div>`;
+}
+// Acesso direto: clicar numa sugestão do resumo filtra a lista para aquele item exato.
+function estSugestao(i){
+  const x = (window.__UND_SUG||[])[i]; if(!x) return;
+  const atual = window.__UND_PICK;
+  // Clicar de novo no mesmo item desmarca (alterna).
+  if(atual && atual.desc===x.desc && atual.cor===x.cor && atual.tam===x.tam){ window.__UND_PICK=null; }
+  else window.__UND_PICK = { desc:x.desc, cor:x.cor, tam:x.tam };
+  renderUnidades();
+  const el=$('unidsbox'); if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function unSel(cod, ck){ if(!window.__UNSEL) window.__UNSEL=new Set(); if(ck) window.__UNSEL.add(cod); else window.__UNSEL.delete(cod); unSelCount(); }
 function unSelAll(ck){ if(!window.__UNSEL) window.__UNSEL=new Set(); (window.__UNIDS||[]).forEach(u=>{ if(ck) window.__UNSEL.add(u.codigo); else window.__UNSEL.delete(u.codigo); }); document.querySelectorAll('.unchk').forEach(c=>{ c.checked=ck; }); unSelCount(); }
@@ -6235,12 +6261,12 @@ async function verMovimentos(){
   movRender();
 }
 function movFiltro(t){ if(window.__MOVF) window.__MOVF.tipo=t; movRender(); }
-function movFiltroBusca(){ if(window.__MOVF) window.__MOVF.q=(val('mov_q')||'').toLowerCase(); movRender(); }
+function movFiltroBusca(){ if(window.__MOVF) window.__MOVF.q=bnorm(val('mov_q')); movRender(); }
 function movRender(){
   const f=window.__MOVF||{tipo:'',q:''};
   let list=(window.__MOVS||[]);
   if(f.tipo) list=list.filter(m=>m.tipo===f.tipo);
-  if(f.q) list=list.filter(m=>((m.codigo+' '+m.descricao+' '+(m.cor||'')).toLowerCase().includes(f.q)));
+  if(f.q) list=list.filter(m=>bnorm(m.codigo+' '+m.descricao+' '+(m.cor||'')).includes(f.q));
   const fmt=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:3});
   const dt=v=>{ try{ const d=new Date(v); return d.toLocaleDateString('pt-BR')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(_){ return ''; } };
   const rows=list.map(m=>{ const ent=m.tipo==='entrada';
@@ -6325,9 +6351,9 @@ function expBuscar(){ window.__EXPQ=val('exp_q')||''; renderExpTable(); }
 function renderExpTable(){
   const box=$('exp_tbl'); if(!box) return;
   const nome=window.__EXPNOME||{}; const all=window.__EXPS||[]; const done=!!window.__expDone;
-  const q=(window.__EXPQ||'').trim().toLowerCase();
+  const q=bnorm(window.__EXPQ);
   let arr=all.filter(e=> done ? e.conferenciaStatus==='despachado' : e.conferenciaStatus!=='despachado');
-  if(q) arr=arr.filter(e=>[e.numero,e.pedidoNumero,e.clienteNome||nome[e.clienteId],e.nf].some(x=>String(x||'').toLowerCase().includes(q)));
+  if(q) arr=arr.filter(e=>[e.numero,e.pedidoNumero,e.clienteNome||nome[e.clienteId],e.nf].some(x=>bnorm(x).includes(q)));
   box.innerHTML = panelTable(
     ['Número','Cliente','Peças','NF-e','Conferência','Saída','Ações'],
     arr.map(e=>[
@@ -7561,8 +7587,8 @@ async function viewNotas(c){
 }
 function nfFiltrar(){
   const list = window.__NFS||[];
-  const q = (val('nfBusca')||'').trim().toLowerCase();
-  const f = q ? list.filter(n=> (n.clienteNome||'').toLowerCase().includes(q) || String(n.numero||'').toLowerCase().includes(q) || String(n.chave||'').toLowerCase().includes(q) || String(n.cfop||'').toLowerCase().includes(q)) : list;
+  const q = bnorm(val('nfBusca'));
+  const f = q ? list.filter(n=> bnorm(n.clienteNome).includes(q) || bnorm(n.numero).includes(q) || bnorm(n.chave).includes(q) || bnorm(n.cfop).includes(q)) : list;
   const alvo = document.getElementById('nfLista'); if(!alvo) return;
   alvo.innerHTML = panelTable(
     ['Número','Série','CFOP','Cliente / Destinatário','Status','Valor','ICMS','Chave de acesso','Emitida em','Ações'],
