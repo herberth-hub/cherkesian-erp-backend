@@ -440,4 +440,228 @@ export class DashboardService {
     const geral = round(pilares.reduce((s, p) => s + p.indice, 0) / pilares.length);
     return { geral, statusGeral: statusDe(geral), pilares, atualizadoEm: agora.toISOString() };
   }
+
+  /**
+   * Mapa mental de CAUSA RAIZ de um pilar. Devolve uma árvore: do índice → grupos
+   * de causa → registros concretos (pedido/OP/título/cliente). Cada folha traz
+   * `rota` + `alvo` p/ o frontend "clicar até o registro" e agir rápido.
+   */
+  async drill(empresaId: number, pilar: string) {
+    const hoje0 = new Date(); hoje0.setHours(0, 0, 0, 0);
+    const diasAtraso = (d: Date | null | undefined) =>
+      d ? Math.floor((hoje0.getTime() - new Date(d).setHours(0, 0, 0, 0)) / 86400000) : 0;
+
+    if (pilar === 'entrega') return this.drillEntrega(empresaId, hoje0, diasAtraso);
+    if (pilar === 'producao') return this.drillProducao(empresaId, hoje0, diasAtraso);
+    if (pilar === 'clientes') return this.drillClientes(empresaId, hoje0);
+    if (pilar === 'pedidos') return this.drillPedidos(empresaId);
+    if (pilar === 'faturamento') return this.drillFaturamento(empresaId, hoje0, diasAtraso);
+    return { raiz: { id: 'x', label: 'Pilar desconhecido', tipo: 'raiz', filhos: [] } };
+  }
+
+  /** ENTREGA: pedidos atrasados → agrupados pela ETAPA travada → pedido → OPs (raiz). */
+  private async drillEntrega(
+    empresaId: number, hoje0: Date,
+    diasAtraso: (d: Date | null | undefined) => number,
+  ) {
+    const atrasados = await this.prisma.pedido.findMany({
+      where: { empresaId, etapa: { notIn: ['orcamento', 'cancelado', 'concluido'] }, prazoEntrega: { not: null, lt: hoje0 } },
+      select: {
+        id: true, numero: true, valorTotal: true, prazoEntrega: true, etapa: true,
+        cliente: { select: { nome: true } },
+        ops: { select: { numero: true, status: true, progresso: true, setorAtual: true } },
+      },
+      orderBy: { prazoEntrega: 'asc' },
+    });
+
+    const GRUPOS: Record<string, { label: string; causa: string }> = {
+      aprovado: { label: 'Aprovado, produção não iniciada', causa: 'PCP não abriu/priorizou a OP' },
+      piloto: { label: 'Travado no piloto', causa: 'Amostra pendente de aprovação do cliente' },
+      material: { label: 'Aguardando material', causa: 'Falta tecido/insumo — ver compras' },
+      compra: { label: 'Aguardando compra', causa: 'Ordem de compra em aberto' },
+      producao: { label: 'Preso na produção', causa: 'Corte/costura/facção em andamento ou parado' },
+      estoque: { label: 'Pronto — aguardando expedição', causa: 'Produzido mas não faturado/despachado' },
+      expedicao: { label: 'Na expedição, não despachado', causa: 'Falta emitir NF / romaneio / coleta' },
+    };
+    const ordem = ['producao', 'material', 'compra', 'piloto', 'aprovado', 'estoque', 'expedicao'];
+
+    const porEtapa = new Map<string, typeof atrasados>();
+    for (const p of atrasados) {
+      const arr = porEtapa.get(p.etapa) || [];
+      arr.push(p); porEtapa.set(p.etapa, arr);
+    }
+
+    const filhos = ordem.filter((e) => porEtapa.has(e)).map((etapa) => {
+      const peds = porEtapa.get(etapa)!;
+      const g = GRUPOS[etapa] || { label: etapa, causa: '' };
+      return {
+        id: 'g_' + etapa, tipo: 'grupo', label: g.label, valor: peds.length, status: 'critico',
+        hint: g.causa,
+        filhos: peds.map((p) => {
+          const dias = diasAtraso(p.prazoEntrega);
+          // Causa raiz do pedido em produção: as OPs e onde estão paradas.
+          const opsFilhas = (p.ops || []).map((o) => ({
+            id: 'op_' + o.numero, tipo: 'folha', label: 'OP ' + o.numero,
+            hint: `${o.status}${o.setorAtual ? ' · ' + o.setorAtual : ''} · ${o.progresso || 0}%`,
+            status: (o.progresso || 0) >= 80 ? 'atencao' : 'critico',
+            rota: 'producao', alvo: o.numero,
+          }));
+          return {
+            id: 'ped_' + p.id, tipo: opsFilhas.length ? 'grupo' : 'folha',
+            label: p.numero + ' · ' + (p.cliente?.nome || 'Cliente'),
+            hint: `${dias} dia(s) atrasado`, valor: Number(p.valorTotal), moeda: true, status: 'critico',
+            rota: 'vendas', alvo: p.numero,
+            filhos: opsFilhas.length ? opsFilhas : undefined,
+          };
+        }),
+      };
+    });
+
+    return {
+      raiz: {
+        id: 'entrega', tipo: 'raiz', icone: '🚚', label: 'Entrega — pedidos atrasados',
+        valor: atrasados.length, status: atrasados.length ? 'critico' : 'bom',
+        hint: 'Clique numa causa → no pedido → na OP para achar onde travou',
+        filhos,
+      },
+    };
+  }
+
+  /** PRODUÇÃO: OPs atrasadas → agrupadas por STATUS (gargalo) → OP (raiz). */
+  private async drillProducao(
+    empresaId: number, hoje0: Date,
+    diasAtraso: (d: Date | null | undefined) => number,
+  ) {
+    const ops = await this.prisma.oP.findMany({
+      where: { pedido: { empresaId }, status: { not: 'concluido' }, entregaPrev: { not: null, lt: hoje0 } },
+      select: {
+        numero: true, status: true, progresso: true, setorAtual: true, entregaPrev: true, quantidade: true,
+        pedido: { select: { numero: true, cliente: { select: { nome: true } } } },
+      },
+      orderBy: { entregaPrev: 'asc' },
+    });
+    const LABEL: Record<string, string> = {
+      aguardando_material: 'Aguardando material (gargalo de insumo)',
+      a_iniciar: 'A iniciar (fila de corte)',
+      em_corte: 'Em corte',
+      em_producao: 'Em produção (costura)',
+      em_faccao: 'Na facção (fora)',
+    };
+    const grupos = new Map<string, typeof ops>();
+    for (const o of ops) { const a = grupos.get(o.status) || []; a.push(o); grupos.set(o.status, a); }
+    const filhos = [...grupos.entries()].sort((a, b) => b[1].length - a[1].length).map(([st, arr]) => ({
+      id: 'st_' + st, tipo: 'grupo', label: LABEL[st] || st, valor: arr.length, status: 'critico',
+      filhos: arr.map((o) => ({
+        id: 'op_' + o.numero, tipo: 'folha',
+        label: 'OP ' + o.numero + ' · ' + (o.pedido?.cliente?.nome || o.pedido?.numero || 'avulsa'),
+        hint: `${diasAtraso(o.entregaPrev)}d atrasado · ${o.progresso || 0}% · ${o.quantidade} pç${o.setorAtual ? ' · ' + o.setorAtual : ''}`,
+        status: (o.progresso || 0) >= 80 ? 'atencao' : 'critico',
+        rota: 'producao', alvo: o.numero,
+      })),
+    }));
+    return {
+      raiz: {
+        id: 'producao', tipo: 'raiz', icone: '🏭', label: 'Produção — OPs atrasadas',
+        valor: ops.length, status: ops.length ? 'critico' : 'bom',
+        hint: 'Agrupado pelo gargalo (status). Clique para ver as OPs paradas.',
+        filhos,
+      },
+    };
+  }
+
+  /** CLIENTES: inativos (90d) + inadimplentes → cliente (raiz). */
+  private async drillClientes(empresaId: number, hoje0: Date) {
+    const dias90 = new Date(Date.now() - 90 * 86400000);
+    const [clientes, pedidos, receber] = await Promise.all([
+      this.prisma.cliente.findMany({ where: { empresaId }, select: { id: true, nome: true } }),
+      this.prisma.pedido.findMany({ where: { empresaId }, select: { clienteId: true, data: true } }),
+      this.prisma.contaReceber.findMany({ where: { empresaId }, select: { clienteId: true, valor: true, pago: true, vencimento: true, documento: true } }),
+    ]);
+    const ultimaCompra = new Map<number, Date>();
+    for (const p of pedidos) {
+      const cur = ultimaCompra.get(p.clienteId);
+      if (!cur || p.data > cur) ultimaCompra.set(p.clienteId, p.data);
+    }
+    const nome = new Map(clientes.map((c) => [c.id, c.nome]));
+    const inativos = clientes.filter((c) => { const u = ultimaCompra.get(c.id); return !u || u < dias90; });
+    // Inadimplentes: por cliente, soma do saldo vencido.
+    const vencPorCli = new Map<number, number>();
+    for (const r of receber) {
+      const saldo = Number(r.valor) - Number(r.pago);
+      if (saldo > 0.005 && r.vencimento < hoje0) vencPorCli.set(r.clienteId, (vencPorCli.get(r.clienteId) || 0) + saldo);
+    }
+    const filhos = [
+      {
+        id: 'inativos', tipo: 'grupo', label: 'Clientes inativos (90+ dias sem comprar)', valor: inativos.length, status: inativos.length ? 'atencao' : 'bom',
+        hint: 'Alvos para reativação / follow-up do vendedor',
+        filhos: inativos.slice(0, 60).map((c) => {
+          const u = ultimaCompra.get(c.id);
+          return { id: 'cli_' + c.id, tipo: 'folha', label: c.nome, hint: u ? `última compra em ${new Date(u).toISOString().slice(0, 10)}` : 'nunca comprou', status: 'atencao', rota: 'clientes', alvo: String(c.id), busca: c.nome };
+        }),
+      },
+      {
+        id: 'inadimplentes', tipo: 'grupo', label: 'Inadimplentes (título vencido)', valor: vencPorCli.size, status: vencPorCli.size ? 'critico' : 'bom',
+        hint: 'Cobrança pendente — risco de crédito',
+        filhos: [...vencPorCli.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([cid, v]) => ({
+          id: 'clir_' + cid, tipo: 'folha', label: nome.get(cid) || ('Cliente #' + cid), hint: 'vencido em aberto', valor: Number(v.toFixed(2)), moeda: true, status: 'critico', rota: 'receber', alvo: String(cid), busca: nome.get(cid) || '',
+        })),
+      },
+    ];
+    return { raiz: { id: 'clientes', tipo: 'raiz', icone: '👥', label: 'Clientes — carteira', valor: clientes.length, status: 'atencao', hint: 'Onde a carteira está perdendo tração.', filhos } };
+  }
+
+  /** PEDIDOS: orçamentos em aberto (não convertidos), por idade → orçamento (raiz). */
+  private async drillPedidos(empresaId: number) {
+    const orcs = await this.prisma.pedido.findMany({
+      where: { empresaId, etapa: 'orcamento' },
+      select: { id: true, numero: true, valorTotal: true, data: true, cliente: { select: { nome: true } } },
+      orderBy: { data: 'asc' },
+    });
+    const hoje = Date.now();
+    const idade = (d: Date) => Math.floor((hoje - new Date(d).getTime()) / 86400000);
+    const faixa = (dias: number) => (dias > 30 ? 'frios' : dias > 7 ? 'mornos' : 'novos');
+    const LAB: Record<string, { label: string; status: string }> = {
+      frios: { label: 'Frios (30+ dias parados)', status: 'critico' },
+      mornos: { label: 'Mornos (8–30 dias)', status: 'atencao' },
+      novos: { label: 'Novos (até 7 dias)', status: 'bom' },
+    };
+    const grupos = new Map<string, typeof orcs>();
+    for (const o of orcs) { const f = faixa(idade(o.data)); const a = grupos.get(f) || []; a.push(o); grupos.set(f, a); }
+    const filhos = ['frios', 'mornos', 'novos'].filter((f) => grupos.has(f)).map((f) => ({
+      id: 'f_' + f, tipo: 'grupo', label: LAB[f].label, valor: grupos.get(f)!.length, status: LAB[f].status,
+      filhos: grupos.get(f)!.map((o) => ({
+        id: 'orc_' + o.id, tipo: 'folha', label: o.numero + ' · ' + (o.cliente?.nome || 'Cliente'),
+        hint: `${idade(o.data)} dia(s) sem fechar`, valor: Number(o.valorTotal), moeda: true, status: LAB[f].status,
+        rota: 'vendas', alvo: o.numero,
+      })),
+    }));
+    return { raiz: { id: 'pedidos', tipo: 'raiz', icone: '🛒', label: 'Pedidos — orçamentos não convertidos', valor: orcs.length, status: 'atencao', hint: 'Priorize os frios: quanto mais parado, menor a chance de fechar.', filhos } };
+  }
+
+  /** FATURAMENTO: inadimplência (vencido) por cliente → título (raiz). */
+  private async drillFaturamento(empresaId: number, hoje0: Date, diasAtraso: (d: Date | null | undefined) => number) {
+    const [receber, clientes] = await Promise.all([
+      this.prisma.contaReceber.findMany({ where: { empresaId, status: { not: 'pago' } }, select: { id: true, clienteId: true, documento: true, valor: true, pago: true, vencimento: true } }),
+      this.prisma.cliente.findMany({ where: { empresaId }, select: { id: true, nome: true } }),
+    ]);
+    const nome = new Map(clientes.map((c) => [c.id, c.nome]));
+    const vencidos = receber.map((r) => ({ ...r, saldo: Number(r.valor) - Number(r.pago), dias: diasAtraso(r.vencimento) }))
+      .filter((r) => r.saldo > 0.005 && r.dias > 0);
+    const porCli = new Map<number, typeof vencidos>();
+    for (const r of vencidos) { const a = porCli.get(r.clienteId) || []; a.push(r); porCli.set(r.clienteId, a); }
+    const filhos = [...porCli.entries()]
+      .map(([cid, arr]) => ({ cid, arr, total: arr.reduce((s, x) => s + x.saldo, 0) }))
+      .sort((a, b) => b.total - a.total).slice(0, 40)
+      .map(({ cid, arr, total }) => ({
+        id: 'cli_' + cid, tipo: 'grupo', label: nome.get(cid) || ('Cliente #' + cid), valor: Number(total.toFixed(2)), moeda: true, status: 'critico',
+        hint: `${arr.length} título(s) vencido(s)`,
+        filhos: arr.sort((a, b) => b.dias - a.dias).map((r) => ({
+          id: 'tit_' + r.id, tipo: 'folha', label: r.documento || ('Título #' + r.id),
+          hint: `${r.dias} dia(s) vencido · venc. ${new Date(r.vencimento).toISOString().slice(0, 10)}`,
+          valor: Number(r.saldo.toFixed(2)), moeda: true, status: 'critico', rota: 'receber', alvo: String(cid), busca: nome.get(cid) || '',
+        })),
+      }));
+    const totalVenc = vencidos.reduce((s, r) => s + r.saldo, 0);
+    return { raiz: { id: 'faturamento', tipo: 'raiz', icone: '💰', label: 'Faturamento — inadimplência', valor: Number(totalVenc.toFixed(2)), moeda: true, status: totalVenc > 0 ? 'critico' : 'bom', hint: 'Maiores devedores primeiro. Clique para ver os títulos.', filhos } };
+  }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -18,5 +18,11 @@ export class DashboardController {
   @Get('indices')
   indices(@CurrentUser() user: AuthUser) {
     return this.dashboardService.indices(user.empresaId);
+  }
+
+  /** Mapa mental de causa raiz de um pilar (drill-down até o registro). */
+  @Get('drill')
+  drill(@CurrentUser() user: AuthUser, @Query('pilar') pilar: string) {
+    return this.dashboardService.drill(user.empresaId, pilar || '');
   }
 }
