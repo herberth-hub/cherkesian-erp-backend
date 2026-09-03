@@ -441,6 +441,90 @@ export class ExpedicoesService {
     };
   }
 
+  /**
+   * TRAVA anti-excedente: recusa uma bipagem (peça, kit ou caixa) que faça o
+   * CONFERIDO passar do ESPERADO do pedido — por TAMANHO (quando há grade) e pelo
+   * TOTAL do item. Vale para os 3 caminhos, fechando o buraco de kit/caixa que
+   * antes deixava conferir a mais (ex.: 88 de um tamanho que só pedia 70).
+   */
+  private async travaExcedente(
+    tx: Prisma.TransactionClient,
+    exp: Expedicao,
+    adicoes: Array<{ descricao?: string | null; tamanho?: string | null; qtd: number }>,
+    boxExcluir: number | null,
+  ) {
+    if (!adicoes.length) return;
+    const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
+
+    // Esperado (snapshot da expedição; se vazio, cai no pedido de origem).
+    let itens = (exp.itens as Array<{ descricao?: string; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
+    if (!itens.length && exp.pedidoId) {
+      const ped = await tx.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
+      itens = (ped?.itens ?? []).map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, grade: it.grade as Record<string, number> | null }));
+    }
+    if (!itens.length) return; // sem base (texto livre) — não bloqueia
+
+    const espSize = new Map<string, number>(); // desc|TAM -> esperado
+    const espTotal = new Map<string, number>(); // desc -> esperado total
+    const comGrade = new Set<string>();
+    for (const it of itens) {
+      const d = norm(it.descricao);
+      const grade = it.grade && typeof it.grade === 'object' ? it.grade : null;
+      if (grade && Object.keys(grade).length) {
+        comGrade.add(d);
+        for (const [t, q] of Object.entries(grade)) {
+          espSize.set(d + '|' + norm(t), (espSize.get(d + '|' + norm(t)) ?? 0) + (Number(q) || 0));
+          espTotal.set(d, (espTotal.get(d) ?? 0) + (Number(q) || 0));
+        }
+      } else {
+        espTotal.set(d, (espTotal.get(d) ?? 0) + (Number(it.quantidade) || 0));
+      }
+    }
+
+    // Conferido atual (conteúdo das caixas), excluindo a caixa que está sendo bipada.
+    const caixas = (exp.caixas as Array<{ numero: number; conteudo?: CaixaLinha[] }> | null) ?? [];
+    const confSize = new Map<string, number>();
+    const confTotal = new Map<string, number>();
+    for (const c of caixas) {
+      if (boxExcluir != null && c.numero === boxExcluir) continue;
+      for (const l of c.conteudo ?? []) {
+        const d = norm(l.descricao);
+        confSize.set(d + '|' + norm(l.tamanho), (confSize.get(d + '|' + norm(l.tamanho)) ?? 0) + (Number(l.qtd) || 0));
+        confTotal.set(d, (confTotal.get(d) ?? 0) + (Number(l.qtd) || 0));
+      }
+    }
+
+    // Agrega o que está entrando agora.
+    const addSize = new Map<string, number>();
+    const addTotal = new Map<string, number>();
+    for (const a of adicoes) {
+      const d = norm(a.descricao);
+      addSize.set(d + '|' + norm(a.tamanho), (addSize.get(d + '|' + norm(a.tamanho)) ?? 0) + (Number(a.qtd) || 0));
+      addTotal.set(d, (addTotal.get(d) ?? 0) + (Number(a.qtd) || 0));
+    }
+
+    // Cap por TOTAL do item.
+    for (const [d, add] of addTotal) {
+      const expT = espTotal.get(d) ?? 0;
+      if (expT <= 0) continue; // descrição fora da base — a trava de "fora do pedido" cuida
+      const jaT = confTotal.get(d) ?? 0;
+      if (jaT + add > expT) {
+        throw new BadRequestException(`Quantidade acima do pedido para "${d}": pedido ${expT}, já conferido ${jaT}. Não bipe a mais.`);
+      }
+    }
+    // Cap por TAMANHO (itens com grade).
+    for (const [k, add] of addSize) {
+      const d = k.split('|')[0];
+      if (add <= 0 || !comGrade.has(d)) continue;
+      const tam = k.split('|')[1] || '—';
+      const expS = espSize.get(k) ?? 0;
+      const jaS = confSize.get(k) ?? 0;
+      if (jaS + add > expS) {
+        throw new BadRequestException(`Tamanho ${tam} de "${d}" acima do pedido: previsto ${expS}, já conferido ${jaS}. Não bipe a mais.`);
+      }
+    }
+  }
+
   /** Bipa uma peça unitária (ou um kit) na conferência de expedição. Idempotente para kits.
    *  Quando `caixaAtual` é informado, a peça bipada é alocada NESSA caixa — o sistema
    *  monta o conteúdo/quantidade de cada caixa conforme a bipagem, sem digitar manualmente. */
@@ -466,19 +550,25 @@ export class ExpedicoesService {
       let detalhe = codigo;
       let caixasUpd: Prisma.InputJsonValue | undefined;
       let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
+      // Peças que esta bipagem adiciona (p/ a trava anti-excedente por tamanho/total).
+      const adicoes: Array<{ descricao?: string | null; tamanho?: string | null; qtd: number }> = [];
+      let boxExcluir: number | null = null;
       // Conteúdo da caixa CASADO com a linha do pedido (p/ o "Montar caixas" já vir preenchido).
       let boxDescricao: string | null = null;
       let boxCor: string | null = null;
       let boxTam: string | null = null;
       if (/-CX\d+$/i.test(codigo)) {
         // Bipou uma CAIXA: confere todas as peças dela de uma vez.
-        const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean }> | null) ?? []).slice();
+        const caixas = ((exp.caixas as Array<{ numero: number; pecas: number; conferida?: boolean; conteudo?: CaixaLinha[] }> | null) ?? []).slice();
         const prefixo = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const n = Number(/-CX(\d+)$/i.exec(codigo)?.[1] ?? 0);
         const box = caixas.find((c) => c.numero === n && codigo.toUpperCase() === `${prefixo}-CX${c.numero}`);
         if (!box) throw new NotFoundException(`Caixa ${codigo} não pertence a esta expedição.`);
         add = box.pecas || 0;
         detalhe = `Caixa ${n} (${add} pç)`;
+        // Valida o conteúdo desta caixa contra o restante do pedido (exclui ela da base).
+        for (const l of box.conteudo ?? []) adicoes.push({ descricao: l.descricao, tamanho: l.tamanho, qtd: Number(l.qtd) || 0 });
+        boxExcluir = n;
         box.conferida = true;
         caixasUpd = caixas as unknown as Prisma.InputJsonValue;
       } else if (/^KIT-/i.test(codigo)) {
@@ -486,6 +576,7 @@ export class ExpedicoesService {
         if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
         add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
         itemInfo = { descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null };
+        adicoes.push({ descricao: kit.modelo ?? codigo, tamanho: kit.tamanho ?? null, qtd: add });
       } else {
         // Só conta se a etiqueta resolver numa UNIDADE real — bloqueia leitura grudada,
         // fragmento ou código digitado errado (que antes viravam "peça fantasma").
@@ -508,17 +599,9 @@ export class ExpedicoesService {
           boxDescricao = linha?.descricao ?? un.descricao ?? codigo;
           boxCor = linha?.cor ?? un.cor ?? null;
           boxTam = tNorm;
-          if (linha) {
-            const pedidoQtd = Object.entries(linha.grade ?? {}).reduce((acc, [k, v]) => (this.normTamanho(k) === tNorm ? acc + Number(v || 0) : acc), 0);
-            if (pedidoQtd > 0) {
-              const jaTam = (await tx.unidadeEstoque.findMany({ where: { expedicaoId: id, status: 'despachado', produtoId: un.produtoId }, select: { cor: true, tamanho: true } }))
-                .filter((x) => this.corCombina(linha.cor, x.cor) && this.normTamanho(x.tamanho) === tNorm).length;
-              if (jaTam >= pedidoQtd) {
-                throw new BadRequestException(`Tamanho ${tNorm} de "${un.descricao ?? ''}${un.cor ? ' · ' + un.cor : ''}" já está completo (pedido: ${pedidoQtd}). Não bipe a mais.`);
-              }
-            }
-          }
         }
+        // Adição desta peça — a trava anti-excedente (por tamanho e total) roda abaixo.
+        adicoes.push({ descricao: boxDescricao ?? un.descricao ?? codigo, tamanho: un.tamanho, qtd: 1 });
 
         if (un.status !== 'despachado') {
           await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
@@ -526,6 +609,9 @@ export class ExpedicoesService {
         }
         itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
       }
+
+      // TRAVA: não deixa conferir MAIS do que o pedido pede (por tamanho e por total).
+      await this.travaExcedente(tx, exp, adicoes, boxExcluir);
 
       // Alocação por caixa (montagem via bipagem): a peça bipada entra na CAIXA ATUAL,
       // agregando conteúdo (descrição · cor · tamanho) e somando as peças da caixa.
