@@ -215,6 +215,7 @@ const ACCESS = {
   financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente'],
   contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente'],
   consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes'],
+  cliente:['portal'],
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['diretoria','Painel do Diretor','trend'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
@@ -226,9 +227,10 @@ const NAVDEF = [
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
+  ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -268,6 +270,7 @@ const TITLES = {
   mercadolivre:['Mercado Livre','Integração: conectar conta, pedidos e estoque · admin'],
   tray:['Tray','Integração Tray (multi-loja): conectar lojas e importar pedidos · admin'],
   whatsapp:['Robô WhatsApp','Atendimento comercial automático: orçamento → pedido no ERP · admin'],
+  portal:['Meu Estoque & Prazos','Estoque pronta-entrega e andamento dos seus pedidos'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -563,6 +566,7 @@ async function loadRoute(){
     if(S.route==='whatsapp') return await viewWhatsapp(c);
     if(S.route==='kits') return await viewKits(c);
     if(S.route==='bi') return await viewBi(c);
+    if(S.route==='portal') return await viewPortal(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -608,6 +612,99 @@ async function viewDiretoria(c){
     + `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">${cards}</div>`
     + `<div class="muted" style="font-size:11px;margin-top:12px">Como lemos cada índice: <b>Clientes</b> = % de clientes que compraram nos últimos 90 dias · <b>Pedidos</b> = conversão de orçamentos em pedidos · <b>Produção</b> = OPs dentro do prazo · <b>Entrega</b> = pedidos sem atraso · <b>Faturamento</b> = crescimento do mês + saúde da cobrança.</div>`;
 }
+// ===== Portal do Cliente (visão externa: estoque pronta-entrega + prazos) =====
+function portalBarra(pct){
+  pct=Math.max(0,Math.min(100,Number(pct)||0));
+  const cor = pct>=100?'#1f8a4c':(pct>=50?'#C9A227':'#c98a3a');
+  return `<div style="height:8px;background:#ece4cf;border-radius:6px;overflow:hidden">
+    <div style="height:100%;width:${pct}%;background:${cor};border-radius:6px"></div></div>`;
+}
+function portalTam(tamanhos){
+  return (tamanhos||[]).map(t=>`<span style="display:inline-block;background:#f3ecd8;border:1px solid #e6dcc0;border-radius:6px;padding:2px 7px;margin:2px 4px 2px 0;font-size:12px;font-weight:700">${esc(t.tamanho)} · ${t.saldo}</span>`).join('') || '<span class="muted">—</span>';
+}
+function portalDataBR(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('pt-BR'); }catch(e){ return '—'; } }
+async function viewPortal(c){
+  const admin = S.user.acesso==='total';
+  // Admin pré-visualiza um cliente específico; cliente já vem travado no token.
+  let seletor='';
+  if(admin){
+    if(!S._portalCli){
+      let cls=[]; try{ cls=await api('/clientes'); }catch(e){}
+      c.innerHTML = toolbar('Portal do Cliente — pré-visualização')
+        + `<div class="panel" style="padding:18px;max-width:520px">
+            <p class="muted" style="font-size:12.5px;margin:0 0 10px">Você é admin. Escolha um cliente para ver o portal <b>como ele vê</b>.</p>
+            <div class="mrow"><label class="fl">Cliente</label>
+              <select id="portal_cli" class="inp"><option value="">— selecione —</option>
+                ${(cls||[]).map(cl=>`<option value="${cl.id}">${esc(cl.fantasia||cl.nome)}</option>`).join('')}</select></div>
+            <div class="mactions"><button class="btn-primary" onclick="APP.portalVer()">Abrir portal</button></div>
+          </div>`;
+      return;
+    }
+    seletor = `<button class="btn-sm" onclick="APP.portalTrocar()">↺ Trocar cliente</button>`;
+  }
+  const qs = admin ? ('?clienteId='+encodeURIComponent(S._portalCli)) : '';
+  let est, prod;
+  try{
+    [est, prod] = await Promise.all([ api('/portal/estoque'+qs), api('/portal/producao'+qs) ]);
+  }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar o portal: ${esc(e.message)}</div>`; return; }
+
+  const nome = (est.cliente&&est.cliente.nome) || (prod.cliente&&prod.cliente.nome) || 'Cliente';
+  const r = prod.resumo||{};
+  const kpi = (label,val,sub,cor)=>`<div class="card" style="padding:16px;min-width:0">
+      <div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px">${esc(label)}</div>
+      <div style="font-size:26px;font-weight:800;color:${cor||'#242a26'};line-height:1.15;margin-top:2px">${val}</div>
+      <div class="muted" style="font-size:11.5px;margin-top:2px">${sub||''}</div></div>`;
+
+  // ----- Estoque pronta-entrega -----
+  const estRows = (est.itens||[]).map(i=>[
+    `<b>${esc(i.descricao)}</b><div class="muted" style="font-size:11px">${esc(i.codigo)}${i.setor?' · '+esc(i.setor):''}</div>`,
+    esc(i.cor||'—'),
+    portalTam(i.tamanhos),
+    `<b>${i.total}</b>`,
+  ]);
+  const estTable = est.itens && est.itens.length
+    ? panelTable(['Produto','Cor','Disponível por tamanho','Total'], estRows)
+    : panelTable(null,null,'Nenhuma peça em estoque pronta-entrega no momento.');
+
+  // ----- Andamento dos pedidos -----
+  const pedCards = (prod.pedidos||[]).map(p=>{
+    const cor = p.etapa==='concluido'?'#1f8a4c':(p.atrasado?'#c14a34':'#C9A227');
+    const itens = (p.itens||[]).map(it=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;border-top:1px solid #f2ecdb">
+        <span>${esc(it.descricao)}${it.cor?' · '+esc(it.cor):''}</span>
+        <span class="muted">${it.expedida?it.expedida+'/':''}${it.quantidade} pç</span></div>`).join('');
+    return `<div class="card" style="padding:15px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div><div style="font-weight:800;font-size:15px">Pedido ${esc(p.numero)}</div>
+          <div class="muted" style="font-size:11.5px">${portalDataBR(p.data)}${p.ordemCompraCliente?' · OC '+esc(p.ordemCompraCliente):''} · ${p.totalPecas} peças</div></div>
+        <div style="text-align:right">
+          <div style="font-weight:800;font-size:13px;color:${cor}">${esc(p.etapaLabel)}</div>
+          <div class="muted" style="font-size:11.5px">Prazo: <b style="${p.atrasado?'color:#c14a34':''}">${portalDataBR(p.prazoEntrega)}</b>${p.atrasado?' · atrasado':''}</div>
+        </div>
+      </div>
+      <div style="margin:10px 0 4px;display:flex;align-items:center;gap:10px">
+        <div style="flex:1">${portalBarra(p.progresso)}</div>
+        <b style="font-size:12.5px;color:${cor}">${p.progresso}%</b>
+      </div>
+      ${itens?`<div style="margin-top:6px">${itens}</div>`:''}
+    </div>`;
+  }).join('');
+  const pedBloco = (prod.pedidos&&prod.pedidos.length)
+    ? `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">${pedCards}</div>`
+    : panelTable(null,null,'Nenhum pedido em produção no momento.');
+
+  c.innerHTML =
+      `<div class="toolbar"><h3 style="font-size:15px">Olá, ${esc(nome)} 👋</h3>${seletor?`<div style="display:flex;gap:8px;align-items:center">${seletor}</div>`:''}</div>`
+    + `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px">
+        ${kpi('Pronta-entrega', (est.totalPecas||0)+' pç', (est.totalItens||0)+' item(ns) em estoque', '#1f8a4c')}
+        ${kpi('Pedidos em produção', r.emAndamento||0, (r.total||0)+' no total', '#242a26')}
+        ${kpi('Próxima entrega', portalDataBR(r.proximaEntrega), r.atrasados?(r.atrasados+' pedido(s) atrasado(s)'):'no prazo', r.atrasados?'#c14a34':'#242a26')}
+      </div>`
+    + `<h3 style="font-size:14px;margin:6px 0 8px">📦 Estoque pronta-entrega</h3>${estTable}`
+    + `<h3 style="font-size:14px;margin:18px 0 8px">🏭 Andamento dos seus pedidos</h3>${pedBloco}`
+    + `<div class="muted" style="font-size:11px;margin-top:14px">Estoque e prazos atualizados em tempo real pelo sistema do seu fornecedor. Dúvidas? Fale com seu vendedor.</div>`;
+}
+function portalVer(){ const v=$('portal_cli'); if(!v||!v.value){ toast('Selecione um cliente.','err'); return; } S._portalCli=v.value; loadRoute(); }
+function portalTrocar(){ S._portalCli=null; loadRoute(); }
 async function viewDashboard(c){
   const d = await api('/dashboard');
   const et = d.pedidos.porEtapa||{};
@@ -6377,7 +6474,7 @@ async function saveExpedicao(){
 }
 
 // ---------- Bloco Administração ----------
-const ACESSOS = ['total','comercial','vendedor','producao','chao','expedicao','financeiro','contabilidade','consultoria'];
+const ACESSOS = ['total','comercial','vendedor','producao','chao','expedicao','financeiro','contabilidade','consultoria','cliente'];
 async function viewUsuarios(c){
   const list = await api('/usuarios');
   c.innerHTML = toolbar('Usuários & acessos', 'Novo usuário', 'APP.formUsuario()') + panelTable(
@@ -6392,24 +6489,47 @@ async function viewUsuarios(c){
         + (u.acesso!=='total'?`<button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'') + `</div>`
     ]), list.length?null:'Nenhum usuário.');
 }
-function formUsuario(u){
+async function formUsuario(u){
   u = u||{};
   const ao = ACESSOS.map(a=>`<option value="${a}" ${a===u.acesso?'selected':''}>${a}</option>`).join('');
+  // Lista de clientes p/ o vínculo do login de portal (perfil "cliente").
+  let clientes=[]; try{ clientes=await api('/clientes'); }catch(e){}
+  const co = (clientes||[]).map(cl=>`<option value="${cl.id}" ${cl.id===u.clienteId?'selected':''}>${esc(cl.fantasia||cl.nome)}</option>`).join('');
+  const ehCliente = u.acesso==='cliente';
   openModal(`<h3>${u.id?'Editar':'Novo'} usuário</h3>
     <div class="grid2">${field('f_nome','Nome *','value="'+esc(u.nome||'')+'"')}${field('f_user','Login *','value="'+esc(u.usuario||'')+'"'+(u.id?' disabled':''))}</div>
     ${field('f_senha','Senha '+(u.id?'(deixe em branco p/ manter)':'*'),'type="password"')}
-    <div class="mrow"><label class="fl">Perfil de acesso *</label><select id="f_acesso" class="inp">${ao}</select></div>
-    <div class="grid2">${field('f_cargo','Cargo','value="'+esc(u.cargo||'')+'"')}${field('f_setor','Setor','value="'+esc(u.setor||'')+'"')}</div>
-    <div class="grid2">${field('f_hi','Horário início','type="time" value="'+esc(u.horarioInicio||'')+'"')}${field('f_hf','Horário fim','type="time" value="'+esc(u.horarioFim||'')+'"')}</div>
+    <div class="mrow"><label class="fl">Perfil de acesso *</label><select id="f_acesso" class="inp" onchange="APP.usuAcessoToggle()">${ao}</select></div>
+    <div class="mrow" id="f_cli_wrap" style="${ehCliente?'':'display:none'}">
+      <label class="fl">Cliente do portal *</label>
+      <select id="f_cli" class="inp"><option value="">— selecione —</option>${co}</select>
+      <div class="muted" style="font-size:11px;margin-top:4px">O portal deste login mostra só o estoque e os prazos deste cliente.</div>
+    </div>
+    <div class="grid2" id="f_extra" style="${ehCliente?'display:none':''}">${field('f_cargo','Cargo','value="'+esc(u.cargo||'')+'"')}${field('f_setor','Setor','value="'+esc(u.setor||'')+'"')}</div>
+    <div class="grid2" id="f_hor" style="${ehCliente?'display:none':''}">${field('f_hi','Horário início','type="time" value="'+esc(u.horarioInicio||'')+'"')}${field('f_hf','Horário fim','type="time" value="'+esc(u.horarioFim||'')+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveUsuario(${u.id||0})">Salvar</button></div>`);
 }
+// Mostra/oculta o vínculo de cliente conforme o perfil escolhido.
+function usuAcessoToggle(){
+  const ehCliente = val('f_acesso')==='cliente';
+  const cw=$('f_cli_wrap'), ex=$('f_extra'), hr=$('f_hor');
+  if(cw) cw.style.display = ehCliente?'':'none';
+  if(ex) ex.style.display = ehCliente?'none':'';
+  if(hr) hr.style.display = ehCliente?'none':'';
+}
 async function saveUsuario(id){
-  const body = { nome:val('f_nome'), acesso:val('f_acesso'), cargo:val('f_cargo')||undefined, setor:val('f_setor')||undefined,
+  const acesso = val('f_acesso');
+  const body = { nome:val('f_nome'), acesso, cargo:val('f_cargo')||undefined, setor:val('f_setor')||undefined,
     horarioInicio:val('f_hi')||undefined, horarioFim:val('f_hf')||undefined };
   if(!id) body.usuario=val('f_user');
   const s=val('f_senha'); if(s) body.senha=s;
   if(!body.nome||(!id&&!body.usuario)||(!id&&!s)){ toast('Nome, login e senha são obrigatórios.','err'); return; }
+  if(acesso==='cliente'){
+    const cli=$('f_cli'); const cid=cli&&cli.value?Number(cli.value):0;
+    if(!cid){ toast('Selecione o cliente do portal.','err'); return; }
+    body.clienteId=cid;
+  }
   try{ await api(id?('/usuarios/'+id):'/usuarios',{method:id?'PATCH':'POST',body}); closeModal(); toast('Usuário salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -9087,7 +9207,7 @@ window.APP = {
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
-  formUsuario, saveUsuario, removeUsuario, desbloquearUsuario,
+  formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
@@ -9103,6 +9223,7 @@ window.APP = {
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
   relatorio, relGerar, sugerirCompraTecido,
+  viewPortal, portalVer, portalTrocar,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
 // PWA: registra o service worker (torna o app instalável no celular).

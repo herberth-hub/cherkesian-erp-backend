@@ -20,6 +20,7 @@ enum Acesso {
   financeiro
   contabilidade
   consultoria
+  cliente // Portal do cliente: só enxerga o estoque pronta-entrega e os prazos DELE
 }
 
 enum PedidoEtapa {
@@ -197,6 +198,7 @@ model Usuario {
   cargo         String?
   setor         String?
   acesso        Acesso   @default(comercial)
+  clienteId     Int?     // quando acesso=cliente: vincula o login ao Cliente (escopo do Portal)
   horarioInicio String?  // "08:00"
   horarioFim    String?  // "18:00"
   ativo         Boolean  @default(true)

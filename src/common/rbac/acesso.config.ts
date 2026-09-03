@@ -26,6 +26,8 @@ export type Area =
   | 'expedicao'
   | 'cadastros'
   | 'rh'
+  // portal externo — o próprio cliente enxerga só o estoque/prazos DELE:
+  | 'portal'
   // áreas administrativas — só o perfil `total` possui:
   | 'usuarios'
   | 'logs';
@@ -104,6 +106,8 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'clientes',
     'comissoes',
   ],
+  // Cliente (portal externo): NÃO enxerga nada interno — só o portal dele.
+  cliente: ['portal'],
 };
 
 /** Retorna true se o perfil informado pode acessar a área. */

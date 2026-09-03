@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
@@ -32,6 +33,11 @@ export class UpdateUsuarioDto {
   @IsOptional()
   @IsEnum(Acesso, { message: 'Perfil de acesso inválido.' })
   acesso?: Acesso;
+
+  /** Vínculo do login de cliente ao Cliente (portal). */
+  @IsOptional()
+  @IsInt()
+  clienteId?: number;
 
   @IsOptional()
   @IsString()

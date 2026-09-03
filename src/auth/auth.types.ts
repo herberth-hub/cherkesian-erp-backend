@@ -7,6 +7,8 @@ export interface JwtPayload {
   nome: string;
   acesso: Acesso;
   empresaId: number;
+  /** Quando acesso=cliente: id do Cliente ao qual o portal está restrito. */
+  clienteId?: number | null;
   horarioInicio?: string | null;
   horarioFim?: string | null;
   /** true quando o token foi emitido via autorização fora do horário (admin). */

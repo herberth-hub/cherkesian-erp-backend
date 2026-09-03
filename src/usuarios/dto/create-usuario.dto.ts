@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -30,6 +31,11 @@ export class CreateUsuarioDto {
 
   @IsEnum(Acesso, { message: 'Perfil de acesso inválido.' })
   acesso!: Acesso;
+
+  /** Obrigatório quando acesso=cliente: vincula o login ao Cliente do portal. */
+  @IsOptional()
+  @IsInt()
+  clienteId?: number;
 
   @IsOptional()
   @IsString()

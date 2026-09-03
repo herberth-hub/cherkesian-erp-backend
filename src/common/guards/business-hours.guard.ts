@@ -36,7 +36,10 @@ export class BusinessHoursGuard implements CanActivate {
     const user = request.user;
     if (!user) return true; // JwtAuthGuard já tratou ausência de auth
 
-    if (user.acesso === 'total' || user.offhours === true) return true;
+    // Admin, autorização off-hours e cliente (portal externo) não têm janela.
+    if (user.acesso === 'total' || user.acesso === 'cliente' || user.offhours === true) {
+      return true;
+    }
 
     const tz = this.config.get<string>('TIMEZONE') || 'America/Sao_Paulo';
     const agora = horaAtual(tz);

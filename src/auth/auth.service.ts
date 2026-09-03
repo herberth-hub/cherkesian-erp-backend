@@ -91,7 +91,8 @@ export class AuthService {
   async login(dto: LoginDto): Promise<TokensResposta> {
     const user = await this.validarCredenciais(dto.usuario, dto.senha);
 
-    if (user.acesso !== 'total') {
+    // Admin e cliente (portal externo) não são limitados pela janela comercial.
+    if (user.acesso !== 'total' && user.acesso !== 'cliente') {
       const tz = this.config.get<string>('TIMEZONE') || 'America/Sao_Paulo';
       const agora = horaAtual(tz);
       if (!dentroDoHorario(agora, user.horarioInicio, user.horarioFim)) {
@@ -164,6 +165,7 @@ export class AuthService {
       nome: user.nome,
       acesso: user.acesso,
       empresaId: user.empresaId,
+      clienteId: user.clienteId ?? null,
       horarioInicio: user.horarioInicio,
       horarioFim: user.horarioFim,
       offhours,

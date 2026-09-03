@@ -1,9 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, Usuario } from '@prisma/client';
+import { Acesso, Prisma, Usuario } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
@@ -35,6 +36,7 @@ export class UsuariosService {
   }
 
   async create(dto: CreateUsuarioDto, empresaId: number): Promise<UsuarioPublico> {
+    const clienteId = await this.resolverClienteId(dto.acesso, dto.clienteId, empresaId);
     const senhaHash = await bcrypt.hash(dto.senha, SALT_ROUNDS);
     try {
       const usuario = await this.prisma.usuario.create({
@@ -44,6 +46,7 @@ export class UsuariosService {
           usuario: dto.usuario,
           senhaHash,
           acesso: dto.acesso,
+          clienteId,
           cargo: dto.cargo,
           setor: dto.setor,
           horarioInicio: dto.horarioInicio,
@@ -57,8 +60,32 @@ export class UsuariosService {
     }
   }
 
+  /**
+   * Regras do vínculo cliente↔login:
+   * - acesso=cliente EXIGE um clienteId válido da mesma empresa.
+   * - qualquer outro perfil zera o vínculo (não faz sentido fora do portal).
+   */
+  private async resolverClienteId(
+    acesso: Acesso,
+    clienteId: number | undefined,
+    empresaId: number,
+  ): Promise<number | null> {
+    if (acesso !== 'cliente') return null;
+    if (!clienteId) {
+      throw new BadRequestException('Selecione o cliente para o acesso do portal.');
+    }
+    const cliente = await this.prisma.cliente.findFirst({
+      where: { id: clienteId, empresaId },
+      select: { id: true },
+    });
+    if (!cliente) {
+      throw new BadRequestException('Cliente inválido para esta empresa.');
+    }
+    return cliente.id;
+  }
+
   async update(id: number, dto: UpdateUsuarioDto, empresaId: number): Promise<UsuarioPublico> {
-    await this.findOne(id, empresaId); // garante existência + escopo da empresa
+    const atual = await this.findOne(id, empresaId); // garante existência + escopo da empresa
 
     const data: Prisma.UsuarioUpdateInput = {
       nome: dto.nome,
@@ -70,6 +97,12 @@ export class UsuariosService {
       horarioFim: dto.horarioFim,
       ativo: dto.ativo,
     };
+    // Recalcula o vínculo do portal quando o perfil ou o cliente mudam.
+    if (dto.acesso !== undefined || dto.clienteId !== undefined) {
+      const acessoEfetivo = (dto.acesso ?? atual.acesso) as Acesso;
+      const clienteEfetivo = dto.clienteId ?? atual.clienteId ?? undefined;
+      data.clienteId = await this.resolverClienteId(acessoEfetivo, clienteEfetivo, empresaId);
+    }
     if (dto.senha) {
       data.senhaHash = await bcrypt.hash(dto.senha, SALT_ROUNDS);
     }
