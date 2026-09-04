@@ -1757,6 +1757,16 @@ function _winMin(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimiz
 function _winRestore(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=false; w.el.style.display=''; _winDock(); _winFocus(w); }
 // ESC fecha a janela ativa (a não ser que haja um diálogo de confirmação aberto).
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape')return; if(document.querySelector('.uidlg-ov.on'))return; const w=_winTop(); if(w){ e.preventDefault(); _winClose(w.id); } });
+// Atalho: Ctrl+A (⌘+A no Mac) abre a tela de CLIENTES na hora. Não intercepta
+// quando o foco está num campo de texto (lá o Ctrl+A continua "selecionar tudo").
+document.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey) || e.altKey || (e.key||'').toLowerCase()!=='a') return;
+  const t=e.target, tag=t&&t.tagName;
+  if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||(t&&t.isContentEditable)) return;
+  if(!S.user || !canAccess('clientes')) return; // só logado e com acesso
+  e.preventDefault();
+  if(S.route!=='clientes') go('clientes');
+});
 
 // ===== Pop-up padrão do sistema (substitui alert/confirm do navegador) =====
 function _uiCss(){
