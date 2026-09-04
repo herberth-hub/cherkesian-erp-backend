@@ -7696,8 +7696,19 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>
       <div style="margin-bottom:6px"><button class="btn-sm" style="${window.__confDevolver?'color:#1e7a44;font-weight:700':'color:#c14a34'}" onclick="APP.confToggleDevolver(${id})">${window.__confDevolver?'✅ Voltar a conferir':'↩ Devolver peça (passei na caixa errada)'}</button></div>`}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${S.user.acesso==='total'?`<button class="btn-sm" style="color:#2b4a8b" title="Admin — editar as quantidades desta expedição (incluir a mais ou tirar)" onclick="APP.formEditarExpItens(${id})">✏️ Editar quantidades</button>`:''}${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${S.user.acesso==='total'?`<button class="btn-sm" style="color:#2b4a8b" title="Admin — editar as quantidades desta expedição (incluir a mais ou tirar)" onclick="APP.formEditarExpItens(${id})">✏️ Editar quantidades</button>`:''}${S.user.acesso==='total'&&c.conferidas>0&&c.conferidas<c.esperadas?`<button class="btn-sm" style="color:#1e7a44;font-weight:700" title="Admin — reduz a expedição ao que já foi conferido e abre a emissão da NF-e (o resto volta pro residual do pedido)" onclick="APP.faturarConferido(${id})">🧾 Faturar só o conferido</button>`:''}${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
   const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+}
+// ADMIN: fatura só o que foi conferido — reduz a expedição ao conferido e abre a NF-e.
+async function faturarConferido(id){
+  const ok = await uiConfirm({tipo:'warn', titulo:'Faturar só o conferido?', ok:'Ajustar e emitir NF-e', cancel:'Cancelar',
+    msg:'A expedição passa a levar SÓ o que já foi conferido (bipado). O restante volta para o RESIDUAL do pedido (pode expedir depois). Em seguida abrimos a emissão da NF-e. Ação de administrador.'});
+  if(!ok) return;
+  try{ const r=await api('/expedicoes/'+id+'/ajustar-conferido',{method:'POST'});
+    closeModal();
+    toast('Ajustado ao conferido'+(r&&r.pecas!=null?(' ('+r.pecas+' pç)'):'')+'. Emita a NF-e.','ok');
+    emitirNfePrompt(id, (r&&r.pecas)||1, 0);
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // ADMIN: editar as quantidades DESTA expedição (incluir a mais / tirar).
 async function formEditarExpItens(id){
@@ -9501,7 +9512,7 @@ window.APP = {
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,

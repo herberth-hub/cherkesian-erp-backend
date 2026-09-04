@@ -427,6 +427,51 @@ export class ExpedicoesService {
     });
   }
 
+  /**
+   * ADMIN: ajusta a expedição para levar SÓ o que já foi CONFERIDO (bipado) —
+   * reduz o snapshot ao conferido, sincroniza o expedido do pedido e marca como
+   * conferida. Assim a NF sai só do conferido e "expedido = NF" (o resto volta
+   * para o residual do pedido). Reusa editarItens (valida limites do pedido).
+   */
+  async ajustarAoConferido(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada.');
+    if ((exp.pecasConferidas ?? 0) <= 0) throw new BadRequestException('Nada conferido ainda — bipe ao menos uma peça.');
+    const snap = (exp.itens as Array<{ pedidoItemId?: number; descricao?: string; cor?: string | null; grade?: Record<string, number> | null; quantidade?: number }> | null) ?? [];
+
+    const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
+    const corKey = (s: unknown) => {
+      const c = norm(s); const code = (c.match(/^\d+/) || [])[0];
+      if (code) return code;
+      const w = c.replace(/^\d+\s*/, '').replace(/\bLOTE.*$/, '').trim().split(' ').filter(Boolean);
+      return w[0] ?? '';
+    };
+    // Conferido por (desc|cor|tam) e por (desc|cor) — do conteúdo das caixas.
+    const caixas = (exp.caixas as Array<{ conteudo?: CaixaLinha[] }> | null) ?? [];
+    const confSize = new Map<string, number>();
+    const confTot = new Map<string, number>();
+    for (const c of caixas) for (const l of c.conteudo ?? []) {
+      const ik = norm(l.descricao) + '|' + corKey(l.cor);
+      confSize.set(ik + '|' + this.normTamanho(l.tamanho), (confSize.get(ik + '|' + this.normTamanho(l.tamanho)) ?? 0) + (Number(l.qtd) || 0));
+      confTot.set(ik, (confTot.get(ik) ?? 0) + (Number(l.qtd) || 0));
+    }
+
+    const itensDto = snap
+      .filter((it) => it.pedidoItemId != null)
+      .map((it) => {
+        const ik = norm(it.descricao) + '|' + corKey(it.cor);
+        const grade = it.grade && typeof it.grade === 'object' && Object.keys(it.grade).length ? it.grade : null;
+        if (grade) {
+          const g: Record<string, number> = {};
+          for (const t of Object.keys(grade)) g[t] = confSize.get(ik + '|' + this.normTamanho(t)) ?? 0;
+          return { pedidoItemId: it.pedidoItemId as number, grade: g };
+        }
+        return { pedidoItemId: it.pedidoItemId as number, quantidade: confTot.get(ik) ?? 0 };
+      });
+
+    return this.editarItens(id, empresaId, itensDto);
+  }
+
   private async criarExpedicao(
     pedido: { id: number; numero: string; clienteId: number; cliente: { logradouro: string | null; cidadeUf: string | null; municipio: string | null; uf: string | null; cep: string | null } },
     sel: SelExped[],

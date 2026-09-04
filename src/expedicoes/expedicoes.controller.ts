@@ -88,6 +88,14 @@ export class ExpedicoesController {
     return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa, tipo);
   }
 
+  /** ADMIN: ajusta a expedição ao que foi conferido (p/ faturar só o conferido). */
+  @Post(':id/ajustar-conferido')
+  @HttpCode(HttpStatus.OK)
+  ajustarAoConferido(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') throw new ForbiddenException('Apenas o administrador pode faturar só o conferido.');
+    return this.expedicoesService.ajustarAoConferido(id, user.empresaId);
+  }
+
   /** Itens da expedição em formato editável (admin) — quantidade por tamanho + máximo. */
   @Get(':id/itens-editaveis')
   itensEditaveis(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
