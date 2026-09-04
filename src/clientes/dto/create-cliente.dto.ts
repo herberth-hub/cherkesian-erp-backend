@@ -4,9 +4,12 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -76,6 +79,18 @@ export class CreateClienteDto extends ClienteFiscalDto {
   @IsString()
   @MaxLength(80)
   segmento?: string;
+
+  /** Representante/agente comercial da conta (interno). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  representante?: string;
+
+  /** % de comissão do representante nesta conta (interno). */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'comissaoPercent deve ter no máximo 2 casas.' })
+  @Min(0) @Max(100)
+  comissaoPercent?: number;
 
   /** Cliente novo exige peça-piloto antes de liberar produção (regra central). */
   @IsOptional()

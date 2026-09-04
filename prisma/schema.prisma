@@ -224,6 +224,8 @@ model Cliente {
   cidadeUf   String?
   segmento   String?
   clienteNovo Boolean @default(true)
+  representante   String?  // representante/agente comercial da conta (interno)
+  comissaoPercent Decimal? @db.Decimal(5,2) // % de comissão do representante nesta conta (interno)
   obs        String?
   pedidos    Pedido[]
   medidas    Medida[]
@@ -571,6 +573,9 @@ model Pedido {
   obs            String?    // observação FISCAL: vai nas informações complementares da NF-e
   obsComercial   String?    // observação COMERCIAL: sai na proposta e no pedido (não vai na NF-e)
   vendedorId     Int?         // vendedor dono (Usuario) — escopo do CRM/comissão
+  // Comissão de venda do REPRESENTANTE — INTERNO: não sai na proposta/pedido do cliente.
+  comissaoRepresentante String?
+  comissaoPercent Decimal?    @db.Decimal(5,2)
   itens          PedidoItem[]
   ops            OP[]
   pilotos        Piloto[]

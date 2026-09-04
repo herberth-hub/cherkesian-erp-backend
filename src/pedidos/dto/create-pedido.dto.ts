@@ -116,4 +116,16 @@ export class CreatePedidoDto {
   @IsString()
   @MaxLength(1000)
   obsComercial?: string;
+
+  /** Representante da comissão de venda — INTERNO (não sai nos documentos do cliente). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  comissaoRepresentante?: string;
+
+  /** % da comissão de venda — INTERNO. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'comissaoPercent deve ter no máximo 2 casas.' })
+  @Min(0)
+  comissaoPercent?: number;
 }

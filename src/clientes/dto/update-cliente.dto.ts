@@ -2,9 +2,12 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -55,6 +58,16 @@ export class UpdateClienteDto extends ClienteFiscalDto {
   @IsString()
   @MaxLength(80)
   segmento?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  representante?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'comissaoPercent deve ter no máximo 2 casas.' })
+  @Min(0) @Max(100)
+  comissaoPercent?: number;
 
   @IsOptional()
   @IsBoolean()

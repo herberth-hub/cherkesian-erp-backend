@@ -150,6 +150,8 @@ export class PedidosService {
         ordemCompraCliente: dto.ordemCompraCliente,
         obs: dto.obs,
         obsComercial: dto.obsComercial,
+        comissaoRepresentante: dto.comissaoRepresentante,
+        comissaoPercent: dto.comissaoPercent ?? undefined,
         criadoPor,
         vendedorId: vendedorId ?? null,
         itens: { create: itensData },
@@ -208,6 +210,8 @@ export class PedidosService {
       ordemCompraCliente: dto.ordemCompraCliente,
       obs: dto.obs,
       obsComercial: dto.obsComercial,
+      comissaoRepresentante: dto.comissaoRepresentante,
+      comissaoPercent: dto.comissaoPercent ?? undefined,
     };
 
     const temExpedido = pedido.itens.some((i) => (i.quantidadeExpedida ?? 0) > 0);

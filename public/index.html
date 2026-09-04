@@ -2012,6 +2012,7 @@ async function formCliente(id){
     ${field('f_seg','Segmento','value="'+esc(cl.segmento||'')+'"')}
     <div class="grid2">${field('f_contato','Contato','value="'+esc(cl.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(cl.telefone||'')+'"')}</div>
     ${field('f_email','E-mail','value="'+esc(cl.email||'')+'" type="email"')}
+    <div class="grid2">${field('f_rep','Representante da conta (interno)','value="'+esc(cl.representante||'')+'"')}${field('f_comis','Comissão do representante % (interno)','type="number" step="0.01" min="0" max="100" value="'+(cl.comissaoPercent!=null?cl.comissaoPercent:'')+'" placeholder="ex.: 5"')}</div>
     <div class="mrow"><label class="fl"><input type="checkbox" id="f_novo" ${cl.clienteNovo!==false?'checked':''}> Cliente novo (exige peça-piloto)</label></div>
     <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (destinatário da NF-e)</b></div>
     <div class="grid2"><div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(cl.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjCliente()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
@@ -2071,6 +2072,8 @@ async function saveCliente(id){
     logradouro:val('f_log'), numeroEndereco:val('f_numend'), bairro:val('f_bairro'),
     municipio:val('f_mun'), codMunicipio:val('f_codmun'), uf:(val('f_uf')||'').toUpperCase() };
   const ind=val('f_indie'); if(ind) body.indicadorIE=Number(ind);
+  const rep=val('f_rep'); if(rep) body.representante=rep;
+  const com=val('f_comis'); body.comissaoPercent = com!=='' ? Number(com) : null;
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   // Unidades/filiais: lê do DOM, limpa vazios e valida nome obrigatório.
   cliUniReadDom();
@@ -3233,6 +3236,14 @@ async function formPedido(id){
       <textarea id="f_obscom" class="inp" rows="2" placeholder="ex.: piloto aprovado em 10/08, bordado do brasão incluso, etc.">${esc(ped&&ped.obsComercial||'')}</textarea></div>
     <div class="mrow"><label class="fl">Observações fiscais (saem só na NF-e — informações complementares)</label>
       <textarea id="f_obs" class="inp" rows="2" placeholder="ex.: Empenho nº …, entrega no almoxarifado, etc.">${esc(ped&&ped.obs||'')}</textarea></div>
+    <div style="border:1px dashed #d8b98a;border-radius:8px;padding:10px;background:#fbf7f0;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#8a5a00;margin-bottom:6px">💼 Comissão de venda · <span style="font-weight:800">INTERNO</span> <span class="muted" style="font-weight:400">— não aparece na proposta/pedido do cliente</span></div>
+      <div class="grid3">
+        ${field('f_comrep','Representante','value="'+esc(ped&&ped.comissaoRepresentante||'')+'"')}
+        ${field('f_compct','% de comissão','type="number" step="0.01" min="0" value="'+(ped&&ped.comissaoPercent!=null?ped.comissaoPercent:'')+'" placeholder="ex.: 5" oninput="APP.pedComis()"')}
+        <div class="mrow"><label class="fl">Valor estimado</label><div id="f_comval" style="font-weight:800;color:#1e7a44;padding-top:6px;font-size:14px">R$ 0,00</div></div>
+      </div>
+    </div>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
       <div class="mrow"><label class="fl">Frete <span class="muted">(condição + valor R$)</span></label>
@@ -3252,6 +3263,12 @@ async function formPedido(id){
 async function pedPrefillCliente(){
   if(!window.__PEDNEW) return;
   const cid = Number(val('f_cli')); if(!cid) return;
+  // Representante + % de comissão vêm do cadastro do CLIENTE (preenche se vazio).
+  try{ const clRec = await api('/clientes/'+cid);
+    const r=$('f_comrep'); if(r && !r.value && clRec && clRec.representante){ r.value=clRec.representante; }
+    const pc=$('f_compct'); if(pc && !pc.value && clRec && clRec.comissaoPercent!=null){ pc.value=clRec.comissaoPercent; }
+    pedComis();
+  }catch(_){}
   let lista; try{ lista = await api('/pedidos'); }catch(_){ return; }
   const doCli = (lista||[]).filter(p=>p.clienteId===cid).sort((a,b)=>b.id-a.id);
   if(!doCli.length) return;
@@ -3265,6 +3282,7 @@ async function pedPrefillCliente(){
   calcVenc();
   if(usou.length) toast('Puxei '+usou.join(', ')+' do último pedido ('+esc(ult.numero)+').','ok');
 }
+function pedComis(){ if(typeof pedTotais==='function') pedTotais(); }
 function calcVenc(){
   const el=$('f_pag_venc'); if(!el) return;
   const forma=val('f_pag');
@@ -3458,6 +3476,8 @@ function pedTotais(){
   }
   $('ped_totpc').textContent=pc;
   const vlEl=$('ped_totvl'); if(vlEl) vlEl.textContent=money(vl);
+  // Comissão de venda (interno): valor estimado = total × %.
+  const cvEl=$('f_comval'); if(cvEl){ const pct=Number((val('f_compct')||'').replace(',','.'))||0; cvEl.textContent=money(vl*pct/100); }
   // Frete: mostra o valor e o total com frete (não altera o valor dos itens — usado na NF/receber).
   const frete=Number((val('f_valfrete')||'').replace(',','.'))||0;
   const fb=$('ped_frete_box');
@@ -3560,6 +3580,8 @@ async function savePedido(id){
   const oc=val('f_oc'); if(oc) body.ordemCompraCliente=oc;
   const obs=(($('f_obs')&&$('f_obs').value)||'').trim(); body.obs=obs||undefined;
   const obsCom=(($('f_obscom')&&$('f_obscom').value)||'').trim(); body.obsComercial=obsCom||undefined;
+  const comRep=(val('f_comrep')||'').trim(); if(comRep) body.comissaoRepresentante=comRep;
+  const comPct=(val('f_compct')||'').replace(',','.'); if(comPct!=='') body.comissaoPercent=Number(comPct);
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
       let m='Pedido '+p.numero+' atualizado.';
@@ -9404,7 +9426,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
