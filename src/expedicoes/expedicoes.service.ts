@@ -15,8 +15,8 @@ const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>)
 
 type CaixaLinha = { descricao: string; cor?: string | null; tamanho?: string | null; qtd: number };
 
-// Limite de peças por VOLUME MASTER: fardo = 60, caixa = 50.
-const LIMITE_VOLUME: Record<string, number> = { caixa: 50, fardo: 60 };
+// Limite de peças por VOLUME MASTER: fardo = 100, caixa = 50.
+const LIMITE_VOLUME: Record<string, number> = { caixa: 50, fardo: 100 };
 const normTipoVolume = (t?: string | null) => (String(t ?? '').toLowerCase() === 'fardo' ? 'fardo' : 'caixa');
 const limiteDoVolume = (tipo?: string | null) => LIMITE_VOLUME[normTipoVolume(tipo)];
 
@@ -52,7 +52,7 @@ export class ExpedicoesService {
       const tipo = normTipoVolume(c.tipo);
       return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null, tipo };
     }).filter((c) => c.conteudo.length);
-    // TRAVA de LIMITE por volume master: fardo 60 / caixa 50.
+    // TRAVA de LIMITE por volume master: fardo 100 / caixa 50.
     const estourou = limpas.find((c) => c.pecas > limiteDoVolume(c.tipo));
     if (estourou) {
       throw new BadRequestException(`Volume ${estourou.numero} (${estourou.tipo}) tem ${estourou.pecas} peças — o limite é ${limiteDoVolume(estourou.tipo)} (${estourou.tipo === 'fardo' ? 'fardo' : 'caixa'}). Divida em mais volumes.`);
@@ -641,7 +641,7 @@ export class ExpedicoesService {
         let box = cx.find((c) => c.numero === nCaixa);
         if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], codigos: [], viaBip: true, tipo: normTipoVolume(tipoVolume) }; cx.push(box); }
         if (!box.tipo) box.tipo = normTipoVolume(tipoVolume);
-        // TRAVA de LIMITE por volume master: fardo 60 / caixa 50.
+        // TRAVA de LIMITE por volume master: fardo 100 / caixa 50.
         const capVol = limiteDoVolume(box.tipo);
         if ((box.pecas ?? 0) + add > capVol) {
           throw new BadRequestException(`Volume ${nCaixa} (${box.tipo}) atingiu o limite de ${capVol} peças${add > 1 ? ` (tentou +${add})` : ''}. Clique “➕ Nova caixa”/aponte outro volume para continuar.`);

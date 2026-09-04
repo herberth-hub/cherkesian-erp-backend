@@ -6455,11 +6455,11 @@ function renderCaixas(){
       <select class="inp" style="flex:1;font-size:12px;padding:5px" onchange="APP.cxSetCombo(${bi},${li},this.value)">${opts(l.ci)}</select>
       <input class="inp" type="number" min="1" value="${l.qtd||''}" placeholder="qtd" style="width:74px;text-align:center;padding:5px" oninput="APP.cxSetQtd(${bi},${li},this.value)">
       <button class="btn-sm" style="color:#c14a34" onclick="APP.cxDelLinha(${bi},${li})">✕</button></div>`).join('');
-    const cap=(b.tipo==='fardo')?60:50; const cheio=pcs>cap;
+    const cap=(b.tipo==='fardo')?100:50; const cheio=pcs>cap;
     return `<div style="border:1px solid ${cheio?'#e0a99b':'#e0d9c4'};border-radius:8px;padding:10px;margin-bottom:8px;background:${cheio?'#fdecea':'#fff'}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
         <b style="color:#3a2f08">📦 Volume ${bi+1}
-          <select class="inp" style="width:auto;font-size:11.5px;padding:3px;margin-left:6px" onchange="APP.cxSetTipo(${bi},this.value)"><option value="caixa" ${b.tipo!=='fardo'?'selected':''}>Caixa (50)</option><option value="fardo" ${b.tipo==='fardo'?'selected':''}>Fardo (60)</option></select></b>
+          <select class="inp" style="width:auto;font-size:11.5px;padding:3px;margin-left:6px" onchange="APP.cxSetTipo(${bi},this.value)"><option value="caixa" ${b.tipo!=='fardo'?'selected':''}>Caixa (50)</option><option value="fardo" ${b.tipo==='fardo'?'selected':''}>Fardo (100)</option></select></b>
         <span style="font-size:12px;color:#6a675e"><b style="color:${cheio?'#c14a34':(pcs>=cap*0.8?'#9a5a00':'#1e7a44')}">${pcs}/${cap}${cheio?' ⚠ acima do limite':''}</b> <input class="inp" type="number" step="0.01" value="${b.peso||''}" placeholder="peso kg" style="width:86px;margin-left:8px;padding:4px" oninput="APP.cxSetPeso(${bi},this.value)"> ${X.boxes.length>1?'<button class="btn-sm" style="color:#c14a34;margin-left:6px" onclick="APP.cxDelBox('+bi+')">excluir</button>':''}</span>
       </div>${linhas}
       <button class="btn-sm" onclick="APP.cxAddLinha(${bi})">+ item na caixa</button></div>`;
@@ -6488,8 +6488,8 @@ async function saveCaixas(print){
   const X=window.__CX;
   const caixas=X.boxes.map(b=>({ peso:b.peso!==''?Number(b.peso):undefined, tipo:(b.tipo==='fardo')?'fardo':'caixa', conteudo:b.linhas.filter(l=>l.ci>=0&&Number(l.qtd)>0).map(l=>{ const c=X.combos[l.ci]; return {descricao:c.descricao, cor:c.cor||null, tamanho:c.tamanho||null, qtd:Number(l.qtd)}; }) })).filter(c=>c.conteudo.length);
   if(!caixas.length){ toast('Monte ao menos uma caixa com itens.','err'); return; }
-  const estouro=caixas.findIndex(c=>{ const cap=c.tipo==='fardo'?60:50; return c.conteudo.reduce((s,l)=>s+l.qtd,0)>cap; });
-  if(estouro>=0){ const cap=caixas[estouro].tipo==='fardo'?60:50; toast('Volume '+(estouro+1)+' passou do limite ('+caixas[estouro].tipo+' = '+cap+'). Divida em mais volumes.','err'); return; }
+  const estouro=caixas.findIndex(c=>{ const cap=c.tipo==='fardo'?100:50; return c.conteudo.reduce((s,l)=>s+l.qtd,0)>cap; });
+  if(estouro>=0){ const cap=caixas[estouro].tipo==='fardo'?100:50; toast('Volume '+(estouro+1)+' passou do limite ('+caixas[estouro].tipo+' = '+cap+'). Divida em mais volumes.','err'); return; }
   try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas}});
     toast(r.totalCaixas+' caixa(s) salvas · '+r.totalPecas+' peças.','ok');
     if(print) await imprimirEtiquetasCaixas(X.expId); else { closeModal(); loadRoute(); }
@@ -7537,10 +7537,10 @@ async function formConferencia(id){
         <input id="conf_caixa" type="number" min="1" value="${window.__confCaixa||1}" onchange="APP.confSetCaixa()" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
         <select id="conf_tipo" class="inp" onchange="APP.confSetTipo(${id})" style="width:auto;font-size:12px;padding:5px">
           <option value="caixa" ${window.__confTipo!=='fardo'?'selected':''}>Caixa (máx 50)</option>
-          <option value="fardo" ${window.__confTipo==='fardo'?'selected':''}>Fardo (máx 60)</option></select>
-        ${(function(){ const cap=window.__confTipo==='fardo'?60:50; const b=(c.caixas||[]).find(x=>x.numero===(window.__confCaixa||1)); const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44'); return `<span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>`; })()}
+          <option value="fardo" ${window.__confTipo==='fardo'?'selected':''}>Fardo (máx 100)</option></select>
+        ${(function(){ const cap=window.__confTipo==='fardo'?100:50; const b=(c.caixas||[]).find(x=>x.numero===(window.__confCaixa||1)); const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44'); return `<span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>`; })()}
         <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha o volume atual e começa o próximo">➕ Novo volume</button>
-        <span class="muted" style="font-size:11px">limite por volume: <b>caixa 50</b> · <b>fardo 60</b></span>
+        <span class="muted" style="font-size:11px">limite por volume: <b>caixa 50</b> · <b>fardo 100</b></span>
       </div>
       ${window.__confDevolver?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 9px;background:#fdecea;border:1px solid #f0b3a6;border-radius:8px"><b style="color:#c14a34;font-size:12px">↩ MODO DEVOLVER</b><span class="muted" style="font-size:11px">bipe a peça/kit p/ TIRAR da caixa — depois aponte a “Caixa atual” e bipe de novo</span></div>`:''}
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
