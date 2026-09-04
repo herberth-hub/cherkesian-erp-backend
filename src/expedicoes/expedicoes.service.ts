@@ -407,39 +407,54 @@ export class ExpedicoesService {
     // Esperado vem do snapshot de itens da expedição (com grade); se não houver,
     // cai nos itens do pedido de origem. Conferido vem do conteúdo das caixas bipadas.
     const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
+    // Chave de COR estável (mesmo critério do corCombina): usa o CÓDIGO numérico
+    // se houver (ex.: "9158"), senão a 1ª palavra de cor (ex.: "CINZA"). Assim
+    // Cinza (9158) e Verde (2187) NUNCA colidem, mesmo com igual descrição/tamanho.
+    const corKey = (s: unknown) => {
+      const c = norm(s);
+      const code = (c.match(/^\d+/) || [])[0];
+      if (code) return code;
+      const w = c.replace(/^\d+\s*/, '').replace(/\bLOTE.*$/, '').trim().split(' ').filter(Boolean);
+      return w[0] ?? '';
+    };
     let itens = (exp.itens as Array<{ descricao?: string; cor?: string | null; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
     if (!itens.length && exp.pedidoId) {
       const ped = await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
       itens = (ped?.itens ?? []).map((it) => ({ descricao: it.descricao, cor: it.cor, quantidade: it.quantidade, grade: (it.grade as Record<string, number> | null) }));
     }
-    const esp = new Map<string, { descricao: string; cor: string | null; tamanho: string; esperado: number }>();
+    type EspVal = { descricao: string; cor: string | null; tamanho: string; esperado: number };
+    const esp = new Map<string, EspVal>();
     for (const it of itens) {
       const desc = it.descricao ?? '';
+      const ck = corKey(it.cor);
       const grade = it.grade && typeof it.grade === 'object' ? it.grade : null;
       if (grade && Object.keys(grade).length) {
         for (const [t, q] of Object.entries(grade)) {
-          const k = norm(desc) + '|' + norm(t);
+          const k = norm(desc) + '|' + ck + '|' + norm(t);
           const cur = esp.get(k) ?? { descricao: desc, cor: it.cor ?? null, tamanho: t, esperado: 0 };
           cur.esperado += Number(q) || 0; esp.set(k, cur);
         }
       } else {
-        const k = norm(desc) + '|';
+        const k = norm(desc) + '|' + ck + '|';
         const cur = esp.get(k) ?? { descricao: desc, cor: it.cor ?? null, tamanho: '—', esperado: 0 };
         cur.esperado += Number(it.quantidade) || 0; esp.set(k, cur);
       }
     }
-    const conf = new Map<string, number>();
+    type ConfVal = { descricao: string; cor: string | null; tamanho: string; qtd: number };
+    const conf = new Map<string, ConfVal>();
     for (const c of caixas) for (const l of (c.conteudo ?? [])) {
-      const k = norm(l.descricao) + '|' + norm(l.tamanho);
-      conf.set(k, (conf.get(k) ?? 0) + (Number(l.qtd) || 0));
+      const k = norm(l.descricao) + '|' + corKey(l.cor) + '|' + norm(l.tamanho);
+      const cur = conf.get(k) ?? { descricao: l.descricao ?? '', cor: l.cor ?? null, tamanho: l.tamanho ?? '—', qtd: 0 };
+      cur.qtd += Number(l.qtd) || 0; conf.set(k, cur);
     }
     const chaves = new Set<string>([...esp.keys(), ...conf.keys()]);
     const grade = [...chaves].map((k) => {
       const e = esp.get(k);
-      const [d, t] = k.split('|');
+      const cf = conf.get(k);
+      const [d, , t] = k.split('|');
       const esperado = e?.esperado ?? 0;
-      const conferido = conf.get(k) ?? 0;
-      return { descricao: e?.descricao ?? d, cor: e?.cor ?? null, tamanho: e?.tamanho ?? (t || '—'), esperado, conferido, falta: Math.max(0, esperado - conferido) };
+      const conferido = cf?.qtd ?? 0;
+      return { descricao: e?.descricao ?? cf?.descricao ?? d, cor: e?.cor ?? cf?.cor ?? null, tamanho: e?.tamanho ?? cf?.tamanho ?? (t || '—'), esperado, conferido, falta: Math.max(0, esperado - conferido) };
     }).sort((a, b) => (a.descricao === b.descricao ? a.tamanho.localeCompare(b.tamanho, 'pt', { numeric: true }) : a.descricao.localeCompare(b.descricao)));
 
     return {
@@ -461,34 +476,44 @@ export class ExpedicoesService {
   private async travaExcedente(
     tx: Prisma.TransactionClient,
     exp: Expedicao,
-    adicoes: Array<{ descricao?: string | null; tamanho?: string | null; qtd: number }>,
+    adicoes: Array<{ descricao?: string | null; cor?: string | null; tamanho?: string | null; qtd: number }>,
     boxExcluir: number | null,
   ) {
     if (!adicoes.length) return;
     const norm = (s: unknown) => String(s ?? '').trim().toUpperCase();
+    // Chave de cor estável (código numérico ou 1ª palavra) — Cinza ≠ Verde.
+    const corKey = (s: unknown) => {
+      const c = norm(s);
+      const code = (c.match(/^\d+/) || [])[0];
+      if (code) return code;
+      const w = c.replace(/^\d+\s*/, '').replace(/\bLOTE.*$/, '').trim().split(' ').filter(Boolean);
+      return w[0] ?? '';
+    };
+    // Item identificado por descrição + COR (para não misturar cores).
+    const itemKey = (desc: unknown, cor: unknown) => norm(desc) + '¦' + corKey(cor);
 
     // Esperado (snapshot da expedição; se vazio, cai no pedido de origem).
-    let itens = (exp.itens as Array<{ descricao?: string; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
+    let itens = (exp.itens as Array<{ descricao?: string; cor?: string | null; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
     if (!itens.length && exp.pedidoId) {
       const ped = await tx.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
-      itens = (ped?.itens ?? []).map((it) => ({ descricao: it.descricao, quantidade: it.quantidade, grade: it.grade as Record<string, number> | null }));
+      itens = (ped?.itens ?? []).map((it) => ({ descricao: it.descricao, cor: it.cor, quantidade: it.quantidade, grade: it.grade as Record<string, number> | null }));
     }
     if (!itens.length) return; // sem base (texto livre) — não bloqueia
 
-    const espSize = new Map<string, number>(); // desc|TAM -> esperado
-    const espTotal = new Map<string, number>(); // desc -> esperado total
+    const espSize = new Map<string, number>(); // itemKey|TAM -> esperado
+    const espTotal = new Map<string, number>(); // itemKey -> esperado total
     const comGrade = new Set<string>();
     for (const it of itens) {
-      const d = norm(it.descricao);
+      const ik = itemKey(it.descricao, it.cor);
       const grade = it.grade && typeof it.grade === 'object' ? it.grade : null;
       if (grade && Object.keys(grade).length) {
-        comGrade.add(d);
+        comGrade.add(ik);
         for (const [t, q] of Object.entries(grade)) {
-          espSize.set(d + '|' + norm(t), (espSize.get(d + '|' + norm(t)) ?? 0) + (Number(q) || 0));
-          espTotal.set(d, (espTotal.get(d) ?? 0) + (Number(q) || 0));
+          espSize.set(ik + '|' + norm(t), (espSize.get(ik + '|' + norm(t)) ?? 0) + (Number(q) || 0));
+          espTotal.set(ik, (espTotal.get(ik) ?? 0) + (Number(q) || 0));
         }
       } else {
-        espTotal.set(d, (espTotal.get(d) ?? 0) + (Number(it.quantidade) || 0));
+        espTotal.set(ik, (espTotal.get(ik) ?? 0) + (Number(it.quantidade) || 0));
       }
     }
 
@@ -499,9 +524,9 @@ export class ExpedicoesService {
     for (const c of caixas) {
       if (boxExcluir != null && c.numero === boxExcluir) continue;
       for (const l of c.conteudo ?? []) {
-        const d = norm(l.descricao);
-        confSize.set(d + '|' + norm(l.tamanho), (confSize.get(d + '|' + norm(l.tamanho)) ?? 0) + (Number(l.qtd) || 0));
-        confTotal.set(d, (confTotal.get(d) ?? 0) + (Number(l.qtd) || 0));
+        const ik = itemKey(l.descricao, l.cor);
+        confSize.set(ik + '|' + norm(l.tamanho), (confSize.get(ik + '|' + norm(l.tamanho)) ?? 0) + (Number(l.qtd) || 0));
+        confTotal.set(ik, (confTotal.get(ik) ?? 0) + (Number(l.qtd) || 0));
       }
     }
 
@@ -509,29 +534,30 @@ export class ExpedicoesService {
     const addSize = new Map<string, number>();
     const addTotal = new Map<string, number>();
     for (const a of adicoes) {
-      const d = norm(a.descricao);
-      addSize.set(d + '|' + norm(a.tamanho), (addSize.get(d + '|' + norm(a.tamanho)) ?? 0) + (Number(a.qtd) || 0));
-      addTotal.set(d, (addTotal.get(d) ?? 0) + (Number(a.qtd) || 0));
+      const ik = itemKey(a.descricao, a.cor);
+      addSize.set(ik + '|' + norm(a.tamanho), (addSize.get(ik + '|' + norm(a.tamanho)) ?? 0) + (Number(a.qtd) || 0));
+      addTotal.set(ik, (addTotal.get(ik) ?? 0) + (Number(a.qtd) || 0));
     }
 
-    // Cap por TOTAL do item.
-    for (const [d, add] of addTotal) {
-      const expT = espTotal.get(d) ?? 0;
-      if (expT <= 0) continue; // descrição fora da base — a trava de "fora do pedido" cuida
-      const jaT = confTotal.get(d) ?? 0;
+    const nomeDe = (ik: string) => ik.split('¦')[0];
+    // Cap por TOTAL do item (por cor).
+    for (const [ik, add] of addTotal) {
+      const expT = espTotal.get(ik) ?? 0;
+      if (expT <= 0) continue; // descrição/cor fora da base — a trava de "fora do pedido" cuida
+      const jaT = confTotal.get(ik) ?? 0;
       if (jaT + add > expT) {
-        throw new BadRequestException(`Quantidade acima do pedido para "${d}": pedido ${expT}, já conferido ${jaT}. Não bipe a mais.`);
+        throw new BadRequestException(`Quantidade acima do pedido para "${nomeDe(ik)}": pedido ${expT}, já conferido ${jaT}. Não bipe a mais.`);
       }
     }
-    // Cap por TAMANHO (itens com grade).
+    // Cap por TAMANHO (itens com grade), por cor.
     for (const [k, add] of addSize) {
-      const d = k.split('|')[0];
-      if (add <= 0 || !comGrade.has(d)) continue;
-      const tam = k.split('|')[1] || '—';
+      const ik = k.slice(0, k.lastIndexOf('|'));
+      if (add <= 0 || !comGrade.has(ik)) continue;
+      const tam = k.slice(k.lastIndexOf('|') + 1) || '—';
       const expS = espSize.get(k) ?? 0;
       const jaS = confSize.get(k) ?? 0;
       if (jaS + add > expS) {
-        throw new BadRequestException(`Tamanho ${tam} de "${d}" acima do pedido: previsto ${expS}, já conferido ${jaS}. Não bipe a mais.`);
+        throw new BadRequestException(`Tamanho ${tam} de "${nomeDe(ik)}" acima do pedido: previsto ${expS}, já conferido ${jaS}. Não bipe a mais.`);
       }
     }
   }
@@ -562,7 +588,7 @@ export class ExpedicoesService {
       let caixasUpd: Prisma.InputJsonValue | undefined;
       let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
       // Peças que esta bipagem adiciona (p/ a trava anti-excedente por tamanho/total).
-      const adicoes: Array<{ descricao?: string | null; tamanho?: string | null; qtd: number }> = [];
+      const adicoes: Array<{ descricao?: string | null; cor?: string | null; tamanho?: string | null; qtd: number }> = [];
       let boxExcluir: number | null = null;
       // Conteúdo da caixa CASADO com a linha do pedido (p/ o "Montar caixas" já vir preenchido).
       let boxDescricao: string | null = null;
@@ -578,7 +604,7 @@ export class ExpedicoesService {
         add = box.pecas || 0;
         detalhe = `Caixa ${n} (${add} pç)`;
         // Valida o conteúdo desta caixa contra o restante do pedido (exclui ela da base).
-        for (const l of box.conteudo ?? []) adicoes.push({ descricao: l.descricao, tamanho: l.tamanho, qtd: Number(l.qtd) || 0 });
+        for (const l of box.conteudo ?? []) adicoes.push({ descricao: l.descricao, cor: l.cor, tamanho: l.tamanho, qtd: Number(l.qtd) || 0 });
         boxExcluir = n;
         box.conferida = true;
         caixasUpd = caixas as unknown as Prisma.InputJsonValue;
@@ -587,7 +613,7 @@ export class ExpedicoesService {
         if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${codigo} não encontrado.`);
         add = kit.jogos || 1; detalhe = `${codigo} (${add} pç)`;
         itemInfo = { descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null };
-        adicoes.push({ descricao: kit.modelo ?? codigo, tamanho: kit.tamanho ?? null, qtd: add });
+        adicoes.push({ descricao: kit.modelo ?? codigo, cor: kit.cor ?? null, tamanho: kit.tamanho ?? null, qtd: add });
       } else {
         // Só conta se a etiqueta resolver numa UNIDADE real — bloqueia leitura grudada,
         // fragmento ou código digitado errado (que antes viravam "peça fantasma").
@@ -618,7 +644,7 @@ export class ExpedicoesService {
           boxTam = tNorm;
         }
         // Adição desta peça — a trava anti-excedente (por tamanho e total) roda abaixo.
-        adicoes.push({ descricao: boxDescricao ?? un.descricao ?? codigo, tamanho: un.tamanho, qtd: 1 });
+        adicoes.push({ descricao: boxDescricao ?? un.descricao ?? codigo, cor: boxCor ?? un.cor, tamanho: un.tamanho, qtd: 1 });
 
         if (un.status !== 'despachado') {
           await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
