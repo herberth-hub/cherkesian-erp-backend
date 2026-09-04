@@ -6436,7 +6436,7 @@ async function formCaixas(expId){
   });
   // Caixas existentes → tenta remapear pros combos.
   const idxCombo=(d,c,t)=>combos.findIndex(k=>k.descricao===d&&(k.cor||'')===(c||'')&&(k.tamanho||'')===(t||''));
-  const boxes=(e.caixas&&e.caixas.length)? e.caixas.map(cx=>({ peso:cx.peso||'', linhas:(cx.conteudo||[]).map(l=>({ci:idxCombo(l.descricao,l.cor,l.tamanho), qtd:l.qtd})) })) : [{peso:'',linhas:[{ci:-1,qtd:''}]}];
+  const boxes=(e.caixas&&e.caixas.length)? e.caixas.map(cx=>({ peso:cx.peso||'', tipo:cx.tipo||'caixa', linhas:(cx.conteudo||[]).map(l=>({ci:idxCombo(l.descricao,l.cor,l.tamanho), qtd:l.qtd})) })) : [{peso:'',tipo:'caixa',linhas:[{ci:-1,qtd:''}]}];
   window.__CX={ expId, numero:e.numero, combos, boxes };
   renderCaixas();
 }
@@ -6451,10 +6451,12 @@ function renderCaixas(){
       <select class="inp" style="flex:1;font-size:12px;padding:5px" onchange="APP.cxSetCombo(${bi},${li},this.value)">${opts(l.ci)}</select>
       <input class="inp" type="number" min="1" value="${l.qtd||''}" placeholder="qtd" style="width:74px;text-align:center;padding:5px" oninput="APP.cxSetQtd(${bi},${li},this.value)">
       <button class="btn-sm" style="color:#c14a34" onclick="APP.cxDelLinha(${bi},${li})">✕</button></div>`).join('');
-    return `<div style="border:1px solid #e0d9c4;border-radius:8px;padding:10px;margin-bottom:8px;background:#fff">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <b style="color:#3a2f08">📦 Caixa ${bi+1}</b>
-        <span style="font-size:12px;color:#6a675e">${pcs} peça(s) <input class="inp" type="number" step="0.01" value="${b.peso||''}" placeholder="peso kg" style="width:86px;margin-left:8px;padding:4px" oninput="APP.cxSetPeso(${bi},this.value)"> ${X.boxes.length>1?'<button class="btn-sm" style="color:#c14a34;margin-left:6px" onclick="APP.cxDelBox('+bi+')">excluir caixa</button>':''}</span>
+    const cap=(b.tipo==='fardo')?60:50; const cheio=pcs>cap;
+    return `<div style="border:1px solid ${cheio?'#e0a99b':'#e0d9c4'};border-radius:8px;padding:10px;margin-bottom:8px;background:${cheio?'#fdecea':'#fff'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+        <b style="color:#3a2f08">📦 Volume ${bi+1}
+          <select class="inp" style="width:auto;font-size:11.5px;padding:3px;margin-left:6px" onchange="APP.cxSetTipo(${bi},this.value)"><option value="caixa" ${b.tipo!=='fardo'?'selected':''}>Caixa (50)</option><option value="fardo" ${b.tipo==='fardo'?'selected':''}>Fardo (60)</option></select></b>
+        <span style="font-size:12px;color:#6a675e"><b style="color:${cheio?'#c14a34':(pcs>=cap*0.8?'#9a5a00':'#1e7a44')}">${pcs}/${cap}${cheio?' ⚠ acima do limite':''}</b> <input class="inp" type="number" step="0.01" value="${b.peso||''}" placeholder="peso kg" style="width:86px;margin-left:8px;padding:4px" oninput="APP.cxSetPeso(${bi},this.value)"> ${X.boxes.length>1?'<button class="btn-sm" style="color:#c14a34;margin-left:6px" onclick="APP.cxDelBox('+bi+')">excluir</button>':''}</span>
       </div>${linhas}
       <button class="btn-sm" onclick="APP.cxAddLinha(${bi})">+ item na caixa</button></div>`;
   }).join('');
@@ -6473,14 +6475,17 @@ function renderCaixas(){
 function cxSetCombo(bi,li,v){ window.__CX.boxes[bi].linhas[li].ci=Number(v); renderCaixas(); }
 function cxSetQtd(bi,li,v){ window.__CX.boxes[bi].linhas[li].qtd=v; }
 function cxSetPeso(bi,v){ window.__CX.boxes[bi].peso=v; }
+function cxSetTipo(bi,v){ window.__CX.boxes[bi].tipo=(v==='fardo')?'fardo':'caixa'; renderCaixas(); }
 function cxAddLinha(bi){ window.__CX.boxes[bi].linhas.push({ci:-1,qtd:''}); renderCaixas(); }
 function cxDelLinha(bi,li){ window.__CX.boxes[bi].linhas.splice(li,1); if(!window.__CX.boxes[bi].linhas.length) window.__CX.boxes[bi].linhas.push({ci:-1,qtd:''}); renderCaixas(); }
-function cxAddBox(){ window.__CX.boxes.push({peso:'',linhas:[{ci:-1,qtd:''}]}); renderCaixas(); }
+function cxAddBox(){ window.__CX.boxes.push({peso:'',tipo:'caixa',linhas:[{ci:-1,qtd:''}]}); renderCaixas(); }
 function cxDelBox(bi){ window.__CX.boxes.splice(bi,1); renderCaixas(); }
 async function saveCaixas(print){
   const X=window.__CX;
-  const caixas=X.boxes.map(b=>({ peso:b.peso!==''?Number(b.peso):undefined, conteudo:b.linhas.filter(l=>l.ci>=0&&Number(l.qtd)>0).map(l=>{ const c=X.combos[l.ci]; return {descricao:c.descricao, cor:c.cor||null, tamanho:c.tamanho||null, qtd:Number(l.qtd)}; }) })).filter(c=>c.conteudo.length);
+  const caixas=X.boxes.map(b=>({ peso:b.peso!==''?Number(b.peso):undefined, tipo:(b.tipo==='fardo')?'fardo':'caixa', conteudo:b.linhas.filter(l=>l.ci>=0&&Number(l.qtd)>0).map(l=>{ const c=X.combos[l.ci]; return {descricao:c.descricao, cor:c.cor||null, tamanho:c.tamanho||null, qtd:Number(l.qtd)}; }) })).filter(c=>c.conteudo.length);
   if(!caixas.length){ toast('Monte ao menos uma caixa com itens.','err'); return; }
+  const estouro=caixas.findIndex(c=>{ const cap=c.tipo==='fardo'?60:50; return c.conteudo.reduce((s,l)=>s+l.qtd,0)>cap; });
+  if(estouro>=0){ const cap=caixas[estouro].tipo==='fardo'?60:50; toast('Volume '+(estouro+1)+' passou do limite ('+caixas[estouro].tipo+' = '+cap+'). Divida em mais volumes.','err'); return; }
   try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas}});
     toast(r.totalCaixas+' caixa(s) salvas · '+r.totalPecas+' peças.','ok');
     if(print) await imprimirEtiquetasCaixas(X.expId); else { closeModal(); loadRoute(); }
@@ -7501,6 +7506,7 @@ async function etiquetasUnitariasExp(id){
 // ---------- Dupla conferência + despacho ----------
 async function formConferencia(id){
   if(window.__confCaixa==null) window.__confCaixa=1;
+  if(window.__confTipo==null) window.__confTipo='caixa';
   // Abrir uma expedição diferente reinicia o modo (conferir, não devolver).
   if(window.__confId!==id){ window.__confDevolver=false; window.__confId=id; }
   let c; try{ c=await api('/expedicoes/'+id+'/conferencia'); }catch(e){ toast(e.message,'err'); return; }
@@ -7522,11 +7528,15 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('master_bip').value=code;APP.despacharExp(${id})})">📷</button>
       </div>
       <div style="margin-bottom:2px"><button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Reimprimir etiqueta master</button></div>`
-      :`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px">
-        <label class="fl" style="margin:0">📦 Caixa atual</label>
-        <input id="conf_caixa" type="number" min="1" value="${window.__confCaixa||1}" onchange="APP.confSetCaixa()" style="width:64px;text-align:center;padding:5px;font-weight:800;font-size:15px">
-        <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha a caixa atual e começa a próxima">➕ Nova caixa</button>
-        <span class="muted" style="font-size:11px">tudo que bipar entra <b>nesta caixa</b> — mude o número ao trocar de caixa</span>
+      :`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;flex-wrap:wrap">
+        <label class="fl" style="margin:0">📦 Volume atual</label>
+        <input id="conf_caixa" type="number" min="1" value="${window.__confCaixa||1}" onchange="APP.confSetCaixa()" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
+        <select id="conf_tipo" class="inp" onchange="APP.confSetTipo(${id})" style="width:auto;font-size:12px;padding:5px">
+          <option value="caixa" ${window.__confTipo!=='fardo'?'selected':''}>Caixa (máx 50)</option>
+          <option value="fardo" ${window.__confTipo==='fardo'?'selected':''}>Fardo (máx 60)</option></select>
+        ${(function(){ const cap=window.__confTipo==='fardo'?60:50; const b=(c.caixas||[]).find(x=>x.numero===(window.__confCaixa||1)); const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44'); return `<span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>`; })()}
+        <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha o volume atual e começa o próximo">➕ Novo volume</button>
+        <span class="muted" style="font-size:11px">limite por volume: <b>caixa 50</b> · <b>fardo 60</b></span>
       </div>
       ${window.__confDevolver?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 9px;background:#fdecea;border:1px solid #f0b3a6;border-radius:8px"><b style="color:#c14a34;font-size:12px">↩ MODO DEVOLVER</b><span class="muted" style="font-size:11px">bipe a peça/kit p/ TIRAR da caixa — depois aponte a “Caixa atual” e bipe de novo</span></div>`:''}
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
@@ -7576,6 +7586,7 @@ async function zerarConferencia(id){
 }
 // Caixa atual da bipagem (montagem da caixa conforme se bipa).
 function confSetCaixa(){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; }
+function confSetTipo(id){ const s=$('conf_tipo'); window.__confTipo=(s&&s.value==='fardo')?'fardo':'caixa'; if(id) formConferencia(id); }
 function confNovaCaixa(id){ confSetCaixa(); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
 window.__bipBusy = window.__bipBusy || {};
 function confToggleDevolver(id){ window.__confDevolver=!window.__confDevolver; formConferencia(id); }
@@ -7593,7 +7604,8 @@ async function conferirBip(id, codigo){
   if(window.__bipBusy[key]){ beepErro(); toast('⏳ '+cod+' já está sendo lido — aguarde.','err'); const i=$('conf_bip'); if(i){ i.value=''; i.focus(); } return; }
   window.__bipBusy[key]=1;
   const caixa=Math.floor(Number(val('conf_caixa'))||window.__confCaixa||1);
-  try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod, caixa}});
+  const tipo=window.__confTipo==='fardo'?'fardo':'caixa';
+  try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod, caixa, tipo}});
     if(r.ja) beepErro(); else beepOk();
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     formConferencia(id);
@@ -9303,8 +9315,8 @@ window.APP = {
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
-  formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
+  formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,

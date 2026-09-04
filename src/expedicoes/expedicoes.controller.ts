@@ -84,8 +84,8 @@ export class ExpedicoesController {
 
   @Post(':id/conferir')
   @HttpCode(HttpStatus.OK)
-  conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @Body('caixa') caixa: number, @CurrentUser() user: AuthUser) {
-    return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa);
+  conferir(@Param('id', ParseIntPipe) id: number, @Body('codigo') codigo: string, @Body('caixa') caixa: number, @Body('tipo') tipo: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa, tipo);
   }
 
   /** Devolve UMA peça/kit já conferido (tira da caixa) para rebipar na caixa certa. */

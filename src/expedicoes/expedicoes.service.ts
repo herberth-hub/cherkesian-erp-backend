@@ -15,6 +15,11 @@ const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>)
 
 type CaixaLinha = { descricao: string; cor?: string | null; tamanho?: string | null; qtd: number };
 
+// Limite de peças por VOLUME MASTER: fardo = 60, caixa = 50.
+const LIMITE_VOLUME: Record<string, number> = { caixa: 50, fardo: 60 };
+const normTipoVolume = (t?: string | null) => (String(t ?? '').toLowerCase() === 'fardo' ? 'fardo' : 'caixa');
+const limiteDoVolume = (tipo?: string | null) => LIMITE_VOLUME[normTipoVolume(tipo)];
+
 /** Item selecionado para uma expedição (parcial ou total), com grade opcional por tamanho. */
 type SelExped = {
   item: { id: number; produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; quantidadeExpedida: number; valorUnit: unknown; grade: unknown; gradeExpedida: unknown };
@@ -37,15 +42,21 @@ export class ExpedicoesService {
   }
 
   /** Salva o plano de caixas da expedição (substitui integralmente). */
-  async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number }>) {
+  async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number; tipo?: string }>) {
     await this.expDaEmpresa(id, empresaId);
     const limpas = (caixas ?? []).map((c, i) => {
       const conteudo = (c.conteudo ?? [])
         .map((l) => ({ descricao: (l.descricao ?? '').trim(), cor: l.cor?.trim() || null, tamanho: l.tamanho?.trim() || null, qtd: Math.round(Number(l.qtd) || 0) }))
         .filter((l) => l.descricao && l.qtd > 0);
       const pecas = conteudo.reduce((s, l) => s + l.qtd, 0);
-      return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null };
+      const tipo = normTipoVolume(c.tipo);
+      return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null, tipo };
     }).filter((c) => c.conteudo.length);
+    // TRAVA de LIMITE por volume master: fardo 60 / caixa 50.
+    const estourou = limpas.find((c) => c.pecas > limiteDoVolume(c.tipo));
+    if (estourou) {
+      throw new BadRequestException(`Volume ${estourou.numero} (${estourou.tipo}) tem ${estourou.pecas} peças — o limite é ${limiteDoVolume(estourou.tipo)} (${estourou.tipo === 'fardo' ? 'fardo' : 'caixa'}). Divida em mais volumes.`);
+    }
     await this.prisma.expedicao.update({ where: { id }, data: { caixas: limpas as unknown as Prisma.InputJsonValue } });
     const totalPecas = limpas.reduce((s, c) => s + c.pecas, 0);
     return { caixas: limpas, totalCaixas: limpas.length, totalPecas };
@@ -528,7 +539,7 @@ export class ExpedicoesService {
   /** Bipa uma peça unitária (ou um kit) na conferência de expedição. Idempotente para kits.
    *  Quando `caixaAtual` é informado, a peça bipada é alocada NESSA caixa — o sistema
    *  monta o conteúdo/quantidade de cada caixa conforme a bipagem, sem digitar manualmente. */
-  async conferir(id: number, empresaId: number, codigoRaw: string, usuario: string, caixaAtual?: number) {
+  async conferir(id: number, empresaId: number, codigoRaw: string, usuario: string, caixaAtual?: number, tipoVolume?: string) {
     const codigo = this.extrairCodigo(codigoRaw);
     if (!codigo) throw new BadRequestException('Bipe um código válido.');
     await this.getExp(id, empresaId); // valida posse (empresa) antes de travar a linha
@@ -618,11 +629,17 @@ export class ExpedicoesService {
       // Toda peça contada SEMPRE cai numa caixa — se o nº não vier, usa a caixa atual
       // (a última existente) ou a 1 — assim a soma das caixas nunca diverge do total.
       if (!/-CX\d+$/i.test(codigo)) {
-        type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; codigos?: string[]; peso?: number | null; conferida?: boolean; viaBip?: boolean };
+        type Cx = { numero: number; pecas: number; conteudo?: CaixaLinha[]; codigos?: string[]; peso?: number | null; conferida?: boolean; viaBip?: boolean; tipo?: string };
         const cx = ((exp.caixas as Cx[] | null) ?? []).slice();
         const nCaixa = Math.floor(Number(caixaAtual) || 0) || (cx.length ? Math.max(...cx.map((c) => c.numero)) : 1);
         let box = cx.find((c) => c.numero === nCaixa);
-        if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], codigos: [], viaBip: true }; cx.push(box); }
+        if (!box) { box = { numero: nCaixa, pecas: 0, conteudo: [], codigos: [], viaBip: true, tipo: normTipoVolume(tipoVolume) }; cx.push(box); }
+        if (!box.tipo) box.tipo = normTipoVolume(tipoVolume);
+        // TRAVA de LIMITE por volume master: fardo 60 / caixa 50.
+        const capVol = limiteDoVolume(box.tipo);
+        if ((box.pecas ?? 0) + add > capVol) {
+          throw new BadRequestException(`Volume ${nCaixa} (${box.tipo}) atingiu o limite de ${capVol} peças${add > 1 ? ` (tentou +${add})` : ''}. Clique “➕ Nova caixa”/aponte outro volume para continuar.`);
+        }
         box.conteudo = box.conteudo ?? [];
         box.codigos = box.codigos ?? [];
         // Preferir a descrição/cor/tamanho da LINHA DO PEDIDO (casa com o "Montar caixas").
