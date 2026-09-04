@@ -6655,9 +6655,17 @@ async function saveCaixas(print){
   const X=window.__CX;
   const caixas=X.boxes.map(b=>({ peso:b.peso!==''?Number(b.peso):undefined, tipo:(b.tipo==='fardo')?'fardo':'caixa', conteudo:b.linhas.filter(l=>l.ci>=0&&Number(l.qtd)>0).map(l=>{ const c=X.combos[l.ci]; return {descricao:c.descricao, cor:c.cor||null, tamanho:c.tamanho||null, qtd:Number(l.qtd)}; }) })).filter(c=>c.conteudo.length);
   if(!caixas.length){ toast('Monte ao menos uma caixa com itens.','err'); return; }
-  const estouro=caixas.findIndex(c=>{ const cap=c.tipo==='fardo'?100:50; return c.conteudo.reduce((s,l)=>s+l.qtd,0)>cap; });
-  if(estouro>=0){ const cap=caixas[estouro].tipo==='fardo'?100:50; toast('Volume '+(estouro+1)+' passou do limite ('+caixas[estouro].tipo+' = '+cap+'). Divida em mais volumes.','err'); return; }
-  try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas}});
+  // Limite de volume (fardo 100 / caixa 50): AVISA, mas deixa continuar se for exceção.
+  const acima=caixas.map((c,i)=>({i,cap:c.tipo==='fardo'?100:50,pc:c.conteudo.reduce((s,l)=>s+l.qtd,0),tipo:c.tipo})).filter(x=>x.pc>x.cap);
+  let permitirExcesso=false;
+  if(acima.length){
+    const lista=acima.map(x=>'Volume '+(x.i+1)+' ('+x.tipo+'): '+x.pc+'/'+x.cap).join('\n');
+    const ok=await uiConfirm({tipo:'warn', titulo:'Volume acima do padrão', ok:'Continuar mesmo assim', cancel:'Voltar e ajustar',
+      msg:'Estes volumes passaram do limite padrão:\n\n'+lista+'\n\nSe for uma exceção, pode continuar e salvar assim mesmo.'});
+    if(!ok) return;
+    permitirExcesso=true;
+  }
+  try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas, permitirExcesso}});
     toast(r.totalCaixas+' caixa(s) salvas · '+r.totalPecas+' peças.','ok');
     if(print) await imprimirEtiquetasCaixas(X.expId); else { closeModal(); loadRoute(); }
   }catch(e){ toast(e.message,'err'); }

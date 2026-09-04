@@ -42,7 +42,7 @@ export class ExpedicoesService {
   }
 
   /** Salva o plano de caixas da expedição (substitui integralmente). */
-  async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number; tipo?: string }>) {
+  async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number; tipo?: string }>, permitirExcesso = false) {
     await this.expDaEmpresa(id, empresaId);
     const limpas = (caixas ?? []).map((c, i) => {
       const conteudo = (c.conteudo ?? [])
@@ -52,10 +52,11 @@ export class ExpedicoesService {
       const tipo = normTipoVolume(c.tipo);
       return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null, tipo };
     }).filter((c) => c.conteudo.length);
-    // TRAVA de LIMITE por volume master: fardo 100 / caixa 50.
+    // LIMITE por volume master (fardo 100 / caixa 50): por padrão avisa e bloqueia;
+    // com `permitirExcesso` (exceção confirmada pelo operador) libera acima do padrão.
     const estourou = limpas.find((c) => c.pecas > limiteDoVolume(c.tipo));
-    if (estourou) {
-      throw new BadRequestException(`Volume ${estourou.numero} (${estourou.tipo}) tem ${estourou.pecas} peças — o limite é ${limiteDoVolume(estourou.tipo)} (${estourou.tipo === 'fardo' ? 'fardo' : 'caixa'}). Divida em mais volumes.`);
+    if (estourou && !permitirExcesso) {
+      throw new BadRequestException(`Volume ${estourou.numero} (${estourou.tipo}) tem ${estourou.pecas} peças — o limite é ${limiteDoVolume(estourou.tipo)} (${estourou.tipo === 'fardo' ? 'fardo' : 'caixa'}). Divida em mais volumes ou confirme a exceção.`);
     }
     await this.prisma.expedicao.update({ where: { id }, data: { caixas: limpas as unknown as Prisma.InputJsonValue } });
     const totalPecas = limpas.reduce((s, c) => s + c.pecas, 0);

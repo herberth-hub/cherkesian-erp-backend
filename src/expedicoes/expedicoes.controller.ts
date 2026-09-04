@@ -67,8 +67,8 @@ export class ExpedicoesController {
   // ===== Plano de embalagem por caixa =====
   @Post(':id/caixas')
   @HttpCode(HttpStatus.OK)
-  salvarCaixas(@Param('id', ParseIntPipe) id: number, @Body() body: { caixas?: unknown[] }, @CurrentUser() user: AuthUser) {
-    return this.expedicoesService.salvarCaixas(id, user.empresaId, (body?.caixas ?? []) as never);
+  salvarCaixas(@Param('id', ParseIntPipe) id: number, @Body() body: { caixas?: unknown[]; permitirExcesso?: boolean }, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.salvarCaixas(id, user.empresaId, (body?.caixas ?? []) as never, !!body?.permitirExcesso);
   }
 
   @Get(':id/caixas/etiquetas')
