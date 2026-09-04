@@ -1757,9 +1757,9 @@ function _winMin(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimiz
 function _winRestore(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=false; w.el.style.display=''; _winDock(); _winFocus(w); }
 // ESC fecha a janela ativa (a não ser que haja um diálogo de confirmação aberto).
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape')return; if(document.querySelector('.uidlg-ov.on'))return; const w=_winTop(); if(w){ e.preventDefault(); _winClose(w.id); } });
-// Atalho: Ctrl+Shift+C (⌘+Shift+C no Mac) abre a tela de CLIENTES na hora.
+// Atalho: Alt+C abre a tela de CLIENTES na hora (não conflita com atalhos do navegador).
 document.addEventListener('keydown',e=>{
-  if(!(e.ctrlKey||e.metaKey) || !e.shiftKey || (e.key||'').toLowerCase()!=='c') return;
+  if(!e.altKey || e.ctrlKey || e.metaKey || (e.key||'').toLowerCase()!=='c') return;
   if(!S.user || !canAccess('clientes')) return; // só logado e com acesso
   e.preventDefault();
   if(S.route!=='clientes') go('clientes');
