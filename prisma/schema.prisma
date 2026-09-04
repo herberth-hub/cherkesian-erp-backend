@@ -226,6 +226,7 @@ model Cliente {
   clienteNovo Boolean @default(true)
   representante   String?  // representante/agente comercial da conta (interno)
   comissaoPercent Decimal? @db.Decimal(5,2) // % de comissão do representante nesta conta (interno)
+  comissaoComImposto Boolean? // base da comissão do representante: true = com imposto (bruto), false/null = sem imposto (líquido)
   obs        String?
   pedidos    Pedido[]
   medidas    Medida[]
@@ -576,6 +577,7 @@ model Pedido {
   // Comissão de venda do REPRESENTANTE — INTERNO: não sai na proposta/pedido do cliente.
   comissaoRepresentante String?
   comissaoPercent Decimal?    @db.Decimal(5,2)
+  comissaoComImposto Boolean? // true = base com imposto (bruto), false/null = sem imposto (líquido)
   itens          PedidoItem[]
   ops            OP[]
   pilotos        Piloto[]

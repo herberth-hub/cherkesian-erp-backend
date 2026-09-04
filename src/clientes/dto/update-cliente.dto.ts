@@ -71,6 +71,10 @@ export class UpdateClienteDto extends ClienteFiscalDto {
 
   @IsOptional()
   @IsBoolean()
+  comissaoComImposto?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   clienteNovo?: boolean;
 
   @IsOptional()

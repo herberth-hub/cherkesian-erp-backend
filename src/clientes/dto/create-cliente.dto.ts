@@ -92,6 +92,11 @@ export class CreateClienteDto extends ClienteFiscalDto {
   @Min(0) @Max(100)
   comissaoPercent?: number;
 
+  /** Base da comissão do representante: true = com imposto (bruto), false = sem imposto (líquido). */
+  @IsOptional()
+  @IsBoolean()
+  comissaoComImposto?: boolean;
+
   /** Cliente novo exige peça-piloto antes de liberar produção (regra central). */
   @IsOptional()
   @IsBoolean()

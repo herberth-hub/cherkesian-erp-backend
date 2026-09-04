@@ -2012,7 +2012,8 @@ async function formCliente(id){
     ${field('f_seg','Segmento','value="'+esc(cl.segmento||'')+'"')}
     <div class="grid2">${field('f_contato','Contato','value="'+esc(cl.contato||'')+'"')}${field('f_tel','Telefone','value="'+esc(cl.telefone||'')+'"')}</div>
     ${field('f_email','E-mail','value="'+esc(cl.email||'')+'" type="email"')}
-    <div class="grid2">${field('f_rep','Representante da conta (interno)','value="'+esc(cl.representante||'')+'"')}${field('f_comis','Comissão do representante % (interno)','type="number" step="0.01" min="0" max="100" value="'+(cl.comissaoPercent!=null?cl.comissaoPercent:'')+'" placeholder="ex.: 5"')}</div>
+    <div class="grid3">${field('f_rep','Representante da conta (interno)','value="'+esc(cl.representante||'')+'"')}${field('f_comis','Comissão do representante % (interno)','type="number" step="0.01" min="0" max="100" value="'+(cl.comissaoPercent!=null?cl.comissaoPercent:'')+'" placeholder="ex.: 5"')}
+      <div class="mrow"><label class="fl">Base da comissão</label><select id="f_combase" class="inp"><option value="liquido" ${cl.comissaoComImposto?'':'selected'}>Sem imposto (líquido)</option><option value="bruto" ${cl.comissaoComImposto?'selected':''}>Com imposto (bruto)</option></select></div></div>
     <div class="mrow"><label class="fl"><input type="checkbox" id="f_novo" ${cl.clienteNovo!==false?'checked':''}> Cliente novo (exige peça-piloto)</label></div>
     <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px"><b style="font-size:12px;color:var(--muted)">DADOS FISCAIS (destinatário da NF-e)</b></div>
     <div class="grid2"><div class="mrow"><label class="fl">CNPJ/CPF</label><div style="display:flex;gap:6px"><input id="f_cnpj" class="inp" style="flex:1" value="${esc(cl.cnpjCpf||'')}" oninput="APP.maskDoc(this)" placeholder="00.000.000/0000-00"><button type="button" class="btn-sm" onclick="APP.buscarCnpjCliente()" title="Buscar dados na Receita">🔍 Buscar</button></div></div>${field('f_ie','Inscrição Estadual','value="'+esc(cl.inscricaoEstadual||'')+'"')}</div>
@@ -2074,6 +2075,7 @@ async function saveCliente(id){
   const ind=val('f_indie'); if(ind) body.indicadorIE=Number(ind);
   const rep=val('f_rep'); if(rep) body.representante=rep;
   const com=val('f_comis'); body.comissaoPercent = com!=='' ? Number(com) : null;
+  body.comissaoComImposto = (val('f_combase')==='bruto');
   if(!body.nome){ toast('Informe o nome.','err'); return; }
   // Unidades/filiais: lê do DOM, limpa vazios e valida nome obrigatório.
   cliUniReadDom();
@@ -3241,8 +3243,9 @@ async function formPedido(id){
       <div class="grid3">
         ${field('f_comrep','Representante','value="'+esc(ped&&ped.comissaoRepresentante||'')+'"')}
         ${field('f_compct','% de comissão','type="number" step="0.01" min="0" value="'+(ped&&ped.comissaoPercent!=null?ped.comissaoPercent:'')+'" placeholder="ex.: 5" oninput="APP.pedComis()"')}
-        <div class="mrow"><label class="fl">Valor estimado</label><div id="f_comval" style="font-weight:800;color:#1e7a44;padding-top:6px;font-size:14px">R$ 0,00</div></div>
+        <div class="mrow"><label class="fl">Base da comissão</label><select id="f_combase_p" class="inp" onchange="APP.pedComis()"><option value="liquido" ${ped&&ped.comissaoComImposto?'':'selected'}>Sem imposto (líquido)</option><option value="bruto" ${ped&&ped.comissaoComImposto?'selected':''}>Com imposto (bruto)</option></select></div>
       </div>
+      <div style="text-align:right;margin-top:4px;font-size:12px;color:#6a675e">Valor estimado da comissão: <b id="f_comval" style="color:#1e7a44;font-size:14px">R$ 0,00</b> <span class="muted" id="f_combase_hint"></span></div>
     </div>
     <div class="grid2">${field('f_prazo','Prazo de entrega (opcional)','type="date"'+(ped&&ped.prazoEntrega?' value="'+String(ped.prazoEntrega).slice(0,10)+'"':''))}<div class="mrow"><label class="fl">Forma de pagamento</label><input id="f_pag" class="inp" placeholder="ex.: 20 DDL, 30/60/90, à vista" oninput="APP.calcVenc()" value="${esc(ped&&ped.formaPagamento||'')}"><div id="f_pag_venc" class="muted" style="font-size:11px;margin-top:3px"></div></div></div>
     <div class="grid2">${field('f_oc','Ordem de compra do cliente (nº do PO/SAP)','placeholder="ex.: 4100676333"'+(ped&&ped.ordemCompraCliente?' value="'+esc(ped.ordemCompraCliente)+'"':''))}
@@ -3267,6 +3270,7 @@ async function pedPrefillCliente(){
   try{ const clRec = await api('/clientes/'+cid);
     const r=$('f_comrep'); if(r && !r.value && clRec && clRec.representante){ r.value=clRec.representante; }
     const pc=$('f_compct'); if(pc && !pc.value && clRec && clRec.comissaoPercent!=null){ pc.value=clRec.comissaoPercent; }
+    const bs=$('f_combase_p'); if(bs && clRec && clRec.comissaoComImposto!=null){ bs.value=clRec.comissaoComImposto?'bruto':'liquido'; }
     pedComis();
   }catch(_){}
   let lista; try{ lista = await api('/pedidos'); }catch(_){ return; }
@@ -3477,7 +3481,8 @@ function pedTotais(){
   $('ped_totpc').textContent=pc;
   const vlEl=$('ped_totvl'); if(vlEl) vlEl.textContent=money(vl);
   // Comissão de venda (interno): valor estimado = total × %.
-  const cvEl=$('f_comval'); if(cvEl){ const pct=Number((val('f_compct')||'').replace(',','.'))||0; cvEl.textContent=money(vl*pct/100); }
+  const cvEl=$('f_comval'); if(cvEl){ const pct=Number((val('f_compct')||'').replace(',','.'))||0; cvEl.textContent=money(vl*pct/100);
+    const hint=$('f_combase_hint'); if(hint){ const bruto=val('f_combase_p')==='bruto'; hint.textContent = pct>0 ? (bruto?'(sobre o valor cheio)':'(estimado no cheio; na baixa desconta o imposto da filial)') : ''; } }
   // Frete: mostra o valor e o total com frete (não altera o valor dos itens — usado na NF/receber).
   const frete=Number((val('f_valfrete')||'').replace(',','.'))||0;
   const fb=$('ped_frete_box');
@@ -3582,6 +3587,7 @@ async function savePedido(id){
   const obsCom=(($('f_obscom')&&$('f_obscom').value)||'').trim(); body.obsComercial=obsCom||undefined;
   const comRep=(val('f_comrep')||'').trim(); if(comRep) body.comissaoRepresentante=comRep;
   const comPct=(val('f_compct')||'').replace(',','.'); if(comPct!=='') body.comissaoPercent=Number(comPct);
+  body.comissaoComImposto = (val('f_combase_p')==='bruto');
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
       let m='Pedido '+p.numero+' atualizado.';
@@ -4171,10 +4177,31 @@ async function fluxoExcel(){
 async function viewComissoes(c){
   const list = await api('/financeiro/comissoes');
   window.__COMS = list;
-  const total = list.filter(k=>k.statusPgto!=='Pago').reduce((s,k)=>s+Number(k.comissao),0);
-  c.innerHTML = toolbar('Comissões · '+money(total)+' a pagar', 'Nova comissão', 'APP.formComissao()', relBtn('comissoes')) + panelTable(
-    ['Vendedor','Pedido','Valor venda','%','Comissão','Status','Ações'],
-    list.map(k=>[
+  // Representantes/vendedores distintos (para o filtro).
+  const vends = [...new Set(list.map(k=>k.vendedor).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'pt'));
+  const vf = window.__COMVEND||'';
+  const stf = window.__COMST||'';
+  const opts = '<option value="">Todos os representantes</option>'+vends.map(v=>`<option value="${esc(v)}" ${v===vf?'selected':''}>${esc(v)}</option>`).join('');
+  const extra = `<select id="com_vend" class="inp" style="width:auto;font-size:12px;padding:6px 8px" onchange="APP.comFiltrar()">${opts}</select>
+    <select id="com_st" class="inp" style="width:auto;font-size:12px;padding:6px 8px" onchange="APP.comFiltrar()">
+      <option value="" ${stf===''?'selected':''}>Todos</option>
+      <option value="A pagar" ${stf==='A pagar'?'selected':''}>A pagar</option>
+      <option value="Pago" ${stf==='Pago'?'selected':''}>Pago</option></select>
+    ${relBtn('comissoes')}`;
+  c.innerHTML = toolbar('Comissões', 'Nova comissão', 'APP.formComissao()', extra) + `<div id="com_body"></div>`;
+  comRender();
+}
+function comRender(){
+  const list = window.__COMS||[];
+  const vf = window.__COMVEND||'', stf = window.__COMST||'';
+  const arr = list.filter(k=>(!vf||k.vendedor===vf) && (!stf||k.statusPgto===stf));
+  const aPagar = arr.filter(k=>k.statusPgto!=='Pago').reduce((s,k)=>s+Number(k.comissao),0);
+  const pago = arr.filter(k=>k.statusPgto==='Pago').reduce((s,k)=>s+Number(k.comissao),0);
+  const body = $('com_body'); if(!body) return;
+  body.innerHTML = `<div class="muted" style="font-size:12.5px;margin:-2px 0 8px">${vf?('<b>'+esc(vf)+'</b> · '):''}<b>${arr.length}</b> lançamento(s) · a pagar <b style="color:#8a5a00">${money(aPagar)}</b> · pago <b style="color:#1e7a44">${money(pago)}</b></div>`
+    + panelTable(
+    ['Representante','Pedido','Valor venda','%','Comissão','Status','Ações'],
+    arr.map(k=>[
       esc(k.vendedor), '#'+k.pedidoId, money(k.valorVenda), pct(k.percentual), `<b>${money(k.comissao)}</b>`,
       k.statusPgto==='Pago'?'<span class="pill green">pago</span>':'<span class="pill gold">a pagar</span>',
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
@@ -4182,8 +4209,9 @@ async function viewComissoes(c){
         <button class="btn-sm" onclick="APP.formComissao(${k.id})">Editar</button>
         <button class="btn-sm" style="color:#c14a34" onclick="APP.excluirComissao(${k.id})">Excluir</button>
       </div>`
-    ]), list.length?null:'Nenhuma comissão lançada.');
+    ]), arr.length?null:'Nenhuma comissão para este filtro.');
 }
+function comFiltrar(){ const v=$('com_vend'), s=$('com_st'); window.__COMVEND=v?v.value:''; window.__COMST=s?s.value:''; comRender(); }
 async function viewImpostos(c){
   const t = await api('/financeiro/impostos');
   const emp = t.porEmpresa||[];
@@ -9431,7 +9459,7 @@ window.APP = {
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
-  formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao,
+  formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,

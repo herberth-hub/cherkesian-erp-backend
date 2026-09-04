@@ -152,6 +152,7 @@ export class PedidosService {
         obsComercial: dto.obsComercial,
         comissaoRepresentante: dto.comissaoRepresentante,
         comissaoPercent: dto.comissaoPercent ?? undefined,
+        comissaoComImposto: dto.comissaoComImposto ?? undefined,
         criadoPor,
         vendedorId: vendedorId ?? null,
         itens: { create: itensData },

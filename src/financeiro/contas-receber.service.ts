@@ -52,10 +52,12 @@ export class ContasReceberService {
     // Comissão do REPRESENTANTE da conta (representante + % definidos no pedido).
     const ped = await this.prisma.pedido.findUnique({
       where: { id: t.pedidoId },
-      select: { comissaoRepresentante: true, comissaoPercent: true },
+      select: { comissaoRepresentante: true, comissaoPercent: true, comissaoComImposto: true },
     });
     const repNome = (ped?.comissaoRepresentante ?? '').trim();
     const repPct = Number(ped?.comissaoPercent ?? 0); // ex.: 5 => 5%
+    // Base do representante: "com imposto" = valor cheio (bruto); senão = líquido.
+    const baseRep = ped?.comissaoComImposto ? bruto : liquido;
     await this.prisma.$transaction(async (tx) => {
       for (const r of REGRA_COMISSAO_VENDA) {
         const comissao = Number((liquido * r.percentual).toFixed(2));
@@ -74,13 +76,13 @@ export class ContasReceberService {
       // Gera a comissão do representante, se houver representante + % no pedido.
       if (repNome && repPct > 0) {
         const frac = repPct / 100;
-        const comissaoRep = Number((liquido * frac).toFixed(2));
+        const comissaoRep = Number((baseRep * frac).toFixed(2));
         await tx.comissao.create({
           data: {
             empresaId,
             pedidoId: t.pedidoId as number,
             vendedor: repNome,
-            valorVenda: new Prisma.Decimal(liquido),
+            valorVenda: new Prisma.Decimal(baseRep),
             percentual: new Prisma.Decimal(frac),
             comissao: new Prisma.Decimal(comissaoRep),
             statusPgto: 'A pagar',

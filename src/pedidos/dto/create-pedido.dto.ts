@@ -128,4 +128,9 @@ export class CreatePedidoDto {
   @IsNumber({ maxDecimalPlaces: 2 }, { message: 'comissaoPercent deve ter no máximo 2 casas.' })
   @Min(0)
   comissaoPercent?: number;
+
+  /** Base da comissão do representante: true = com imposto (bruto), false = sem imposto (líquido). */
+  @IsOptional()
+  @IsBoolean()
+  comissaoComImposto?: boolean;
 }
