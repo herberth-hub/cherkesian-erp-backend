@@ -54,10 +54,19 @@ export class ContasReceberService {
       where: { id: t.pedidoId },
       select: { comissaoRepresentante: true, comissaoPercent: true, comissaoComImposto: true },
     });
-    const repNome = (ped?.comissaoRepresentante ?? '').trim();
-    const repPct = Number(ped?.comissaoPercent ?? 0); // ex.: 5 => 5%
+    let repNome = (ped?.comissaoRepresentante ?? '').trim();
+    let repPct = Number(ped?.comissaoPercent ?? 0); // ex.: 5 => 5%
+    let repComImposto = !!ped?.comissaoComImposto;
+    // ===== Regra fixa INTS: SEMPRE 10% do faturamento SEM abater imposto (bruto),
+    // para o "REPRESENTANTE OFICIAL" (sobrepõe o que estiver no pedido). =====
+    const cli = await this.prisma.cliente.findUnique({ where: { id: t.clienteId }, select: { nome: true, representante: true } });
+    if (/INSTITUTO NACIONAL DE TECNOLOGIA/i.test(cli?.nome ?? '')) {
+      repNome = (cli?.representante || '').trim() || 'REPRESENTANTE OFICIAL';
+      repPct = 10;
+      repComImposto = true;
+    }
     // Base do representante: "com imposto" = valor cheio (bruto); senão = líquido.
-    const baseRep = ped?.comissaoComImposto ? bruto : liquido;
+    const baseRep = repComImposto ? bruto : liquido;
     await this.prisma.$transaction(async (tx) => {
       for (const r of REGRA_COMISSAO_VENDA) {
         const comissao = Number((liquido * r.percentual).toFixed(2));
@@ -87,7 +96,7 @@ export class ContasReceberService {
             percentual: new Prisma.Decimal(frac),
             comissao: new Prisma.Decimal(comissaoRep),
             statusPgto: 'A pagar',
-            baseImposto: ped?.comissaoComImposto ? 'bruto' : 'liquido',
+            baseImposto: repComImposto ? 'bruto' : 'liquido',
           },
         });
       }
