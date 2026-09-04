@@ -88,6 +88,25 @@ export class ExpedicoesController {
     return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa, tipo);
   }
 
+  /** Itens da expedição em formato editável (admin) — quantidade por tamanho + máximo. */
+  @Get(':id/itens-editaveis')
+  itensEditaveis(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    if (user.acesso !== 'total') throw new ForbiddenException('Apenas o administrador pode editar as quantidades da expedição.');
+    return this.expedicoesService.itensEditaveis(id, user.empresaId);
+  }
+
+  /** ADMIN: edita as quantidades desta expedição (incluir a mais / tirar). */
+  @Post(':id/editar-itens')
+  @HttpCode(HttpStatus.OK)
+  editarItens(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('itens') itens: Array<{ pedidoItemId: number; grade?: Record<string, number>; quantidade?: number }>,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (user.acesso !== 'total') throw new ForbiddenException('Apenas o administrador pode editar as quantidades da expedição.');
+    return this.expedicoesService.editarItens(id, user.empresaId, itens ?? []);
+  }
+
   /** Troca o tipo de um volume já separado (caixa ↔ fardo) na conferência. */
   @Post(':id/volume-tipo')
   @HttpCode(HttpStatus.OK)

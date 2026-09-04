@@ -304,6 +304,129 @@ export class ExpedicoesService {
     return this.criarExpedicao(pedido, sel, true);
   }
 
+  /**
+   * Itens da expedição em formato EDITÁVEL (admin): quantidade DESTA remessa por
+   * tamanho + o máximo que pode virar (limite do pedido descontando o que já foi
+   * expedido em OUTRAS remessas).
+   */
+  async itensEditaveis(id: number, empresaId: number) {
+    const exp = await this.getExp(id, empresaId);
+    const snap = (exp.itens as Array<{ pedidoItemId?: number; descricao?: string; cor?: string | null; grade?: Record<string, number> | null; quantidade?: number }> | null) ?? [];
+    const pedido = exp.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } }) : null;
+    const pedById = new Map((pedido?.itens ?? []).map((i) => [i.id, i]));
+    const itens = snap.map((it) => {
+      const ped = it.pedidoItemId != null ? pedById.get(it.pedidoItemId) : undefined;
+      const grade = it.grade && typeof it.grade === 'object' ? it.grade : null;
+      if (grade) {
+        const orderGrade = (ped?.grade as Record<string, number> | null) ?? {};
+        const jaExp = (ped?.gradeExpedida as Record<string, number> | null) ?? {};
+        const sizes = [...new Set([...Object.keys(orderGrade), ...Object.keys(grade)])];
+        const linhas = sizes.map((t) => {
+          const atual = Number(grade[t] ?? 0);
+          const outras = Math.max(0, Number(jaExp[t] ?? 0) - atual);
+          const max = Math.max(atual, Number(orderGrade[t] ?? 0) - outras);
+          return { tamanho: t, atual, max };
+        });
+        return { pedidoItemId: it.pedidoItemId, descricao: it.descricao, cor: it.cor ?? null, temGrade: true, linhas, quantidade: null as number | null, max: null as number | null };
+      }
+      const atual = Number(it.quantidade ?? 0);
+      const outras = Math.max(0, Number(ped?.quantidadeExpedida ?? 0) - atual);
+      const max = Math.max(atual, Number(ped?.quantidade ?? atual) - outras);
+      return { pedidoItemId: it.pedidoItemId, descricao: it.descricao, cor: it.cor ?? null, temGrade: false, linhas: [], quantidade: atual, max };
+    });
+    return { numero: exp.numero, pecas: exp.pecas, conferidas: exp.pecasConferidas, itens };
+  }
+
+  /**
+   * ADMIN: edita as quantidades DESTA expedição (incluir a mais / tirar), mexendo
+   * no esperado da conferência e sincronizando o expedido do pedido.
+   */
+  async editarItens(
+    id: number, empresaId: number,
+    itensDto: Array<{ pedidoItemId: number; grade?: Record<string, number>; quantidade?: number }>,
+  ) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível editar as quantidades.');
+    const pedido = exp.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } }) : null;
+    const snap = (exp.itens as Array<{ pedidoItemId?: number; produtoId?: number | null; descricao?: string; cor?: string | null; valorUnit?: number; grade?: Record<string, number> | null; quantidade?: number }> | null) ?? [];
+    const dtoById = new Map((itensDto ?? []).map((i) => [i.pedidoItemId, i]));
+
+    return this.prisma.$transaction(async (tx) => {
+      let novasPecas = 0;
+      const novoSnap: typeof snap = [];
+      const pedUpd: Array<{ id: number; data: Prisma.PedidoItemUpdateInput }> = [];
+      for (const it of snap) {
+        const dto = it.pedidoItemId != null ? dtoById.get(it.pedidoItemId) : undefined;
+        const ped = it.pedidoItemId != null ? (pedido?.itens ?? []).find((p) => p.id === it.pedidoItemId) : undefined;
+        const oldGrade = it.grade && typeof it.grade === 'object' ? it.grade : null;
+        const oldQtd = Number(it.quantidade ?? 0);
+        if (!dto) { novoSnap.push(it); novasPecas += oldQtd; continue; }
+
+        if (oldGrade) {
+          const orderGrade = (ped?.grade as Record<string, number> | null) ?? {};
+          const jaExp = (ped?.gradeExpedida as Record<string, number> | null) ?? {};
+          const gradeExpUpd: Record<string, number> = { ...jaExp };
+          const newGrade: Record<string, number> = {};
+          let itemQtd = 0;
+          const sizes = [...new Set([...Object.keys(oldGrade), ...Object.keys(dto.grade ?? {})])];
+          for (const t of sizes) {
+            const nv = Math.max(0, Math.floor(Number((dto.grade ?? {})[t] ?? oldGrade[t] ?? 0)));
+            const ov = Number(oldGrade[t] ?? 0);
+            if (ped && nv !== ov) {
+              const outras = Number(jaExp[t] ?? 0) - ov;
+              const novoExp = outras + nv;
+              const ordered = Number(orderGrade[t] ?? 0);
+              if (novoExp < 0 || novoExp > ordered) {
+                throw new BadRequestException(`"${it.descricao}" TAM ${t}: ficaria ${novoExp} expedido, fora do limite do pedido (0–${ordered}).`);
+              }
+              gradeExpUpd[t] = novoExp;
+            }
+            if (nv > 0) newGrade[t] = nv;
+            itemQtd += nv;
+          }
+          novoSnap.push({ ...it, grade: Object.keys(newGrade).length ? newGrade : null, quantidade: itemQtd });
+          novasPecas += itemQtd;
+          if (ped) {
+            const qExp = Object.values(gradeExpUpd).reduce((a, b) => a + (Number(b) || 0), 0);
+            pedUpd.push({ id: ped.id, data: { gradeExpedida: gradeExpUpd as unknown as Prisma.InputJsonValue, quantidadeExpedida: qExp } });
+          }
+        } else {
+          const nv = Math.max(0, Math.floor(Number(dto.quantidade ?? oldQtd)));
+          if (ped && nv !== oldQtd) {
+            const outras = Number(ped.quantidadeExpedida ?? 0) - oldQtd;
+            const novoExp = outras + nv;
+            if (novoExp < 0 || novoExp > ped.quantidade) {
+              throw new BadRequestException(`"${it.descricao}": ficaria ${novoExp} expedido, fora do limite do pedido (0–${ped.quantidade}).`);
+            }
+            pedUpd.push({ id: ped.id, data: { quantidadeExpedida: novoExp } });
+          }
+          novoSnap.push({ ...it, quantidade: nv });
+          novasPecas += nv;
+        }
+      }
+      if (novasPecas < (exp.pecasConferidas ?? 0)) {
+        throw new BadRequestException(`Você já conferiu ${exp.pecasConferidas} peça(s) — não dá para reduzir o total para ${novasPecas}. Devolva/zere peças antes.`);
+      }
+      for (const u of pedUpd) await tx.pedidoItem.update({ where: { id: u.id }, data: u.data });
+      const completou = (exp.pecasConferidas ?? 0) >= novasPecas;
+      await tx.expedicao.update({
+        where: { id },
+        data: {
+          itens: novoSnap as unknown as Prisma.InputJsonValue,
+          pecas: novasPecas,
+          conferenciaStatus: exp.conferenciaStatus === 'pendente' ? 'pendente' : (completou ? 'conferida' : 'conferindo'),
+          ...(completou ? {} : { conferidoEm: null }),
+        },
+      });
+      if (pedido) {
+        const atual = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true, quantidadeExpedida: true } });
+        const totalmente = atual.every((i) => (i.quantidadeExpedida ?? 0) >= i.quantidade);
+        await tx.pedido.update({ where: { id: pedido.id }, data: totalmente ? { etapa: 'expedicao', status: 'Expedição' } : { status: 'Expedição parcial' } }).catch(() => undefined);
+      }
+      return { ok: true, mensagem: `Quantidades atualizadas — expedição agora com ${novasPecas} peça(s).`, pecas: novasPecas };
+    });
+  }
+
   private async criarExpedicao(
     pedido: { id: number; numero: string; clienteId: number; cliente: { logradouro: string | null; cidadeUf: string | null; municipio: string | null; uf: string | null; cep: string | null } },
     sel: SelExped[],
