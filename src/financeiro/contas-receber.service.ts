@@ -49,6 +49,13 @@ export class ContasReceberService {
     const impostoPct = Number(t.filial?.impostoVendaPercent ?? 0);
     const bruto = Number(t.valor);
     const liquido = Number((bruto * (1 - impostoPct / 100)).toFixed(2));
+    // Comissão do REPRESENTANTE da conta (representante + % definidos no pedido).
+    const ped = await this.prisma.pedido.findUnique({
+      where: { id: t.pedidoId },
+      select: { comissaoRepresentante: true, comissaoPercent: true },
+    });
+    const repNome = (ped?.comissaoRepresentante ?? '').trim();
+    const repPct = Number(ped?.comissaoPercent ?? 0); // ex.: 5 => 5%
     await this.prisma.$transaction(async (tx) => {
       for (const r of REGRA_COMISSAO_VENDA) {
         const comissao = Number((liquido * r.percentual).toFixed(2));
@@ -60,6 +67,22 @@ export class ContasReceberService {
             valorVenda: new Prisma.Decimal(liquido),
             percentual: new Prisma.Decimal(r.percentual),
             comissao: new Prisma.Decimal(comissao),
+            statusPgto: 'A pagar',
+          },
+        });
+      }
+      // Gera a comissão do representante, se houver representante + % no pedido.
+      if (repNome && repPct > 0) {
+        const frac = repPct / 100;
+        const comissaoRep = Number((liquido * frac).toFixed(2));
+        await tx.comissao.create({
+          data: {
+            empresaId,
+            pedidoId: t.pedidoId as number,
+            vendedor: repNome,
+            valorVenda: new Prisma.Decimal(liquido),
+            percentual: new Prisma.Decimal(frac),
+            comissao: new Prisma.Decimal(comissaoRep),
             statusPgto: 'A pagar',
           },
         });
