@@ -7935,6 +7935,8 @@ async function sincronizarCfop(){
 }
 function nfAcoes(n){
   const b=[];
+  // Prévia da DANFE (sem valor fiscal) — conferir a NF ANTES de autorizar.
+  if(n.status==='pendente' || n.status==='simulada' || n.status==='rejeitada') b.push(`<button class="btn-sm" style="color:#2b4a8b" title="Prévia da DANFE (sem valor fiscal) — veja como a NF ficou antes de autorizar" onclick="APP.previaNfe(${n.id})">👁 Prévia</button>`);
   if(n.provedor==='focusnfe' && n.status==='pendente') b.push(`<button class="btn-sm" onclick="APP.consultarNfe(${n.id})">Emitir NF-e</button>`);
   if(n.provedor==='focusnfe' && (n.status==='autorizada'||n.status==='cancelada')){
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 Imprimir</button>`);
@@ -7949,6 +7951,14 @@ function nfAcoes(n){
     b.push(`<button class="btn-sm danger" onclick="APP.excluirNfe(${n.id},'${esc(n.numero)}')">Excluir</button>`);
   }
   return b.length?b.join(' '):'<span class="muted">—</span>';
+}
+async function previaNfe(id){
+  try{
+    const r = await fetchAuth(API+'/nfe/'+id+'/previa', { headers:{ Authorization:'Bearer '+S.access } });
+    if(!r.ok){ let m='Falha ao gerar a prévia ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
+    const blob = await r.blob();
+    abrirPdfBlob(blob, {titulo:'👁 Prévia da NF (sem valor fiscal)', nome:'PREVIA-NF-'+id});
+  }catch(e){ toast(e.message,'err'); }
 }
 async function baixarNfeArquivo(id,tipo){
   try{
@@ -9560,7 +9570,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, nfFiltrar, sincronizarCfop,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

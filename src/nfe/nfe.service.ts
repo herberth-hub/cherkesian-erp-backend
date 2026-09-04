@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma, Produto, Transportadora } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { renderPreviaNfe, PreviaNfeData } from './nfe-previa.renderer';
 
 /** Só dígitos (CNPJ/CPF/CEP/telefone). */
 const digitos = (v?: string | null) => (v ?? '').replace(/\D/g, '');
@@ -806,6 +807,62 @@ export class NfeService {
     }
     if (!arq.xml) throw new BadRequestException('XML ainda não disponível na Focus. Tente novamente em instantes.');
     return { content: arq.xml, filename: `NFe-${nome}.xml`, contentType: 'application/xml' };
+  }
+
+  /**
+   * PRÉVIA da DANFE (sem valor fiscal) — renderizada pelo ERP a partir dos dados
+   * da nota (emitente/destinatário/itens), com marca d'água "NF SEM VALOR FISCAL".
+   * Serve para conferir como a NF ficou ANTES de autorizar na SEFAZ.
+   */
+  async previaDanfe(id: number, empresaId: number) {
+    const nota = await this.prisma.notaFiscal.findUnique({ where: { id }, include: { filial: true } });
+    if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
+
+    let clienteId: number | null = null;
+    let itensSrc: Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> = [];
+    let pedido: { numero: string; ordemCompraCliente: string | null } | null = null;
+    if (nota.expedicaoId) {
+      const exp = await this.prisma.expedicao.findUnique({ where: { id: nota.expedicaoId } });
+      clienteId = exp?.clienteId ?? null;
+      const snap = (exp?.itens as Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> | null) ?? [];
+      itensSrc = snap.map((s) => ({ produtoId: s.produtoId ?? null, descricao: s.descricao, cor: s.cor ?? null, quantidade: Number(s.quantidade) || 0, valorUnit: Number(s.valorUnit) || 0, grade: s.grade ?? null }));
+      if (exp?.pedidoId) pedido = await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, select: { numero: true, ordemCompraCliente: true } });
+    } else if (nota.pedidoId) {
+      const ped = await this.prisma.pedido.findUnique({ where: { id: nota.pedidoId }, include: { itens: true } });
+      clienteId = ped?.clienteId ?? null;
+      pedido = ped ? { numero: ped.numero, ordemCompraCliente: ped.ordemCompraCliente } : null;
+      itensSrc = (ped?.itens ?? []).map((it) => ({ produtoId: it.produtoId, descricao: it.descricao, cor: it.cor, quantidade: it.quantidade, valorUnit: Number(it.valorUnit), grade: it.grade as Record<string, number> | null }));
+    }
+    const cliente = clienteId ? await this.prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
+    const pids = [...new Set(itensSrc.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    const prods = pids.length ? await this.prisma.produto.findMany({ where: { id: { in: pids } }, select: { id: true, codigo: true, ncm: true, cfop: true, unidadeComercial: true } }) : [];
+    const pmap = new Map(prods.map((p) => [p.id, p]));
+
+    const linhas: PreviaNfeData['itens'] = [];
+    for (const it of itensSrc) {
+      const p = it.produtoId ? pmap.get(it.produtoId) : undefined;
+      const baseDesc = this.descComCor(it.descricao, it.cor);
+      const g = it.grade && Object.keys(it.grade).length ? it.grade : null;
+      const ent = g ? Object.entries(g).filter(([, q]) => Number(q) > 0) : [];
+      const soma = ent.reduce((s, [, q]) => s + Number(q), 0);
+      const mk = (desc: string, qtd: number) => ({ codigo: p?.codigo ?? null, descricao: desc, ncm: p?.ncm ?? null, cfop: p?.cfop ?? nota.cfop ?? null, unidade: p?.unidadeComercial ?? 'UN', qtd, vUnit: it.valorUnit, vTotal: Number((it.valorUnit * qtd).toFixed(2)) });
+      if (ent.length && soma === Number(it.quantidade)) { for (const [tam, qtd] of ent) linhas.push(mk(baseDesc + ' | TAM ' + tam, Number(qtd))); }
+      else if (Number(it.quantidade) > 0) linhas.push(mk(baseDesc, Number(it.quantidade)));
+    }
+    const produtosTot = Number(linhas.reduce((s, l) => s + l.vTotal, 0).toFixed(2));
+    const end = (o: { logradouro?: string | null; numeroEndereco?: string | null; bairro?: string | null; municipio?: string | null; uf?: string | null; cep?: string | null } | null) =>
+      o ? [o.logradouro, o.numeroEndereco, o.bairro, o.municipio && o.uf ? `${o.municipio}/${o.uf}` : o.municipio, o.cep].filter(Boolean).join(', ') : '';
+
+    const data: PreviaNfeData = {
+      numero: nota.numero, serie: nota.serie, cfop: nota.cfop, natureza: nota.natureza, emitidaEm: nota.emitidaEm, tipo: nota.tipo, status: nota.status,
+      emitente: { nome: nota.filial?.nome ?? '—', cnpj: nota.filial?.cnpj, ie: nota.filial?.inscricaoEstadual, endereco: end(nota.filial) },
+      destinatario: { nome: cliente?.nome ?? '—', cnpj: cliente?.cnpjCpf, ie: cliente?.inscricaoEstadual, endereco: end(cliente) },
+      itens: linhas,
+      totais: { produtos: produtosTot, total: Number(nota.valor), baseIcms: nota.baseIcms != null ? Number(nota.baseIcms) : null, valorIcms: nota.valorIcms != null ? Number(nota.valorIcms) : null },
+      infoAdic: [pedido?.numero ? `Pedido de venda: ${pedido.numero}` : null, pedido?.ordemCompraCliente ? `Pedido de compra do cliente: ${pedido.ordemCompraCliente}` : null].filter(Boolean).join(' | ') || null,
+    };
+    const pdf = await renderPreviaNfe(data);
+    return { content: pdf, filename: `PREVIA-NF-${String(nota.numero).replace('/', '-')}.pdf`, contentType: 'application/pdf' };
   }
 
   /**

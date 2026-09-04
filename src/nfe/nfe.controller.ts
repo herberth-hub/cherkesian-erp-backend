@@ -185,6 +185,15 @@ export class NfeController {
     return new StreamableFile(a.content);
   }
 
+  /** Prévia da DANFE (sem valor fiscal) — conferir a NF antes de autorizar. */
+  @Get(':id/previa')
+  @Areas('vendas', 'expedicao', 'receber')
+  async previa(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {
+    const a = await this.nfeService.previaDanfe(id, user.empresaId);
+    res.set({ 'Content-Type': a.contentType, 'Content-Disposition': `inline; filename="${a.filename}"` });
+    return new StreamableFile(a.content);
+  }
+
   /** Baixa/imprime o PDF da Carta de Correção (CC-e). */
   @Get(':id/carta-correcao/pdf')
   async cartaCorrecaoPdf(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Res({ passthrough: true }) res: Response) {

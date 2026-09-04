@@ -133,12 +133,17 @@ export function renderPreviaNfe(d: PreviaNfeData): Promise<Buffer> {
     // Dados adicionais
     if (d.infoAdic) {
       y += 8;
+      if (y > 740) { doc.addPage(); y = 40; }
       doc.font('Helvetica-Bold').fontSize(8).fillColor('#8a6d1e').text('INFORMAÇÕES ADICIONAIS', L, y); y += 12;
       doc.font('Helvetica').fontSize(8).fillColor('#333').text(d.infoAdic, L, y, { width: W });
+      y = doc.y;
     }
 
+    // Rodapé (flui após o conteúdo — sem forçar novas páginas).
+    y += 18;
+    if (y > 780) { doc.addPage(); y = 40; }
     doc.font('Helvetica-Oblique').fontSize(7.5).fillColor('#999')
-      .text('Prévia gerada pelo ERP para conferência. Os impostos definitivos e a validade fiscal só existem após a autorização da SEFAZ.', L, 800, { width: W, align: 'center' });
+      .text('Prévia gerada pelo ERP para conferência. Os impostos definitivos e a validade fiscal só existem após a autorização da SEFAZ.', L, y, { width: W, align: 'center' });
 
     doc.end();
   });
