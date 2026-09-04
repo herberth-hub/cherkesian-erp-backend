@@ -1766,13 +1766,23 @@ const ATALHOS = {
   c:'clientes',
   v:'vendas',      // Vendas/Pedidos
   r:'crm',         // cRm · funil
+  w:'contratos',   // contratos
   p:'producao',    // Produção (OPs)
+  j:'pcp',         // Painel de PCP (programação)
   k:'kits',        // Kits/Rastreio
+  l:'piloto',      // piLoto
+  o:'compras',     // Ordens de cOmpra
   s:'estoque',     // Stock
   x:'expedicao',   // eXpedição
   n:'notas',       // Notas fiscais
+  y:'entrada',     // Notas de entrada
   g:'pagar',       // paGar
   b:'receber',     // receBer
+  q:'comissoes',   // comissões
+  u:'produtos',    // prodUtos
+  a:'materia',     // mAtéria-prima
+  m:'medidas',     // Medidas
+  z:'rh',          // RH
   i:'agente',      // IA
 };
 function atalhoDe(route){ for(const k in ATALHOS){ if(ATALHOS[k]===route) return k.toUpperCase(); } return ''; }
@@ -7156,7 +7166,25 @@ function viewRegras(c){
         <table><tbody>${rows.map(([c2,n])=>`<tr><td style="width:70px"><span class="mono gold">${c2}</span></td><td>${n}</td></tr>`).join('')}</tbody></table></div>`).join('')}
       <div class="panel"><div style="padding:12px 14px;border-bottom:1px solid var(--line);font-family:'Sora';font-weight:600;font-size:13px">Sequenciais do sistema</div>
         <table><tbody>${SEQ.map(([n,x])=>`<tr><td>${n}</td><td style="text-align:right"><span class="mono gold">${x}</span></td></tr>`).join('')}</tbody></table></div>
-    </div>`;
+    </div>
+    ${atalhosHtml()}`;
+}
+// Tabela de atalhos de teclado (consulta em Categorias & Regras).
+function atalhosHtml(){
+  const linhas = Object.entries(ATALHOS)
+    .map(([k,rota])=>({ tecla:k.toUpperCase(), nome:(TITLES[rota]&&TITLES[rota][0])||rota, ok: !S.user||canAccess(rota) }))
+    .filter(x=>x.ok)
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const chip = x=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff">
+      <kbd style="font-family:'Sora',monospace;font-size:12px;font-weight:800;background:#242a26;color:#f4e9c1;border-radius:6px;padding:3px 9px;white-space:nowrap">Alt + ${esc(x.tecla)}</kbd>
+      <span style="font-size:13px">${esc(x.nome)}</span></div>`;
+  return `<div class="card" style="margin-top:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div style="font-family:'Sora';font-weight:600;font-size:14px">⌨️ Atalhos de teclado</div>
+      <div class="muted" style="font-size:12px">Aperte <b>Alt + tecla</b> em qualquer tela para abrir na hora · Ctrl+clique no menu abre em nova aba</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">${linhas.map(chip).join('')}</div>
+  </div>`;
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
