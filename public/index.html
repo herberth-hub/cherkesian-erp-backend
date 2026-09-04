@@ -1776,13 +1776,19 @@ const ATALHOS = {
   i:'agente',      // IA
 };
 function atalhoDe(route){ for(const k in ATALHOS){ if(ATALHOS[k]===route) return k.toUpperCase(); } return ''; }
+function _teclaAtalho(e){
+  // Identifica a LETRA pela tecla física (independe do layout/acentuação do teclado).
+  let letra=(e.key||'').toLowerCase();
+  if(!/^[a-z]$/.test(letra) && /^Key[A-Z]$/.test(e.code||'')) letra=e.code.slice(3).toLowerCase();
+  return letra;
+}
 document.addEventListener('keydown',e=>{
   if(!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-  const rota=ATALHOS[(e.key||'').toLowerCase()]; if(!rota) return;
+  const rota=ATALHOS[_teclaAtalho(e)]; if(!rota) return;
   if(!S.user || !canAccess(rota)) return; // só logado e com acesso à área
-  e.preventDefault();
+  e.preventDefault(); e.stopPropagation();
   if(S.route!==rota) go(rota);
-});
+}, true);
 
 // ===== Pop-up padrão do sistema (substitui alert/confirm do navegador) =====
 function _uiCss(){
