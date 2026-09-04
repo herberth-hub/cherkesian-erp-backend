@@ -487,7 +487,8 @@ function navHtml(){
     for(const [route,label,ic] of vis){
       const active = route===S.route ? ' active':'';
       const soon = READY.has(route)?'':' <span style="font-size:9px;opacity:.5;margin-left:auto">em breve</span>';
-      h += `<a class="navitem${active}" href="#${route}" onclick="return APP.navGo(event,'${route}')" title="Ctrl+clique abre em nova aba">${icon(ic)}<span>${esc(label)}</span>${soon}</a>`;
+      const atl=(typeof atalhoDe==='function')?atalhoDe(route):''; const tt=(atl?('Alt+'+atl+' · '):'')+'Ctrl+clique abre em nova aba';
+      h += `<a class="navitem${active}" href="#${route}" onclick="return APP.navGo(event,'${route}')" title="${tt}">${icon(ic)}<span>${esc(label)}</span>${atl?`<span style="margin-left:auto;font-size:10px;opacity:.5;font-weight:600">Alt+${atl}</span>`:''}${soon}</a>`;
     }
     h += `</div>`;
   }
@@ -1757,12 +1758,30 @@ function _winMin(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimiz
 function _winRestore(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=false; w.el.style.display=''; _winDock(); _winFocus(w); }
 // ESC fecha a janela ativa (a não ser que haja um diálogo de confirmação aberto).
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape')return; if(document.querySelector('.uidlg-ov.on'))return; const w=_winTop(); if(w){ e.preventDefault(); _winClose(w.id); } });
-// Atalho: Alt+C abre a tela de CLIENTES na hora (não conflita com atalhos do navegador).
+// Atalhos: Alt + tecla abre a tela na hora. Fujo das teclas do Chrome (D/E/F).
+// AltGr (Ctrl+Alt) fica de fora, então não conflita com acentuação do teclado.
+const ATALHOS = {
+  h:'dashboard',   // Home
+  t:'diretoria',   // direTor
+  c:'clientes',
+  v:'vendas',      // Vendas/Pedidos
+  r:'crm',         // cRm · funil
+  p:'producao',    // Produção (OPs)
+  k:'kits',        // Kits/Rastreio
+  s:'estoque',     // Stock
+  x:'expedicao',   // eXpedição
+  n:'notas',       // Notas fiscais
+  g:'pagar',       // paGar
+  b:'receber',     // receBer
+  i:'agente',      // IA
+};
+function atalhoDe(route){ for(const k in ATALHOS){ if(ATALHOS[k]===route) return k.toUpperCase(); } return ''; }
 document.addEventListener('keydown',e=>{
-  if(!e.altKey || e.ctrlKey || e.metaKey || (e.key||'').toLowerCase()!=='c') return;
-  if(!S.user || !canAccess('clientes')) return; // só logado e com acesso
+  if(!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const rota=ATALHOS[(e.key||'').toLowerCase()]; if(!rota) return;
+  if(!S.user || !canAccess(rota)) return; // só logado e com acesso à área
   e.preventDefault();
-  if(S.route!=='clientes') go('clientes');
+  if(S.route!==rota) go(rota);
 });
 
 // ===== Pop-up padrão do sistema (substitui alert/confirm do navegador) =====
