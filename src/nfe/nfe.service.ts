@@ -1016,11 +1016,12 @@ export class NfeService {
           const base = it.descricao.slice(0, Math.max(0, 120 - suf.length));
           out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
         }
-      } else {
+      } else if (Number(it.quantidade) > 0) {
         out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId });
       }
     }
-    return out;
+    // Nunca envia linha com quantidade 0 para a NF (ex.: faturar só o conferido).
+    return out.filter((o) => Number(o.quantidade) > 0);
   }
 
   // ===== Montagem do payload (formato Focus NFe) =====

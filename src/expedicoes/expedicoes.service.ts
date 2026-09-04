@@ -384,7 +384,8 @@ export class ExpedicoesService {
             if (nv > 0) newGrade[t] = nv;
             itemQtd += nv;
           }
-          novoSnap.push({ ...it, grade: Object.keys(newGrade).length ? newGrade : null, quantidade: itemQtd });
+          // Item zerado (nada conferido) NÃO fica no snapshot — não pode ir p/ a NF.
+          if (itemQtd > 0) novoSnap.push({ ...it, grade: Object.keys(newGrade).length ? newGrade : null, quantidade: itemQtd });
           novasPecas += itemQtd;
           if (ped) {
             const qExp = Object.values(gradeExpUpd).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -400,7 +401,7 @@ export class ExpedicoesService {
             }
             pedUpd.push({ id: ped.id, data: { quantidadeExpedida: novoExp } });
           }
-          novoSnap.push({ ...it, quantidade: nv });
+          if (nv > 0) novoSnap.push({ ...it, quantidade: nv });
           novasPecas += nv;
         }
       }
