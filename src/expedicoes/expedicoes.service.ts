@@ -601,7 +601,13 @@ export class ExpedicoesService {
         const snapItens = (exp.itens as Array<{ produtoId: number | null; descricao?: string; cor: string | null; grade?: Record<string, number> | null }> | null) ?? [];
         if (snapItens.length) {
           const temVinculo = snapItens.some((it) => it.produtoId != null);
-          const linha = snapItens.find((it) => it.produtoId === un.produtoId && this.corCombina(it.cor, un.cor));
+          // Produtos EQUIVALENTES: a etiqueta pode ter um código (ex.: CAL-003) e o
+          // pedido outro (CAL-004). Resolve o "produto principal" dos dois e casa por ele.
+          const idsProd = [un.produtoId, ...snapItens.map((it) => it.produtoId)].filter((x): x is number => x != null);
+          const equivRows = idsProd.length ? await tx.produto.findMany({ where: { id: { in: idsProd } }, select: { id: true, equivalenteId: true } }) : [];
+          const equivMap = new Map(equivRows.map((r) => [r.id, r.equivalenteId ?? r.id]));
+          const canon = (pid: number | null | undefined) => (pid == null ? null : (equivMap.get(pid) ?? pid));
+          const linha = snapItens.find((it) => canon(it.produtoId) === canon(un.produtoId) && this.corCombina(it.cor, un.cor));
           if (!linha && temVinculo) {
             throw new BadRequestException(`"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}). Não bipe peças de fora.`);
           }

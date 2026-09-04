@@ -70,6 +70,8 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsInt() pecasPorCaixa?: number;
   @IsOptional() @IsInt() fardoId?: number;
   @IsOptional() @IsInt() pecasPorFardo?: number;
+  /** Produto "principal" equivalente (para a expedição reconhecer etiquetas de códigos diferentes como a mesma peça). null = limpar. */
+  @IsOptional() @IsInt() equivalenteId?: number | null;
   @IsOptional() @IsString() @MaxLength(6000) especificacoes?: string;
   @IsOptional() @IsString() @MaxLength(4000) observacoes?: string;
   // Fotos em data URI base64 (comprimidas no cliente). Limite alto p/ imagens.

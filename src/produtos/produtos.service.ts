@@ -212,6 +212,8 @@ export class ProdutosService {
       pecasPorCaixa: dto.pecasPorCaixa ?? undefined,
       fardoId: dto.fardoId ?? undefined,
       pecasPorFardo: dto.pecasPorFardo ?? undefined,
+      // Produto equivalente (expedição): null limpa, número seta, ausente mantém.
+      equivalenteId: dto.equivalenteId === null ? null : (dto.equivalenteId ?? undefined),
     };
   }
 

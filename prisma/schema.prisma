@@ -465,6 +465,7 @@ model Produto {
   custo     Decimal? @db.Decimal(12,2) // custo unitário (revenda: preço de compra; produção: custo direto)
   clienteGrupo String?                     // grupo de cliente dono do produto (ex.: SANTA CASA DE SBC)
   clienteId    Int?                        // cliente específico (opcional)
+  equivalenteId Int?                       // produto "principal" equivalente: a expedição trata as etiquetas deste como sendo do principal (códigos diferentes = mesma peça)
   setor        String?                     // setor de uso (ex.: HIGIENE/LIMPEZA)
   componentes  Json?                       // conjunto/kit: [{produtoId, quantidade}] — ao gerar OP, explode nestes
   consumo   Consumo[]

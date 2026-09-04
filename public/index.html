@@ -2206,6 +2206,9 @@ async function formProduto(id, prefill){
       ${field('f_setor','Setor','value="'+esc(p.setor||'')+'" placeholder="ex.: HIGIENE/LIMPEZA"')}
     </div>
     <div class="grid2">${field('f_precoesp','Preço especial (R$)','type="number" step="0.01" value="'+(p.precoEspecial!=null?p.precoEspecial:'')+'" placeholder="tabela dos tamanhos grandes"')}${field('f_tamsesp','Tamanhos da tabela especial','value="'+esc(p.tamsEspeciais||'')+'" placeholder="ex.: G1,G2,G3,G4,G5"')}</div>
+    <div class="mrow"><label class="fl">Equivalente a <span class="muted">(expedição — código diferente, mesma peça)</span></label>
+      <select id="f_equiv" class="inp"><option value="">— nenhum —</option>${(window.__PRODLIST||[]).filter(x=>x.id!==p.id).map(x=>'<option value="'+x.id+'"'+(p.equivalenteId===x.id?' selected':'')+'>'+esc(x.codigo+' · '+(x.descricao||''))+'</option>').join('')}</select>
+      <div class="muted" style="font-size:11px;margin-top:2px">Use quando a etiqueta física tem um código (ex.: CAL-003) e o pedido tem outro (ex.: CAL-004). A conferência da expedição passa a reconhecer as peças deste produto como sendo do <b>produto principal</b> escolhido, e dá baixa no pedido.</div></div>
     ${secDivisor('ESPECIFICAÇÕES DE CONFECÇÃO / COSTURA')}
     ${taField('f_espec','Costura, acabamentos, bolsos, tabelas de zíper/elástico...','',6, p.especificacoes? '' : 'Descreva a confecção como na ficha técnica do cliente.')}
     ${secDivisor('TABELA DE MEDIDAS')}
@@ -2353,6 +2356,7 @@ async function saveProduto(id){
   const pcx=val('f_pcaixa'); body.pecasPorCaixa = pcx!=='' ? Number(pcx) : null;
   const fd=val('f_fardo'); body.fardoId = fd? Number(fd) : null;
   const pfd=val('f_pfardo'); body.pecasPorFardo = pfd!=='' ? Number(pfd) : null;
+  const eq=val('f_equiv'); body.equivalenteId = eq? Number(eq) : null;
   // Tecido homologado vinculado (cria/atualiza a receita BOM p/ baixa automática na OP).
   const tecMat=Number(val('f_tecmat')); let tecCons=Number(val('f_teccons'));
   const tecPT=tecLerPorTam();
