@@ -815,6 +815,31 @@ export class ExpedicoesService {
     });
   }
 
+  /**
+   * Troca o TIPO de um volume já existente (caixa ↔ fardo) na conferência —
+   * ex.: "reabrir a caixa e transformar em fardo p/ caber mais peças".
+   * Não deixa virar um tipo cujo limite seja menor do que o já separado.
+   */
+  async definirTipoVolume(id: number, empresaId: number, numeroCaixa: number, tipoRaw: string) {
+    const exp = await this.getExp(id, empresaId);
+    if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível alterar volumes.');
+    const tipo = normTipoVolume(tipoRaw);
+    const cap = limiteDoVolume(tipo);
+    type Cx = { numero: number; pecas: number; tipo?: string };
+    const caixas = ((exp.caixas as Cx[] | null) ?? []).slice();
+    const box = caixas.find((c) => c.numero === numeroCaixa);
+    if (!box) {
+      // Ainda não existe esse volume (nada bipado nele) — o tipo será aplicado ao criar.
+      return { ok: true, trocou: false, tipo, cap, semCaixa: true };
+    }
+    if ((box.pecas ?? 0) > cap) {
+      throw new BadRequestException(`Volume ${numeroCaixa} tem ${box.pecas} peças — não cabe em ${tipo} (máx ${cap}). Tire peças antes de trocar.`);
+    }
+    box.tipo = tipo;
+    await this.prisma.expedicao.update({ where: { id }, data: { caixas: caixas as unknown as Prisma.InputJsonValue } });
+    return { ok: true, trocou: true, tipo, cap, numero: numeroCaixa };
+  }
+
   /** Admin: conclui a conferência SEM bipar peça a peça — mas NÃO despacha.
    *  Fica "conferida"; o despacho (com a data de saída correta) é um passo à parte. */
   async conferirSemBip(id: number, empresaId: number) {

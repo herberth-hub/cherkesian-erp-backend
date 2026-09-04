@@ -88,6 +88,13 @@ export class ExpedicoesController {
     return this.expedicoesService.conferir(id, user.empresaId, codigo, user.usuario, caixa, tipo);
   }
 
+  /** Troca o tipo de um volume já separado (caixa ↔ fardo) na conferência. */
+  @Post(':id/volume-tipo')
+  @HttpCode(HttpStatus.OK)
+  definirTipoVolume(@Param('id', ParseIntPipe) id: number, @Body('caixa') caixa: number, @Body('tipo') tipo: string, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.definirTipoVolume(id, user.empresaId, Math.floor(Number(caixa) || 0), tipo);
+  }
+
   /** Devolve UMA peça/kit já conferido (tira da caixa) para rebipar na caixa certa. */
   @Post(':id/devolver-peca')
   @HttpCode(HttpStatus.OK)

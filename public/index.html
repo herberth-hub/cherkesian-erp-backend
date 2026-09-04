@@ -7532,16 +7532,23 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('master_bip').value=code;APP.despacharExp(${id})})">📷</button>
       </div>
       <div style="margin-bottom:2px"><button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Reimprimir etiqueta master</button></div>`
-      :`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;flex-wrap:wrap">
+      :`${(function(){
+          const nAtu=window.__confCaixa||1;
+          const b=(c.caixas||[]).find(x=>x.numero===nAtu);
+          // O seletor reflete o TIPO do volume atual (se já existe), senão o padrão escolhido.
+          const curTipo=(b&&b.tipo)?b.tipo:(window.__confTipo||'caixa');
+          window.__confTipo=curTipo;
+          const cap=curTipo==='fardo'?100:50; const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44');
+          return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;flex-wrap:wrap">
         <label class="fl" style="margin:0">📦 Volume atual</label>
-        <input id="conf_caixa" type="number" min="1" value="${window.__confCaixa||1}" onchange="APP.confSetCaixa()" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
+        <input id="conf_caixa" type="number" min="1" value="${nAtu}" onchange="APP.confSetCaixa(${id})" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
         <select id="conf_tipo" class="inp" onchange="APP.confSetTipo(${id})" style="width:auto;font-size:12px;padding:5px">
-          <option value="caixa" ${window.__confTipo!=='fardo'?'selected':''}>Caixa (máx 50)</option>
-          <option value="fardo" ${window.__confTipo==='fardo'?'selected':''}>Fardo (máx 100)</option></select>
-        ${(function(){ const cap=window.__confTipo==='fardo'?100:50; const b=(c.caixas||[]).find(x=>x.numero===(window.__confCaixa||1)); const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44'); return `<span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>`; })()}
+          <option value="caixa" ${curTipo!=='fardo'?'selected':''}>Caixa (máx 50)</option>
+          <option value="fardo" ${curTipo==='fardo'?'selected':''}>Fardo (máx 100)</option></select>
+        <span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>
         <button class="btn-sm" onclick="APP.confNovaCaixa(${id})" title="Fecha o volume atual e começa o próximo">➕ Novo volume</button>
-        <span class="muted" style="font-size:11px">limite por volume: <b>caixa 50</b> · <b>fardo 100</b></span>
-      </div>
+        ${b?`<span class="muted" style="font-size:11px">volume ${nAtu} é <b>${curTipo}</b> — troque acima p/ ${curTipo==='caixa'?'fardo (cabe até 100)':'caixa (até 50)'}</span>`:'<span class="muted" style="font-size:11px">limite: <b>caixa 50</b> · <b>fardo 100</b></span>'}
+      </div>`; })()}
       ${window.__confDevolver?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 9px;background:#fdecea;border:1px solid #f0b3a6;border-radius:8px"><b style="color:#c14a34;font-size:12px">↩ MODO DEVOLVER</b><span class="muted" style="font-size:11px">bipe a peça/kit p/ TIRAR da caixa — depois aponte a “Caixa atual” e bipe de novo</span></div>`:''}
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
         <div style="flex:1"><label class="fl">${window.__confDevolver?'Bipe a PEÇA/KIT a DEVOLVER':'Bipe a PEÇA, o KIT ou a CAIXA'+(c.totalCaixas?' (📦 QR da caixa)':'')}</label><input id="conf_bip" class="inp" placeholder="${window.__confDevolver?'Bipe a peça que quer tirar da caixa':'Bipe peça, kit ou caixa (leitor USB ou digite)'}" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
@@ -7589,8 +7596,17 @@ async function zerarConferencia(id){
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // Caixa atual da bipagem (montagem da caixa conforme se bipa).
-function confSetCaixa(){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; }
-function confSetTipo(id){ const s=$('conf_tipo'); window.__confTipo=(s&&s.value==='fardo')?'fardo':'caixa'; if(id) formConferencia(id); }
+function confSetCaixa(id){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; if(id) formConferencia(id); }
+// Troca o tipo do VOLUME ATUAL (caixa↔fardo). Se o volume já existe, grava no backend
+// (valida o limite); se ainda não tem nada bipado, só ajusta o padrão do próximo.
+async function confSetTipo(id){
+  const s=$('conf_tipo'); const tipo=(s&&s.value==='fardo')?'fardo':'caixa'; window.__confTipo=tipo;
+  const n=Math.floor(Number(val('conf_caixa'))||window.__confCaixa||1);
+  try{ const r=await api('/expedicoes/'+id+'/volume-tipo',{method:'POST',body:{caixa:n,tipo}});
+    if(r&&r.trocou) toast('Volume '+n+' agora é '+tipo+' (máx '+r.cap+').','ok');
+  }catch(e){ toast(e.message,'err'); }
+  formConferencia(id);
+}
 function confNovaCaixa(id){ confSetCaixa(); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
 window.__bipBusy = window.__bipBusy || {};
 function confToggleDevolver(id){ window.__confDevolver=!window.__confDevolver; formConferencia(id); }
