@@ -4200,9 +4200,10 @@ function comRender(){
   const body = $('com_body'); if(!body) return;
   body.innerHTML = `<div class="muted" style="font-size:12.5px;margin:-2px 0 8px">${vf?('<b>'+esc(vf)+'</b> · '):''}<b>${arr.length}</b> lançamento(s) · a pagar <b style="color:#8a5a00">${money(aPagar)}</b> · pago <b style="color:#1e7a44">${money(pago)}</b></div>`
     + panelTable(
-    ['Representante','Pedido','Valor venda','%','Comissão','Status','Ações'],
+    ['Representante','Pedido','Valor venda','%','Comissão','Base','Status','Ações'],
     arr.map(k=>[
       esc(k.vendedor), '#'+k.pedidoId, money(k.valorVenda), pct(k.percentual), `<b>${money(k.comissao)}</b>`,
+      k.baseImposto==='bruto'?'<span class="pill gray">com imposto</span>':(k.baseImposto==='liquido'?'<span class="pill gray">sem imposto</span>':'—'),
       k.statusPgto==='Pago'?'<span class="pill green">pago</span>':'<span class="pill gold">a pagar</span>',
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
         ${k.statusPgto!=='Pago'?`<button class="btn-sm" onclick="APP.pagarComissao(${k.id})">Marcar pago</button>`:''}

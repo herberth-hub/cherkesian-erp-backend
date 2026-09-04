@@ -371,12 +371,17 @@ export class RelatoriosService {
           const total = regs.filter((c) => c.statusPgto !== 'Pago').reduce((s, c) => s + n(c.comissao), 0);
           return {
             colunas: [
-              { titulo: 'Vendedor', largura: 150 },
-              { titulo: 'Valor Venda', largura: 110, alinhamento: 'right' },
-              { titulo: 'Comissão', largura: 110, alinhamento: 'right' },
-              { titulo: 'Status', largura: 100 },
+              { titulo: 'Representante', largura: 140 },
+              { titulo: 'Valor Venda', largura: 100, alinhamento: 'right' },
+              { titulo: 'Comissão', largura: 100, alinhamento: 'right' },
+              { titulo: 'Base', largura: 90 },
+              { titulo: 'Status', largura: 90 },
             ],
-            linhas: regs.map((c) => [c.vendedor, money(c.valorVenda), money(c.comissao), c.statusPgto]),
+            linhas: regs.map((c) => [
+              c.vendedor, money(c.valorVenda), money(c.comissao),
+              c.baseImposto === 'bruto' ? 'Com imposto' : c.baseImposto === 'liquido' ? 'Sem imposto' : '—',
+              c.statusPgto,
+            ]),
             total: { rotulo: 'Comissões a pagar', valor: money(total) },
           };
         },

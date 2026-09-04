@@ -70,6 +70,7 @@ export class ContasReceberService {
             percentual: new Prisma.Decimal(r.percentual),
             comissao: new Prisma.Decimal(comissao),
             statusPgto: 'A pagar',
+            baseImposto: 'liquido',
           },
         });
       }
@@ -86,6 +87,7 @@ export class ContasReceberService {
             percentual: new Prisma.Decimal(frac),
             comissao: new Prisma.Decimal(comissaoRep),
             statusPgto: 'A pagar',
+            baseImposto: ped?.comissaoComImposto ? 'bruto' : 'liquido',
           },
         });
       }

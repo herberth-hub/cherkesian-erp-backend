@@ -806,6 +806,7 @@ model Comissao {
   percentual Decimal @db.Decimal(5,4)
   comissao   Decimal @db.Decimal(12,2)
   statusPgto String  @default("A pagar")
+  baseImposto String? // como foi calculada: 'liquido' (sem imposto) | 'bruto' (com imposto)
 }
 
 model Documento {
