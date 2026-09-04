@@ -207,7 +207,7 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','crm','contratos','clientes','medidas','comissoes','precificacao','receber','notas','agente'],
+  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente'],
   vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas'],
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
   chao:['tv','producao','kits','piloto','estoque'],
@@ -219,7 +219,7 @@ const ACCESS = {
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['diretoria','Painel do Diretor','trend'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
-  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['contratos','Contratos','file'],['clientes','Clientes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
+  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['contratos','Contratos','file'],['clientes','Clientes','users'],['representantes','Representantes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
@@ -230,7 +230,7 @@ const NAVDEF = [
   ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -239,6 +239,7 @@ const TITLES = {
   crm:['CRM · Funil de Vendas','Leads e prospects · funil, follow-up e orçamentos'],
   contratos:['Contratos','Clientes com tabela de preço fixa · base do robô de pedidos'],
   clientes:['Clientes','Cadastro central de clientes'],
+  representantes:['Representantes','Carteira de clientes por representante · ranking de vendas'],
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
   materia:['Matéria-prima','Tecidos e insumos · MP-CAT-0000'],
   fornecedores:['Fornecedores','Fornecedores e facções'],
@@ -536,6 +537,7 @@ async function loadRoute(){
     if(S.route==='dashboard') return await viewDashboard(c);
     if(S.route==='diretoria') return await viewDiretoria(c);
     if(S.route==='clientes') return await viewClientes(c);
+    if(S.route==='representantes') return await viewRepresentantes(c);
     if(S.route==='produtos') return await viewProdutos(c);
     if(S.route==='materia') return await viewMateriais(c);
     if(S.route==='fornecedores') return await viewFornecedores(c);
@@ -2002,6 +2004,49 @@ function maskDoc(el){
   if(d.length<=11){ for(let i=0;i<d.length;i++){ if(i===3||i===6) out+='.'; if(i===9) out+='-'; out+=d[i]; } }
   else { for(let i=0;i<d.length;i++){ if(i===2||i===5) out+='.'; if(i===8) out+='/'; if(i===12) out+='-'; out+=d[i]; } }
   el.value=out;
+}
+// ===== Cadastro de Representantes: carteira de clientes + ranking =====
+async function viewRepresentantes(c){
+  let d; try{ d=await api('/clientes/representantes'); }catch(e){ c.innerHTML=`<div class="empty" style="color:#c14a34">Erro: ${esc(e.message)}</div>`; return; }
+  const reps=d.representantes||[];
+  const kpi=(l,v,s)=>`<div class="card" style="padding:16px"><div class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.5px">${l}</div><div style="font-size:26px;font-weight:800;line-height:1.15">${v}</div><div class="muted" style="font-size:11.5px">${s||''}</div></div>`;
+  const maxFat=Math.max(1,...reps.filter(r=>!r.semRep).map(r=>r.faturamento));
+  const cards=reps.map((r,ri)=>{
+    const barW=r.semRep?0:Math.round((r.faturamento/maxFat)*100);
+    const rows=r.clientes.map(cl=>`<tr>
+      <td><b>${esc(cl.nome)}</b>${cl.cidadeUf?`<div class="muted" style="font-size:11px">${esc(cl.cidadeUf)}</div>`:''}</td>
+      <td style="text-align:right">${money(cl.faturamento)}</td>
+      <td style="text-align:center">${cl.pedidos}</td>
+      <td style="text-align:center">${cl.comissaoPercent!=null?(cl.comissaoPercent+'%'):'—'}${cl.comissaoPercent!=null?`<div class="muted" style="font-size:10px">${cl.comImposto?'c/ imposto':'s/ imposto'}</div>`:''}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn-sm" onclick="APP.repMover(${cl.id},'${esc(String(cl.nome||'').replace(/'/g,'&#39;'))}')">↔ Mover</button> <button class="btn-sm" onclick="APP.formCliente(${cl.id})">Editar</button></td>
+    </tr>`).join('');
+    return `<div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+      <div style="padding:12px 14px;background:${r.semRep?'#f7f3ea':'linear-gradient(135deg,#fbf7e8,#fffdf7)'};border-bottom:1px solid #efe2b8">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+          <div><span style="font-weight:800;font-size:15px">${r.semRep?'👤 ':'#'+(ri+1)+' · '}${esc(r.nome)}</span>
+            <span class="muted" style="font-size:12px;margin-left:8px">${r.qtdClientes} cliente(s)</span></div>
+          <div style="text-align:right"><div style="font-weight:800;color:#1e7a44;font-size:15px">${money(r.faturamento)}</div>
+            ${r.topCliente?`<div class="muted" style="font-size:11px">🏆 compra mais: <b>${esc(r.topCliente)}</b> (${money(r.topClienteValor)})</div>`:''}</div>
+        </div>
+        ${r.semRep?'':`<div style="height:6px;background:#ece4cf;border-radius:6px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${barW}%;background:#C9A227"></div></div>`}
+      </div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th style="text-align:right">Faturamento</th><th style="text-align:center">Pedidos</th><th style="text-align:center">Comissão</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+  }).join('');
+  c.innerHTML = toolbar('Representantes', null, null, `<button class="btn-sm" onclick="APP.go('representantes')">🔄 Atualizar</button>`)
+    + `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:14px">
+        ${kpi('Representantes', d.totalRepresentantes, 'com carteira')}
+        ${kpi('Clientes com representante', d.clientesComRep, 'de '+d.totalClientes+' no total')}
+        ${kpi('Sem representante', d.totalClientes-d.clientesComRep, 'defina p/ comissionar')}
+      </div>`
+    + `<div class="muted" style="font-size:11.5px;margin-bottom:8px">Faturamento = soma dos pedidos aprovados (fora orçamento/cancelado). Ranking do que vende mais no topo. Use <b>↔ Mover</b> para trocar o representante de um cliente, ou <b>Editar</b> para o cadastro completo (%, base com/sem imposto).</div>`
+    + (cards||'<div class="empty">Nenhum cliente cadastrado.</div>');
+}
+async function repMover(clienteId, nome){
+  const novo = prompt('Mover "'+nome+'" para qual representante?\n(deixe vazio para remover o representante)', '');
+  if(novo===null) return;
+  try{ await api('/clientes/'+clienteId,{method:'PATCH',body:{representante:(novo||'').trim()||null}}); toast('Cliente movido.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 async function formCliente(id){
   let cl = {};
@@ -9490,7 +9535,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,

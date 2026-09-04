@@ -19,6 +19,61 @@ export class ClientesService {
     });
   }
 
+  /**
+   * Cadastro de representantes: carteira de clientes por representante, com
+   * faturamento (pedidos aprovados) e ranking — quantos representantes, quantos
+   * clientes cada um tem, quem vende mais e qual cliente de cada um compra mais.
+   */
+  async representantes(empresaId: number) {
+    const [clientes, pedidos] = await Promise.all([
+      this.prisma.cliente.findMany({
+        where: { empresaId },
+        select: { id: true, nome: true, fantasia: true, representante: true, comissaoPercent: true, comissaoComImposto: true, cidadeUf: true },
+      }),
+      this.prisma.pedido.findMany({
+        where: { empresaId, etapa: { notIn: ['orcamento', 'cancelado'] } },
+        select: { clienteId: true, valorTotal: true },
+      }),
+    ]);
+    const fat = new Map<number, { valor: number; pedidos: number }>();
+    for (const p of pedidos) {
+      const cur = fat.get(p.clienteId) ?? { valor: 0, pedidos: 0 };
+      cur.valor += Number(p.valorTotal); cur.pedidos++; fat.set(p.clienteId, cur);
+    }
+    const norm = (s: string | null | undefined) => (s ?? '').trim();
+    const grupos = new Map<string, Array<Record<string, unknown>>>();
+    for (const c of clientes) {
+      const repNome = norm(c.representante);
+      const chave = repNome || '— Sem representante —';
+      const f = fat.get(c.id) ?? { valor: 0, pedidos: 0 };
+      const cli = {
+        id: c.id, nome: c.fantasia || c.nome, cidadeUf: c.cidadeUf ?? null,
+        representante: repNome,
+        comissaoPercent: c.comissaoPercent != null ? Number(c.comissaoPercent) : null,
+        comImposto: !!c.comissaoComImposto,
+        faturamento: Number(f.valor.toFixed(2)), pedidos: f.pedidos,
+      };
+      let arr = grupos.get(chave); if (!arr) { arr = []; grupos.set(chave, arr); }
+      arr.push(cli);
+    }
+    const representantes = [...grupos.entries()].map(([nome, cls]) => {
+      cls.sort((a, b) => (b.faturamento as number) - (a.faturamento as number));
+      const faturamento = Number(cls.reduce((s, c) => s + (c.faturamento as number), 0).toFixed(2));
+      const topCli = cls.find((c) => (c.faturamento as number) > 0) as { nome?: string; faturamento?: number } | undefined;
+      return {
+        nome, semRep: nome.startsWith('—'), qtdClientes: cls.length, faturamento,
+        topCliente: topCli?.nome ?? null, topClienteValor: topCli?.faturamento ?? 0,
+        clientes: cls,
+      };
+    }).sort((a, b) => Number(a.semRep) - Number(b.semRep) || b.faturamento - a.faturamento);
+    return {
+      totalRepresentantes: representantes.filter((r) => !r.semRep).length,
+      totalClientes: clientes.length,
+      clientesComRep: clientes.filter((c) => norm(c.representante)).length,
+      representantes,
+    };
+  }
+
   async findOne(id: number, empresaId: number): Promise<Cliente> {
     const cliente = await this.prisma.cliente.findUnique({ where: { id }, include: { unidades: { orderBy: { nome: 'asc' } } } });
     if (!cliente || cliente.empresaId !== empresaId) {

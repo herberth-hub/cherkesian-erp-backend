@@ -26,6 +26,12 @@ export class ClientesController {
     return this.clientesService.findAll(user.empresaId);
   }
 
+  /** Cadastro de representantes: carteira de clientes por representante + ranking. */
+  @Get('representantes')
+  representantes(@CurrentUser() user: AuthUser) {
+    return this.clientesService.representantes(user.empresaId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.clientesService.findOne(id, user.empresaId);
