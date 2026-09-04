@@ -3254,6 +3254,10 @@ async function formPedido(id){
           <input id="f_frete" class="inp" list="fretes" style="flex:1" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}">
           <input id="f_valfrete" class="inp" type="number" step="0.01" min="0" style="width:130px" placeholder="R$ valor" value="${ped&&ped.valorFrete&&Number(ped.valorFrete)>0?Number(ped.valorFrete):''}" oninput="APP.pedTotais()">
         </div><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
+    <div class="mrow" style="margin-top:6px"><label class="fl">📎 Anexo da ordem de compra do cliente (PDF ou imagem)</label>
+      <div id="ped_oc_pv" style="margin:4px 0">${pedOcThumb(ped)}</div>
+      <input type="file" id="f_oc_file" accept="application/pdf,image/*" onchange="APP.pedOcSel(this)" style="font-size:12px">
+      <div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo da OC no pedido (máx. ~9 MB) — uso interno.</div></div>
     <div class="mrow" style="margin-top:6px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_bonif" ${ped&&ped.bonificacao?'checked':''}> <b>🎁 Pedido de bonificação</b> <span class="muted">— sem conta a receber; a NF sai como <b>remessa de bonificação</b> (CFOP 5910/6910), não gera cobrança</span></label></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
@@ -3287,6 +3291,27 @@ async function pedPrefillCliente(){
   if(usou.length) toast('Puxei '+usou.join(', ')+' do último pedido ('+esc(ult.numero)+').','ok');
 }
 function pedComis(){ if(typeof pedTotais==='function') pedTotais(); }
+// ----- Anexo da ordem de compra do cliente no pedido -----
+function pedOcThumb(ped){ window.__PEDOC = (ped&&ped.ocArquivo)?{data:ped.ocArquivo, nome:ped.ocArquivoNome||'ordem-compra'}:null; return pedOcRender(); }
+function pedOcRender(){
+  const oc=window.__PEDOC;
+  if(!oc||!oc.data) return '<span class="muted" style="font-size:12px">Nenhum arquivo anexado.</span>';
+  const isImg=/^data:image\//.test(oc.data);
+  const preview = isImg?`<img src="${oc.data}" style="max-height:90px;border:1px solid #e0d9c4;border-radius:6px">`:`<span style="font-size:26px">📄</span>`;
+  return `<div style="display:flex;align-items:center;gap:10px">${preview}<div><div style="font-size:12px;font-weight:700">${esc(oc.nome||'OC')}</div>
+    <button type="button" class="btn-sm" onclick="APP.pedOcAbrir()">Abrir</button>
+    <button type="button" class="btn-sm" style="color:#c14a34" onclick="APP.pedOcDel()">Remover</button></div></div>`;
+}
+function pedOcSel(inp){
+  const f=inp.files&&inp.files[0]; if(!f) return;
+  if(f.size>9*1024*1024){ toast('Arquivo muito grande (máx ~9 MB).','err'); inp.value=''; return; }
+  const fr=new FileReader();
+  fr.onload=()=>{ window.__PEDOC={data:fr.result, nome:f.name}; const pv=$('ped_oc_pv'); if(pv) pv.innerHTML=pedOcRender(); toast('Arquivo da OC anexado.','ok'); };
+  fr.onerror=()=>toast('Falha ao ler o arquivo.','err');
+  fr.readAsDataURL(f);
+}
+function pedOcDel(){ window.__PEDOC=null; const pv=$('ped_oc_pv'); if(pv) pv.innerHTML=pedOcRender(); const fi=$('f_oc_file'); if(fi) fi.value=''; }
+function pedOcAbrir(){ const oc=window.__PEDOC; if(!oc||!oc.data) return; const w=window.open('','_blank'); if(w){ w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+oc.data+'" style="width:100%;height:100vh;border:0"></iframe>'); } else { toast('Libere o pop-up para abrir.','err'); } }
 function calcVenc(){
   const el=$('f_pag_venc'); if(!el) return;
   const forma=val('f_pag');
@@ -3588,6 +3613,8 @@ async function savePedido(id){
   const comRep=(val('f_comrep')||'').trim(); if(comRep) body.comissaoRepresentante=comRep;
   const comPct=(val('f_compct')||'').replace(',','.'); if(comPct!=='') body.comissaoPercent=Number(comPct);
   body.comissaoComImposto = (val('f_combase_p')==='bruto');
+  if(window.__PEDOC && window.__PEDOC.data){ body.ocArquivo=window.__PEDOC.data; body.ocArquivoNome=window.__PEDOC.nome||'ordem-compra'; }
+  else if(id){ body.ocArquivo=null; body.ocArquivoNome=null; } // removeu o anexo num pedido existente
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
       let m='Pedido '+p.numero+' atualizado.';
@@ -9455,7 +9482,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,

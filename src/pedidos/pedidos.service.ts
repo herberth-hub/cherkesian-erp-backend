@@ -24,6 +24,7 @@ export class PedidosService {
       : { empresaId };
     const pedidos = await this.prisma.pedido.findMany({
       where,
+      omit: { ocArquivo: true }, // não trafega o base64 da OC na listagem
       include: {
         itens: true,
         cliente: { select: { id: true, nome: true } },
@@ -153,6 +154,8 @@ export class PedidosService {
         comissaoRepresentante: dto.comissaoRepresentante,
         comissaoPercent: dto.comissaoPercent ?? undefined,
         comissaoComImposto: dto.comissaoComImposto ?? undefined,
+        ocArquivo: dto.ocArquivo === null ? null : (dto.ocArquivo ?? undefined),
+        ocArquivoNome: dto.ocArquivoNome === null ? null : (dto.ocArquivoNome ?? undefined),
         criadoPor,
         vendedorId: vendedorId ?? null,
         itens: { create: itensData },

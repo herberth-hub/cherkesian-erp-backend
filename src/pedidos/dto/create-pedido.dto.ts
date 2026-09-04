@@ -100,6 +100,17 @@ export class CreatePedidoDto {
   @MaxLength(60)
   ordemCompraCliente?: string;
 
+  /** Arquivo da OC do cliente (PDF/imagem) em data URI base64. null limpa. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(12_000_000)
+  ocArquivo?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  ocArquivoNome?: string | null;
+
   /** Pedido de bonificação: sem conta a receber; NF sai como remessa de bonificação. */
   @IsOptional()
   @IsBoolean()
