@@ -1608,8 +1608,8 @@ async function formExpParcial(pedidoId){
   }).join('');
   const temEstoque=(disp||[]).length>0;
   openModal(`<h3>📦 Expedição parcial · <span class="mono gold">${esc(ped.numero)}</span></h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Já preenchi com o <b>estoque disponível</b> (📦) de cada tamanho — ajuste se quiser. O que sobrar fica em <b>residual em aberto</b>. <span style="color:#1e7a44">verde = tem tudo</span> · <span style="color:#9a5a00">âmbar = parcial</span> · <span style="color:#b03a2e">vermelho = sem estoque</span>.</div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">${temEstoque?`<button class="btn-sm" onclick="APP.expUsarEstoque()" title="Preencher cada tamanho com o que há em estoque (limitado ao residual)">⚡ Preencher com o estoque</button>`:''}<button class="btn-sm" onclick="APP.expZerar()">Zerar tudo</button></div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Preenchi com o <b>estoque disponível</b> (📦) de cada tamanho — mas você pode <b>digitar manualmente</b> a quantidade que quiser enviar (até o residual), <b>mesmo sem estoque registrado</b>. O que sobrar fica em <b>residual em aberto</b>. <span style="color:#1e7a44">verde = tem tudo</span> · <span style="color:#9a5a00">âmbar = parcial</span> · <span style="color:#b03a2e">vermelho = sem estoque</span>.</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">${temEstoque?`<button class="btn-sm" onclick="APP.expUsarEstoque()" title="Preencher cada tamanho com o que há em estoque (limitado ao residual)">⚡ Preencher com o estoque</button>`:''}<button class="btn-sm" onclick="APP.expUsarResidual()" title="Preencher cada tamanho com TUDO que falta do pedido (independe do estoque)">📋 Preencher com o residual</button><button class="btn-sm" onclick="APP.expZerar()">Zerar tudo</button></div>
     <div style="max-height:50vh;overflow:auto">${cards||'<div class="muted">Pedido sem itens.</div>'}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveExpParcial(${pedidoId})">Gerar expedição parcial</button></div>`);
@@ -1618,6 +1618,8 @@ async function formExpParcial(pedidoId){
 function expUsarEstoque(){
   document.querySelectorAll('.expg,.expq').forEach(inp=>{ if(inp.disabled)return; const res=Number(inp.max||0); const disp=Number(inp.dataset.disp||0); inp.value=Math.min(res, disp); });
 }
+// Preenche cada campo com TODO o residual (o que falta do pedido), sem depender do estoque.
+function expUsarResidual(){ document.querySelectorAll('.expg,.expq').forEach(inp=>{ if(inp.disabled)return; inp.value=Number(inp.max||0); }); }
 function expZerar(){ document.querySelectorAll('.expg,.expq').forEach(inp=>{ if(!inp.disabled) inp.value=0; }); }
 async function saveExpParcial(pedidoId){
   const byItem = {};
@@ -9316,7 +9318,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
