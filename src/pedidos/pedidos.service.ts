@@ -283,7 +283,13 @@ export class PedidosService {
     if (pedido.ops.length > 0) throw new ConflictException('Pedido já tem Ordem de Produção — não pode ser excluído.');
     const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
     if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de excluir.`);
+    const exp = await this.prisma.expedicao.findFirst({ where: { pedidoId: id }, select: { numero: true } });
+    if (exp) throw new ConflictException(`Pedido vinculado à expedição ${exp.numero} — não pode ser excluído.`);
     await this.prisma.$transaction(async (tx) => {
+      // Pilotos (amostras) vinculados são removidos junto; NFs inativas (simulada/
+      // rejeitada/cancelada) são desvinculadas p/ manter o histórico sem travar.
+      await tx.piloto.deleteMany({ where: { pedidoId: id } });
+      await tx.notaFiscal.updateMany({ where: { pedidoId: id }, data: { pedidoId: null } });
       await tx.contaReceber.deleteMany({ where: { pedidoId: id } });
       await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
       await tx.pedido.delete({ where: { id } });
