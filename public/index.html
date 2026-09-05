@@ -1477,6 +1477,7 @@ function renderPedidos(){
         <button class="btn-sm" onclick="APP.pedBaixarSel()">⬇️ Baixar PDF</button>
         <button class="btn-sm" onclick="APP.pedEmailSel()">✉️ Enviar e-mail</button>
         <button class="btn-sm danger" onclick="APP.pedCancelarSel()">🚫 Cancelar selecionados</button>
+        <button class="btn-sm danger" onclick="APP.pedExcluirSel()">🗑 Excluir selecionados</button>
       </div></div>` : '';
   tbl.innerHTML = bulkBar + panelTable(
     ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
@@ -3694,6 +3695,14 @@ async function pedCancelarSel(){
   let ok=0; const falhas=[];
   for(const id of canc){ try{ await api('/pedidos/'+id+'/cancelar',{method:'POST',silent:true}); ok++; }catch(e){ const p=pedById(id); falhas.push((p?p.numero:id)); } }
   toast(ok+' pedido(s) cancelado(s)'+(falhas.length?(' · '+falhas.length+' com NF ativa (pulados): '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
+  loadRoute();
+}
+async function pedExcluirSel(){
+  const ids=pedSelIds(); if(!ids.length){ toast('Selecione ao menos um pedido.','err'); return; }
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir '+ids.length+' pedido(s)?', ok:'Excluir', cancel:'Voltar', msg:'A exclusão é permanente e só vale para pedidos SEM OP e SEM NF. Os que tiverem produção/nota serão pulados. Esta ação não pode ser desfeita.'}))) return;
+  let ok=0; const falhas=[];
+  for(const id of ids){ try{ await api('/pedidos/'+id,{method:'DELETE',silent:true}); ok++; }catch(e){ const p=pedById(id); falhas.push((p?p.numero:id)); } }
+  toast(ok+' pedido(s) excluído(s)'+(falhas.length?(' · '+falhas.length+' pulado(s) (com OP/NF): '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
   loadRoute();
 }
 async function pedBaixarSel(){
@@ -9556,7 +9565,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
