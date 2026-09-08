@@ -8120,7 +8120,7 @@ async function formNfeAvulsa(){
   const fo = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   const pedAbertos = (pedidos||[]).filter(p=>['orcamento','aprovado','piloto','material','compra','producao','estoque','expedicao'].includes(p.etapa));
   const po = ['<option value="">— nenhum —</option>'].concat(pedAbertos.map(p=>`<option value="${p.id}" data-cli="${p.clienteId}">${esc(p.numero)} · ${esc(p.cliente?p.cliente.nome:'')} · ${money(p.valorTotal)}</option>`)).join('');
-  NFITENS=[{}];
+  NFITENS=[{}]; window.__NF_FORNS = fornecedores||[];
   openModal(`<h3>Emitir NF-e avulsa</h3>
     <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Confira cliente, itens e impostos antes.</div>
     <label style="display:block;font-size:12.5px;cursor:pointer;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin-bottom:10px">
@@ -8128,7 +8128,10 @@ async function formNfeAvulsa(){
     <div class="mrow" id="nf_pedrow"><label class="fl">Pedido de venda vinculado (opcional — ao emitir, avança o pedido p/ aprovado)</label><select id="nf_ped" class="inp" onchange="APP.nfPedSel()">${po}</select></div>
     <div class="grid2">
       <div class="mrow" id="nf_clirow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
-      <div class="mrow" id="nf_fornrow" style="display:none"><label class="fl">🏭 Facção / Fornecedor destinatário *</label><select id="nf_forn" class="inp">${fno||'<option>—</option>'}</select></div>
+      <div class="mrow" id="nf_fornrow" style="display:none"><label class="fl">🏭 Facção / Fornecedor destinatário *</label>
+        <input id="nf_forn" class="inp" list="nf_fornlist" autocomplete="off" placeholder="digite p/ buscar a facção/fornecedor…" oninput="APP.nfFornHint()">
+        <datalist id="nf_fornlist">${(fornecedores||[]).map(f=>`<option value="${esc(f.nome)}">${f.cnpjCpf?esc(f.cnpjCpf):''}${f.faccao?' · facção':''}</option>`).join('')}</datalist>
+        <div id="nf_fornhint" class="muted" style="font-size:11px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
     </div>
     <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
@@ -8163,6 +8166,12 @@ function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
 function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
 function nfProd(i){ const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); if(p){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=p.descricao||''; if(p.precoBase&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=p.precoBase; } }
 function nfPedSel(){ const s=$('nf_ped'); const o=s&&s.selectedOptions[0]; if(o&&o.value){ const cli=o.getAttribute('data-cli'); if(cli&&$('nf_cli')){ $('nf_cli').value=cli; } } }
+function nfResolveForn(){
+  const txt=(val('nf_forn')||'').trim(); if(!txt) return null;
+  const list=window.__NF_FORNS||[];
+  return list.find(x=>bnorm(x.nome)===bnorm(txt)) || list.find(x=>bnorm(x.nome).startsWith(bnorm(txt))) || list.find(x=>bnorm(x.nome).includes(bnorm(txt))) || null;
+}
+function nfFornHint(){ const el=$('nf_fornhint'); if(!el) return; const f=nfResolveForn(); el.innerHTML = f?('✔ '+esc(f.nome)+(f.cnpjCpf?(' · '+esc(f.cnpjCpf)):'')+(f.faccao?' · facção':'')):((val('nf_forn')||'').trim()?'<span style="color:#c14a34">Fornecedor não encontrado — cadastre-o em Fornecedores.</span>':''); }
 function nfRemessaToggle(){
   const on=$('nf_remessa')&&$('nf_remessa').checked;
   const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
@@ -8181,8 +8190,9 @@ async function saveNfeAvulsa(){
     .map(it=>{ const o={ quantidade:Number(it.quantidade), valorUnit:Number(it.valorUnit) }; if(it.produtoId)o.produtoId=it.produtoId; if(it.descricao&&it.descricao.trim())o.descricao=it.descricao.trim(); return o; });
   if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
   if(remessa){
-    const fornecedorId=Number(val('nf_forn'));
-    if(!fornecedorId){ toast('Selecione a facção/fornecedor destinatário.','err'); return; }
+    const forn=nfResolveForn();
+    if(!forn){ toast('Fornecedor destinatário não encontrado — digite o nome de um fornecedor cadastrado (com CNPJ).','err'); return; }
+    const fornecedorId=forn.id;
     const body={ fornecedorId, itens }; const fil0=val('nf_fil'); if(fil0) body.filialId=Number(fil0);
     const nat0=val('nf_nat'); if(nat0) body.naturezaOperacao=nat0;
     const ref0=val('nf_oc'); if(ref0) body.referencia=ref0;
@@ -9646,7 +9656,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
-  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, saveNfeAvulsa, consultarNfe,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
