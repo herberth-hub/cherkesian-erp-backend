@@ -79,6 +79,7 @@ model Empresa {
   nome      String
   regime    String   @default("Lucro Presumido")
   caixasMasterMax Int? @default(14) // até qual nº de caixa master existe (endereços e etiquetas: 1.000 .. N.000)
+  caixasMasterPos Json? // posição de cada caixa master: { "23.000": { "col": "A", "andar": "3" } }
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]

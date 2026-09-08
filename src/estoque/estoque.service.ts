@@ -363,10 +363,10 @@ export class EstoqueService {
   }
 
   /** Gera as etiquetas das caixas master (número + QR + código de barras) p/ colar nas caixas. */
-  /** Config das caixas master: até qual nº existe (1.000 .. N.000). */
+  /** Config das caixas master: até qual nº existe (1.000 .. N.000) + posição de cada uma. */
   async configCaixas(empresaId: number) {
-    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { caixasMasterMax: true } });
-    return { max: emp?.caixasMasterMax ?? 14 };
+    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { caixasMasterMax: true, caixasMasterPos: true } });
+    return { max: emp?.caixasMasterMax ?? 14, pos: (emp?.caixasMasterPos as Record<string, { col: string; andar: string }>) ?? {} };
   }
 
   /** Define o nº máximo de caixas master (endereços + etiquetas passam a ir até ele). */
@@ -376,13 +376,26 @@ export class EstoqueService {
     return { max: m };
   }
 
-  async etiquetasCaixas(empresaId: number, numsCsv?: string, base?: string) {
+  /** Grava a posição (coluna+andar) de uma ou mais caixas master. */
+  async salvarPosicoesCaixa(empresaId: number, numeros: string[], col: string, andar: string) {
+    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { caixasMasterPos: true } });
+    const pos = { ...((emp?.caixasMasterPos as Record<string, { col: string; andar: string }>) ?? {}) };
+    for (const n of numeros) if (n) pos[n] = { col: String(col), andar: String(andar) };
+    await this.prisma.empresa.update({ where: { id: empresaId }, data: { caixasMasterPos: pos as Prisma.InputJsonValue } });
+    return { pos };
+  }
+
+  async etiquetasCaixas(empresaId: number, numsCsv?: string, base?: string, col?: string, andar?: string) {
     const { max } = await this.configCaixas(empresaId);
     const padrao = Array.from({ length: max }, (_, i) => this.fmtCaixa(String((i + 1) * 1000)));
     const nums = (numsCsv ? numsCsv.split(',').map((s) => s.trim()).filter(Boolean) : padrao);
     // Se imprimiu um nº acima do máximo atual, sobe o teto (passa a aparecer nos endereços).
     const maiorMil = Math.max(0, ...nums.map((n) => Math.round(Number(this.digitosCaixa(n) || 0) / 1000)));
     if (maiorMil > max) await this.setConfigCaixas(empresaId, maiorMil);
+    // Posição informada na criação: grava coluna+andar de cada caixa gerada.
+    if (col && String(col).trim() && andar != null && String(andar).trim() !== '') {
+      await this.salvarPosicoesCaixa(empresaId, nums.map((n) => this.fmtCaixa(this.digitosCaixa(n))).filter(Boolean), String(col).trim(), String(andar).trim());
+    }
     const baseUrl = (base ?? '').replace(/\/+$/, '');
     const etiquetas = [];
     for (const numero of nums) {

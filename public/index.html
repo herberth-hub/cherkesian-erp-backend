@@ -5732,7 +5732,7 @@ function unidTipoPill(t){ const m={produto:['blue','produto acabado'],materia:['
 async function viewEstoque(c){
   const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
   window.__UNIDS_ALL = unidades||[];
-  try{ const cfg=await api('/estoque/caixas/config'); window.__MASTERMAX=Number(cfg&&cfg.max)||14; }catch(_){ if(window.__MASTERMAX==null) window.__MASTERMAX=14; }
+  try{ const cfg=await api('/estoque/caixas/config'); window.__MASTERMAX=Number(cfg&&cfg.max)||14; window.__MASTERPOS=(cfg&&cfg.pos)||{}; }catch(_){ if(window.__MASTERMAX==null) window.__MASTERMAX=14; if(window.__MASTERPOS==null) window.__MASTERPOS={}; }
   const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque'||u.status==='reservado').length;
   const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
   const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
@@ -5956,19 +5956,34 @@ async function verCaixa(codigo){
       : `<div class="empty">Caixa vazia — nenhuma peça endereçada nela.</div>`}
     <div class="mactions"><button class="btn-sm" onclick="APP.consultarCaixa()">↩ Outra caixa</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
 }
-async function etiquetasCaixasMaster(){
+function etiquetasCaixasMaster(){
   const cur=Number(window.__MASTERMAX||14);
-  const escolha = prompt('Gerar etiquetas master ATÉ qual número?\nEx.: 17 = caixas 1.000 a 17.000 (atual: '+cur+').\nOu números específicos por vírgula (ex.: 15.000, 16.000).\nBranco = todas até '+cur+'.','');
-  if(escolha===null) return;
-  const t=(escolha||'').trim(); let nums='';
+  openModal(`<h3>📦 Etiquetas de caixa master</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Crie ou reimprima etiquetas. Ao informar a <b>coluna e o andar</b>, a caixa é alocada nessa posição e passa a aparecer só nela no endereçamento.</div>
+    ${field('cxm_nums','Número(s) da caixa','placeholder="ex.: 23.000 · ou 20.000-23.000 · vazio = todas até '+cur+'"')}
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Coluna (onde alocar)</label><select id="cxm_col" class="inp" onchange="APP.cxmCol()"><option value="">— não definir agora —</option><option>A</option><option>B</option></select></div>
+      <div class="mrow"><label class="fl">Andar</label><select id="cxm_and" class="inp"><option value="">—</option></select></div>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.gerarCaixasMaster()">Gerar + etiquetas</button></div>`);
+}
+function cxmCol(){ const col=val('cxm_col'); const a=$('cxm_and'); const arr=col?(ENDER_ANDAR[col]||[]):[]; if(a) a.innerHTML='<option value="">—</option>'+arr.map(x=>'<option>'+x+'</option>').join(''); }
+async function gerarCaixasMaster(){
+  const t=(val('cxm_nums')||'').trim(); const col=val('cxm_col'), andar=val('cxm_and');
+  let nums='';
   if(t){
-    if(/^\d{1,3}$/.test(t)){ // um número simples = novo MÁXIMO de caixas master
-      try{ const r=await api('/estoque/caixas/config',{method:'POST',body:{max:Number(t)}}); window.__MASTERMAX=Number(r&&r.max)||Number(t); toast('Máximo de caixas master: '+window.__MASTERMAX+'.','ok'); }catch(e){ toast(e.message,'err'); }
-    } else { nums=t; } // lista específica (o backend sobe o teto se for maior)
+    const mr=t.match(/^(\d{1,3})(?:[.\s]?0{3})?\s*-\s*(\d{1,3})(?:[.\s]?0{3})?$/); // intervalo 20.000-23.000
+    if(mr){ const ini=Number(mr[1]), fim=Number(mr[2]); const arr=[]; for(let i=Math.min(ini,fim);i<=Math.max(ini,fim);i++) arr.push(i+'.000'); nums=arr.join(','); }
+    else nums=t; // lista/único
   }
   let url='/estoque/caixas/etiquetas?base='+encodeURIComponent(location.origin);
   if(nums) url+='&nums='+encodeURIComponent(nums);
+  if(col&&andar!=='') url+='&col='+encodeURIComponent(col)+'&andar='+encodeURIComponent(andar);
   let d; try{ d=await api(url); }catch(e){ toast(e.message,'err'); return; }
+  // Atualiza estado local (posição + máximo) para os seletores refletirem já.
+  if(col&&andar!==''){ window.__MASTERPOS=window.__MASTERPOS||{}; (d.etiquetas||[]).forEach(e=>{ window.__MASTERPOS[e.numero]={col,andar}; }); toast('Caixa(s) alocada(s) em Col '+col+' · And '+andar+'.','ok'); }
+  const maiorMil=Math.max(0,...(d.etiquetas||[]).map(e=>Math.round(Number(e.digitos||0)/1000))); if(maiorMil>Number(window.__MASTERMAX||14)) window.__MASTERMAX=maiorMil;
+  closeModal();
   const n=(d.etiquetas||[]).length;
   const pages=(d.etiquetas||[]).map(e=>`<div class="page"><div class="cx">
       <div class="cxh">CAIXA MASTER · GRUPO CHERKESIAN</div>
@@ -6313,10 +6328,14 @@ const ENDER_ANDAR = { A:['0','1','2','3','4'], B:['A','B','C'] };
 // Caixas dependem do andar: coluna B, andar A -> A1..A12; andar B -> B1..B12; etc.
 // Coluna B também oferece caixas master próprias (além dos endereços por andar).
 const CAIXAS_MASTER_B = ['7.000','8.000','9.000'];
-// Posição (coluna|andar) de cada caixa master, deduzida das peças já endereçadas nela.
+// Posição (coluna|andar) de cada caixa master: a DEFINIDA na criação (persistida) +
+// a deduzida das peças já endereçadas nela.
 function caixaPosMap(){
   const m=new Map();
-  (window.__UNIDS_ALL||[]).forEach(u=>{ const c=u&&u.caixaMaster; if(!c)return; const k=String(u.coluna||'')+'|'+String(u.andar!=null?u.andar:''); if(!m.has(String(c)))m.set(String(c),new Set()); m.get(String(c)).add(k); });
+  const add=(c,k)=>{ if(!c)return; if(!m.has(String(c)))m.set(String(c),new Set()); m.get(String(c)).add(k); };
+  const pos=window.__MASTERPOS||{};
+  Object.keys(pos).forEach(n=>{ const p=pos[n]||{}; add(n, String(p.col||'')+'|'+String(p.andar!=null?p.andar:'')); });
+  (window.__UNIDS_ALL||[]).forEach(u=>{ const c=u&&u.caixaMaster; if(!c)return; add(c, String(u.coluna||'')+'|'+String(u.andar!=null?u.andar:'')); });
   return m;
 }
 // Caixas master da coluna A = 1.000 .. (máx) ∪ as já usadas. Ao escolher coluna+andar,
@@ -9619,7 +9638,7 @@ window.APP = {
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,

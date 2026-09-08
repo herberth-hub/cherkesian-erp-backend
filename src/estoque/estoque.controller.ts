@@ -127,8 +127,15 @@ export class EstoqueController {
 
   @Areas('estoque', 'producao')
   @Get('caixas/etiquetas')
-  etiquetasCaixas(@Query('nums') nums: string, @Query('base') base: string, @CurrentUser() user: AuthUser) {
-    return this.estoqueService.etiquetasCaixas(user.empresaId, nums, base);
+  etiquetasCaixas(@Query('nums') nums: string, @Query('base') base: string, @Query('col') col: string, @Query('andar') andar: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.etiquetasCaixas(user.empresaId, nums, base, col, andar);
+  }
+
+  @Areas('estoque', 'producao')
+  @Post('caixas/posicao')
+  @HttpCode(HttpStatus.OK)
+  posicaoCaixa(@Body() body: { numeros?: string[]; col?: string; andar?: string }, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.salvarPosicoesCaixa(user.empresaId, body?.numeros ?? [], body?.col ?? '', body?.andar ?? '');
   }
 
   @Areas('estoque', 'producao', 'expedicao')
