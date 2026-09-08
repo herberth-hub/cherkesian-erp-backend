@@ -120,10 +120,47 @@ export class ClientesService {
       .slice(-12)
       .map(([mes, valor]) => ({ mes, valor: Number(valor.toFixed(2)) }));
 
+    // ===== Estoque pronta-entrega do cliente + LOCALIZAÇÃO (onde está) =====
+    const orsProd: Array<Record<string, unknown>> = [{ clienteId: id }];
+    if (cliente.grupo && cliente.grupo.trim()) orsProd.push({ clienteGrupo: cliente.grupo.trim() });
+    const produtosCli = await this.prisma.produto.findMany({
+      where: { empresaId, OR: orsProd },
+      select: { id: true, codigo: true, descricao: true, cor: true },
+    });
+    const prodCliIds = produtosCli.map((p) => p.id);
+    const unidades = prodCliIds.length
+      ? await this.prisma.unidadeEstoque.findMany({
+          where: { empresaId, produtoId: { in: prodCliIds }, status: { in: ['em_estoque', 'reservado'] } },
+          select: { produtoId: true, tamanho: true, cor: true, coluna: true, andar: true, caixaMaster: true },
+        })
+      : [];
+    const pmap = new Map(produtosCli.map((p) => [p.id, p]));
+    const grpEstoque = new Map<number, { total: number; tamanhos: Map<string, number>; locais: Map<string, number> }>();
+    for (const u of unidades) {
+      const pid = u.produtoId as number;
+      const g = grpEstoque.get(pid) ?? { total: 0, tamanhos: new Map(), locais: new Map() };
+      g.total++;
+      const t = (u.tamanho || '—').toUpperCase();
+      g.tamanhos.set(t, (g.tamanhos.get(t) ?? 0) + 1);
+      const local = `Col ${u.coluna || '—'} · And ${u.andar != null ? u.andar : '—'} · Cx ${u.caixaMaster || '—'}`;
+      g.locais.set(local, (g.locais.get(local) ?? 0) + 1);
+      grpEstoque.set(pid, g);
+    }
+    const estoqueItens = [...grpEstoque.entries()].map(([pid, g]) => {
+      const p = pmap.get(pid);
+      return {
+        codigo: p?.codigo ?? '', descricao: p?.descricao ?? '', cor: p?.cor ?? null, total: g.total,
+        tamanhos: [...g.tamanhos.entries()].map(([tamanho, qtd]) => ({ tamanho, qtd })),
+        locais: [...g.locais.entries()].map(([local, qtd]) => ({ local, qtd })).sort((a, b) => b.qtd - a.qtd),
+      };
+    }).sort((a, b) => b.total - a.total);
+    const estoqueTotal = estoqueItens.reduce((s, i) => s + i.total, 0);
+
     return {
       cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
       orcamentos: { qtd: orc.length, valor: somaP(orc) },
       pedidos: { qtd: ped.length, valor: somaP(ped) },
+      estoque: { totalPecas: estoqueTotal, itens: estoqueItens },
       nfs: {
         qtd: notas.length,
         validas: notasValidas.length,
