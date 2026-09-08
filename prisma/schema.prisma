@@ -78,6 +78,7 @@ model Empresa {
   id        Int      @id @default(autoincrement())
   nome      String
   regime    String   @default("Lucro Presumido")
+  caixasMasterMax Int? @default(14) // até qual nº de caixa master existe (endereços e etiquetas: 1.000 .. N.000)
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]

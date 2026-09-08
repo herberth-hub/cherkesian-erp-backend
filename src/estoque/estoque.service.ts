@@ -363,9 +363,26 @@ export class EstoqueService {
   }
 
   /** Gera as etiquetas das caixas master (número + QR + código de barras) p/ colar nas caixas. */
+  /** Config das caixas master: até qual nº existe (1.000 .. N.000). */
+  async configCaixas(empresaId: number) {
+    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { caixasMasterMax: true } });
+    return { max: emp?.caixasMasterMax ?? 14 };
+  }
+
+  /** Define o nº máximo de caixas master (endereços + etiquetas passam a ir até ele). */
+  async setConfigCaixas(empresaId: number, max: number) {
+    const m = Math.max(1, Math.min(999, Math.floor(Number(max) || 0)));
+    await this.prisma.empresa.update({ where: { id: empresaId }, data: { caixasMasterMax: m } });
+    return { max: m };
+  }
+
   async etiquetasCaixas(empresaId: number, numsCsv?: string, base?: string) {
-    const padrao = ['1.000', '2.000', '3.000', '4.000', '5.000', '6.000', '7.000', '8.000', '9.000', '10.000'];
+    const { max } = await this.configCaixas(empresaId);
+    const padrao = Array.from({ length: max }, (_, i) => this.fmtCaixa(String((i + 1) * 1000)));
     const nums = (numsCsv ? numsCsv.split(',').map((s) => s.trim()).filter(Boolean) : padrao);
+    // Se imprimiu um nº acima do máximo atual, sobe o teto (passa a aparecer nos endereços).
+    const maiorMil = Math.max(0, ...nums.map((n) => Math.round(Number(this.digitosCaixa(n) || 0) / 1000)));
+    if (maiorMil > max) await this.setConfigCaixas(empresaId, maiorMil);
     const baseUrl = (base ?? '').replace(/\/+$/, '');
     const etiquetas = [];
     for (const numero of nums) {

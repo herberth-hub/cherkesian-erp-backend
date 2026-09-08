@@ -113,6 +113,19 @@ export class EstoqueController {
 
   // ===== Caixas master (etiqueta p/ colar + leitura do conteúdo) =====
   @Areas('estoque', 'producao')
+  @Get('caixas/config')
+  configCaixas(@CurrentUser() user: AuthUser) {
+    return this.estoqueService.configCaixas(user.empresaId);
+  }
+
+  @Areas('estoque', 'producao')
+  @Post('caixas/config')
+  @HttpCode(HttpStatus.OK)
+  setConfigCaixas(@Body('max') max: number, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.setConfigCaixas(user.empresaId, Number(max));
+  }
+
+  @Areas('estoque', 'producao')
   @Get('caixas/etiquetas')
   etiquetasCaixas(@Query('nums') nums: string, @Query('base') base: string, @CurrentUser() user: AuthUser) {
     return this.estoqueService.etiquetasCaixas(user.empresaId, nums, base);
