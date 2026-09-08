@@ -1298,6 +1298,7 @@ export class NfeService {
       naturezaOperacao?: string;
       referencia?: string;
       observacoes?: string;
+      cBenef?: string;
     },
     empresaId: number,
     usuario: string,
@@ -1354,7 +1355,8 @@ export class NfeService {
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
     const referencia = (dto.referencia || 'AVULSA').trim().slice(0, 40);
-    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, referencia) as Record<string, unknown>;
+    const cBenef = (dto.cBenef ?? '').trim().toUpperCase().slice(0, 10) || undefined;
+    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, referencia, cBenef) as Record<string, unknown>;
     if (dto.naturezaOperacao?.trim()) payload.natureza_operacao = dto.naturezaOperacao.trim().slice(0, 60);
     if (dto.observacoes?.trim()) {
       payload.informacoes_adicionais_contribuinte = `${dto.observacoes.trim()} | ${payload.informacoes_adicionais_contribuinte ?? ''}`.slice(0, 5000);
@@ -1392,6 +1394,7 @@ export class NfeService {
     numero: number,
     valorTotal: number,
     controle: string,
+    cBenef?: string,
   ) {
     const mesmaUf = (emitente.uf ?? '').toUpperCase() === (faccao.uf ?? '').toUpperCase();
     const cfop = mesmaUf ? '5901' : '6901';
@@ -1429,6 +1432,10 @@ export class NfeService {
       // PIS/COFINS sem incidência (remessa não é faturamento).
       item.pis_situacao_tributaria = simples ? '49' : '08';
       item.cofins_situacao_tributaria = simples ? '49' : '08';
+      // cBenef: código de benefício fiscal EXIGIDO por algumas UFs (ex.: SP) quando a
+      // CST/CSOSN carrega benefício (suspensão do ICMS na remessa). NÃO é gerado pelo
+      // sistema — é o código informado pelo contador; só entra se preenchido.
+      if (cBenef) item.codigo_beneficio_fiscal = cBenef;
       return item;
     });
     return {

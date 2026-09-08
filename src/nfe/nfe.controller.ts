@@ -133,7 +133,7 @@ export class NfeController {
   @Areas('vendas', 'expedicao', 'producao', 'compras')
   @HttpCode(HttpStatus.CREATED)
   remessaAvulsa(
-    @Body() dto: { fornecedorId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; referencia?: string; observacoes?: string },
+    @Body() dto: { fornecedorId: number; filialId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; referencia?: string; observacoes?: string; cBenef?: string },
     @CurrentUser() user: AuthUser,
   ) {
     return this.nfeService.emitirRemessaAvulsa(dto, user.empresaId, user.usuario);

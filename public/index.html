@@ -8134,6 +8134,8 @@ async function formNfeAvulsa(){
         <div id="nf_fornhint" class="muted" style="font-size:11px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
     </div>
+    <div class="mrow" id="nf_cbenefrow" style="display:none"><label class="fl">Código de benefício fiscal (cBenef) <span class="muted">— informe o código que o contador passar (ICMS suspenso). Deixe vazio se ele disser que não usa.</span></label>
+      <input id="nf_cbenef" class="inp" placeholder="ex.: SP029017" maxlength="10" style="text-transform:uppercase" autocomplete="off"></div>
     <label id="nf_avulsochk" style="display:block;font-size:12.5px;cursor:pointer;background:#f2f7fb;border:1px solid #cfe0ec;border-radius:8px;padding:8px 11px;margin-bottom:10px">
       <input type="checkbox" id="nf_avulso" onchange="APP.nfAvulsoToggle()"> 👤 <b>Destinatário avulso</b> <span class="muted">(emitir sem cadastrar o cliente — informe os dados fiscais abaixo)</span></label>
     <div id="nf_avulsorow" style="display:none;border:1px solid #cfe0ec;border-radius:8px;padding:10px 11px;margin-bottom:10px;background:#fbfdff">
@@ -8198,6 +8200,7 @@ function nfRemessaToggle(){
   const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
   const avulso=$('nf_avulso')&&$('nf_avulso').checked;
   show('nf_clirow', !on && !avulso); show('nf_fornrow', on);
+  show('nf_cbenefrow', on); // cBenef só faz sentido na remessa (ICMS suspenso)
   show('nf_avulsochk', !on); show('nf_avulsorow', !on && avulso); // remessa vai p/ facção, não p/ destinatário avulso
   show('nf_vencrow', !on); show('nf_pedrow', !on); // remessa não tem cobrança nem vínculo de venda
   const nat=$('nf_nat'); if(nat){
@@ -8219,6 +8222,7 @@ async function saveNfeAvulsa(){
     const body={ fornecedorId, itens }; const fil0=val('nf_fil'); if(fil0) body.filialId=Number(fil0);
     const nat0=val('nf_nat'); if(nat0) body.naturezaOperacao=nat0;
     const ref0=val('nf_oc'); if(ref0) body.referencia=ref0;
+    const cb=(val('nf_cbenef')||'').trim().toUpperCase(); if(cb) body.cBenef=cb;
     const obs0=(($('nf_obs')&&$('nf_obs').value)||'').trim(); if(obs0) body.observacoes=obs0;
     uiSpinnerOpen({nota:'Remessa p/ industrialização'});
     try{
