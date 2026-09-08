@@ -407,13 +407,20 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId: number; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string },
+    dto: { clienteId?: number; destinatario?: { nome?: string; cnpjCpf?: string; inscricaoEstadual?: string; indicadorIE?: number; logradouro?: string; numeroEndereco?: string; bairro?: string; municipio?: string; codMunicipio?: string; uf?: string; cep?: string; email?: string }; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; ncm?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string },
     empresaId: number,
     usuario: string,
   ) {
-    const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
-    if (!cliente || cliente.empresaId !== empresaId) {
-      throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+    // Destinatário: cliente cadastrado OU avulso (informado na hora, sem cadastrar).
+    let cliente: Cliente;
+    if (dto.clienteId) {
+      const c = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
+      if (!c || c.empresaId !== empresaId) throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+      cliente = c;
+    } else if (dto.destinatario && String(dto.destinatario.nome ?? '').trim()) {
+      cliente = { id: 0, empresaId, ...dto.destinatario } as unknown as Cliente;
+    } else {
+      throw new BadRequestException('Informe o cliente cadastrado ou os dados do destinatário avulso (nome obrigatório).');
     }
 
     // Emitente = filial informada (validada) ou a matriz.
@@ -425,7 +432,7 @@ export class NfeService {
     if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado. Cadastre a matriz em Filiais (Config. Fiscal).');
 
     // Resolve itens (valida produto, herda descrição/dados fiscais) e soma o total.
-    const itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> = [];
+    const itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> = [];
     let valor = new Prisma.Decimal(0);
     let totalQtd = 0;
     for (const it of dto.itens) {
@@ -439,7 +446,8 @@ export class NfeService {
       const valorUnit = new Prisma.Decimal(it.valorUnit);
       valor = valor.plus(valorUnit.mul(it.quantidade));
       totalQtd += Number(it.quantidade);
-      itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit });
+      const ncm = (it.ncm ?? '').replace(/\D/g, '');
+      itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit, ncm: ncm || null });
     }
 
     const token = this.tokenDaFilial(filial);
@@ -527,9 +535,12 @@ export class NfeService {
       });
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
-      await tx.contaReceber.create({
-        data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
-      });
+      // Só quando há cliente cadastrado — destinatário avulso não gera título a receber.
+      if (dto.clienteId) {
+        await tx.contaReceber.create({
+          data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
+        });
+      }
       // Setores: se veio de um pedido em orçamento, avança para aprovado (faturado).
       if (pedidoVinc && pedidoVinc.etapa === 'orcamento') {
         await tx.pedido.update({ where: { id: pedidoVinc.id }, data: { etapa: 'aprovado', status: 'Faturado' } });
@@ -1058,9 +1069,9 @@ export class NfeService {
    * não bateria e a SEFAZ rejeitaria); nesse caso mantém 1 linha com a grade na descrição.
    */
   private explodirPorTamanho(
-    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; grade?: Record<string, number> | null }>,
-  ): Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> {
-    const out: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }> = [];
+    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; grade?: Record<string, number> | null; ncm?: string | null }>,
+  ): Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> {
+    const out: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> = [];
     for (const it of itens) {
       const g = it.grade;
       const ent = g ? Object.entries(g).filter(([, q]) => Number(q) > 0) : [];
@@ -1071,10 +1082,10 @@ export class NfeService {
           // suficiente p/ o "| TAM XX" caber nos 120 caracteres — o tamanho NUNCA é cortado.
           const suf = ` | TAM ${tam}`;
           const base = it.descricao.slice(0, Math.max(0, 120 - suf.length));
-          out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId });
+          out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null });
         }
       } else if (Number(it.quantidade) > 0) {
-        out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId });
+        out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null });
       }
     }
     // Nunca envia linha com quantidade 0 para a NF (ex.: faturar só o conferido).
@@ -1412,7 +1423,7 @@ export class NfeService {
     emitente: Filial,
     cliente: Cliente,
     exp: { pecas: number; volumes?: number; transportadora?: string | null; caixas?: unknown },
-    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null }>,
+    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }>,
     serie: string,
     numero: number,
     valorTotal: Prisma.Decimal,
@@ -1471,8 +1482,9 @@ export class NfeService {
         codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
         descricao: it.descricao,
         cfop: extra?.cfopOverride ? this.ajustarCfop(extra.cfopOverride, mesmaUf) : (extra?.bonificacao ? (mesmaUf ? '5910' : '6910') : this.ajustarCfop(p?.cfop ?? '5101', mesmaUf)),
-        // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos).
-        codigo_ncm: (p?.ncm ?? '').replace(/\D/g, '') || '00000000',
+        // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos). Prioriza o
+        // NCM informado no item (avulso, sem produto cadastrado), depois o do produto.
+        codigo_ncm: (it.ncm ?? p?.ncm ?? '').replace(/\D/g, '') || '00000000',
         unidade_comercial: unidade,
         quantidade_comercial: it.quantidade,
         valor_unitario_comercial: valorUnit,

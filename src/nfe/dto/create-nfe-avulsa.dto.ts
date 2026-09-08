@@ -18,6 +18,9 @@ export class NfeAvulsaItemDto {
 
   @IsOptional() @IsString() @MaxLength(200) descricao?: string;
 
+  /** NCM do item (8 dígitos) — informado quando não há produto cadastrado. */
+  @IsOptional() @IsString() @MaxLength(10) ncm?: string;
+
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
   @IsPositive({ message: 'quantidade deve ser positiva.' })
   quantidade!: number;
@@ -27,8 +30,28 @@ export class NfeAvulsaItemDto {
   valorUnit!: number;
 }
 
+/** Destinatário AVULSO (emitir sem cadastrar o cliente): dados fiscais informados na hora. */
+export class DestinatarioAvulsoDto {
+  @IsString() @IsNotEmpty({ message: 'Informe o nome/razão do destinatário.' }) @MaxLength(150) nome!: string;
+  @IsOptional() @IsString() @MaxLength(20) cnpjCpf?: string;
+  @IsOptional() @IsString() @MaxLength(20) inscricaoEstadual?: string;
+  @IsOptional() @IsInt() indicadorIE?: number; // 1=Contribuinte, 2=Isento, 9=Não contribuinte
+  @IsOptional() @IsString() @MaxLength(150) logradouro?: string;
+  @IsOptional() @IsString() @MaxLength(20) numeroEndereco?: string;
+  @IsOptional() @IsString() @MaxLength(80) bairro?: string;
+  @IsOptional() @IsString() @MaxLength(80) municipio?: string;
+  @IsOptional() @IsString() @MaxLength(7) codMunicipio?: string;
+  @IsOptional() @IsString() @MaxLength(2) uf?: string;
+  @IsOptional() @IsString() @MaxLength(9) cep?: string;
+  @IsOptional() @IsString() @MaxLength(150) email?: string;
+}
+
 export class CreateNfeAvulsaDto {
-  @IsInt() @IsPositive() clienteId!: number;
+  /** Cliente cadastrado. Opcional se vier `destinatario` avulso. */
+  @IsOptional() @IsInt() @IsPositive() clienteId?: number;
+
+  /** Destinatário avulso (emitir sem cadastrar o cliente). */
+  @IsOptional() @ValidateNested() @Type(() => DestinatarioAvulsoDto) destinatario?: DestinatarioAvulsoDto;
 
   /** CNPJ emissor (matriz/filial). Se omitido, usa a matriz. */
   @IsOptional() @IsInt() @IsPositive() filialId?: number;

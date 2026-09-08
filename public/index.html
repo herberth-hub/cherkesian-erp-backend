@@ -8134,6 +8134,20 @@ async function formNfeAvulsa(){
         <div id="nf_fornhint" class="muted" style="font-size:11px;margin-top:3px"></div></div>
       <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
     </div>
+    <label id="nf_avulsochk" style="display:block;font-size:12.5px;cursor:pointer;background:#f2f7fb;border:1px solid #cfe0ec;border-radius:8px;padding:8px 11px;margin-bottom:10px">
+      <input type="checkbox" id="nf_avulso" onchange="APP.nfAvulsoToggle()"> 👤 <b>Destinatário avulso</b> <span class="muted">(emitir sem cadastrar o cliente — informe os dados fiscais abaixo)</span></label>
+    <div id="nf_avulsorow" style="display:none;border:1px solid #cfe0ec;border-radius:8px;padding:10px 11px;margin-bottom:10px;background:#fbfdff">
+      <div class="grid2">${field('nfa_nome','Nome / Razão social *','placeholder="destinatário"')}${field('nfa_doc','CNPJ / CPF','placeholder="só números"')}</div>
+      <div class="grid3">
+        ${field('nfa_ie','Inscrição estadual','placeholder="ISENTO se não tiver"')}
+        <div class="mrow"><label class="fl">Indicador IE</label><select id="nfa_indie" class="inp"><option value="9">9 · Não contribuinte</option><option value="1">1 · Contribuinte ICMS</option><option value="2">2 · Contribuinte isento</option></select></div>
+        ${field('nfa_email','E-mail (envio do XML/DANFE)','placeholder="opcional"')}
+      </div>
+      <div class="grid2">${field('nfa_log','Logradouro','placeholder="rua / av."')}${field('nfa_num','Número','placeholder="nº"')}</div>
+      <div class="grid2">${field('nfa_bairro','Bairro','')}${field('nfa_mun','Município','')}</div>
+      <div class="grid3">${field('nfa_cmun','Cód. município (IBGE)','placeholder="7 dígitos"')}${field('nfa_uf','UF','placeholder="ex.: SP" maxlength="2"')}${field('nfa_cep','CEP','placeholder="só números"')}</div>
+      <div class="muted" style="font-size:11px;margin-top:2px">Sem endereço completo a SEFAZ pode rejeitar — preencha o máximo possível.</div>
+    </div>
     <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
     <div class="grid2"><div id="nf_volrow">${field('nf_vol','Volumes','type="number" min="1" value="1"')}</div><div id="nf_vencrow">${field('nf_venc','Vencimento (dias após faturamento)','type="number" min="0" placeholder="ex.: 20"')}</div></div>
     <label class="fl" style="margin-top:6px">Itens</label>
@@ -8154,14 +8168,15 @@ function nfRender(){
       <input class="inp" id="nf_prod_${i}" list="nfprodlist" placeholder="digite p/ buscar produto (opcional)…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.nfProd(${i})">
       <input class="inp" id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
     </div>
-    <div class="grid3" style="margin-bottom:12px">
-      <input class="inp" id="nf_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}">
-      <input class="inp" id="nf_vu_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}">
-      <div style="display:flex;align-items:center;gap:6px">${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})">×</button>`:''}</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input class="inp" id="nf_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}" style="flex:1;min-width:0">
+      <input class="inp" id="nf_vu_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}" style="flex:1;min-width:0">
+      <input class="inp" id="nf_ncm_${i}" placeholder="NCM (se sem produto)" title="NCM de 8 dígitos — usado quando o item não é um produto cadastrado" value="${esc(it.ncm||'')}" style="flex:1;min-width:0" inputmode="numeric" maxlength="10">
+      <div style="display:flex;align-items:center">${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})">×</button>`:''}</div>
     </div>`;
   }).join('');
 }
-function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); it.produtoId=p?p.id:undefined; }); }
+function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const nc=$('nf_ncm_'+i); it.ncm=nc?nc.value:''; const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); it.produtoId=p?p.id:undefined; }); }
 function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
 function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
 function nfProd(i){ const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); if(p){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=p.descricao||''; if(p.precoBase&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=p.precoBase; } }
@@ -8172,10 +8187,18 @@ function nfResolveForn(){
   return list.find(x=>bnorm(x.nome)===bnorm(txt)) || list.find(x=>bnorm(x.nome).startsWith(bnorm(txt))) || list.find(x=>bnorm(x.nome).includes(bnorm(txt))) || null;
 }
 function nfFornHint(){ const el=$('nf_fornhint'); if(!el) return; const f=nfResolveForn(); el.innerHTML = f?('✔ '+esc(f.nome)+(f.cnpjCpf?(' · '+esc(f.cnpjCpf)):'')+(f.faccao?' · facção':'')):((val('nf_forn')||'').trim()?'<span style="color:#c14a34">Fornecedor não encontrado — cadastre-o em Fornecedores.</span>':''); }
+function nfAvulsoToggle(){
+  const on=$('nf_avulso')&&$('nf_avulso').checked;
+  const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
+  show('nf_avulsorow', on);
+  show('nf_clirow', !on); // no modo avulso o destinatário é digitado, sem select de cliente
+}
 function nfRemessaToggle(){
   const on=$('nf_remessa')&&$('nf_remessa').checked;
   const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
-  show('nf_clirow', !on); show('nf_fornrow', on);
+  const avulso=$('nf_avulso')&&$('nf_avulso').checked;
+  show('nf_clirow', !on && !avulso); show('nf_fornrow', on);
+  show('nf_avulsochk', !on); show('nf_avulsorow', !on && avulso); // remessa vai p/ facção, não p/ destinatário avulso
   show('nf_vencrow', !on); show('nf_pedrow', !on); // remessa não tem cobrança nem vínculo de venda
   const nat=$('nf_nat'); if(nat){
     if(on && (!nat.value.trim() || nat.value==='Venda de mercadoria')) nat.value='Remessa para industrialização por conta e ordem';
@@ -8187,7 +8210,7 @@ async function saveNfeAvulsa(){
   nfSync();
   const remessa = $('nf_remessa') && $('nf_remessa').checked;
   const itens = NFITENS.filter(it=>((it.descricao&&it.descricao.trim())||it.produtoId)&&Number(it.quantidade)>0&&Number(it.valorUnit)>0)
-    .map(it=>{ const o={ quantidade:Number(it.quantidade), valorUnit:Number(it.valorUnit) }; if(it.produtoId)o.produtoId=it.produtoId; if(it.descricao&&it.descricao.trim())o.descricao=it.descricao.trim(); return o; });
+    .map(it=>{ const o={ quantidade:Number(it.quantidade), valorUnit:Number(it.valorUnit) }; if(it.produtoId)o.produtoId=it.produtoId; if(it.descricao&&it.descricao.trim())o.descricao=it.descricao.trim(); const ncm=String(it.ncm||'').replace(/\D/g,''); if(ncm)o.ncm=ncm; return o; });
   if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
   if(remessa){
     const forn=nfResolveForn();
@@ -8208,9 +8231,24 @@ async function saveNfeAvulsa(){
     }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
     return;
   }
-  const clienteId=Number(val('nf_cli'));
-  if(!clienteId){ toast('Selecione o cliente.','err'); return; }
-  const body={ clienteId, itens }; const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
+  const avulso = $('nf_avulso') && $('nf_avulso').checked;
+  const body={ itens };
+  if(avulso){
+    const nome=(val('nfa_nome')||'').trim();
+    if(!nome){ toast('Informe o nome/razão do destinatário avulso.','err'); return; }
+    const dest={ nome };
+    const g=(id,f)=>{ const v=(val(id)||'').trim(); if(v)dest[f]=v; };
+    const gd=(id,f)=>{ const v=(val(id)||'').replace(/\D/g,''); if(v)dest[f]=v; };
+    gd('nfa_doc','cnpjCpf'); g('nfa_ie','inscricaoEstadual'); const ii=Number(val('nfa_indie')); if(ii)dest.indicadorIE=ii;
+    g('nfa_log','logradouro'); g('nfa_num','numeroEndereco'); g('nfa_bairro','bairro'); g('nfa_mun','municipio');
+    gd('nfa_cmun','codMunicipio'); g('nfa_uf','uf'); gd('nfa_cep','cep'); g('nfa_email','email');
+    body.destinatario=dest;
+  } else {
+    const clienteId=Number(val('nf_cli'));
+    if(!clienteId){ toast('Selecione o cliente.','err'); return; }
+    body.clienteId=clienteId;
+  }
+  const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
   const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
   const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
   const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
@@ -9656,7 +9694,7 @@ window.APP = {
   formAviamento, saveAviamento, gerarDoc,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
-  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
   saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
