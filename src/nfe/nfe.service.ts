@@ -829,6 +829,45 @@ export class NfeService {
     const nota = await this.prisma.notaFiscal.findUnique({ where: { id }, include: { filial: true } });
     if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota ${id} não encontrada.`);
 
+    const end = (o: { logradouro?: string | null; numeroEndereco?: string | null; bairro?: string | null; municipio?: string | null; uf?: string | null; cep?: string | null } | null) =>
+      o ? [o.logradouro, o.numeroEndereco, o.bairro, o.municipio && o.uf ? `${o.municipio}/${o.uf}` : o.municipio, o.cep].filter(Boolean).join(', ') : '';
+
+    // FONTE PRINCIPAL: o payload salvo na emissão (tem itens + destinatário exatos da NF,
+    // inclusive nas notas avulsas/remessa que não vêm de expedição nem pedido).
+    const pj = nota.payloadJson as Record<string, unknown> | null;
+    const pjItens = pj && Array.isArray((pj as { items?: unknown[] }).items) ? ((pj as { items: Array<Record<string, unknown>> }).items) : [];
+    if (pjItens.length) {
+      const num = (v: unknown) => Number(v) || 0;
+      const linhas: PreviaNfeData['itens'] = pjItens.map((it) => {
+        const q = num(it.quantidade_comercial); const vu = num(it.valor_unitario_comercial);
+        return {
+          codigo: (it.codigo_produto as string) ?? null,
+          descricao: String(it.descricao ?? ''),
+          ncm: (it.codigo_ncm as string) ?? null,
+          cfop: (it.cfop as string) ?? nota.cfop ?? null,
+          unidade: (it.unidade_comercial as string) ?? 'UN',
+          qtd: q, vUnit: vu,
+          vTotal: it.valor_bruto != null ? num(it.valor_bruto) : Number((vu * q).toFixed(2)),
+        };
+      });
+      const produtosTot = Number(linhas.reduce((s, l) => s + l.vTotal, 0).toFixed(2));
+      const s = (k: string) => { const v = pj?.[k]; return v != null && v !== '' ? String(v) : null; };
+      const endDest = [s('logradouro_destinatario'), s('numero_destinatario'), s('bairro_destinatario'),
+        s('municipio_destinatario') && s('uf_destinatario') ? `${s('municipio_destinatario')}/${s('uf_destinatario')}` : s('municipio_destinatario'),
+        s('cep_destinatario')].filter(Boolean).join(', ');
+      const data: PreviaNfeData = {
+        numero: nota.numero, serie: nota.serie, cfop: nota.cfop, natureza: nota.natureza, emitidaEm: nota.emitidaEm, tipo: nota.tipo, status: nota.status,
+        emitente: { nome: nota.filial?.nome ?? '—', cnpj: nota.filial?.cnpj, ie: nota.filial?.inscricaoEstadual, endereco: end(nota.filial) },
+        destinatario: { nome: s('nome_destinatario') ?? '—', cnpj: s('cnpj_destinatario') ?? s('cpf_destinatario'), ie: s('inscricao_estadual_destinatario'), endereco: endDest || null },
+        itens: linhas,
+        totais: { produtos: produtosTot, total: Number(nota.valor), baseIcms: nota.baseIcms != null ? Number(nota.baseIcms) : null, valorIcms: nota.valorIcms != null ? Number(nota.valorIcms) : null },
+        infoAdic: s('informacoes_adicionais_contribuinte'),
+      };
+      const pdf = await renderPreviaNfe(data);
+      return { content: pdf, filename: `PREVIA-NF-${String(nota.numero).replace('/', '-')}.pdf`, contentType: 'application/pdf' };
+    }
+
+    // FALLBACK (notas antigas sem payload salvo): reconstrói de expedição/pedido.
     let clienteId: number | null = null;
     let itensSrc: Array<{ produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }> = [];
     let pedido: { numero: string; ordemCompraCliente: string | null } | null = null;
@@ -861,8 +900,6 @@ export class NfeService {
       else if (Number(it.quantidade) > 0) linhas.push(mk(baseDesc, Number(it.quantidade)));
     }
     const produtosTot = Number(linhas.reduce((s, l) => s + l.vTotal, 0).toFixed(2));
-    const end = (o: { logradouro?: string | null; numeroEndereco?: string | null; bairro?: string | null; municipio?: string | null; uf?: string | null; cep?: string | null } | null) =>
-      o ? [o.logradouro, o.numeroEndereco, o.bairro, o.municipio && o.uf ? `${o.municipio}/${o.uf}` : o.municipio, o.cep].filter(Boolean).join(', ') : '';
 
     const data: PreviaNfeData = {
       numero: nota.numero, serie: nota.serie, cfop: nota.cfop, natureza: nota.natureza, emitidaEm: nota.emitidaEm, tipo: nota.tipo, status: nota.status,
@@ -1094,10 +1131,11 @@ export class NfeService {
 
   // ===== Montagem do payload (formato Focus NFe) =====
   /** Extrai CFOP(s) distintos e a natureza de um payload Focus, p/ gravar na nota (contabilidade). */
-  private resumoFiscalPayload(payload: unknown): { cfop: string | null; natureza: string | null } {
+  private resumoFiscalPayload(payload: unknown): { cfop: string | null; natureza: string | null; payloadJson: Prisma.InputJsonValue } {
     const pl = payload as { items?: Array<{ cfop?: string }>; natureza_operacao?: string } | null;
     const cfops = [...new Set((pl?.items || []).map((i) => String(i?.cfop || '').trim()).filter(Boolean))];
-    return { cfop: cfops.length ? cfops.join('/') : null, natureza: pl?.natureza_operacao || null };
+    // Guarda o payload íntegro (itens + destinatário) p/ a prévia da NF reconstruir a nota.
+    return { cfop: cfops.length ? cfops.join('/') : null, natureza: pl?.natureza_operacao || null, payloadJson: (payload ?? {}) as Prisma.InputJsonValue };
   }
 
   /** CFOP conforme a operação: 5xxx dentro do estado, 6xxx interestadual. */
