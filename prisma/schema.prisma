@@ -132,6 +132,7 @@ model Filial {
   cofinsAliquota    Decimal? @db.Decimal(6,4)   // ex.: 3.0000 (presumido) / 7.6000 (real)
   pisCofinsCst      String?  @default("01")      // CST PIS/COFINS (49 no Simples)
   csosn             String?                       // CSOSN padrão (Simples Nacional, ex.: 102)
+  cBenefRemessa     String?                       // código de benefício fiscal (cBenef) da remessa p/ industrialização (ICMS suspenso) — informado pelo contador; exigido por algumas UFs (ex.: SP)
   // ===== Reforma Tributária (IBS/CBS) — período de transição =====
   reformaAtiva      Boolean  @default(true)        // inclui grupo IBS/CBS na NF-e
   cbsAliquota       Decimal? @db.Decimal(6,4)      // ex.: 0.9000 (2026)

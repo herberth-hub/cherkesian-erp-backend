@@ -1260,7 +1260,8 @@ export class NfeService {
     const serie = filial.nfeSerie;
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
-    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, controleFaccao);
+    const cBenefFilial = (filial.cBenefRemessa ?? '').trim().toUpperCase().slice(0, 10) || undefined;
+    const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, controleFaccao, cBenefFilial);
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFEREM-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
       : this.emitirSimulada();
@@ -1355,7 +1356,8 @@ export class NfeService {
     const numeroSeq = filial.nfeProximoNumero;
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
     const referencia = (dto.referencia || 'AVULSA').trim().slice(0, 40);
-    const cBenef = (dto.cBenef ?? '').trim().toUpperCase().slice(0, 10) || undefined;
+    // cBenef: prioridade p/ o digitado na emissão; senão o padrão da filial (config fiscal).
+    const cBenef = ((dto.cBenef ?? '').trim() || (filial.cBenefRemessa ?? '').trim()).toUpperCase().slice(0, 10) || undefined;
     const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, referencia, cBenef) as Record<string, unknown>;
     if (dto.naturezaOperacao?.trim()) payload.natureza_operacao = dto.naturezaOperacao.trim().slice(0, 60);
     if (dto.observacoes?.trim()) {
