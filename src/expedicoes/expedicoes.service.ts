@@ -1094,6 +1094,10 @@ export class ExpedicoesService {
     if (exp.conferenciaStatus === 'despachado') {
       throw new ConflictException(`Expedição ${exp.numero} já foi despachada — não é possível voltar pro pedido.`);
     }
+    // Com NF ativa o faturamento pode ter gerado pedido-filho (desmembramento parcial).
+    // Estornar aqui corromperia o abate — obriga a cancelar a NF primeiro (que reverte tudo).
+    const nfAtiva = await this.prisma.notaFiscal.findFirst({ where: { expedicaoId: id, status: { in: ['pendente', 'autorizada', 'simulada'] } } });
+    if (nfAtiva) throw new ConflictException(`Expedição ${exp.numero} tem a NF ${nfAtiva.numero} ativa — cancele a NF antes de estornar.`);
     const itens = (exp.itens as Array<{ pedidoItemId?: number; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [];
     await this.prisma.$transaction(async (tx) => {
       for (const s of itens) {

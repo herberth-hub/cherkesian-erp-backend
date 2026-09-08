@@ -60,6 +60,17 @@ export class PedidosService {
       : [];
     const uniMap = new Map(unidades.map((u) => [u.id, u]));
 
+    // Desmembramento: nº do pai (p/ o filho) e lista de parciais (filhos) de cada pai.
+    const numById = new Map(pedidos.map((p) => [p.id, p.numero]));
+    const filhosPorPai = new Map<number, { numero: string; status: string; valorTotal: Prisma.Decimal }[]>();
+    for (const p of pedidos) {
+      if (p.pedidoPaiId != null) {
+        const arr = filhosPorPai.get(p.pedidoPaiId) ?? [];
+        arr.push({ numero: p.numero, status: p.status, valorTotal: p.valorTotal });
+        filhosPorPai.set(p.pedidoPaiId, arr);
+      }
+    }
+
     return pedidos.map((p) => {
       const uni = p.clienteUnidadeId != null ? uniMap.get(p.clienteUnidadeId) : null;
       return {
@@ -69,6 +80,8 @@ export class PedidosService {
         nfs: nfPorPedido.get(p.id) ?? [],
         opsNumeros: p.ops.map((o) => o.numero),
         ocsNumeros: ocs.filter((o) => (o.motivo ?? '').includes(p.numero)).map((o) => o.numero),
+        paiNumero: p.pedidoPaiId != null ? (numById.get(p.pedidoPaiId) ?? null) : null,
+        filhos: filhosPorPai.get(p.id) ?? [],
       };
     });
   }

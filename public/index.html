@@ -1493,7 +1493,7 @@ function renderPedidos(){
     ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
       `<input type="checkbox" class="pedck" value="${p.id}" onclick="APP.pedSelInfo()">`,
-      `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}`,
+      `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}${pedRefTag(p)}`,
       `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
@@ -1519,6 +1519,13 @@ function etapaCell(p){
     return `<span class="pill" style="background:#f6ad3722;color:#9a5a00;border:1px solid #e0a94a;cursor:pointer" title="Abrir o que falta expedir" onclick="APP.formExpParcial(${p.id})">parcial</span>${f>0?`<div style="font-size:10.5px;color:#9a5a00;margin-top:3px;cursor:pointer" onclick="APP.formExpParcial(${p.id})">faltam ${f} pç</div>`:''}`;
   }
   return `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`;
+}
+// Vínculo de desmembramento: filho mostra "parcial de PVxxx"; pai mostra seus parciais.
+function pedRefTag(p){
+  let h='';
+  if(p.paiNumero) h += `<div style="margin-top:2px"><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px" title="Faturamento parcial gerado a partir de ${esc(p.paiNumero)}">🔗 parcial de ${esc(p.paiNumero)}</span></div>`;
+  if(p.filhos&&p.filhos.length){ h += `<div style="margin-top:2px;font-size:10px;color:#2b4a8b" title="Parciais já faturados deste pedido">📑 parciais: ${p.filhos.map(f=>esc(f.numero)).join(', ')}</div>`; }
+  return h;
 }
 function pedNfCol(nfs){
   if(!nfs||!nfs.length) return '<span class="muted">—</span>';

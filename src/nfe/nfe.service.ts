@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Prisma, Produto, Transportadora } from '@prisma/client';
+import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Pedido, PedidoItem, Prisma, Produto, Transportadora } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { renderPreviaNfe, PreviaNfeData } from './nfe-previa.renderer';
@@ -241,6 +241,11 @@ export class NfeService {
         await tx.contaReceber.create({
           data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: valorComFrete, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
         });
+      }
+      // Faturamento PARCIAL: gera o pedido-filho (PVxxx-N) com o faturado e abate do pai.
+      if (pedido && snap && snap.length) {
+        const fat = exp.itens as unknown as Array<{ pedidoItemId?: number | null; produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }>;
+        await this.desmembrarPedidoParcial(tx, pedido, fat, criada.id);
       }
       return criada;
     });
@@ -638,6 +643,119 @@ export class NfeService {
   }
 
   /**
+   * DESMEMBRAMENTO no faturamento PARCIAL: quando a NF cobre só PARTE do pedido,
+   * cria um pedido-FILHO (PVxxx-N) com o que foi faturado, vincula a NF/contas ao
+   * filho e ABATE do pedido-pai as quantidades faturadas (o pai fica só com o
+   * residual, ex.: pedido de 100 vira 50 depois de faturar 50). Retorna o filho,
+   * ou null quando a NF cobre o pedido inteiro (aí segue o fluxo normal, sem filho).
+   */
+  private async desmembrarPedidoParcial(
+    tx: Prisma.TransactionClient,
+    pedido: Pedido & { itens: PedidoItem[] },
+    faturado: Array<{ pedidoItemId?: number | null; produtoId: number | null; descricao: string; cor?: string | null; quantidade: number; valorUnit: number; grade?: Record<string, number> | null }>,
+    notaId: number,
+  ): Promise<{ filhoId: number; filhoNumero: string } | null> {
+    const itens = pedido.itens;
+    if (!itens.length || !faturado.length) return null;
+    const byId = new Map(itens.map((i) => [i.id, i]));
+    // Agrupa o faturado por item do pai (casa por pedidoItemId; fallback produto+cor+preço).
+    type Fat = { item: PedidoItem; qtd: number; grade: Record<string, number> | null; descricao: string; produtoId: number | null; cor: string | null; valorUnit: number };
+    const fatPorItem = new Map<number, Fat>();
+    for (const f of faturado) {
+      let item = f.pedidoItemId ? byId.get(f.pedidoItemId) : undefined;
+      if (!item) item = itens.find((i) => i.produtoId === f.produtoId && (i.cor ?? null) === (f.cor ?? null) && Number(i.valorUnit) === Number(f.valorUnit));
+      if (!item) continue; // item faturado que não existe no pedido (avulso) — não abate
+      const cur = fatPorItem.get(item.id) ?? { item, qtd: 0, grade: null, descricao: f.descricao, produtoId: f.produtoId, cor: f.cor ?? null, valorUnit: f.valorUnit };
+      cur.qtd += Number(f.quantidade) || 0;
+      if (f.grade) { const g = { ...(cur.grade ?? {}) }; for (const [t, q] of Object.entries(f.grade)) g[t] = Number(g[t] ?? 0) + Number(q); cur.grade = g; }
+      fatPorItem.set(item.id, cur);
+    }
+    if (!fatPorItem.size) return null;
+    // Só desmembra se sobra residual no pai (a NF NÃO cobre o pedido inteiro).
+    const totalPedido = itens.reduce((s, i) => s + i.quantidade, 0);
+    const totalFat = [...fatPorItem.values()].reduce((s, f) => s + f.qtd, 0);
+    if (totalFat >= totalPedido) return null;
+
+    // Número do filho: PVxxx-N (N = filhos já existentes + 1).
+    const jaFilhos = await tx.pedido.count({ where: { pedidoPaiId: pedido.id } });
+    const filhoNumero = `${pedido.numero}-${jaFilhos + 1}`;
+    const produtosFat = [...fatPorItem.values()].reduce((s, f) => s + f.qtd * f.valorUnit, 0);
+
+    const filho = await tx.pedido.create({
+      data: {
+        empresaId: pedido.empresaId,
+        numero: filhoNumero,
+        pedidoPaiId: pedido.id,
+        clienteId: pedido.clienteId,
+        clienteUnidadeId: pedido.clienteUnidadeId,
+        filialId: pedido.filialId,
+        valorTotal: new Prisma.Decimal(produtosFat.toFixed(2)),
+        status: `Faturado (parcial de ${pedido.numero})`,
+        etapa: 'concluido',
+        formaPagamento: pedido.formaPagamento,
+        frete: pedido.frete,
+        valorFrete: new Prisma.Decimal(0),
+        vendedorId: pedido.vendedorId,
+        comissaoRepresentante: pedido.comissaoRepresentante,
+        comissaoPercent: pedido.comissaoPercent,
+        comissaoComImposto: pedido.comissaoComImposto,
+        ordemCompraCliente: pedido.ordemCompraCliente,
+        obs: pedido.obs,
+        obsComercial: pedido.obsComercial,
+        bonificacao: pedido.bonificacao,
+        criadoPor: 'desmembramento',
+        itens: {
+          create: [...fatPorItem.values()].map((f) => ({
+            produtoId: f.produtoId,
+            descricao: f.descricao,
+            cor: f.cor,
+            quantidade: f.qtd,
+            quantidadeExpedida: f.qtd,
+            valorUnit: new Prisma.Decimal(f.valorUnit),
+            grade: f.grade ? (f.grade as unknown as Prisma.InputJsonValue) : undefined,
+            gradeExpedida: f.grade ? (f.grade as unknown as Prisma.InputJsonValue) : undefined,
+          })),
+        },
+      },
+    });
+
+    // Abate do PAI as quantidades faturadas (o faturado sai do pai e vira o filho).
+    for (const f of fatPorItem.values()) {
+      const it = f.item;
+      const data: Prisma.PedidoItemUpdateInput = {
+        quantidade: Math.max(0, it.quantidade - f.qtd),
+        quantidadeExpedida: Math.max(0, (it.quantidadeExpedida ?? 0) - f.qtd),
+      };
+      if (f.grade) {
+        const g = { ...((it.grade as Record<string, number> | null) ?? {}) };
+        const ge = { ...((it.gradeExpedida as Record<string, number> | null) ?? {}) };
+        for (const [t, q] of Object.entries(f.grade)) {
+          g[t] = Math.max(0, Number(g[t] ?? 0) - Number(q));
+          ge[t] = Math.max(0, Number(ge[t] ?? 0) - Number(q));
+        }
+        data.grade = g as unknown as Prisma.InputJsonValue;
+        data.gradeExpedida = ge as unknown as Prisma.InputJsonValue;
+      }
+      await tx.pedidoItem.update({ where: { id: it.id }, data });
+    }
+
+    // Reavalia o pai: se não sobrou nada, concluído; senão fica "parcial" com o residual.
+    const restam = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true } });
+    const totalRestante = restam.reduce((s, i) => s + i.quantidade, 0);
+    await tx.pedido.update({
+      where: { id: pedido.id },
+      data: totalRestante <= 0
+        ? { etapa: 'concluido', status: 'Concluído (faturado em parciais)' }
+        : { etapa: 'parcial', status: `Parcial — faltam ${totalRestante} pç` },
+    });
+
+    // Histórico atrelado ao NOVO número: NF e contas a receber passam a apontar o filho.
+    await tx.notaFiscal.update({ where: { id: notaId }, data: { pedidoId: filho.id } });
+    await tx.contaReceber.updateMany({ where: { notaFiscalId: notaId }, data: { pedidoId: filho.id } });
+    return { filhoId: filho.id, filhoNumero };
+  }
+
+  /**
    * Cascata do cancelamento da NF: cancela o lançamento financeiro (conta a
    * receber não paga) e reverte o pedido de venda vinculado (se ainda não
    * entrou em produção). Mantém os setores interligados.
@@ -650,7 +768,33 @@ export class NfeService {
       let pedidoRevertido: string | null = null;
       if (nota.pedidoId) {
         const ped = await tx.pedido.findUnique({ where: { id: nota.pedidoId }, include: { ops: true } });
-        if (ped && ped.ops.length === 0 && ['aprovado', 'piloto'].includes(ped.etapa)) {
+        // 2a) NF de faturamento PARCIAL (pedido-filho): desfaz o desmembramento —
+        // restaura as quantidades no pai (pelo snapshot da expedição) e cancela o filho.
+        if (ped?.pedidoPaiId) {
+          const snap = nota.expedicaoId
+            ? (((await tx.expedicao.findUnique({ where: { id: nota.expedicaoId } }))?.itens as Array<{ pedidoItemId?: number; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [])
+            : [];
+          for (const s of snap) {
+            if (!s.pedidoItemId) continue;
+            const it = await tx.pedidoItem.findUnique({ where: { id: s.pedidoItemId } });
+            if (!it || it.pedidoId !== ped.pedidoPaiId) continue;
+            const data: Prisma.PedidoItemUpdateInput = {
+              quantidade: { increment: Number(s.quantidade || 0) },
+              quantidadeExpedida: { increment: Number(s.quantidade || 0) },
+            };
+            if (s.grade) {
+              const g = { ...((it.grade as Record<string, number> | null) ?? {}) };
+              const ge = { ...((it.gradeExpedida as Record<string, number> | null) ?? {}) };
+              for (const [t, q] of Object.entries(s.grade)) { g[t] = Number(g[t] ?? 0) + Number(q); ge[t] = Number(ge[t] ?? 0) + Number(q); }
+              data.grade = g as unknown as Prisma.InputJsonValue;
+              data.gradeExpedida = ge as unknown as Prisma.InputJsonValue;
+            }
+            await tx.pedidoItem.update({ where: { id: it.id }, data });
+          }
+          await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'cancelado', status: 'Cancelado (NF cancelada)' } });
+          await tx.pedido.update({ where: { id: ped.pedidoPaiId }, data: { etapa: 'parcial', status: 'Expedição parcial' } });
+          pedidoRevertido = `${ped.numero} (restaurado no pai)`;
+        } else if (ped && ped.ops.length === 0 && ['aprovado', 'piloto'].includes(ped.etapa)) {
           await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'orcamento', status: 'Orçamento (NF cancelada)' } });
           pedidoRevertido = ped.numero;
         }

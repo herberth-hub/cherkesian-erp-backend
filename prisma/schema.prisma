@@ -573,6 +573,10 @@ model Pedido {
   clienteNovo    Boolean      @default(false)
   producaoParcial Boolean     @default(false) // produziu só o que o estoque cobria; falta OP complementar
   bonificacao    Boolean      @default(false) // pedido de bonificação: sem conta a receber; NF em remessa de bonificação
+  // Desmembramento: no faturamento PARCIAL gera um pedido-FILHO (PVxxx-N) com o que foi faturado, referenciando o pai.
+  pedidoPaiId    Int?
+  pedidoPai      Pedido?      @relation("PedidoDesmembramento", fields: [pedidoPaiId], references: [id])
+  pedidosFilhos  Pedido[]     @relation("PedidoDesmembramento")
   ordemCompraCliente String?  // nº do pedido de compra do cliente (SAP/PO) — sai na NF
   ocArquivo      String?  @db.Text // arquivo da ordem de compra do cliente (PDF/imagem) em data URI base64
   ocArquivoNome  String?  // nome original do arquivo da OC
