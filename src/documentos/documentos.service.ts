@@ -444,7 +444,8 @@ export class DocumentosService {
       where: { id: opId },
       include: { pedido: { include: { cliente: true } } },
     });
-    if (!op || op.pedido?.empresaId !== empresaId) {
+    // Escopo: OP de pedido (via pedido.empresaId) OU OP avulsa (op.empresaId próprio).
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) {
       throw new NotFoundException(`OP ${opId} não encontrada.`);
     }
     const produto = op.produtoId
