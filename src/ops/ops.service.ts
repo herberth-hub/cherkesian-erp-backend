@@ -27,9 +27,29 @@ export class OpsService {
       ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true } })
       : [];
     const pmap = new Map(prods.map((p) => [p.id, p]));
+
+    // OS já geradas por OP (cada controleFaccao = 1 OS): operação, facção, status, peças.
+    const opIds = ops.map((o) => o.id);
+    const kits = opIds.length
+      ? await this.prisma.kit.findMany({
+          where: { empresaId, opId: { in: opIds }, controleFaccao: { not: null } },
+          select: { opId: true, controleFaccao: true, operacaoFaccao: true, faccaoNome: true, status: true, pecasTotal: true },
+          orderBy: { id: 'asc' },
+        })
+      : [];
+    const osPorOp = new Map<number, Array<{ controle: string; operacao: string | null; faccao: string | null; status: string; pecas: number }>>();
+    for (const k of kits) {
+      if (k.opId == null || !k.controleFaccao) continue;
+      const arr = osPorOp.get(k.opId) ?? [];
+      let os = arr.find((x) => x.controle === k.controleFaccao);
+      if (!os) { os = { controle: k.controleFaccao, operacao: k.operacaoFaccao, faccao: k.faccaoNome, status: k.status, pecas: 0 }; arr.push(os); }
+      os.pecas += k.pecasTotal || 0;
+      osPorOp.set(k.opId, arr);
+    }
+
     return ops.map((o) => {
       const p = o.produtoId != null ? pmap.get(o.produtoId) : null;
-      return { ...o, produtoCodigo: p?.codigo ?? null, produtoDescricao: p?.descricao ?? null, produtoNome: p ? `${p.codigo} · ${p.descricao}` : null };
+      return { ...o, produtoCodigo: p?.codigo ?? null, produtoDescricao: p?.descricao ?? null, produtoNome: p ? `${p.codigo} · ${p.descricao}` : null, osGeradas: osPorOp.get(o.id) ?? [] };
     });
   }
 
