@@ -225,6 +225,7 @@ export type GradeMarca = { partial?: boolean; sub?: string };
 export function gradeTabela(
   doc: Pdf,
   itens: Array<[string, string] | [string, string, GradeMarca?]>,
+  totalOverride?: number,
 ): void {
   const x0 = 50;
   const tableW = doc.page.width - 100;
@@ -237,7 +238,7 @@ export function gradeTabela(
   let y = doc.y + 4;
   if (y + rowH * 2 + subH > doc.page.height - 110) { doc.addPage(); y = 128; }
 
-  const total = itens.reduce((s, it) => s + (Number(it[1]) || 0), 0);
+  const total = totalOverride != null ? totalOverride : itens.reduce((s, it) => s + (Number(it[1]) || 0), 0);
   const headers = [...itens.map((it, i) => (marcas[i]?.partial ? `${it[0]} *` : it[0])), 'Total'];
   const values = [...itens.map((it) => it[1] || ''), total ? String(total) : ''];
 

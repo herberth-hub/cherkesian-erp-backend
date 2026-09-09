@@ -5218,14 +5218,10 @@ async function saveOp(id){
     await api('/ops/'+id+'/status',{method:'PATCH',body:{status:val('f_st'), setorAtual:val('f_setor')||undefined, responsavel:val('f_resp')||undefined}});
     await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:Number(val('f_prog')||0)}});
     const gradeTxt = val('f_gradeop');
-    const grade = {};
-    if(gradeTxt){
-      for(const par of gradeTxt.split(/[,;]+/)){
-        const [t,q] = par.split(':').map(s=>s.trim());
-        if(t && q) grade[t.toUpperCase()] = Number(q);
-      }
-    }
-    await api('/ops/'+id+'/grade',{method:'PATCH',body:{grade}});
+    // Aceita "P:10, M:20" e também só o tamanho ("G2") somando a qtd da OP nele.
+    const opAtual=(window.__OPS||[]).find(x=>x.id===id);
+    const pg=parseGradeOP(gradeTxt, opAtual?opAtual.quantidade:0);
+    await api('/ops/'+id+'/grade',{method:'PATCH',body:{grade: pg.grade||{}}});
     closeModal(); toast('OP atualizada.','ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }

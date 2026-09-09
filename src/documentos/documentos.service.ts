@@ -535,7 +535,7 @@ export class DocumentosService {
         gradeTabela(doc, [[cols[0] ?? 'ÚNICO', String(op.quantidade)]]);
       } else {
         secao(doc, `Grade de tamanhos (preencher) — total ${op.quantidade} peças`);
-        gradeTabela(doc, cols.map((t) => [t, '']));
+        gradeTabela(doc, cols.map((t) => [t, '']), op.quantidade);
       }
     } else if (op.quantidade > 0) {
       // Sem grade e sem template do produto: mostra a quantidade total (tamanho único).
