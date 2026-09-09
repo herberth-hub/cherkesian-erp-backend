@@ -82,6 +82,7 @@ model Empresa {
   caixasMasterPos Json? // posição de cada caixa master: { "23.000": { "col": "A", "andar": "3" } }
   pctAtivo  Boolean @default(false) // Modo PCT (Plano de Controle de Teste) ligado
   pctTestes Json?   // registros de teste do PCT: [{id,ts,funcionalidade,status,obs,usuario}]
+  sgqManual Json?   // Manual da Qualidade (SGQ): visão/missão/valores/política + cláusulas ISO 9001
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]
@@ -889,6 +890,41 @@ model NotaFiscal {
   valorIpi      Decimal? @db.Decimal(12,2)
   emitidaEm   DateTime  @default(now())
   emitidaPor  String?
+}
+
+// ===== SGQ / Universidade do Sistema — procedimentos, instruções de trabalho e trilha de treino =====
+model SgqDoc {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  tipo        String   @default("instrucao") // manual | procedimento | instrucao
+  codigo      String   // ex.: IT-COSTURA-01, PR-EXPEDICAO-01
+  titulo      String
+  setor       String?  // Costura, Corte, Expedição, Comercial, PCP…
+  conteudo    String?  @db.Text // texto da IT/procedimento (passo a passo)
+  videoUrl    String?  // link do vídeo tutorial (YouTube/Drive/Vimeo)
+  clausulaIso String?  // cláusula ISO 9001 relacionada (ex.: 8.5)
+  pontos      Int      @default(10) // pontos ganhos ao concluir (gamificação)
+  ordem       Int      @default(0)
+  revisao     Int      @default(1)
+  ativo       Boolean  @default(true)
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @default(now()) @updatedAt
+  progresso   SgqProgresso[]
+  @@index([empresaId, tipo])
+}
+
+// Progresso do colaborador na Universidade (marca IT/procedimento como aprendido → pontos).
+model SgqProgresso {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  usuario     String   // login do colaborador
+  docId       Int
+  doc         SgqDoc   @relation(fields: [docId], references: [id], onDelete: Cascade)
+  concluido   Boolean  @default(true)
+  pontos      Int      @default(0)
+  concluidoEm DateTime @default(now())
+  @@unique([usuario, docId])
+  @@index([empresaId, usuario])
 }
 
 model Log {

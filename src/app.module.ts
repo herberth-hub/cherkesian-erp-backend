@@ -29,6 +29,7 @@ import { NfeModule } from './nfe/nfe.module';
 import { NotasEntradaModule } from './notas-entrada/notas-entrada.module';
 import { CreditoModule } from './credito/credito.module';
 import { EmpresaModule } from './empresa/empresa.module';
+import { SgqModule } from './sgq/sgq.module';
 import { FiliaisModule } from './filiais/filiais.module';
 import { AgenteModule } from './agente/agente.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
@@ -99,6 +100,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     NotasEntradaModule,
     CreditoModule,
     EmpresaModule,
+    SgqModule,
     FiliaisModule,
     AgenteModule,
     RelatoriosModule,

@@ -207,14 +207,14 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente'],
-  vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas'],
-  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente'],
-  chao:['tv','producao','kits','piloto','estoque'],
-  expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente'],
-  financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente'],
-  contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente'],
-  consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes'],
+  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente','sgq'],
+  vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas','sgq'],
+  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq'],
+  chao:['tv','producao','kits','piloto','estoque','sgq'],
+  expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq'],
+  financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente','sgq'],
+  contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq'],
+  consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes','sgq'],
   cliente:['portal'],
 };
 const NAVDEF = [
@@ -224,13 +224,14 @@ const NAVDEF = [
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
+  ['Qualidade / SGQ', [['sgq','SGQ · Universidade','book']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock'],['pct','PCT · Testes & Gaps','spark']]],
   ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -273,6 +274,7 @@ const TITLES = {
   whatsapp:['Robô WhatsApp','Atendimento comercial automático: orçamento → pedido no ERP · admin'],
   portal:['Meu Estoque & Prazos','Estoque pronta-entrega e andamento dos seus pedidos'],
   pct:['PCT · Plano de Controle de Teste','Modo teste + diagnóstico automático de gaps · admin'],
+  sgq:['SGQ · Universidade do Sistema','Manual da Qualidade (ISO 9001), procedimentos, instruções de trabalho e treino gamificado'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -579,6 +581,7 @@ async function loadRoute(){
     if(S.route==='bi') return await viewBi(c);
     if(S.route==='portal') return await viewPortal(c);
     if(S.route==='pct') return await viewPCT(c);
+    if(S.route==='sgq') return await viewSGQ(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -9720,6 +9723,128 @@ async function kitDetalhe(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ================== SGQ · Universidade do Sistema ==================
+async function viewSGQ(c){
+  let d; try{ d=await api('/sgq'); }catch(e){ c.innerHTML='<div class="empty" style="color:#c14a34">Erro ao carregar SGQ: '+esc(e.message)+'</div>'; return; }
+  window.__SGQ=d; const admin=S.user.acesso==='total'; const m=d.manual||{};
+  const pctP=d.totalDocs?Math.round(100*d.concluidos/d.totalDocs):0;
+  const feito=id=>(d.meuProgresso||[]).includes(id);
+  // Gamificação — meu progresso
+  const topo=`<div class="cards">
+    ${kpi('🎓 Meus pontos', d.meusPontos, 'de '+d.totalDisponivel+' disponíveis')}
+    ${kpi('🏅 Nível', esc(d.nivel), d.concluidos+' de '+d.totalDocs+' concluídos')}
+    ${kpi('📈 Progresso', pctP+'%', 'da Universidade')}
+    ${kpi('📚 Conteúdos', d.totalDocs, 'instruções + procedimentos')}
+  </div>
+  <div class="sect"><div style="height:10px;background:#eee;border-radius:6px;overflow:hidden"><div style="height:100%;width:${pctP}%;background:linear-gradient(90deg,#c99a2e,#e0b84a)"></div></div></div>`;
+  // Manual da Qualidade
+  const cls=(m.clausulas||[]).map(x=>`<div style="margin:4px 0"><b>${esc(x.num)} · ${esc(x.titulo)}</b>${x.texto?`<div class="muted" style="font-size:12px">${esc(x.texto)}</div>`:''}</div>`).join('');
+  const manualHtml=`<div class="sect">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">📖 Manual da Qualidade <span class="muted" style="font-weight:400;font-size:12px">· ISO 9001:2015 (+ emenda 2024)</span></h3>
+      ${admin?`<button class="btn-sm" onclick="APP.sgqFormManual()">✏️ Editar manual</button>`:''}</div>
+    <div class="grid2" style="margin-top:8px">
+      <div><b>👁️ Visão</b><div class="muted" style="font-size:12.5px;margin-bottom:6px">${esc(m.visao||'—')}</div>
+        <b>🎯 Missão</b><div class="muted" style="font-size:12.5px;margin-bottom:6px">${esc(m.missao||'—')}</div>
+        <b>💎 Valores</b><div class="muted" style="font-size:12.5px">${esc(m.valores||'—')}</div></div>
+      <div><b>📜 Política da Qualidade</b><div class="muted" style="font-size:12.5px;margin-bottom:6px">${esc(m.politica||'—')}</div>
+        <b>🔎 Escopo</b><div class="muted" style="font-size:12.5px">${esc(m.escopo||'—')}</div></div>
+    </div>
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:600;font-size:13px">Estrutura ISO 9001 (cláusulas 4–10)</summary><div style="margin-top:6px">${cls||'<span class="muted">—</span>'}</div></details>
+    <div class="muted" style="font-size:11px;margin-top:6px">⚠️ Documento base na estrutura oficial vigente (Anexo SL). A revisão ISO 9001:2026 ainda não está publicada — ajuste com sua consultoria/certificadora.</div>
+  </div>`;
+  // Documentos por setor
+  const docs=d.docs||[]; const setores=[...new Set(docs.map(x=>x.setor||'Geral'))];
+  const tipoPill=t=>t==='procedimento'?'<span class="pill" style="background:#eef4ff;color:#2b4a8b">PR</span>':(t==='manual'?'<span class="pill gray">MANUAL</span>':'<span class="pill gold">IT</span>');
+  const cardDoc=x=>{
+    const done=feito(x.id);
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:${done?'#f6faf4':'#fff'}">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:start">
+        <div style="min-width:0">
+          <div>${tipoPill(x.tipo)} <span class="mono gold">${esc(x.codigo)}</span> ${x.clausulaIso?`<span class="pill gray" title="Cláusula ISO">ISO ${esc(x.clausulaIso)}</span>`:''} <span class="pill" style="background:#fff6d8;color:#8a5a00">${x.pontos} pts</span> ${done?'<span class="pill green">✓ concluído</span>':''}</div>
+          <div style="font-weight:600;font-size:13px;margin-top:3px">${esc(x.titulo)}</div>
+          ${x.conteudo?`<div class="muted" style="font-size:11.5px;margin-top:2px;max-width:640px;white-space:pre-wrap">${esc(String(x.conteudo).slice(0,180))}${String(x.conteudo).length>180?'…':''}</div>`:''}
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
+          ${x.videoUrl?`<button class="btn-sm" style="background:#c00;color:#fff;border-color:#900" onclick="APP.sgqVideo('${esc(x.videoUrl)}')">▶ Ver vídeo</button>`:'<span class="muted" style="font-size:11px;align-self:center">sem vídeo</span>'}
+          ${done?`<button class="btn-sm" onclick="APP.sgqDesmarcar(${x.id})">↺ Refazer</button>`:`<button class="btn-primary" onclick="APP.sgqConcluir(${x.id})">✅ Concluí (+${x.pontos})</button>`}
+          <button class="btn-sm" title="Imprimir Instrução de Trabalho com QR do vídeo" onclick="APP.sgqImprimir(${x.id})">🏷 Imprimir + QR</button>
+          ${admin?`<button class="btn-sm" onclick="APP.sgqFormDoc(${x.id})">✏️</button> <button class="btn-sm" style="color:#c14a34" onclick="APP.sgqDelDoc(${x.id})">🗑</button>`:''}
+        </div>
+      </div></div>`;
+  };
+  const docsHtml=`<div class="sect">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">🎬 Instruções de Trabalho & Procedimentos</h3>
+      ${admin?`<button class="btn-primary" onclick="APP.sgqFormDoc(0)">+ Novo documento</button>`:''}</div>
+    ${docs.length?setores.map(s=>`<div style="margin-top:10px"><div style="font-weight:700;font-size:12.5px;color:#8a5a00;border-bottom:1px solid var(--line);padding-bottom:3px">🏭 ${esc(s)}</div>${docs.filter(x=>(x.setor||'Geral')===s).map(cardDoc).join('')}</div>`).join(''):'<div class="muted" style="margin-top:8px">Nenhuma instrução cadastrada ainda.'+(admin?' Clique em "+ Novo documento".':'')+'</div>'}
+  </div>`;
+  // Ranking
+  const rk=(d.ranking||[]);
+  const rankHtml=`<div class="sect"><h3 style="margin:0 0 6px">🏆 Ranking da Universidade</h3>
+    ${rk.length?panelTable(['#','Colaborador','Pontos'], rk.map((r,i)=>[`${i+1}º`,esc(r.usuario),`<b>${r.pontos}</b>`])):'<div class="muted">Ninguém pontuou ainda.</div>'}</div>`;
+  c.innerHTML = topo + manualHtml + docsHtml + rankHtml;
+}
+function sgqVideo(url){ if(!url) return; window.open(url,'_blank','noopener'); }
+async function sgqConcluir(id){ try{ const d=await api('/sgq/doc/'+id+'/concluir',{method:'POST'}); window.__SGQ=d; toast('🎉 +pontos! Conteúdo concluído.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); } }
+async function sgqDesmarcar(id){ try{ await api('/sgq/doc/'+id+'/desmarcar',{method:'POST'}); loadRoute(); }catch(e){ toast(e.message,'err'); } }
+async function sgqDelDoc(id){ if(!(await uiConfirm({tipo:'err',titulo:'Excluir documento?',msg:'A instrução/procedimento será desativada.',ok:'Excluir'}))) return; try{ await api('/sgq/doc/'+id,{method:'DELETE'}); toast('Documento removido.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); } }
+function sgqFormDoc(id){
+  const x=id?((window.__SGQ&&window.__SGQ.docs)||[]).find(y=>y.id===id)||{}:{};
+  openModal(`<h3>${id?'Editar':'Novo'} documento SGQ</h3>
+    <div class="grid2"><div class="mrow"><label class="fl">Tipo</label><select id="sg_tipo" class="inp"><option value="instrucao" ${x.tipo!=='procedimento'?'selected':''}>Instrução de Trabalho (IT)</option><option value="procedimento" ${x.tipo==='procedimento'?'selected':''}>Procedimento (PR)</option></select></div>${field('sg_cod','Código *','value="'+esc(x.codigo||'')+'" placeholder="ex.: IT-COSTURA-01"')}</div>
+    <div class="grid2">${field('sg_tit','Título *','value="'+esc(x.titulo||'')+'" placeholder="ex.: Como bipar o kit na expedição"')}${field('sg_setor','Setor','value="'+esc(x.setor||'')+'" placeholder="Costura, Corte, Expedição…" list="sg_setores"')}</div>
+    <datalist id="sg_setores"><option value="Comercial"><option value="PCP"><option value="Corte"><option value="Costura"><option value="Estamparia"><option value="Acabamento"><option value="Expedição"><option value="Estoque"><option value="Financeiro"></datalist>
+    <div class="grid3">${field('sg_video','Link do vídeo (YouTube/Drive/Vimeo)','value="'+esc(x.videoUrl||'')+'" placeholder="https://…"')}${field('sg_iso','Cláusula ISO','value="'+esc(x.clausulaIso||'')+'" placeholder="ex.: 8.5"')}${field('sg_pts','Pontos','type="number" min="0" value="'+(x.pontos!=null?x.pontos:10)+'"')}</div>
+    <div class="mrow"><label class="fl">Instrução (passo a passo)</label><textarea id="sg_cont" class="inp" rows="5" placeholder="1) ...\n2) ...">${esc(x.conteudo||'')}</textarea></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.sgqSaveDoc(${id||0})">Salvar</button></div>`,{wide:true});
+}
+async function sgqSaveDoc(id){
+  const body={ tipo:val('sg_tipo'), codigo:val('sg_cod'), titulo:val('sg_tit'), setor:val('sg_setor')||undefined, videoUrl:val('sg_video')||undefined, clausulaIso:val('sg_iso')||undefined, conteudo:(($('sg_cont')&&$('sg_cont').value)||'')||undefined };
+  const pts=Number(val('sg_pts')); if(!isNaN(pts)) body.pontos=pts; if(id) body.id=id;
+  if(!body.codigo||!body.titulo){ toast('Informe código e título.','err'); return; }
+  try{ await api('/sgq/doc',{method:'POST',body}); closeModal(); toast('Documento salvo.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); }
+}
+function sgqFormManual(){
+  const m=(window.__SGQ&&window.__SGQ.manual)||{};
+  openModal(`<h3>Editar Manual da Qualidade</h3>
+    <div class="mrow"><label class="fl">Visão</label><textarea id="mq_vis" class="inp" rows="2">${esc(m.visao||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Missão</label><textarea id="mq_mis" class="inp" rows="2">${esc(m.missao||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Valores</label><textarea id="mq_val" class="inp" rows="2">${esc(m.valores||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Política da Qualidade</label><textarea id="mq_pol" class="inp" rows="3">${esc(m.politica||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Escopo do SGQ</label><textarea id="mq_esc" class="inp" rows="2">${esc(m.escopo||'')}</textarea></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.sgqSaveManual()">Salvar</button></div>`,{wide:true});
+}
+async function sgqSaveManual(){
+  const m=(window.__SGQ&&window.__SGQ.manual)||{};
+  const body={ visao:val('mq_vis'), missao:val('mq_mis'), valores:val('mq_val'), politica:val('mq_pol'), escopo:val('mq_esc'), clausulas:m.clausulas||[] };
+  try{ await api('/sgq/manual',{method:'PUT',body}); closeModal(); toast('Manual salvo.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); }
+}
+async function sgqImprimir(id){
+  try{
+    const r=await api('/sgq/doc/'+id+'/imprimir'); const d=r.doc;
+    const w=window.open('','_blank','width=800,height=920'); if(!w){ toast('Libere o pop-up para imprimir.','err'); return; }
+    w.document.write(`<html><head><meta charset=utf-8><title>IT ${esc(d.codigo)}</title><style>
+      @page{size:A4;margin:14mm} body{font-family:Arial,Helvetica,sans-serif;color:#111}
+      .hd{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #c99a2e;padding-bottom:8px}
+      .hd b{font-size:18px} .meta{font-size:12px;color:#555;margin-top:2px}
+      h1{font-size:20px;margin:14px 0 4px} .badge{display:inline-block;background:#fff6d8;border:1px solid #e0c766;border-radius:6px;padding:2px 8px;font-size:12px;margin-right:6px}
+      .cont{white-space:pre-wrap;font-size:14px;line-height:1.5;margin-top:10px}
+      .qrbox{margin-top:18px;text-align:center;border:2px dashed #c99a2e;border-radius:12px;padding:14px}
+      .qrbox img{width:200px;height:200px} .qrbox .t{font-weight:700;margin-top:6px}
+      .bar{position:fixed;top:6px;right:6px}@media print{.bar{display:none}}
+    </style></head><body>
+      <div class="bar"><button onclick="window.print()">🖨 Imprimir</button></div>
+      <div class="hd"><div><b>GRUPO CHERKESIAN</b><div class="meta">Instrução de Trabalho · SGQ</div></div>
+        <div style="text-align:right;font-size:12px">Cód.: <b>${esc(d.codigo)}</b><br>Rev.: ${d.revisao}${d.clausulaIso?'<br>ISO '+esc(d.clausulaIso):''}</div></div>
+      <h1>${esc(d.titulo)}</h1>
+      <div>${d.setor?`<span class="badge">Setor: ${esc(d.setor)}</span>`:''}<span class="badge">${d.tipo==='procedimento'?'Procedimento':'Instrução de Trabalho'}</span></div>
+      <div class="cont">${esc(d.conteudo||'(sem texto — veja o vídeo pelo QR abaixo)')}</div>
+      ${r.qr?`<div class="qrbox"><img src="${r.qr}"><div class="t">📱 Aponte a câmera para ver o vídeo tutorial</div><div style="font-size:11px;color:#666;margin-top:2px">${esc(d.videoUrl||'')}</div></div>`:(r.semVideo?'<div class="qrbox" style="border-color:#ccc"><div class="t" style="color:#999">Sem vídeo vinculado — cadastre um link p/ gerar o QR.</div></div>':'')}
+      <div style="margin-top:20px;font-size:11px;color:#777">Cole este documento na estação de trabalho. Documento controlado pelo SGQ — não alterar sem autorização.</div>
+    </body></html>`);
+    w.document.close();
+  }catch(e){ toast(e.message,'err'); }
+}
+
 // ================== PCT · Plano de Controle de Teste (admin) ==================
 async function viewPCT(c){
   let d={ativo:false,testes:[]}; try{ d=await api('/empresa/pct'); }catch(e){}
@@ -9810,6 +9935,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav, viewPCT, pctToggle, pctAddTeste, pctDelTeste, pctDiag,
+  viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
