@@ -1512,13 +1512,35 @@ function pedFaltaExpedir(p){
     return s + Math.max(0,(Number(it.quantidade)||0)-(Number(it.quantidadeExpedida)||0));
   },0);
 }
-// Célula de etapa: 'parcial' vira pill âmbar clicável mostrando o que falta expedir.
+// Trilha do processo: em qual etapa o pedido está (acompanhamento visual).
+const FASES_PED=[
+  {k:'orcamento',lbl:'Orçamento'},{k:'aprovado',lbl:'Aprovado'},{k:'piloto',lbl:'Piloto'},
+  {k:'material',lbl:'Material'},{k:'compra',lbl:'Compra'},{k:'producao',lbl:'Produção'},
+  {k:'estoque',lbl:'Estoque'},{k:'expedicao',lbl:'Expedição'},{k:'concluido',lbl:'Concluído'}
+];
+function pedProgresso(p){
+  if(p.etapa==='cancelado') return `<div style="font-size:10px;color:#c14a34;margin-top:4px">✕ cancelado</div>`;
+  let idx=FASES_PED.findIndex(f=>f.k===p.etapa);
+  if(p.etapa==='parcial') idx=FASES_PED.findIndex(f=>f.k==='expedicao'); // parcial = na expedição
+  if(idx<0) idx=0;
+  const total=FASES_PED.length;
+  const segs=FASES_PED.map((f,i)=>{
+    const bg=i<idx?'#7ba86f':(i===idx?'#c99a2e':'#e2ddcf');
+    return `<span title="${esc(f.lbl)}${i===idx?' (atual)':(i<idx?' ✓':'')}" style="flex:1;height:6px;border-radius:3px;background:${bg}"></span>`;
+  }).join('');
+  return `<div style="display:flex;gap:2px;margin-top:5px;max-width:150px" title="Etapa ${idx+1} de ${total}: ${esc(FASES_PED[idx].lbl)}">${segs}</div>`
+    +`<div style="font-size:9.5px;color:var(--muted);margin-top:2px">🔹 etapa ${idx+1}/${total} · <b>${esc(FASES_PED[idx].lbl)}</b></div>`;
+}
+// Célula de etapa: pill + trilha do processo. 'parcial' vira pill âmbar clicável mostrando o que falta expedir.
 function etapaCell(p){
+  let head;
   if(p.etapa==='parcial'){
     const f=pedFaltaExpedir(p);
-    return `<span class="pill" style="background:#f6ad3722;color:#9a5a00;border:1px solid #e0a94a;cursor:pointer" title="Abrir o que falta expedir" onclick="APP.formExpParcial(${p.id})">parcial</span>${f>0?`<div style="font-size:10.5px;color:#9a5a00;margin-top:3px;cursor:pointer" onclick="APP.formExpParcial(${p.id})">faltam ${f} pç</div>`:''}`;
+    head=`<span class="pill" style="background:#f6ad3722;color:#9a5a00;border:1px solid #e0a94a;cursor:pointer" title="Abrir o que falta expedir" onclick="APP.formExpParcial(${p.id})">parcial</span>${f>0?`<div style="font-size:10.5px;color:#9a5a00;margin-top:3px;cursor:pointer" onclick="APP.formExpParcial(${p.id})">faltam ${f} pç</div>`:''}`;
+  } else {
+    head=`<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`;
   }
-  return `<span class="pill ${etapaColor(p.etapa)}">${esc(p.etapa)}</span>`;
+  return head + pedProgresso(p);
 }
 // Vínculo de desmembramento: filho mostra "parcial de PVxxx"; pai mostra seus parciais.
 function pedRefTag(p){
