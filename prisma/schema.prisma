@@ -646,6 +646,7 @@ model OP {
   produtoId      Int?
   cor            String?  // cor escolhida no pedido (segue p/ corte/costura e kits)
   quantidade     Int
+  loteAvulso     String?  // agrupa OPs avulsas criadas juntas num mesmo lançamento (multi-produto)
   inicio         DateTime?
   entregaPrev    DateTime?
   status         OPStatus @default(a_iniciar)

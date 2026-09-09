@@ -13,6 +13,7 @@ import {
 import { OpsService } from './ops.service';
 import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
+import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -31,6 +32,12 @@ export class OpsController {
   @Post('avulsa')
   criarAvulsa(@Body() dto: CreateOpAvulsaDto, @CurrentUser() user: AuthUser) {
     return this.opsService.criarAvulsa(dto, user.empresaId);
+  }
+
+  /** Cria VÁRIAS OPs avulsas de uma vez (multi-produto), agrupadas por lote. */
+  @Post('avulsa-lote')
+  criarAvulsaLote(@Body() dto: CreateOpAvulsaLoteDto, @CurrentUser() user: AuthUser) {
+    return this.opsService.criarAvulsaLote(dto, user.empresaId);
   }
 
   @Get(':id')

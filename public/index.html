@@ -4859,38 +4859,74 @@ async function viewProducao(c){
   const btnAvulsa = canAccess('pcp')?`<button class="btn-primary" style="padding:2px 10px" onclick="APP.formOpAvulsa()">+ OP avulsa</button> `:'';
   c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
 }
+let OPAVITENS=[];
+// Interpreta o texto de grade. "P:10, M:20" -> {P:10,M:20}. Se vier só o TAMANHO
+// (ex.: "G2") sem quantidade, joga a quantidade informada toda nesse tamanho.
+function parseGradeOP(gradeTxt, qtd){
+  const g={}; let temPar=false;
+  (gradeTxt||'').split(/[,;]+/).forEach(par=>{ const s=par.trim(); if(!s) return; const m=s.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Number((m[1]||'').trim()); if(t&&q>0){ g[t]=(g[t]||0)+q; temPar=true; } });
+  if(temPar) return { grade:g, total:Object.values(g).reduce((a,b)=>a+b,0) };
+  // Sem "tam:qtd": se for UM tamanho só + quantidade, monta {TAM: qtd}.
+  const bare=(gradeTxt||'').trim().toUpperCase();
+  if(bare && /^[A-Z0-9]{1,6}$/.test(bare) && Number(qtd)>0){ return { grade:{[bare]:Number(qtd)}, total:Number(qtd) }; }
+  return { grade:null, total:Number(qtd)>0?Number(qtd):0 };
+}
 async function formOpAvulsa(){
   const [produtos, filiais] = await Promise.all([api('/produtos'), api('/filiais').catch(()=>[])]);
   window.__OPAV_PROD = produtos||[];
-  const prodDl = `<datalist id="opav_prodlist">${(produtos||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>`;
   const filAtivas=(filiais||[]).filter(f=>f.ativa!==false);
   const filOpts = filAtivas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}</option>`).join('');
-  openModal(`<h3>Nova OP avulsa</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Ordem de produção <b>sem pedido</b> — para estoque, amostra ou reposição. Segue no corte e vira kit de facção normalmente.</div>
-    <div class="mrow"><label class="fl">Produto *</label><input id="opav_prod" class="inp" list="opav_prodlist" placeholder="digite código ou descrição" autocomplete="off">${prodDl}</div>
-    <div class="grid2">${field('opav_qtd','Quantidade *','type="number" min="1" placeholder="ex.: 50"')}${field('opav_grade','Grade por tamanho (opcional)','placeholder="ex.: P:10, M:20, G:8"')}</div>
-    <div class="muted" style="font-size:10.5px;margin:-4px 0 6px">Se preencher a grade, a quantidade é a soma dela. Sem grade, produz a quantidade em tamanho único.</div>
-    <div class="grid3">${field('opav_cor','Cor','')}
+  OPAVITENS=[{}];
+  openModal(`<h3>Nova OP avulsa <span class="muted" style="font-weight:400;font-size:12px">· multi-produto</span></h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Ordem(ns) de produção <b>sem pedido</b> — cada produto vira <b>uma OP</b>, todas agrupadas num lote. Segue no corte e vira kit de facção normalmente.</div>
+    <div class="grid2">
       <div class="mrow"><label class="fl">Empresa</label><select id="opav_fil" class="inp">${filOpts||'<option value="">—</option>'}</select></div>
-      <div class="mrow"><label class="fl">Prioridade</label><select id="opav_prior" class="inp"><option value="media">Média</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select></div></div>
-    ${field('opav_obs','Observação','')}
+      <div class="mrow"><label class="fl">Prioridade (todas)</label><select id="opav_prior" class="inp"><option value="media">Média</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select></div>
+    </div>
+    <label class="fl" style="margin-top:6px">Produtos do lote</label>
+    <datalist id="opav_prodlist">${(produtos||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>
+    <div id="opav_itens"></div>
+    <button class="btn-sm" onclick="APP.opavAdd()" style="margin-top:6px">+ produto</button>
+    <div class="muted" style="font-size:10.5px;margin:6px 0">Grade: "P:10, M:20" ou só o tamanho (ex.: "G2") + a quantidade. Sem grade, produz a quantidade em tamanho único.</div>
+    ${field('opav_obs','Observação (vale p/ todas)','')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveOpAvulsa()">Gerar OP</button></div>`, {wide:true});
+      <button class="btn-primary" onclick="APP.saveOpAvulsa()">Gerar OP(s)</button></div>`, {wide:true});
+  opavRender();
 }
+function opavRender(){
+  const box=$('opav_itens'); if(!box) return;
+  box.innerHTML = OPAVITENS.map((it,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+    <input class="inp" id="opav_prod_${i}" list="opav_prodlist" placeholder="produto (código/descrição)" autocomplete="off" value="${esc(it.prodLabel||'')}" style="flex:2.2;min-width:0" onchange="APP.opavSync()">
+    <input class="inp" id="opav_qtd_${i}" type="number" min="1" placeholder="qtd" value="${it.qtd!=null?it.qtd:''}" style="flex:.8;min-width:0">
+    <input class="inp" id="opav_grade_${i}" placeholder="grade (opcional)" value="${esc(it.grade||'')}" style="flex:1.4;min-width:0">
+    <input class="inp" id="opav_cor_${i}" placeholder="cor" value="${esc(it.cor||'')}" style="flex:1;min-width:0">
+    ${OPAVITENS.length>1?`<button class="btn-sm" onclick="APP.opavDel(${i})">×</button>`:''}
+  </div>`).join('');
+}
+function opavSync(){ OPAVITENS.forEach((it,i)=>{ const pe=$('opav_prod_'+i); if(!pe) return; it.prodLabel=pe.value; it.qtd=val('opav_qtd_'+i); it.grade=val('opav_grade_'+i); it.cor=val('opav_cor_'+i); }); }
+function opavAdd(){ opavSync(); OPAVITENS.push({}); opavRender(); }
+function opavDel(i){ opavSync(); OPAVITENS.splice(i,1); opavRender(); }
 async function saveOpAvulsa(){
-  const txt=(val('opav_prod')||'').trim();
+  opavSync();
   const prods=window.__OPAV_PROD||[];
-  const prod=prods.find(p=>((p.codigo||'')+' · '+(p.descricao||''))===txt) || prods.find(p=>String(p.codigo||'').toLowerCase()===txt.toLowerCase());
-  if(!prod){ toast('Selecione um produto válido da lista.','err'); return; }
-  const body={ produtoId: prod.id };
-  const gradeTxt=(val('opav_grade')||'').trim();
-  if(gradeTxt){ const g={}; gradeTxt.split(/[,;]+/).forEach(par=>{ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Number((m[1]||'').trim()); if(t&&q>0) g[t]=q; }); if(Object.keys(g).length) body.gradeTamanhos=g; }
-  if(!body.gradeTamanhos){ const q=Number(val('opav_qtd')); if(!(q>0)){ toast('Informe a quantidade ou a grade.','err'); return; } body.quantidade=q; }
-  const cor=val('opav_cor'); if(cor) body.cor=cor;
-  const fil=val('opav_fil'); if(fil) body.filialId=Number(fil);
+  const itens=[];
+  for(const it of OPAVITENS){
+    const txt=(it.prodLabel||'').trim(); if(!txt) continue;
+    const prod=prods.find(p=>((p.codigo||'')+' · '+(p.descricao||''))===txt) || prods.find(p=>String(p.codigo||'').toLowerCase()===txt.toLowerCase());
+    if(!prod){ toast('Produto inválido: "'+txt+'". Selecione da lista.','err'); return; }
+    const pg=parseGradeOP(it.grade, it.qtd);
+    if(!(pg.total>0)){ toast('Informe a quantidade (ou a grade) do produto '+ (prod.codigo||'')+'.','err'); return; }
+    const item={ produtoId: prod.id };
+    if(pg.grade) item.gradeTamanhos=pg.grade; else item.quantidade=Number(it.qtd);
+    const cor=(it.cor||'').trim(); if(cor) item.cor=cor;
+    itens.push(item);
+  }
+  if(!itens.length){ toast('Adicione ao menos um produto.','err'); return; }
+  const body={ itens }; const fil=val('opav_fil'); if(fil) body.filialId=Number(fil);
   const prior=val('opav_prior'); if(prior) body.prioridade=prior;
   const obs=val('opav_obs'); if(obs) body.obs=obs;
-  try{ const op=await api('/ops/avulsa',{method:'POST',body}); closeModal(); toast('OP '+op.numero+' criada.','ok'); loadRoute(); }
+  try{ const r=await api('/ops/avulsa-lote',{method:'POST',body}); closeModal();
+    toast(r.total+' OP(s) criada(s)'+(r.total>1?' no lote':' ('+(r.ops[0]&&r.ops[0].numero||'')+')')+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
 // Lista de OPs AGRUPADA por pedido: um cabeçalho por pedido (com OP do Pedido / OS
@@ -4898,13 +4934,13 @@ async function saveOpAvulsa(){
 function opsAgrupadas(arr, verFin){
   if(!arr.length) return `<div class="panel"><div class="empty">${verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".'}</div></div>`;
   const groups=new Map();
-  arr.forEach(o=>{ const k=o.pedidoId||('sem'+o.id); if(!groups.has(k)) groups.set(k,{ped:o.pedido?o.pedido.numero:null, pedidoId:o.pedidoId||0, ops:[]}); groups.get(k).ops.push(o); });
+  arr.forEach(o=>{ const k=o.pedidoId?('ped'+o.pedidoId):(o.loteAvulso?('lote:'+o.loteAvulso):('sem'+o.id)); if(!groups.has(k)) groups.set(k,{ped:o.pedido?o.pedido.numero:null, pedidoId:o.pedidoId||0, lote:o.loteAvulso||null, ops:[]}); groups.get(k).ops.push(o); });
   const _adminOp = S.user.acesso==='total';
   const opAcoes=o=>`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
   return [...groups.values()].map(g=>{
     const totPecas=g.ops.reduce((s,o)=>s+(o.quantidade||0),0);
     const head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:#faf6ea;border-bottom:1px solid var(--line);flex-wrap:wrap">
-      <div style="font-family:'Sora';font-weight:700;font-size:13px">${g.pedidoId?('Pedido '+esc(g.ped)):'Sem pedido'} <span class="muted" style="font-weight:400;font-size:12px">· ${g.ops.length} OP(s) · ${totPecas} peças</span></div>
+      <div style="font-family:'Sora';font-weight:700;font-size:13px">${g.pedidoId?('Pedido '+esc(g.ped)):(g.lote?'📦 OP avulsa em lote':'Sem pedido')} <span class="muted" style="font-weight:400;font-size:12px">· ${g.ops.length} OP(s) · ${totPecas} peças</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${g.pedidoId?`<button class="btn-sm" style="color:#2a6a2a;border-color:#bfe0bf" title="Documento único com TODAS as OPs deste pedido (clean p/ produção)" onclick="APP.gerarDoc('op_pedido',${g.pedidoId})">📄 OP do Pedido</button> <button class="btn-sm" title="Ordem de Serviço p/ oficina (selecionar produto/tamanho)" onclick="APP.formOS(${g.pedidoId})">📋 OS oficina</button>`:''}</div>
     </div>`;
     const rows=g.ops.map(o=>`<tr>
@@ -9974,7 +10010,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,

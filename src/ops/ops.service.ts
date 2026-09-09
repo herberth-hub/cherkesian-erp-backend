@@ -3,6 +3,7 @@ import { OP, Prioridade, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
+import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
@@ -70,7 +71,7 @@ export class OpsService {
   }
 
   /** Cria uma OP AVULSA (produção sem pedido) — para estoque, amostra, reposição. */
-  async criarAvulsa(dto: CreateOpAvulsaDto, empresaId: number): Promise<OP> {
+  async criarAvulsa(dto: CreateOpAvulsaDto, empresaId: number, loteAvulso?: string): Promise<OP> {
     const produto = await this.prisma.produto.findFirst({ where: { id: dto.produtoId, empresaId }, select: { id: true, cor: true } });
     if (!produto) throw new NotFoundException('Produto não encontrado nesta empresa.');
     const grade =
@@ -113,6 +114,7 @@ export class OpsService {
         produtoId: produto.id,
         cor: dto.cor?.trim() || produto.cor || null,
         quantidade: total,
+        loteAvulso: loteAvulso ?? null,
         status: 'a_iniciar',
         pilotoLiberado: true,
         progresso: 0,
@@ -122,6 +124,35 @@ export class OpsService {
         corteObs: dto.obs?.trim() || 'OP avulsa (sem pedido).',
       },
     });
+  }
+
+  /**
+   * OP avulsa EM LOTE (multi-produto): cada item vira sua própria OP, todas
+   * agrupadas pelo mesmo `loteAvulso`. Pré-valida os itens antes de criar p/
+   * evitar lote parcial. Filial/prioridade/obs são compartilhadas.
+   */
+  async criarAvulsaLote(dto: CreateOpAvulsaLoteDto, empresaId: number): Promise<{ loteAvulso: string; total: number; ops: OP[] }> {
+    if (!dto.itens?.length) throw new BadRequestException('Adicione ao menos um produto ao lote.');
+    // Pré-validação: produto existe na empresa e tem quantidade/grade.
+    for (let i = 0; i < dto.itens.length; i++) {
+      const it = dto.itens[i];
+      const prod = await this.prisma.produto.findFirst({ where: { id: it.produtoId, empresaId }, select: { id: true } });
+      if (!prod) throw new BadRequestException(`Item ${i + 1}: produto não encontrado nesta empresa.`);
+      const somaGrade = it.gradeTamanhos ? Object.values(it.gradeTamanhos).reduce((a, b) => a + (Number(b) || 0), 0) : 0;
+      const total = somaGrade > 0 ? somaGrade : Math.floor(Number(it.quantidade) || 0);
+      if (!(total > 0)) throw new BadRequestException(`Item ${i + 1}: informe a quantidade ou a grade de tamanhos.`);
+    }
+    const loteAvulso = `LOTA-${Date.now().toString(36).toUpperCase()}`;
+    const ops: OP[] = [];
+    for (const it of dto.itens) {
+      const op = await this.criarAvulsa(
+        { produtoId: it.produtoId, quantidade: it.quantidade, gradeTamanhos: it.gradeTamanhos, cor: it.cor, filialId: dto.filialId, prioridade: dto.prioridade, obs: dto.obs },
+        empresaId,
+        loteAvulso,
+      );
+      ops.push(op);
+    }
+    return { loteAvulso, total: ops.length, ops };
   }
 
   async findOne(id: number, empresaId: number): Promise<OP> {

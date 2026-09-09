@@ -534,9 +534,12 @@ export class DocumentosService {
         secao(doc, `Grade de tamanhos (${op.quantidade} peças)`);
         gradeTabela(doc, [[cols[0] ?? 'ÚNICO', String(op.quantidade)]]);
       } else {
-        secao(doc, 'Grade de tamanhos (preencher)');
+        secao(doc, `Grade de tamanhos (preencher) — total ${op.quantidade} peças`);
         gradeTabela(doc, cols.map((t) => [t, '']));
       }
+    } else if (op.quantidade > 0) {
+      // Sem grade e sem template do produto: mostra a quantidade total (tamanho único).
+      secao(doc, `Quantidade — ${op.quantidade} peças (tamanho único)`);
     }
 
     // Romaneio de corte: materiais a separar para esta OP. Usa o snapshot gravado
