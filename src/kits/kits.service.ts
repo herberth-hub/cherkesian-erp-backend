@@ -538,11 +538,20 @@ export class KitsService {
       if (!faccaoNome) throw new BadRequestException('Informe a facção destino.');
     }
 
-    // Kits da OP: reaproveita os existentes; se não houver, gera da grade cortada/planejada.
-    let kits = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id } });
+    // Kits da OP POR OPERAÇÃO: cada OS (Estamparia, Costura…) tem a sua própria leva,
+    // p/ o mesmo OP poder ter várias OS ao mesmo tempo (estamparia E facção de costura).
+    const operacaoNorm = operacao.toLowerCase();
+    const todosKits = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id } });
+    let kits = todosKits.filter((k) => (k.operacaoFaccao ?? '').trim().toLowerCase() === operacaoNorm);
     if (!kits.length) {
-      const criados = await this.criarDeOp({ opId: op.id, faccaoId: dto.faccaoId, faccaoNome } as CriarKitsDeOpDto, empresaId, usuario);
-      kits = criados.kits;
+      // Adota kits ainda SEM operação (1ª OS da OP); senão gera uma nova leva p/ esta operação.
+      const semOper = todosKits.filter((k) => !(k.operacaoFaccao ?? '').trim());
+      if (semOper.length) {
+        kits = semOper;
+      } else {
+        const criados = await this.criarDeOp({ opId: op.id, faccaoId: dto.faccaoId, faccaoNome, operacaoFaccao: operacao } as CriarKitsDeOpDto, empresaId, usuario);
+        kits = criados.kits;
+      }
     }
 
     // Lote do tecido: NF informada → lote vinculado (LoteTecido) → lotes do romaneio da OP.
