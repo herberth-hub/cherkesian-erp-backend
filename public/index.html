@@ -4787,6 +4787,14 @@ async function viewPcp(c){
         o.atrasada?'<span class="pill red">atrasada</span>':(o.diasParaEntrega!=null?(o.diasParaEntrega+'d'):'—')
       ]), painel.length?null:'Nenhuma OP em aberto.') + `</div>`;
 }
+// Chips das OS já geradas de uma OP (operação + status) — usado na lista e no kanban.
+function opOsBadges(o){
+  const os=(o.osGeradas||[]); if(!os.length) return '';
+  const cor=s=>s==='em_faccao'?'#8a5a00':((s==='retornado'||s==='em_conferencia')?'#2a5a8a':(s==='finalizado'?'#2a6a2a':'#6b6b6b'));
+  const ico=s=>s==='finalizado'?'✓':((s==='retornado'||s==='em_conferencia')?'↩':(s==='em_faccao'?'⏳':'•'));
+  const chips=os.map(x=>`<span title="OS ${esc(x.controle)} · ${esc(x.faccao||'—')} · ${esc(x.status)} · ${x.pecas} pç" style="display:inline-block;background:#f6f1e2;border:1px solid #e0d3a8;border-radius:5px;padding:1px 6px;margin:3px 3px 0 0;font-size:10px;color:${cor(x.status)}">🏭 ${esc(x.operacao||'OS')} ${ico(x.status)}</span>`).join('');
+  return `<div style="margin-top:2px" title="OS geradas desta OP">${chips}</div>`;
+}
 // Kanban de produção: colunas por fase (A iniciar → Risco CAD → … → Finalizado).
 function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
@@ -4796,6 +4804,7 @@ function opsKanban(arr){
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
+      ${opOsBadges(o)}
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
     </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
   }).join('')}</div>`;
@@ -4856,13 +4865,6 @@ function opsAgrupadas(arr, verFin){
   arr.forEach(o=>{ const k=o.pedidoId||('sem'+o.id); if(!groups.has(k)) groups.set(k,{ped:o.pedido?o.pedido.numero:null, pedidoId:o.pedidoId||0, ops:[]}); groups.get(k).ops.push(o); });
   const _adminOp = S.user.acesso==='total';
   const opAcoes=o=>`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
-  const opOsBadges=o=>{
-    const os=(o.osGeradas||[]); if(!os.length) return '';
-    const cor=s=>s==='em_faccao'?'#8a5a00':((s==='retornado'||s==='em_conferencia')?'#2a5a8a':(s==='finalizado'?'#2a6a2a':'#6b6b6b'));
-    const ico=s=>s==='finalizado'?'✓':((s==='retornado'||s==='em_conferencia')?'↩':(s==='em_faccao'?'⏳':'•'));
-    const chips=os.map(x=>`<span title="OS ${esc(x.controle)} · ${esc(x.faccao||'—')} · ${esc(x.status)} · ${x.pecas} pç" style="display:inline-block;background:#f6f1e2;border:1px solid #e0d3a8;border-radius:5px;padding:1px 6px;margin:3px 3px 0 0;font-size:10px;color:${cor(x.status)}">🏭 ${esc(x.operacao||'OS')} ${ico(x.status)}</span>`).join('');
-    return `<div style="margin-top:2px" title="OS geradas desta OP">${chips}</div>`;
-  };
   return [...groups.values()].map(g=>{
     const totPecas=g.ops.reduce((s,o)=>s+(o.quantidade||0),0);
     const head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:#faf6ea;border-bottom:1px solid var(--line);flex-wrap:wrap">
