@@ -4804,22 +4804,50 @@ function opOsBadges(o){
   return `<div style="margin-top:2px" title="OS geradas desta OP">${chips}</div>`;
 }
 // Kanban de produção: colunas por fase (A iniciar → Risco CAD → … → Finalizado).
+// Arraste o card para a coluna do próximo setor p/ mover a OP (drag-and-drop).
 function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
-  return `<div class="kanban">${cols.map(col=>{
+  return `<div class="kanban">${cols.map((col,ci)=>{
     const items=arr.filter(col.t);
-    return `<div class="kcol"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard"${o.corteParcial?' style="border-left:3px solid #e08a00"':''}>
+    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" style="cursor:grab${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Arraste para o próximo setor">
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
       ${opOsBadges(o)}
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
-    </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
+    </div>`).join(''):'<div class="kempty">— <span style="font-size:10px">solte aqui</span></div>'}</div>`;
   }).join('')}</div>`;
+}
+// ---- Drag-and-drop do Kanban de OPs ----
+function opDragStart(e,id){ window.__opDragId=id; try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id));}catch(_){}
+  if(e.currentTarget&&e.currentTarget.style) e.currentTarget.style.opacity='.45'; }
+function opDragEnd(e){ if(e.currentTarget&&e.currentTarget.style) e.currentTarget.style.opacity=''; document.querySelectorAll('.kcol.dragover').forEach(k=>{k.classList.remove('dragover');k.style.background='';}); }
+function opDragOver(e){ e.preventDefault(); try{e.dataTransfer.dropEffect='move';}catch(_){} const k=e.currentTarget; if(k){k.classList.add('dragover');k.style.background='#fbf3d8';} }
+function opDragLeave(e){ const k=e.currentTarget; if(k){k.classList.remove('dragover');k.style.background='';} }
+async function opDrop(e,ci){ e.preventDefault(); const k=e.currentTarget; if(k){k.classList.remove('dragover');k.style.background='';}
+  const id=window.__opDragId||Number(e.dataTransfer&&e.dataTransfer.getData('text/plain')); window.__opDragId=null;
+  if(id) await opKanbanMover(Number(id), ci-1); // ci 0 = "A iniciar" (idx -1); ci i = OP_FASES[i-1]
+}
+// Move a OP para a fase da coluna soltada. Respeita os fluxos especiais (corte/finalizar).
+async function opKanbanMover(opId, targetIdx){
+  const o=(window.__OPS||[]).find(x=>x.id===opId); if(!o){ toast('OP não encontrada — recarregue.','err'); return; }
+  const curIdx=opFaseIdx(o);
+  if(targetIdx===curIdx) return; // mesma coluna
+  const alvo = targetIdx<0 ? null : OP_FASES[targetIdx];
+  // Finalizar: abre o fluxo de estoque/etiquetas (não é um simples set de status).
+  if(alvo && alvo.nome==='Finalizado'){ return opConcluirEtiquetas(o.id); }
+  // Saindo do Corte p/ frente: registra quanto foi cortado (igual ao botão ▶).
+  if(curIdx===1 && targetIdx>1){ return APP.formCorte(o); }
+  try{
+    if(!alvo){ await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:'a_iniciar', setorAtual:''}}); await api('/ops/'+o.id+'/progresso',{method:'PATCH',body:{progresso:0}}); }
+    else { await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:alvo.status, setorAtual:alvo.nome}}); await api('/ops/'+o.id+'/progresso',{method:'PATCH',body:{progresso:alvo.prog}}); }
+    toast('OP '+o.numero+' → '+(alvo?alvo.nome:'A iniciar'),'ok'); loadRoute();
+  }catch(err){ toast(err.message,'err'); }
 }
 function opToggleView(){ window.__opKanban=!window.__opKanban; loadRoute(); }
 async function viewProducao(c){
   const list = await api('/ops');
+  window.__OPS = list; // p/ o drag-and-drop do kanban achar a OP pelo id
   const fin = list.filter(o=>o.status==='concluido');
   const ativas = list.filter(o=>o.status!=='concluido');
   const verFin = !!window.__opVerFin;
@@ -9946,7 +9974,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
