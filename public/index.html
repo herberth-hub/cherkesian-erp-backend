@@ -2016,6 +2016,10 @@ async function buscarCnpjUnidade(i){
 function buscarCepUnidade(i){ return lookupCep('cu_cep_'+i, {logradouro:'cu_log_'+i, bairro:'cu_bairro_'+i, municipio:'cu_mun_'+i, uf:'cu_uf_'+i, codMunicipio:'cu_codmun_'+i}); }
 function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
 function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', _cidadeUf:'f_cidade'}); }
+// Completa endereço fiscal + código IBGE do fornecedor/facção pelo CEP (essencial p/ NF-e de remessa).
+function buscarCepForn(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', codMunicipio:'f_ibge'}); }
+// Completa endereço + IBGE do destinatário AVULSO da NF (form com e-mail p/ envio do XML/DANFE).
+function buscarCepDestAvulso(){ return lookupCep('nfa_cep', {logradouro:'nfa_log', bairro:'nfa_bairro', municipio:'nfa_mun', uf:'nfa_uf', codMunicipio:'nfa_cmun'}); }
 // Máscara automática de CNPJ/CPF enquanto digita (pontos, barra e traço).
 function maskDoc(el){
   if(!el) return; let d=String(el.value||'').replace(/\D/g,'').slice(0,14), out='';
@@ -2795,7 +2799,7 @@ async function formFornecedor(id){
     <div style="border-top:1px solid var(--line);margin:8px 0 4px;padding-top:8px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_faccao" ${f.faccao?'checked':''}> <b>É facção / oficina externa</b> <span class="muted">— dados fiscais abaixo p/ emitir NF-e de remessa</span></label></div>
     <div class="grid3">${field('f_ie','Inscrição Estadual','value="'+esc(f.inscricaoEstadual||'')+'"')}
       <div class="mrow"><label class="fl">Indicador IE</label><select id="f_indie" class="inp"><option value="">—</option><option value="1" ${f.indicadorIE==1?'selected':''}>1 · Contribuinte</option><option value="2" ${f.indicadorIE==2?'selected':''}>2 · Isento</option><option value="9" ${f.indicadorIE==9?'selected':''}>9 · Não contribuinte</option></select></div>
-      ${field('f_cep','CEP','value="'+esc(f.cep||'')+'"')}</div>
+      ${field('f_cep','CEP (preenche endereço + IBGE)','value="'+esc(f.cep||'')+'" onblur="APP.buscarCepForn()"')}</div>
     <div class="grid3">${field('f_log','Logradouro','value="'+esc(f.logradouro||'')+'"')}${field('f_num','Número','value="'+esc(f.numeroEndereco||'')+'"')}${field('f_bairro','Bairro','value="'+esc(f.bairro||'')+'"')}</div>
     <div class="grid3">${field('f_mun','Município','value="'+esc(f.municipio||'')+'"')}${field('f_uf','UF','value="'+esc(f.uf||'')+'"')}${field('f_ibge','Cód. IBGE município','value="'+esc(f.codMunicipio||'')+'"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -8154,7 +8158,7 @@ async function formNfeAvulsa(){
       </div>
       <div class="grid2">${field('nfa_log','Logradouro','placeholder="rua / av."')}${field('nfa_num','Número','placeholder="nº"')}</div>
       <div class="grid2">${field('nfa_bairro','Bairro','')}${field('nfa_mun','Município','')}</div>
-      <div class="grid3">${field('nfa_cmun','Cód. município (IBGE)','placeholder="7 dígitos"')}${field('nfa_uf','UF','placeholder="ex.: SP" maxlength="2"')}${field('nfa_cep','CEP','placeholder="só números"')}</div>
+      <div class="grid3">${field('nfa_cmun','Cód. município (IBGE)','placeholder="7 dígitos"')}${field('nfa_uf','UF','placeholder="ex.: SP" maxlength="2"')}${field('nfa_cep','CEP (preenche endereço + IBGE)','placeholder="só números" onblur="APP.buscarCepDestAvulso()"')}</div>
       <div class="muted" style="font-size:11px;margin-top:2px">Sem endereço completo a SEFAZ pode rejeitar — preencha o máximo possível.</div>
     </div>
     <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
@@ -9684,7 +9688,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav,
-  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
