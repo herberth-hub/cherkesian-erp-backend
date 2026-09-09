@@ -24,6 +24,8 @@ export class CriarKitsDeOpDto {
   @IsOptional() @IsString() @MaxLength(30) ordemCorte?: string;
   @IsOptional() @IsString() @MaxLength(30) mesaCorte?: string;
   @IsOptional() @IsString() @MaxLength(80) operadorCorte?: string;
+  /** Fase/operação terceirizada desta leva (Estamparia/Bordado, Costura, Lavanderia…). Permite gerar levas em fases diferentes p/ a mesma OP. */
+  @IsOptional() @IsString() @MaxLength(60) operacaoFaccao?: string;
   @IsOptional() @IsString() @MaxLength(40) cor?: string;
   @IsOptional() @IsString() @MaxLength(20) caixa?: string;
   /** Peças por jogo (componentes). Total de peças do kit = jogos × isto. Padrão 1. */

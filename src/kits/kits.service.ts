@@ -139,9 +139,18 @@ export class KitsService {
     if (!tamanhos.length) {
       throw new BadRequestException('A OP não tem grade definida. Confirme o corte (✂ Corte) ou defina a grade de tamanhos antes de gerar os kits.');
     }
-    // Evita duplicar kits da mesma OP.
-    const jaTem = await this.prisma.kit.count({ where: { empresaId, opId: op.id } });
-    if (jaTem > 0) throw new ConflictException(`A OP ${op.numero} já possui ${jaTem} kit(s) gerado(s).`);
+    // Fase/operação desta leva (Estamparia, Costura, Lavanderia…). Permite gerar
+    // várias levas da MESMA OP em fases diferentes (ex.: 1ª p/ estamparia, 2ª p/ costura).
+    const fase = (dto.operacaoFaccao ?? '').trim();
+    // Evita duplicar kits da mesma OP NA MESMA FASE (fases diferentes podem coexistir).
+    const kitsOp = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id }, select: { operacaoFaccao: true } });
+    const jaMesmaFase = kitsOp.filter((k) => (k.operacaoFaccao ?? '').trim().toLowerCase() === fase.toLowerCase()).length;
+    if (jaMesmaFase > 0) {
+      throw new ConflictException(
+        `A OP ${op.numero} já possui ${jaMesmaFase} kit(s)${fase ? ` na fase "${fase}"` : ' gerado(s)'}.` +
+        (fase ? ' Escolha outra fase para gerar uma nova leva.' : ' Informe a fase/operação (ex.: Costura) para gerar uma nova leva.'),
+      );
+    }
 
     const produto = op.produtoId ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { descricao: true } }) : null;
     const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
@@ -175,10 +184,11 @@ export class KitsService {
           dataCorte: agora,
           faccaoId: dto.faccaoId,
           faccaoNome: dto.faccaoNome,
+          operacaoFaccao: fase || undefined,
           caixa: dto.caixa,
           status: 'aguardando_expedicao',
           criadoPor: usuario,
-          eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s)${lote ? ' · lote ' + lote.codigoLote : ''}`, usuario } },
+          eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s)${fase ? ' · fase ' + fase : ''}${lote ? ' · lote ' + lote.codigoLote : ''}`, usuario } },
         },
       });
       criados.push(kit);

@@ -9377,7 +9377,7 @@ async function viewKits(c){
   const [db, kits] = await Promise.all([api('/kits/dashboard'), api('/kits')]);
   const rows = kits.map(k=>[
     `<span class="mono gold">${esc(k.codigo)}</span>`,
-    `<b>${esc(k.tamanho)}</b> · ${k.jogos}j/${k.pecasTotal}p`,
+    `<b>${esc(k.tamanho)}</b> · ${k.jogos}j/${k.pecasTotal}p${k.operacaoFaccao?`<div><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px">🧵 ${esc(k.operacaoFaccao)}</span></div>`:''}`,
     esc(k.modelo||'—')+(k.cor?' · '+esc(k.cor):''),
     esc(k.clienteNome||'—'),
     k.lote?`<span class="mono" style="font-size:11px">${esc(k.lote.codigoLote)}</span>`:'<span class="muted">—</span>',
@@ -9593,6 +9593,9 @@ async function formKitsDaOp(){
     <div class="mrow"><label class="fl">Ordem de Produção * <span class="muted" style="font-weight:400">(só em produção)</span></label><select id="kg_op" class="inp">${oo}</select></div>
     <div class="mrow"><label class="fl">Lote do tecido (enfesto) <span class="muted" style="font-weight:400">— opcional</span></label><select id="kg_lote" class="inp">${lo}</select></div>
     <div class="grid2">${field('kg_fac','Facção destino','placeholder="ex.: Facção Alfa"')}${field('kg_ppj','Peças por jogo','type="number" min="1" value="1"')}</div>
+    <div class="mrow"><label class="fl">Fase / operação desta leva <span class="muted" style="font-weight:400">— permite gerar levas por etapa (ex.: 1ª p/ Estamparia, 2ª p/ Costura)</span></label>
+      <input id="kg_fase" class="inp" list="kg_faselist" placeholder="ex.: Estamparia, Costura, Lavanderia, Acabamento" autocomplete="off">
+      <datalist id="kg_faselist"><option value="Estamparia"></option><option value="Bordado"></option><option value="Costura"></option><option value="Lavanderia"></option><option value="Acabamento"></option></datalist></div>
     <div class="grid3">${field('kg_enf','Enfesto','placeholder="EF-000184"')}${field('kg_oc','Ordem de corte','placeholder="OC-000241"')}${field('kg_mesa','Mesa de corte','')}</div>
     <div class="grid2">${field('kg_op2','Operador do corte','')}${field('kg_cor','Cor (se não vier do pedido)','')}</div>
     ${field('kg_caixa','Caixa de armazenamento','placeholder="ex.: CX-01"')}
@@ -9602,7 +9605,8 @@ async function formKitsDaOp(){
 async function saveKitsDaOp(){
   const body={ opId:Number(val('kg_op')),
     faccaoNome:val('kg_fac')||undefined, enfesto:val('kg_enf')||undefined, ordemCorte:val('kg_oc')||undefined,
-    mesaCorte:val('kg_mesa')||undefined, operadorCorte:val('kg_op2')||undefined, cor:val('kg_cor')||undefined, caixa:val('kg_caixa')||undefined };
+    mesaCorte:val('kg_mesa')||undefined, operadorCorte:val('kg_op2')||undefined, cor:val('kg_cor')||undefined, caixa:val('kg_caixa')||undefined,
+    operacaoFaccao:(val('kg_fase')||'').trim()||undefined };
   const loteId=Number(val('kg_lote')); if(loteId>0) body.loteTecidoId=loteId;
   const ppj=Number(val('kg_ppj')); if(ppj>0) body.pecasPorJogo=ppj;
   if(!body.opId){ toast('Selecione a OP.','err'); return; }
