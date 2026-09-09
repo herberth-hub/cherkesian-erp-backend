@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { EmpresaService } from './empresa.service';
 import { UpdateEmpresaDto } from './dto/update-empresa.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -24,5 +24,33 @@ export class EmpresaController {
   @Patch()
   update(@Body() dto: UpdateEmpresaDto, @CurrentUser() user: AuthUser) {
     return this.empresaService.update(user.empresaId, dto);
+  }
+
+  // ===== PCT — Plano de Controle de Teste (admin) =====
+  @Get('pct')
+  pctGet(@CurrentUser() user: AuthUser) {
+    return this.empresaService.pctGet(user.empresaId);
+  }
+
+  @Post('pct/ativo')
+  @HttpCode(HttpStatus.OK)
+  pctAtivo(@Body('ativo') ativo: boolean, @CurrentUser() user: AuthUser) {
+    return this.empresaService.pctSetAtivo(user.empresaId, !!ativo);
+  }
+
+  @Post('pct/teste')
+  @HttpCode(HttpStatus.OK)
+  pctAddTeste(@Body() dto: { funcionalidade: string; status: string; obs?: string }, @CurrentUser() user: AuthUser) {
+    return this.empresaService.pctAddTeste(user.empresaId, dto, user.usuario);
+  }
+
+  @Delete('pct/teste/:id')
+  pctDelTeste(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.empresaService.pctDelTeste(user.empresaId, id);
+  }
+
+  @Get('diagnostico')
+  diagnostico(@CurrentUser() user: AuthUser) {
+    return this.empresaService.diagnosticoGaps(user.empresaId);
   }
 }

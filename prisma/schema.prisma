@@ -80,6 +80,8 @@ model Empresa {
   regime    String   @default("Lucro Presumido")
   caixasMasterMax Int? @default(14) // até qual nº de caixa master existe (endereços e etiquetas: 1.000 .. N.000)
   caixasMasterPos Json? // posição de cada caixa master: { "23.000": { "col": "A", "andar": "3" } }
+  pctAtivo  Boolean @default(false) // Modo PCT (Plano de Controle de Teste) ligado
+  pctTestes Json?   // registros de teste do PCT: [{id,ts,funcionalidade,status,obs,usuario}]
   criadoEm  DateTime @default(now())
   usuarios  Usuario[]
   clientes  Cliente[]

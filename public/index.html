@@ -226,11 +226,11 @@ const NAVDEF = [
   ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
-  ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock']]],
+  ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock'],['pct','PCT · Testes & Gaps','spark']]],
   ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -272,6 +272,7 @@ const TITLES = {
   tray:['Tray','Integração Tray (multi-loja): conectar lojas e importar pedidos · admin'],
   whatsapp:['Robô WhatsApp','Atendimento comercial automático: orçamento → pedido no ERP · admin'],
   portal:['Meu Estoque & Prazos','Estoque pronta-entrega e andamento dos seus pedidos'],
+  pct:['PCT · Plano de Controle de Teste','Modo teste + diagnóstico automático de gaps · admin'],
 };
 const ICONS = {
   grid:'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
@@ -392,6 +393,8 @@ function onAuthed(d){
   if(hr && canAccess(hr)) S.route=hr;
   S.cache={};
   renderShell(); loadRoute(); checkDeepLink();
+  // Estado do Modo PCT (só admin acessa o endpoint) — mostra o banner de teste em qualquer tela.
+  if(S.user.acesso==='total'){ api('/empresa/pct').then(p=>{ window.__PCT_ATIVO=!!(p&&p.ativo); if(window.__PCT_ATIVO) renderTop(); }).catch(()=>{}); }
   toast('Bem-vindo, '+S.user.nome.split(' ')[0]+'!', 'ok');
 }
 function firstReady(allowed){ for(const r of allowed){ if(READY.has(r)) return r; } return allowed[0]; }
@@ -497,7 +500,8 @@ function navHtml(){
 }
 function renderTop(){
   const t = TITLES[S.route] || [S.route,''];
-  $('top').innerHTML = `
+  const pctBanner = window.__PCT_ATIVO ? `<div onclick="APP.go('pct')" title="Sistema em modo de teste — clique para abrir o PCT" style="cursor:pointer;background:repeating-linear-gradient(45deg,#f6d879,#f6d879 12px,#f2cf5e 12px,#f2cf5e 24px);color:#5a4708;font-weight:800;font-size:12px;text-align:center;padding:5px 10px;letter-spacing:.5px;border-bottom:2px solid #c99a2e">🧪 PLANO DE CONTROLE DE TESTE (PCT) ATIVO — modo teste ligado · clique para abrir</div>` : '';
+  $('top').innerHTML = pctBanner + `
     <div style="display:flex;align-items:center;gap:12px;min-width:0">
       <button class="hamb" aria-label="Menu" onclick="APP.toggleNav()">☰</button>
       <div style="min-width:0"><div class="tt">${esc(t[0])}</div><div class="ts">${esc(t[1])}</div></div>
@@ -574,6 +578,7 @@ async function loadRoute(){
     if(S.route==='kits') return await viewKits(c);
     if(S.route==='bi') return await viewBi(c);
     if(S.route==='portal') return await viewPortal(c);
+    if(S.route==='pct') return await viewPCT(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -9715,6 +9720,87 @@ async function kitDetalhe(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ================== PCT · Plano de Controle de Teste (admin) ==================
+async function viewPCT(c){
+  let d={ativo:false,testes:[]}; try{ d=await api('/empresa/pct'); }catch(e){}
+  window.__PCT=d; window.__PCT_ATIVO=!!d.ativo; renderTop();
+  c.innerHTML = `
+    <div class="sect" style="border-left:4px solid ${d.ativo?'#c99a2e':'#ccc'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><h3 style="margin:0">🧪 Modo PCT ${d.ativo?'<span class="pill gold">ATIVO</span>':'<span class="pill gray">desligado</span>'}</h3>
+          <div class="muted" style="font-size:12px;margin-top:2px">Entre em modo de teste p/ rodar os fluxos e registrar gaps/melhorias. Recomendo testar em pedidos/OPs pequenos.</div></div>
+        <button class="btn-primary" onclick="APP.pctToggle()">${d.ativo?'■ Desativar PCT':'▶ Ativar PCT'}</button>
+      </div>
+    </div>
+    <div class="sect">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <h3 style="margin:0">🔎 Diagnóstico automático — mapa de gaps</h3>
+        <button class="btn-sm" onclick="APP.pctDiag()">▶ Rodar diagnóstico</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin:2px 0 8px">O sistema varre (só-leitura) o estado atual e aponta inconsistências e gaps de processo.</div>
+      <div id="pct_diag"><div class="muted">Clique em "Rodar diagnóstico" para mapear os gaps.</div></div>
+    </div>
+    <div class="sect">
+      <h3 style="margin:0 0 6px">📝 Registrar teste</h3>
+      <div class="grid3">
+        ${field('pct_func','Funcionalidade testada','placeholder="ex.: Gerar OP avulsa"')}
+        <div class="mrow"><label class="fl">Resultado</label><select id="pct_status" class="inp"><option value="ok">✅ OK</option><option value="gap">🔴 Gap (falha)</option><option value="melhoria">💡 Melhoria</option></select></div>
+        <div style="display:flex;align-items:end"><button class="btn-primary" style="width:100%" onclick="APP.pctAddTeste()">+ Registrar</button></div>
+      </div>
+      <div class="mrow"><label class="fl">Observação</label><textarea id="pct_obs" class="inp" rows="2" placeholder="o que aconteceu, o que melhorar…"></textarea></div>
+      <div id="pct_lista" style="margin-top:8px">${pctListaHtml(d.testes)}</div>
+    </div>`;
+}
+function pctListaHtml(testes){
+  testes=testes||[];
+  if(!testes.length) return '<div class="muted">Nenhum teste registrado ainda.</div>';
+  const pill=s=>s==='ok'?'<span class="pill green">OK</span>':(s==='melhoria'?'<span class="pill" style="background:#eef4ff;color:#2b4a8b">Melhoria</span>':'<span class="pill red">Gap</span>');
+  return panelTable(['Quando','Funcionalidade','Resultado','Observação','Por','—'],
+    testes.map(t=>[
+      esc((t.ts||'').slice(0,16).replace('T',' ')),
+      esc(t.funcionalidade||'—'),
+      pill(t.status),
+      esc(t.obs||''),
+      esc(t.usuario||''),
+      `<button class="btn-sm" style="color:#c14a34" onclick="APP.pctDelTeste('${esc(t.id)}')">Excluir</button>`
+    ]));
+}
+async function pctToggle(){
+  const novo=!(window.__PCT&&window.__PCT.ativo);
+  try{ const d=await api('/empresa/pct/ativo',{method:'POST',body:{ativo:novo}}); window.__PCT=d; window.__PCT_ATIVO=!!d.ativo; toast(d.ativo?'🧪 Modo PCT ATIVADO.':'Modo PCT desativado.',d.ativo?'ok':'ok'); renderTop(); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function pctAddTeste(){
+  const funcionalidade=(val('pct_func')||'').trim(); if(!funcionalidade){ toast('Diga qual funcionalidade foi testada.','err'); return; }
+  const status=val('pct_status')||'gap'; const obs=(($('pct_obs')&&$('pct_obs').value)||'').trim();
+  try{ const d=await api('/empresa/pct/teste',{method:'POST',body:{funcionalidade,status,obs}}); window.__PCT=d;
+    const el=$('pct_lista'); if(el) el.innerHTML=pctListaHtml(d.testes); if($('pct_func'))$('pct_func').value=''; if($('pct_obs'))$('pct_obs').value=''; toast('Teste registrado.','ok'); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function pctDelTeste(id){
+  try{ const d=await api('/empresa/pct/teste/'+id,{method:'DELETE'}); window.__PCT=d; const el=$('pct_lista'); if(el) el.innerHTML=pctListaHtml(d.testes); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function pctDiag(){
+  const box=$('pct_diag'); if(box) box.innerHTML='<div class="muted">Rodando diagnóstico…</div>';
+  try{
+    const r=await api('/empresa/diagnostico');
+    if(!r.achados||!r.achados.length){ if(box) box.innerHTML='<div class="pill green" style="display:inline-block">✅ Nenhum gap encontrado nas checagens automáticas.</div>'; return; }
+    const sevPill=s=>s==='alta'?'<span class="pill red">ALTA</span>':(s==='media'?'<span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a">MÉDIA</span>':'<span class="pill gray">baixa</span>');
+    const rows=r.achados.map(a=>[
+      sevPill(a.severidade),
+      esc(a.area),
+      `${esc(a.titulo)}${a.exemplos&&a.exemplos.length?`<div class="muted" style="font-size:11px;margin-top:2px">ex.: ${esc(a.exemplos.join(', '))}</div>`:''}`,
+      `<b>${a.qtd}</b>`,
+      `<button class="btn-sm" onclick="APP.go('${esc(a.rota)}')">abrir →</button>`
+    ]);
+    box.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="pill red">${r.resumo.alta} alta(s)</span><span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a">${r.resumo.media} média(s)</span><span class="pill gray">${r.resumo.baixa} baixa(s)</span>
+        <span class="muted" style="font-size:11px;align-self:center">gerado ${esc((r.geradoEm||'').slice(0,16).replace('T',' '))}</span></div>`
+      + panelTable(['Severidade','Área','Gap','Qtd','—'], rows);
+  }catch(e){ if(box) box.innerHTML=`<div style="color:#c14a34">Falha ao rodar diagnóstico: ${esc(e.message)}</div>`; }
+}
+
 // ---------- API pública p/ onclick ----------
 window.APP = {
   login(){ doLogin(val('l_user'), $('l_pass').value); },
@@ -9723,7 +9809,7 @@ window.APP = {
   logout(){ logout(); },
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
-  toggleNav,
+  toggleNav, viewPCT, pctToggle, pctAddTeste, pctDelTeste, pctDiag,
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
