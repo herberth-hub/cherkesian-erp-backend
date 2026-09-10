@@ -1332,6 +1332,24 @@ export class DocumentosService {
       textoBloco(doc, piloto.obs);
     }
 
+    // Fluxo da piloto (14 etapas) com status concluído/pendente.
+    const fluxo = (brief as { fluxo?: Array<{ n: number; etapa: string; resp?: string; feito?: boolean }> } | null)?.fluxo ?? [];
+    if (fluxo.length) {
+      if (doc.y > doc.page.height - 180) doc.addPage();
+      const feitos = fluxo.filter((f) => f.feito).length;
+      secao(doc, `Fluxo da piloto — ${feitos}/${fluxo.length} etapas concluídas`);
+      tabela(
+        doc,
+        [
+          { titulo: '#', largura: 26 },
+          { titulo: 'Etapa', largura: 205 },
+          { titulo: 'Responsável', largura: 185 },
+          { titulo: 'Status', largura: 60 },
+        ],
+        fluxo.map((f) => [String(f.n), f.etapa, f.resp ?? '—', f.feito ? 'Concluída' : 'Pendente']),
+      );
+    }
+
     assinaturas(doc, 'Enviado por (Cherkesian)', 'Recebido pela piloteira');
     return doc;
   }
