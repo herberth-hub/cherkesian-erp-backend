@@ -740,13 +740,15 @@ export class NfeService {
     }
 
     // Reavalia o pai: se não sobrou nada, concluído; senão fica "parcial" com o residual.
-    const restam = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true } });
+    // Recalcula o valorTotal do PAI a partir dos itens que sobraram (evita drift do total).
+    const restam = await tx.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { quantidade: true, valorUnit: true } });
     const totalRestante = restam.reduce((s, i) => s + i.quantidade, 0);
+    const valorRestante = restam.reduce((s, i) => s + i.quantidade * Number(i.valorUnit), 0);
     await tx.pedido.update({
       where: { id: pedido.id },
       data: totalRestante <= 0
-        ? { etapa: 'concluido', status: 'Concluído (faturado em parciais)' }
-        : { etapa: 'parcial', status: `Parcial — faltam ${totalRestante} pç` },
+        ? { etapa: 'concluido', status: 'Concluído (faturado em parciais)', valorTotal: new Prisma.Decimal(valorRestante.toFixed(2)) }
+        : { etapa: 'parcial', status: `Parcial — faltam ${totalRestante} pç`, valorTotal: new Prisma.Decimal(valorRestante.toFixed(2)) },
     });
 
     // Histórico atrelado ao NOVO número: NF e contas a receber passam a apontar o filho.
@@ -792,7 +794,10 @@ export class NfeService {
             await tx.pedidoItem.update({ where: { id: it.id }, data });
           }
           await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'cancelado', status: 'Cancelado (NF cancelada)' } });
-          await tx.pedido.update({ where: { id: ped.pedidoPaiId }, data: { etapa: 'parcial', status: 'Expedição parcial' } });
+          // Recalcula o valorTotal do pai com os itens restaurados.
+          const itPai = await tx.pedidoItem.findMany({ where: { pedidoId: ped.pedidoPaiId }, select: { quantidade: true, valorUnit: true } });
+          const vPai = itPai.reduce((s, i) => s + i.quantidade * Number(i.valorUnit), 0);
+          await tx.pedido.update({ where: { id: ped.pedidoPaiId }, data: { etapa: 'parcial', status: 'Expedição parcial', valorTotal: new Prisma.Decimal(vPai.toFixed(2)) } });
           pedidoRevertido = `${ped.numero} (restaurado no pai)`;
         } else if (ped && ped.ops.length === 0 && ['aprovado', 'piloto'].includes(ped.etapa)) {
           await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'orcamento', status: 'Orçamento (NF cancelada)' } });
