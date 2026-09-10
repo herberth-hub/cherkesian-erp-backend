@@ -5107,7 +5107,7 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     toast('Gerando etiquetas…','ok');
     const todas = [];
     for(const l of lotes){
-      const body = { tipo:'produto', descricao, ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
+      const body = { tipo:'produto', descricao:descricao.slice(0,160), ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
         quantidade:l.quantidade, origem:'producao', destino, loteEntrada:'OP-'+id };
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
@@ -5702,7 +5702,7 @@ async function gerarUnidadesMP(destino){
       const it=itens[i];
       for(const r of (L[i]||[])){
         const q=Math.min(500, Math.max(0, Math.round(Number(r.vol)||0))); if(!q) continue;
-        const body={tipo:'materia', descricao:it.descricao, quantidade:q, origem:'entrada', destino};
+        const body={tipo:'materia', descricao:String(it.descricao||'').slice(0,160), quantidade:q, origem:'entrada', destino};
         const lote=(r.lote||'').trim(); if(lote) body.loteFornecedor=lote;
         const res=await api('/estoque/entrada',{method:'POST',body});
         (res.pecas||[]).forEach(p=>todas.push(p));
