@@ -398,6 +398,8 @@ function onAuthed(d){
   renderShell(); loadRoute(); checkDeepLink();
   // Estado do Modo PCT (só admin acessa o endpoint) — mostra o banner de teste em qualquer tela.
   if(S.user.acesso==='total'){ api('/empresa/pct').then(p=>{ window.__PCT_ATIVO=!!(p&&p.ativo); if(window.__PCT_ATIVO) renderTop(); }).catch(()=>{}); }
+  // Alerta automático de reposição: materiais abaixo do mínimo (quem tem acesso a compras).
+  if(canAccess('compras')){ api('/ordens-compra/sugestoes-reposicao').then(r=>{ const n=((r&&r.itens)||[]).length; window.__ESTOQUE_ALERTA=n; if(n>0) setTimeout(()=>toast('⚠️ '+n+' material(is) abaixo do mínimo — abra Compras › 🔁 Reposição.','err'),900); }).catch(()=>{}); }
   toast('Bem-vindo, '+S.user.nome.split(' ')[0]+'!', 'ok');
 }
 function firstReady(allowed){ for(const r of allowed){ if(READY.has(r)) return r; } return allowed[0]; }
