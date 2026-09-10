@@ -188,6 +188,71 @@ export class ComprasService {
     return { criadas, jaExistiam, fornecedor: fornPadrao.nome, mensagem };
   }
 
+  /**
+   * REPOSIÇÃO por ponto de estoque: lista os materiais com saldo ABAIXO do mínimo,
+   * já descontando o que houver em OC aberta, e sugere a quantidade a comprar
+   * (mínimo − saldo − emAberto). Só-leitura — o usuário revisa antes de gerar.
+   */
+  async sugestoesReposicao(empresaId: number) {
+    const mats = await this.prisma.material.findMany({
+      where: { empresaId },
+      select: { id: true, codigo: true, descricao: true, unidade: true, saldo: true, minimo: true, custo: true, fornecedorId: true },
+    });
+    const deficit = mats.filter((m) => Number(m.minimo) > 0 && Number(m.saldo) < Number(m.minimo));
+    if (!deficit.length) return { itens: [] };
+    const ocs = await this.prisma.ordemCompra.findMany({
+      where: { fornecedor: { empresaId }, status: 'aguardando', materialId: { in: deficit.map((m) => m.id) } },
+      select: { materialId: true, quantidade: true },
+    });
+    const jaOc = new Map<number, number>();
+    for (const o of ocs) if (o.materialId != null) jaOc.set(o.materialId, (jaOc.get(o.materialId) ?? 0) + Number(o.quantidade));
+    const fornIds = [...new Set(deficit.map((m) => m.fornecedorId).filter((x): x is number => x != null))];
+    const forns = fornIds.length ? await this.prisma.fornecedor.findMany({ where: { id: { in: fornIds } }, select: { id: true, nome: true, email: true } }) : [];
+    const fmap = new Map(forns.map((f) => [f.id, f]));
+    const itens = deficit.map((m) => {
+      const saldo = Number(m.saldo), minimo = Number(m.minimo), aberto = jaOc.get(m.id) ?? 0;
+      const sugerido = Math.max(0, Number((minimo - saldo - aberto).toFixed(3)));
+      const f = m.fornecedorId ? fmap.get(m.fornecedorId) : null;
+      return {
+        materialId: m.id, codigo: m.codigo, descricao: m.descricao, unidade: m.unidade,
+        saldo, minimo, custo: Number(m.custo), aberto, sugerido,
+        valor: Number((Number(m.custo) * sugerido).toFixed(2)),
+        fornecedorId: m.fornecedorId ?? null, fornecedorNome: f?.nome ?? null, fornecedorEmail: f?.email ?? null,
+      };
+    }).filter((x) => x.sugerido > 0);
+    return { itens };
+  }
+
+  /** Gera as OCs de reposição selecionadas pelo usuário (uma por material). */
+  async gerarReposicao(empresaId: number, itens: Array<{ materialId: number; quantidade: number; fornecedorId?: number }>) {
+    if (!itens?.length) throw new BadRequestException('Nenhum item selecionado para reposição.');
+    const fornPadrao = await this.prisma.fornecedor.findFirst({ where: { empresaId, nome: { contains: 'DEFINIR', mode: 'insensitive' } } });
+    const criadas: Array<{ id: number; numero: string; material: string; quantidade: number; unidade: string; valor: number; fornecedorId: number; fornecedorEmail: string | null }> = [];
+    for (const it of itens) {
+      const material = await this.prisma.material.findUnique({ where: { id: it.materialId } });
+      if (!material || material.empresaId !== empresaId) throw new NotFoundException(`Material ${it.materialId} não encontrado.`);
+      const qtd = Number(it.quantidade);
+      if (!(qtd > 0)) continue;
+      let fornecedorId = it.fornecedorId ?? material.fornecedorId ?? fornPadrao?.id;
+      if (!fornecedorId) throw new BadRequestException(`Material ${material.codigo} sem fornecedor — cadastre o fornecedor do material ou um "A DEFINIR".`);
+      const f = await this.prisma.fornecedor.findUnique({ where: { id: fornecedorId }, select: { empresaId: true, email: true } });
+      if (!f || f.empresaId !== empresaId) throw new NotFoundException(`Fornecedor ${fornecedorId} não encontrado.`);
+      const valorNum = Number((Number(material.custo) * qtd).toFixed(2));
+      const numero = await this.gerarNumero();
+      const oc = await this.prisma.ordemCompra.create({
+        data: {
+          numero, fornecedorId, materialId: material.id,
+          descricao: `${material.descricao} (${material.codigo})`,
+          quantidade: new Prisma.Decimal(qtd.toFixed(3)), unidade: material.unidade,
+          valor: new Prisma.Decimal(valorNum.toFixed(2)),
+          motivo: 'Reposição de estoque (abaixo do mínimo)',
+        },
+      });
+      criadas.push({ id: oc.id, numero: oc.numero, material: material.codigo, quantidade: qtd, unidade: material.unidade, valor: valorNum, fornecedorId, fornecedorEmail: f.email ?? null });
+    }
+    return { criadas, total: criadas.length };
+  }
+
   private async gerarNumero(): Promise<string> {
     const existentes = await this.prisma.ordemCompra.findMany({ select: { numero: true } });
     return proximoSequencial('OC', existentes.map((o) => o.numero), { pad: 4, separador: '-' });

@@ -5479,7 +5479,7 @@ async function saveBriefing(){
 async function viewCompras(c){
   const [list, forn] = await Promise.all([api('/ordens-compra'), api('/fornecedores')]);
   const nome={}; forn.forEach(f=>nome[f.id]=f.nome);
-  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', relBtn('compras')) + panelTable(
+  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'+relBtn('compras')) + panelTable(
     ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
@@ -5487,6 +5487,55 @@ async function viewCompras(c){
       ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
       (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" title="Enviar a ordem de compra por e-mail ao fornecedor" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧 Enviar</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma ordem de compra.');
+}
+// Reposição por déficit: materiais abaixo do mínimo → gerar OC (com fornecedor editável) e opção de enviar por e-mail.
+async function formReposicao(){
+  let d, forn; try{ [d, forn]=await Promise.all([api('/ordens-compra/sugestoes-reposicao'), api('/fornecedores')]); }catch(e){ toast(e.message,'err'); return; }
+  const itens=(d&&d.itens)||[]; window.__REPO=itens;
+  if(!itens.length){ await uiAlert({tipo:'ok', titulo:'Estoque em dia', msg:'Nenhum material abaixo do mínimo (considerando OCs já abertas).'}); return; }
+  const fo=id=>['<option value="">— fornecedor —</option>'].concat((forn||[]).map(f=>`<option value="${f.id}" ${f.id===id?'selected':''}>${esc(f.nomeFantasia||f.nome)}</option>`)).join('');
+  const rows=itens.map(x=>`<tr>
+    <td style="padding:4px 6px"><input type="checkbox" class="repck" data-mid="${x.materialId}" checked></td>
+    <td style="padding:4px 6px"><b class="mono gold">${esc(x.codigo)}</b><div class="muted" style="font-size:10.5px">${esc(x.descricao)}</div></td>
+    <td style="padding:4px 6px;text-align:right;color:${x.saldo<x.minimo?'#c14a34':''}">${x.saldo}</td>
+    <td style="padding:4px 6px;text-align:right">${x.minimo}</td>
+    <td style="padding:4px 6px;text-align:right">${x.aberto||0}</td>
+    <td style="padding:4px 6px"><input id="rep_q_${x.materialId}" class="inp" type="number" step="any" min="0" value="${x.sugerido}" style="width:80px;padding:4px 6px;text-align:right" oninput="APP.repCalc(${x.materialId},${x.custo})"><div class="muted" style="font-size:9.5px">${esc(x.unidade)}</div></td>
+    <td style="padding:4px 6px"><select id="rep_f_${x.materialId}" class="inp" style="min-width:150px">${fo(x.fornecedorId)}</select>${x.fornecedorEmail?`<div class="muted" style="font-size:9.5px">✉️ ${esc(x.fornecedorEmail)}</div>`:'<div class="muted" style="font-size:9.5px;color:#c14a34">sem e-mail</div>'}</td>
+    <td id="rep_v_${x.materialId}" style="padding:4px 6px;text-align:right;font-weight:700">${money(x.valor)}</td>
+  </tr>`).join('');
+  openModal(`<h3>🔁 Reposição de estoque — ${itens.length} material(is) abaixo do mínimo</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Sugestão = <b>mínimo − saldo − (OC aberta)</b>. Ajuste quantidade/fornecedor, desmarque o que não quiser, e gere as OCs.</div>
+    <div style="max-height:56vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#faf6ea">${['','Material','Saldo','Mín.','Em OC','Comprar','Fornecedor','Valor'].map(h=>`<th style="padding:5px 6px;text-align:left;border-bottom:1px solid var(--line)">${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="rep_email" checked> Após gerar, <b>enviar por e-mail</b> ao fornecedor (só os que têm e-mail)</label>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveReposicao()">Gerar OCs</button></div>`, {wide:true});
+}
+function repCalc(mid,custo){ const q=parseFloat((val('rep_q_'+mid)||'').replace(',','.'))||0; const el=$('rep_v_'+mid); if(el) el.textContent=money(q*Number(custo||0)); }
+async function saveReposicao(){
+  const enviar = $('rep_email') && $('rep_email').checked;
+  const itens=[];
+  document.querySelectorAll('.repck').forEach(ck=>{ if(!ck.checked) return; const mid=Number(ck.getAttribute('data-mid'));
+    const q=parseFloat((val('rep_q_'+mid)||'').replace(',','.'))||0; if(q<=0) return;
+    const fid=Number(val('rep_f_'+mid))||undefined; itens.push({materialId:mid, quantidade:q, fornecedorId:fid}); });
+  if(!itens.length){ toast('Selecione ao menos um material com quantidade > 0.','err'); return; }
+  try{
+    const r=await api('/ordens-compra/reposicao',{method:'POST',body:{itens}});
+    closeModal();
+    toast((r.total||0)+' OC(s) de reposição criada(s).','ok');
+    // Envio por e-mail (com aprovação única): gera o doc e envia p/ quem tem e-mail.
+    if(enviar){
+      const comEmail=(r.criadas||[]).filter(o=>o.fornecedorEmail);
+      const semEmail=(r.criadas||[]).length-comEmail.length;
+      if(comEmail.length && await uiConfirm({tipo:'info', titulo:'Enviar '+comEmail.length+' OC(s) por e-mail?', ok:'Enviar', cancel:'Agora não', msg:'Envia o PDF de cada OC ao e-mail do fornecedor'+(semEmail?(' · '+semEmail+' sem e-mail serão puladas'):'')+'.'})){
+        let ok=0; for(const o of comEmail){ try{ const dc=await api('/documentos/pedido_compra',{method:'POST',body:{referenciaId:o.id}}); await api('/documentos/'+dc.id+'/enviar-email',{method:'POST',body:{para:o.fornecedorEmail}}); ok++; }catch(e){} }
+        toast(ok+' e-mail(s) enviado(s)'+(ok<comEmail.length?(' · '+(comEmail.length-ok)+' falharam'):'')+'.', ok?'ok':'err');
+      }
+    }
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function formCompra(){
   const [forn, mats] = await Promise.all([api('/fornecedores'), api('/materiais')]);
@@ -10158,7 +10207,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
+  formCompra, ocMat, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,

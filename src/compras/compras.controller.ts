@@ -25,6 +25,13 @@ export class ComprasController {
     return this.comprasService.findAll(user.empresaId);
   }
 
+  /** Materiais abaixo do mínimo (ponto de reposição) — sugestão só-leitura.
+   *  Declarado ANTES de ':id' p/ não ser capturado pelo ParseIntPipe. */
+  @Get('sugestoes-reposicao')
+  sugestoesReposicao(@CurrentUser() user: AuthUser) {
+    return this.comprasService.sugestoesReposicao(user.empresaId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.comprasService.findOne(id, user.empresaId);
@@ -40,6 +47,13 @@ export class ComprasController {
   @HttpCode(HttpStatus.CREATED)
   sugerirTecido(@CurrentUser() user: AuthUser) {
     return this.comprasService.sugerirCompraTecido(user.empresaId);
+  }
+
+  /** Gera as OCs de reposição selecionadas/ajustadas pelo usuário. */
+  @Post('reposicao')
+  @HttpCode(HttpStatus.CREATED)
+  gerarReposicao(@Body() body: { itens: Array<{ materialId: number; quantidade: number; fornecedorId?: number }> }, @CurrentUser() user: AuthUser) {
+    return this.comprasService.gerarReposicao(user.empresaId, body?.itens ?? []);
   }
 
   @Post(':id/receber')
