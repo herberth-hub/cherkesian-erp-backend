@@ -34,16 +34,16 @@ export class PedidosService {
       orderBy: { id: 'desc' },
     });
 
-    // NF-e vinculadas ao pedido (nº + status) para exibir na lista.
+    // NF-e vinculadas ao pedido (nº + status + tipo) para exibir na lista.
     const notas = await this.prisma.notaFiscal.findMany({
       where: { empresaId, pedidoId: { not: null } },
-      select: { pedidoId: true, numero: true, status: true },
+      select: { pedidoId: true, numero: true, status: true, tipo: true },
       orderBy: { id: 'asc' },
     });
-    const nfPorPedido = new Map<number, { numero: string; status: string }[]>();
+    const nfPorPedido = new Map<number, { numero: string; status: string; tipo: string }[]>();
     for (const n of notas) {
       const arr = nfPorPedido.get(n.pedidoId as number) ?? [];
-      arr.push({ numero: n.numero, status: n.status });
+      arr.push({ numero: n.numero, status: n.status, tipo: n.tipo });
       nfPorPedido.set(n.pedidoId as number, arr);
     }
 

@@ -1515,7 +1515,7 @@ function renderPedidos(){
     ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
     arr.map(p=>[
       `<input type="checkbox" class="pedck" value="${p.id}" onclick="APP.pedSelInfo()">`,
-      `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}${pedRefTag(p)}`,
+      `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}${(p.nfs||[]).some(n=>n.tipo==='faturamento'&&n.status!=='cancelada')?'<div style="margin-top:2px"><span class="pill" style="background:#eaf3ff;color:#1e5aa8;font-size:9px" title="NF de faturamento emitida (venda futura) — o pedido continua em produção até expedir">🧾 venda futura</span></div>':''}${pedRefTag(p)}`,
       `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
