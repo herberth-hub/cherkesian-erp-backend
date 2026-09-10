@@ -4824,7 +4824,7 @@ function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
   return `<div class="kanban">${cols.map((col,ci)=>{
     const items=arr.filter(col.t);
-    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" style="cursor:grab${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Arraste para o próximo setor">
+    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
@@ -4836,7 +4836,31 @@ function opsKanban(arr){
 // ---- Drag-and-drop do Kanban de OPs ----
 function opDragStart(e,id){ window.__opDragId=id; try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(id));}catch(_){}
   if(e.currentTarget&&e.currentTarget.style) e.currentTarget.style.opacity='.45'; }
-function opDragEnd(e){ if(e.currentTarget&&e.currentTarget.style) e.currentTarget.style.opacity=''; document.querySelectorAll('.kcol.dragover').forEach(k=>{k.classList.remove('dragover');k.style.background='';}); }
+function opDragEnd(e){ if(e.currentTarget&&e.currentTarget.style) e.currentTarget.style.opacity=''; window.__opJustDragged=Date.now(); document.querySelectorAll('.kcol.dragover').forEach(k=>{k.classList.remove('dragover');k.style.background='';}); }
+// Clique no card do kanban → abre a OP (dados + ações). Ignora clique logo após arrastar.
+function opAbrirCard(id){
+  if(Date.now()-(window.__opJustDragged||0) < 250) return;
+  const o=(window.__OPS||[]).find(x=>x.id===id); if(!o){ toast('OP não encontrada — recarregue.','err'); return; }
+  const g=o.gradeTamanhos&&Object.keys(o.gradeTamanhos).length?o.gradeTamanhos:null;
+  const gradeHtml=g?`<div style="margin-top:8px"><div class="fl">Grade</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">${Object.entries(g).map(([t,q])=>`<span class="pill gray"><b>${esc(t)}</b> ${q}</span>`).join('')}</div></div>`:'';
+  const _admin=S.user.acesso==='total';
+  const acoes=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" onclick='APP.closeModal();APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.closeModal();APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_admin?`<button class="btn-sm" onclick="APP.closeModal();APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.closeModal();APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})'>✏️ Ajustar</button> <button class="btn-sm" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+  openModal(`<h3><span class="mono gold">${esc(o.numero)}</span> ${o.corteParcial?'<span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</h3>
+    <div class="grid2" style="margin-bottom:2px">
+      <div><div class="fl">Produto</div><div style="font-weight:600">${esc(o.produtoDescricao||'—')}${o.cor?' · '+esc(o.cor):''}</div></div>
+      <div><div class="fl">Pedido</div><div>${o.pedido?esc(o.pedido.numero):'<span class="muted">avulsa</span>'}</div></div>
+    </div>
+    <div class="grid3" style="margin-top:6px">
+      <div><div class="fl">Quantidade</div><b>${o.quantidade} pç</b></div>
+      <div><div class="fl">Status</div>${opPill(o.status)}</div>
+      <div><div class="fl">Prioridade</div>${prioPill(o.prioridade)}</div>
+    </div>
+    <div style="margin-top:8px"><div class="fl">Fase atual</div><b>${esc(o.setorAtual||'—')}</b> ${bar(o.progresso)}</div>
+    ${o.osGeradas&&o.osGeradas.length?`<div style="margin-top:8px"><div class="fl">OS geradas</div>${opOsBadges(o)}</div>`:''}
+    ${gradeHtml}
+    ${acoes}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
 function opDragOver(e){ e.preventDefault(); try{e.dataTransfer.dropEffect='move';}catch(_){} const k=e.currentTarget; if(k){k.classList.add('dragover');k.style.background='#fbf3d8';} }
 function opDragLeave(e){ const k=e.currentTarget; if(k){k.classList.remove('dragover');k.style.background='';} }
 async function opDrop(e,ci){ e.preventDefault(); const k=e.currentTarget; if(k){k.classList.remove('dragover');k.style.background='';}
@@ -10221,7 +10245,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
