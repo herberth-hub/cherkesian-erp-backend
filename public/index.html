@@ -4810,13 +4810,31 @@ async function viewPcp(c){
         o.atrasada?'<span class="pill red">atrasada</span>':(o.diasParaEntrega!=null?(o.diasParaEntrega+'d'):'—')
       ]), painel.length?null:'Nenhuma OP em aberto.') + `</div>`;
 }
+// Abre a OS (kits de um controleFaccao) num painel — chamado pelos chips de OS.
+async function abrirOS(controle){
+  if(!controle) return;
+  let kits; try{ kits=await api('/kits/controle/'+encodeURIComponent(controle)); }catch(e){ toast(e.message,'err'); return; }
+  if(!kits||!kits.length){ toast('Nenhum kit neste controle ('+controle+').','err'); return; }
+  const oper=kits[0].operacaoFaccao||'—', fac=kits[0].faccaoNome||'—';
+  const totPecas=kits.reduce((s,k)=>s+(Number(k.pecasTotal)||0),0);
+  const rows=kits.map(k=>[`<span class="mono gold">${esc(k.codigo)}</span>`, `<b>${esc(k.tamanho)}</b>`, (k.pecasTotal||0)+' pç', kitPill(k.status)]);
+  openModal(`<h3>🏭 OS <span class="mono gold">${esc(controle)}</span></h3>
+    <div class="grid3" style="margin-bottom:8px">
+      <div><div class="fl">Operação</div><b>${esc(oper)}</b></div>
+      <div><div class="fl">Facção / oficina</div>${esc(fac)}</div>
+      <div><div class="fl">Total</div><b>${totPecas} pç · ${kits.length} kit(s)</b></div>
+    </div>
+    ${panelTable(['Kit','Tam','Peças','Status'], rows)}
+    <div class="muted" style="font-size:11px;margin-top:6px">Gerencie/bipe os kits em <b>Kits / Rastreio</b>. Controle: <b class="mono">${esc(controle)}</b>.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
 // Chips das OS já geradas de uma OP (operação + status) — usado na lista e no kanban.
 function opOsBadges(o){
   const os=(o.osGeradas||[]); if(!os.length) return '';
   const cor=s=>s==='em_faccao'?'#8a5a00':((s==='retornado'||s==='em_conferencia')?'#2a5a8a':(s==='finalizado'?'#2a6a2a':'#6b6b6b'));
   const ico=s=>s==='finalizado'?'✓':((s==='retornado'||s==='em_conferencia')?'↩':(s==='em_faccao'?'⏳':'•'));
-  const chips=os.map(x=>`<span title="OS ${esc(x.controle)} · ${esc(x.faccao||'—')} · ${esc(x.status)} · ${x.pecas} pç" style="display:inline-block;background:#f6f1e2;border:1px solid #e0d3a8;border-radius:5px;padding:1px 6px;margin:3px 3px 0 0;font-size:10px;color:${cor(x.status)}">🏭 ${esc(x.operacao||'OS')} ${ico(x.status)}</span>`).join('');
-  return `<div style="margin-top:2px" title="OS geradas desta OP">${chips}</div>`;
+  const chips=os.map(x=>`<span onclick="event.stopPropagation();APP.abrirOS('${esc(x.controle)}')" title="Abrir OS ${esc(x.controle)} · ${esc(x.faccao||'—')} · ${esc(x.status)} · ${x.pecas} pç" style="cursor:pointer;display:inline-block;background:#f6f1e2;border:1px solid #e0d3a8;border-radius:5px;padding:1px 6px;margin:3px 3px 0 0;font-size:10px;color:${cor(x.status)}">🏭 ${esc(x.operacao||'OS')} ${ico(x.status)}</span>`).join('');
+  return `<div style="margin-top:2px" title="OS geradas desta OP (clique para abrir)">${chips}</div>`;
 }
 // Kanban de produção: colunas por fase (A iniciar → Risco CAD → … → Finalizado).
 // Arraste o card para a coluna do próximo setor p/ mover a OP (drag-and-drop).
@@ -10244,7 +10262,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
