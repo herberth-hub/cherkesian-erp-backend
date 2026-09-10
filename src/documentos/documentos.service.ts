@@ -1265,6 +1265,34 @@ export class DocumentosService {
       ]);
     }
 
+    // Tabela de medidas do briefing (Especificado × Medido → desvio + OK/FORA).
+    const meds = (brief as { medidas?: Array<{ cod: string; ponto: string; tol: number; esp?: number | string; med?: number | string; desvio?: number | null; status?: string }> } | null)?.medidas ?? [];
+    if (meds.length) {
+      if (doc.y > doc.page.height - 160) doc.addPage();
+      secao(doc, 'Tabela de medidas (cm · peça pronta, mesa plana)');
+      tabela(
+        doc,
+        [
+          { titulo: 'Cód.', largura: 40 },
+          { titulo: 'Ponto de medida', largura: 205 },
+          { titulo: 'Tol.±', largura: 45, alinhamento: 'right' },
+          { titulo: 'Especif.', largura: 60, alinhamento: 'right' },
+          { titulo: 'Medido', largura: 60, alinhamento: 'right' },
+          { titulo: 'Desvio', largura: 55, alinhamento: 'right' },
+          { titulo: 'Status', largura: 50 },
+        ],
+        meds.map((m) => [
+          m.cod,
+          m.ponto,
+          `±${m.tol}`,
+          m.esp != null && m.esp !== '' ? String(m.esp) : '—',
+          m.med != null && m.med !== '' ? String(m.med) : '—',
+          m.desvio != null ? (m.desvio > 0 ? '+' : '') + Number(m.desvio).toFixed(2) : '—',
+          m.status || '—',
+        ]),
+      );
+    }
+
     // Foto do modelo (ou moldura em branco p/ anexar).
     secao(doc, 'Modelo da peça');
     if (produto?.fotoModelo) {

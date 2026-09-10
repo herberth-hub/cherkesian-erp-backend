@@ -5357,7 +5357,8 @@ function briefFlat(brief){ const m={}; if(brief&&Array.isArray(brief.secoes)) br
 async function formBriefingPiloto(id){
   if(!window.BRIEFING_SCHEMA){ toast('Schema do briefing não carregou (recarregue a página).','err'); return; }
   let p; try{ p=await api('/pilotos/'+id); }catch(e){ toast(e.message,'err'); return; }
-  window.__BRIEF={ id, respostas: briefFlat(p.briefing), produto: p.briefingProduto||'' };
+  const medMap={}; if(p.briefing&&Array.isArray(p.briefing.medidas)) p.briefing.medidas.forEach(m=>{ if(m&&m.cod) medMap[m.cod]={esp:m.esp,med:m.med}; });
+  window.__BRIEF={ id, respostas: briefFlat(p.briefing), produto: p.briefingProduto||'', medidas: medMap };
   const prods=window.BRIEFING_PRODUTOS||[];
   const opts=['<option value="">— escolha o produto —</option>'].concat(prods.map(x=>`<option value="${esc(x)}" ${x===window.__BRIEF.produto?'selected':''}>${esc(x)}</option>`)).join('');
   openModal(`<h3>📋 Briefing de peça piloto <span class="muted" style="font-weight:400;font-size:12px">· ${esc(p.codigo||'')}</span></h3>
@@ -5388,7 +5389,39 @@ function briefRender(){
   box.innerHTML = secoes.map(s=>`<div style="margin-top:10px">
     <div style="font-weight:700;font-size:12.5px;color:#8a5a00;border-bottom:1px solid var(--line);padding-bottom:3px;margin-bottom:6px">${esc(s.sec)}</div>
     ${s.campos.map(c=>`<div class="mrow" style="margin-bottom:6px"><label class="fl" style="font-size:11.5px">${esc(c.label)}${(c.obrig==='S')?' <span style="color:#c14a34">*</span>':(c.obrig==='Cond.'?' <span class="muted">(cond.)</span>':'')}${c.unid?(' <span class="muted">('+esc(c.unid)+')</span>'):''}${c.resp?(' <span class="muted" style="font-size:9px">· '+esc(c.resp)+'</span>'):''}</label>${briefCampoInput(c, R[c.id])}</div>`).join('')}
-  </div>`).join('');
+  </div>`).join('') + briefMedHtml(prod);
+  ((window.BRIEFING_MED&&window.BRIEFING_MED[prod])||[]).forEach(pt=>briefMedCalc(pt.cod, pt.tol));
+}
+// Tabela de medidas do produto (Especificado × Medido → desvio + OK/FORA pela tolerância).
+function briefMedHtml(prod){
+  const pts=(window.BRIEFING_MED&&window.BRIEFING_MED[prod])||[]; if(!pts.length) return '';
+  const M=window.__BRIEF.medidas||{};
+  const linhas=pts.map(pt=>{ const cur=M[pt.cod]||{}; const esp=cur.esp!=null?cur.esp:''; const med=cur.med!=null?cur.med:'';
+    return `<tr>
+      <td style="padding:4px 6px;font-weight:700" title="${esc(pt.comoMedir)}">${esc(pt.cod)}</td>
+      <td style="padding:4px 6px;font-size:11.5px">${esc(pt.ponto)}<div class="muted" style="font-size:9.5px">${esc(pt.comoMedir)}</div></td>
+      <td style="padding:4px 6px;text-align:center">±${pt.tol}</td>
+      <td style="padding:4px 6px"><input id="brm_esp_${esc(pt.cod)}" class="inp" type="number" step="any" value="${esc(String(esp))}" style="width:78px;padding:4px 6px;text-align:center" oninput="APP.briefMedCalc('${esc(pt.cod)}',${pt.tol})"></td>
+      <td style="padding:4px 6px"><input id="brm_med_${esc(pt.cod)}" class="inp" type="number" step="any" value="${esc(String(med))}" style="width:78px;padding:4px 6px;text-align:center" oninput="APP.briefMedCalc('${esc(pt.cod)}',${pt.tol})"></td>
+      <td id="brm_dev_${esc(pt.cod)}" style="padding:4px 6px;text-align:center;font-weight:700"></td>
+      <td id="brm_st_${esc(pt.cod)}" style="padding:4px 6px;text-align:center"></td>
+    </tr>`; }).join('');
+  return `<div style="margin-top:14px">
+    <div style="font-weight:700;font-size:12.5px;color:#8a5a00;border-bottom:1px solid var(--line);padding-bottom:3px;margin-bottom:6px">📐 Tabela de medidas (cm · peça pronta, mesa plana)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#faf6ea">${['Cód.','Ponto de medida','Tol.±','Especificado','Medido','Desvio','Status'].map(h=>`<th style="padding:5px 6px;text-align:left;border-bottom:1px solid var(--line)">${h}</th>`).join('')}</tr></thead>
+      <tbody>${linhas}</tbody></table></div></div>`;
+}
+function briefMedCalc(cod,tol){
+  const esp=parseFloat((val('brm_esp_'+cod)||'').replace(',','.'));
+  const med=parseFloat((val('brm_med_'+cod)||'').replace(',','.'));
+  const dev=$('brm_dev_'+cod), st=$('brm_st_'+cod); if(!dev||!st) return;
+  if(isNaN(esp)||isNaN(med)){ dev.textContent=''; st.innerHTML=''; return; }
+  const d=Math.round((med-esp)*100)/100;
+  dev.textContent=(d>0?'+':'')+d.toFixed(2);
+  const ok=Math.abs(d)<=Number(tol);
+  dev.style.color=ok?'#1e7a44':'#c14a34';
+  st.innerHTML=ok?'<span class="pill green" style="font-size:9px">OK</span>':'<span class="pill red" style="font-size:9px">FORA</span>';
 }
 async function saveBriefing(){
   const prod=val('brf_prod'); if(!prod){ toast('Escolha o tipo de produto.','err'); return; }
@@ -5400,7 +5433,17 @@ async function saveBriefing(){
     return { id:c.id, label:c.label, unid:c.unid||'', valor };
   }) }));
   if(faltando.length){ if(!(await uiConfirm({tipo:'warn', titulo:'Campos obrigatórios em branco', msg:'Faltam '+faltando.length+' obrigatório(s): '+faltando.slice(0,6).join(', ')+(faltando.length>6?'…':'')+'. Salvar assim mesmo (rascunho)?', ok:'Salvar rascunho', cancel:'Voltar'}))) return; }
-  const briefing={ produto:prod, revisao:'Rev.01', geradoEm:new Date().toISOString(), secoes:outSec };
+  // Tabela de medidas (Especificado × Medido → desvio + OK/FORA).
+  const pts=(window.BRIEFING_MED&&window.BRIEFING_MED[prod])||[];
+  const medidas=pts.map(pt=>{
+    const esp=parseFloat((val('brm_esp_'+pt.cod)||'').replace(',','.'));
+    const med=parseFloat((val('brm_med_'+pt.cod)||'').replace(',','.'));
+    const temAmbos=!isNaN(esp)&&!isNaN(med);
+    const desvio=temAmbos?Math.round((med-esp)*100)/100:null;
+    const status=temAmbos?(Math.abs(desvio)<=Number(pt.tol)?'OK':'FORA'):'';
+    return { cod:pt.cod, ponto:pt.ponto, tol:pt.tol, esp:isNaN(esp)?'':esp, med:isNaN(med)?'':med, desvio, status };
+  }).filter(m=>m.esp!==''||m.med!=='');
+  const briefing={ produto:prod, revisao:'Rev.01', geradoEm:new Date().toISOString(), secoes:outSec, medidas };
   try{ await api('/pilotos/'+window.__BRIEF.id,{method:'PATCH',body:{ briefing, briefingProduto:prod }}); closeModal(); toast('Briefing salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
@@ -10084,7 +10127,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocMat, saveCompra, receberCompra, cancelarCompra,
