@@ -5359,7 +5359,7 @@ async function viewCompras(c){
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
       ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
-      (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
+      (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" title="Enviar a ordem de compra por e-mail ao fornecedor" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧 Enviar</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
     ]), list.length?null:'Nenhuma ordem de compra.');
 }
 async function formCompra(){
@@ -8070,6 +8070,17 @@ async function formEmailDoc(tipo, refId, clienteId){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.sendEmailDoc('${tipo}',${refId})">Enviar</button></div>`);
 }
+// Envia a ORDEM DE COMPRA por e-mail ao FORNECEDOR (puxa o e-mail cadastrado dele).
+async function formEmailOc(ocId, fornId){
+  let emailSugerido='', nomeForn='';
+  try{ const f=await api('/fornecedores/'+fornId); emailSugerido=f.email||''; nomeForn=f.nomeFantasia||f.nome||''; }catch(e){}
+  openModal(`<h3>📧 Enviar Ordem de Compra por e-mail</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Envia o PDF da OC${nomeForn?(' para <b>'+esc(nomeForn)+'</b>'):''}. ${emailSugerido?'E-mail puxado do cadastro do fornecedor.':'<span style="color:#c14a34">Fornecedor sem e-mail cadastrado — informe abaixo (e cadastre depois em Fornecedores).</span>'}</div>
+    ${field('f_para','Para (e-mail) * — vários? separe por vírgula','type="text" value="'+esc(emailSugerido)+'" placeholder="compras@fornecedor.com.br"')}
+    ${field('f_msg','Mensagem (opcional)','placeholder="Ex.: Segue nossa ordem de compra. Favor confirmar prazo."')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.sendEmailDoc('pedido_compra',${ocId})">Enviar</button></div>`);
+}
 async function sendEmailDoc(tipo, refId){
   const mensagem = val('f_msg');
   // Aceita vários e-mails separados por vírgula/;/espaço.
@@ -10030,7 +10041,7 @@ window.APP = {
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
