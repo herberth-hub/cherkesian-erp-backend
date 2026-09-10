@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Empresa, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { UpdateEmpresaDto } from './dto/update-empresa.dto';
 
 /** Registro de teste do PCT (Plano de Controle de Teste). */
@@ -8,7 +9,25 @@ type PctTeste = { id: string; ts: string; funcionalidade: string; status: string
 
 @Injectable()
 export class EmpresaService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
+
+  /** Testa a configuração de e-mail: envia uma mensagem de teste ao endereço dado. */
+  async testarEmail(empresaId: number, para: string, usuario: string) {
+    const dest = (para || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(dest)) throw new BadRequestException('Informe um e-mail de destino válido.');
+    const marca = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, select: { nome: true, nomeFantasia: true } });
+    const nome = (marca?.nomeFantasia || marca?.nome || 'GRUPO CHERKESIAN').trim();
+    const r = await this.email.enviar({
+      para: dest,
+      remetenteNome: nome,
+      assunto: `Teste de e-mail — ${nome}`,
+      texto: `Este é um e-mail de teste do Cherkesian ERP, disparado por ${usuario}.\n\nSe você recebeu esta mensagem, o envio por e-mail (SMTP) está funcionando.\n\n${nome} · Cherkesian ERP`,
+    });
+    return { ...r, para: dest };
+  }
 
   async get(empresaId: number): Promise<Empresa> {
     const empresa = await this.prisma.empresa.findUnique({ where: { id: empresaId } });

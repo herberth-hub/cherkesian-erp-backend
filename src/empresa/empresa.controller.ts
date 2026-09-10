@@ -53,4 +53,10 @@ export class EmpresaController {
   diagnostico(@CurrentUser() user: AuthUser) {
     return this.empresaService.diagnosticoGaps(user.empresaId);
   }
+
+  @Post('testar-email')
+  @HttpCode(HttpStatus.OK)
+  testarEmail(@Body('para') para: string, @CurrentUser() user: AuthUser) {
+    return this.empresaService.testarEmail(user.empresaId, para, user.usuario);
+  }
 }

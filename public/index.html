@@ -8934,6 +8934,12 @@ async function viewEmpresa(c){
     : `<div class="card" style="background:#fbf7e8;border-color:#efe2b8"><b style="color:#7a6a2e">⚠️ Pendências para emitir NF-e:</b><ul style="margin:8px 0 0 18px;font-size:13px;color:#7a6a2e">${pron.pendencias.map(p=>`<li>${esc(p)}</li>`).join('')}</ul><div style="font-size:12px;color:#7a6a2e;margin-top:8px">${esc(pron.integracao)}</div></div>`;
   c.innerHTML = `
     ${alerta}
+    <div class="sect"><h3>✉️ E-mail (SMTP)</h3><div class="panel" style="padding:16px">
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Usado para enviar <b>Ordem de Compra, NF-e, proposta/pedido</b> por e-mail. Configure no servidor (Render → Environment): <b>SMTP_HOST · SMTP_PORT · SMTP_USER · SMTP_PASS · SMTP_FROM</b>. Sem isso, os envios ficam em <b>MODO SIMULADO</b> (não saem de verdade).</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="e_testmail" class="inp" placeholder="envie um teste para: seu-email@dominio.com" style="max-width:320px">
+        <button class="btn-primary" onclick="APP.testarEmailConfig()">Enviar e-mail de teste</button>
+      </div></div></div>
     <div class="sect"><h3>Identificação</h3><div class="panel" style="padding:18px">
       <div class="grid2">${iv('e_nome','Razão social',e.nome)}${iv('e_fant','Nome fantasia',e.nomeFantasia)}</div>
       <div class="grid3" style="margin-top:12px">${iv('e_cnpj','CNPJ',e.cnpj,'placeholder="00.000.000/0000-00"')}${iv('e_ie','Inscrição Estadual',e.inscricaoEstadual)}
@@ -8988,6 +8994,15 @@ async function saveEmpresa(){
   Object.keys(body).forEach(k=>{ if(body[k]==='' && k!=='logo') delete body[k]; });
   try{ await api('/empresa',{method:'PATCH',body}); toast('Configuração salva.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
+}
+async function testarEmailConfig(){
+  const para=(val('e_testmail')||'').trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para)){ toast('Informe um e-mail de destino válido.','err'); return; }
+  toast('Enviando e-mail de teste…','ok');
+  try{ const r=await api('/empresa/testar-email',{method:'POST',body:{para}});
+    if(r.simulado) await uiAlert({tipo:'info', titulo:'Modo SIMULADO', msg:'O e-mail NÃO saiu de verdade — o SMTP ainda não está configurado no servidor. Defina SMTP_HOST/PORT/USER/PASS/FROM no Render e teste de novo.'});
+    else await uiAlert({tipo:'ok', titulo:'E-mail enviado ✓', msg:'Enviado para '+esc(para)+'. Confira a caixa de entrada (e o spam). SMTP funcionando!'});
+  }catch(e){ toast('Falha no envio: '+(e.message||e),'err'); }
 }
 
 // ---------- Filiais / CNPJs do grupo ----------
@@ -10222,7 +10237,7 @@ window.APP = {
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
-  saveEmpresa, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
+  saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
