@@ -328,6 +328,7 @@ model Fornecedor {
   tipo      String?
   contato   String?
   telefone  String?
+  email     String?   // e-mail p/ envio de ordem de compra (automação de compra)
   cidadeUf  String?
   chavePix  String?   // chave PIX p/ pagamento (CPF/CNPJ, e-mail, celular ou aleatória)
   obs       String?

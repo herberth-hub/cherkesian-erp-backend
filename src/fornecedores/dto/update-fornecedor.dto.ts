@@ -33,6 +33,11 @@ export class UpdateFornecedorDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(150)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(80)
   cidadeUf?: string;
 
