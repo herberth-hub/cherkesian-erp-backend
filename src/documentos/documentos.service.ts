@@ -45,6 +45,7 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   // Ficha técnica do produto: pode ser emitida por produção (cadastros) e comercial (vendas).
   ficha_tecnica: { titulo: 'Ficha Técnica', prefixo: 'FT', area: ['cadastros', 'vendas'] },
   etiqueta: { titulo: 'Etiqueta de Lote', prefixo: 'ETQ', area: 'estoque' },
+  piloto: { titulo: 'Ficha de Peça Piloto', prefixo: 'PIL', area: ['producao', 'vendas'] },
 };
 
 @Injectable()
@@ -279,6 +280,8 @@ export class DocumentosService {
         return this.pdfFichaTecnica(referenciaId, empresaId, numero);
       case 'etiqueta':
         return this.pdfEtiqueta(referenciaId, empresaId, numero);
+      case 'piloto':
+        return this.pdfPiloto(referenciaId, empresaId, numero);
       default:
         throw new BadRequestException(`Tipo "${tipo}" não suportado.`);
     }
@@ -1199,6 +1202,93 @@ export class DocumentosService {
       }
     }
     return set.slice(0, 16);
+  }
+
+  /**
+   * FICHA DE PEÇA PILOTO — documento para enviar à piloteira JUNTO com o produto/molde.
+   * Traz a identificação da amostra, referência de modelagem, cor, foto do modelo,
+   * especificações de costura e a tabela de medidas do produto (quando houver).
+   */
+  private async pdfPiloto(pilotoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const piloto = await this.prisma.piloto.findUnique({ where: { id: pilotoId } });
+    if (!piloto || (piloto.empresaId != null && piloto.empresaId !== empresaId)) {
+      throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
+    }
+    const produto = piloto.produtoId
+      ? await this.prisma.produto.findUnique({ where: { id: piloto.produtoId }, include: { medidas: { orderBy: { ordem: 'asc' } } } })
+      : null;
+    if (produto && produto.empresaId !== empresaId) {
+      throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
+    }
+    const cliente = piloto.clienteId ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } }) : null;
+    const pedido = piloto.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: piloto.pedidoId }, select: { numero: true } }) : null;
+
+    const doc = novoDocumento('Ficha de Peça Piloto', numero);
+    secao(doc, 'Identificação');
+    camposDuplos(doc, [
+      ['Piloto', piloto.codigo],
+      ['Pedido de origem', pedido?.numero ?? '—'],
+      ['Cliente', cliente?.nome ?? piloto.clienteNome ?? '—'],
+      ['Tentativa', `${piloto.tentativa ?? 1}ª`],
+      ['Status', String(piloto.status ?? '—').replace(/_/g, ' ')],
+      ['Setor de uso', piloto.setor ?? '—'],
+      ['Solicitado em', dataBR(piloto.solicitacao)],
+      ['Enviado à piloteira em', dataBR(piloto.envio)],
+      ['Prazo de retorno', dataBR(piloto.prazoRetorno)],
+      ['Emitido em', dataBR(new Date())],
+    ]);
+
+    secao(doc, 'Peça / modelagem');
+    camposDuplos(doc, [
+      ['Produto', produto ? `${produto.codigo} — ${produto.descricao}` : '—'],
+      ['Referência de modelagem', piloto.modelagem ?? produto?.modelagem ?? '—'],
+      ['Artigo / tecido', piloto.artigo ?? produto?.tecido ?? '—'],
+      ['Marca / fornecedor', piloto.marca ?? produto?.marca ?? '—'],
+      ['Cor', piloto.cor ?? produto?.cor ?? '—'],
+      ['Grade', produto?.grade ?? '—'],
+    ]);
+
+    // Foto do modelo (ou moldura em branco p/ anexar).
+    secao(doc, 'Modelo da peça');
+    if (produto?.fotoModelo) {
+      imagem(doc, produto.fotoModelo, 200);
+    } else {
+      const x = 50, w = doc.page.width - 100, h = 120, y = doc.y + 2;
+      doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).dash(3, { space: 3 }).strokeColor('#C9A227').stroke().undash();
+      doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('FOTO DO MODELO (anexe a imagem / molde da peça)', x, y + h / 2 - 6, { width: w, align: 'center' });
+      doc.y = y + h + 12; doc.x = x; doc.fillColor('#242a26');
+    }
+
+    if (produto?.especificacoes?.trim()) {
+      secao(doc, 'Especificações de confecção / costura');
+      textoBloco(doc, produto.especificacoes);
+    }
+
+    if (produto?.medidas?.length) {
+      secao(doc, 'Tabela de medidas');
+      const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
+      tabelaMedidas(
+        doc,
+        tamanhos,
+        produto.medidas.map((m) => {
+          const valores = (m.valores ?? {}) as Record<string, string>;
+          return { descricao: m.descricao, tolerancia: m.tolerancia ?? '', valores: tamanhos.map((t) => (valores[t] != null ? String(valores[t]) : '')) };
+        }),
+      );
+    }
+
+    if (produto?.fotoModelagem) {
+      secao(doc, 'Modelagem (Audaces)');
+      imagem(doc, produto.fotoModelagem, 200);
+    }
+
+    if (piloto.obs?.trim()) {
+      secao(doc, 'Observações');
+      textoBloco(doc, piloto.obs);
+    }
+
+    assinaturas(doc, 'Enviado por (Cherkesian)', 'Recebido pela piloteira');
+    return doc;
   }
 
   private async pdfEtiqueta(loteId: number, empresaId: number, numero: string): Promise<Pdf> {
