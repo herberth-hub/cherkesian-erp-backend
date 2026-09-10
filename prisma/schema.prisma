@@ -634,6 +634,8 @@ model Piloto {
   status      PilotoStatus @default(em_desenvolvimento)
   liberado    Boolean      @default(false)
   obs         String?
+  briefingProduto String?  // tipo de produto do briefing (Camiseta, Polo, Calça…)
+  briefing    Json?        // respostas do briefing de piloto (campos por seção, chave = ID do campo)
 }
 
 model OP {

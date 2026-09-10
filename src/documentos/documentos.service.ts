@@ -1238,15 +1238,32 @@ export class DocumentosService {
       ['Emitido em', dataBR(new Date())],
     ]);
 
-    secao(doc, 'Peça / modelagem');
-    camposDuplos(doc, [
-      ['Produto', produto ? `${produto.codigo} — ${produto.descricao}` : '—'],
-      ['Referência de modelagem', piloto.modelagem ?? produto?.modelagem ?? '—'],
-      ['Artigo / tecido', piloto.artigo ?? produto?.tecido ?? '—'],
-      ['Marca / fornecedor', piloto.marca ?? produto?.marca ?? '—'],
-      ['Cor', piloto.cor ?? produto?.cor ?? '—'],
-      ['Grade', produto?.grade ?? '—'],
-    ]);
+    // Briefing completo (quando preenchido): renderiza as seções/campos respondidos.
+    const brief = piloto.briefing as { produto?: string; secoes?: Array<{ sec: string; campos: Array<{ label: string; unid?: string; valor?: string }> }> } | null;
+    const temBriefing = !!(brief && Array.isArray(brief.secoes) && brief.secoes.length);
+    if (temBriefing) {
+      if (piloto.briefingProduto) {
+        secao(doc, 'Produto do briefing');
+        camposDuplos(doc, [['Tipo', piloto.briefingProduto], ['Revisão', (brief as { revisao?: string }).revisao ?? 'Rev.01']]);
+      }
+      for (const s of brief!.secoes!) {
+        const preenchidos = (s.campos || []).filter((c) => c.valor != null && String(c.valor).trim() !== '');
+        if (!preenchidos.length) continue;
+        if (doc.y > doc.page.height - 140) doc.addPage();
+        secao(doc, s.sec);
+        camposDuplos(doc, preenchidos.map((c) => [c.label + (c.unid ? ` (${c.unid})` : ''), String(c.valor)] as [string, string]));
+      }
+    } else {
+      secao(doc, 'Peça / modelagem');
+      camposDuplos(doc, [
+        ['Produto', produto ? `${produto.codigo} — ${produto.descricao}` : '—'],
+        ['Referência de modelagem', piloto.modelagem ?? produto?.modelagem ?? '—'],
+        ['Artigo / tecido', piloto.artigo ?? produto?.tecido ?? '—'],
+        ['Marca / fornecedor', piloto.marca ?? produto?.marca ?? '—'],
+        ['Cor', piloto.cor ?? produto?.cor ?? '—'],
+        ['Grade', produto?.grade ?? '—'],
+      ]);
+    }
 
     // Foto do modelo (ou moldura em branco p/ anexar).
     secao(doc, 'Modelo da peça');

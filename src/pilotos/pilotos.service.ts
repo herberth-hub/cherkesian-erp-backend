@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Piloto } from '@prisma/client';
+import { Piloto, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePilotoDto } from './dto/create-piloto.dto';
 import { CreatePilotoAvulsoDto } from './dto/create-piloto-avulso.dto';
@@ -91,6 +91,8 @@ export class PilotosService {
         prazoRetorno: dto.prazoRetorno ? new Date(dto.prazoRetorno) : undefined,
         tentativa: dto.tentativa,
         obs: dto.obs,
+        briefingProduto: dto.briefingProduto,
+        briefing: dto.briefing !== undefined ? (dto.briefing as Prisma.InputJsonValue) : undefined,
       },
     });
   }

@@ -2,6 +2,7 @@ import {
   IsEnum,
   IsInt,
   IsISO8601,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -31,4 +32,14 @@ export class UpdatePilotoDto {
   @IsString()
   @MaxLength(1000)
   obs?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  briefingProduto?: string;
+
+  /** Respostas do briefing (chave = ID do campo, ex.: COM-001). */
+  @IsOptional()
+  @IsObject()
+  briefing?: Record<string, unknown>;
 }
