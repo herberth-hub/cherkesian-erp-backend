@@ -4867,16 +4867,15 @@ async function opDrop(e,ci){ e.preventDefault(); const k=e.currentTarget; if(k){
   const id=window.__opDragId||Number(e.dataTransfer&&e.dataTransfer.getData('text/plain')); window.__opDragId=null;
   if(id) await opKanbanMover(Number(id), ci-1); // ci 0 = "A iniciar" (idx -1); ci i = OP_FASES[i-1]
 }
-// Move a OP para a fase da coluna soltada. Respeita os fluxos especiais (corte/finalizar).
+// Move a OP para a fase da coluna soltada — arrastar = avança direto para aquela etapa.
 async function opKanbanMover(opId, targetIdx){
   const o=(window.__OPS||[]).find(x=>x.id===opId); if(!o){ toast('OP não encontrada — recarregue.','err'); return; }
   const curIdx=opFaseIdx(o);
   if(targetIdx===curIdx) return; // mesma coluna
   const alvo = targetIdx<0 ? null : OP_FASES[targetIdx];
-  // Finalizar: abre o fluxo de estoque/etiquetas (não é um simples set de status).
+  // "Finalizado" mantém o fluxo de estoque/etiquetas (não é só um status). As demais
+  // etapas avançam direto no arraste (o registro de corte fica no botão ▶ Corte).
   if(alvo && alvo.nome==='Finalizado'){ return opConcluirEtiquetas(o.id); }
-  // Saindo do Corte p/ frente: registra quanto foi cortado (igual ao botão ▶).
-  if(curIdx===1 && targetIdx>1){ return APP.formCorte(o); }
   try{
     if(!alvo){ await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:'a_iniciar', setorAtual:''}}); await api('/ops/'+o.id+'/progresso',{method:'PATCH',body:{progresso:0}}); }
     else { await api('/ops/'+o.id+'/status',{method:'PATCH',body:{status:alvo.status, setorAtual:alvo.nome}}); await api('/ops/'+o.id+'/progresso',{method:'PATCH',body:{progresso:alvo.prog}}); }
