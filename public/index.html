@@ -8114,7 +8114,7 @@ async function notifCheck(){
   if(!list.length || notifAberto()) return; // vazio, ou já está na tela — não repica
   notifModal(list);
 }
-function notifIcone(t){ return t==='op_nova'?'🏭':(t==='pedido_novo'?'🧾':'🔔'); }
+function notifIcone(t){ return t==='op_nova'?'🏭':(t==='pedido_novo'?'🧾':(t==='compra_atrasada'?'⏰':'🔔')); }
 function notifModal(list){
   const card=n=>{
     const temRef = n.refTipo && n.refId;

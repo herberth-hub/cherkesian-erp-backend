@@ -700,6 +700,7 @@ model OrdemCompra {
   pagaEm       DateTime?  // pagamento efetuado (inicia o lead time de recebimento)
   prazoEntregaDias Int?   // prazo de entrega informado pelo fornecedor (dias)
   previsaoEntrega  DateTime? // previsão de chegada = pagaEm + prazoEntregaDias
+  atrasoAvisadoEm  DateTime? // último aviso de ATRASO enviado (dedupe do agendador)
   // Recebimento vinculado à NF de entrada (necessidade × compra) — a entrada da NF
   // dá baixa automática na OC; o estoque entra só uma vez (na NF), sem duplicar.
   notaEntradaId Int?
