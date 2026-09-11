@@ -1641,7 +1641,7 @@ async function pedParciais(id){
   const rows = filhos.length? filhos.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid #f0e7d0">
       <div style="min-width:0"><b class="mono gold">${esc(f.numero)}</b> <span class="pill" style="font-size:9px">${esc(f.status||'')}</span>
         <div class="muted" style="font-size:11px">${f.pecas} pç · ${money(f.valorTotal)} · ${(f.itens||[]).map(i=>esc(String(i.descricao).split(' - ')[0])+' '+i.quantidade).join(' · ')}</div></div>
-      <button class="btn-sm" onclick="APP.formPedido(${f.id})">abrir ›</button>
+      <button class="btn-sm" title="Gerar o PDF deste pedido parcial (imprimir/visualizar)" onclick="APP.gerarDoc('pedido',${f.id})">🖨 PDF</button>
     </div>`).join('') : '<div class="muted" style="padding:10px">Nenhum pedido parcial (filho) gerado.</div>';
   openModal(`<h3>🧩 Pedidos parciais de ${esc(d.pedido.numero)}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Cada expedição/faturamento parcial gera um pedido-filho. Ficam todos aqui, sem poluir a lista de vendas.</div>
