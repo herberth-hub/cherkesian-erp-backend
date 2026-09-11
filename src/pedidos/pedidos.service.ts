@@ -104,6 +104,38 @@ export class PedidosService {
     return pedido;
   }
 
+  /**
+   * Desmembramento: pedidos-filhos parciais deste pedido + o RESIDUAL (o que ainda
+   * falta expedir do pedido original, por conta dos envios parciais).
+   */
+  async parciais(id: number, empresaId: number) {
+    const pai = await this.findOne(id, empresaId); // inclui itens (com quantidadeExpedida/gradeExpedida)
+    const filhosRaw = await this.prisma.pedido.findMany({
+      where: { pedidoPaiId: id, empresaId },
+      select: { id: true, numero: true, status: true, etapa: true, valorTotal: true, criadoEm: true, itens: { select: { descricao: true, cor: true, quantidade: true, grade: true } } },
+      orderBy: { id: 'asc' },
+    });
+    const filhos = filhosRaw.map((f) => ({
+      id: f.id, numero: f.numero, status: f.status, etapa: f.etapa, valorTotal: Number(f.valorTotal), criadoEm: f.criadoEm,
+      pecas: f.itens.reduce((s, i) => s + i.quantidade, 0),
+      itens: f.itens.map((i) => ({ descricao: i.descricao, cor: i.cor, quantidade: i.quantidade, grade: i.grade })),
+    }));
+    const residual = pai.itens.map((it) => {
+      const g = (it.grade as Record<string, number> | null) ?? {};
+      const ge = (it.gradeExpedida as Record<string, number> | null) ?? {};
+      const faltaGrade: Record<string, number> = {};
+      for (const [t, q] of Object.entries(g)) { const f = Number(q) - Number(ge[t] ?? 0); if (f > 0) faltaGrade[t] = f; }
+      const falta = Math.max(0, it.quantidade - (it.quantidadeExpedida ?? 0));
+      return { descricao: it.descricao, cor: it.cor, quantidade: it.quantidade, expedida: it.quantidadeExpedida ?? 0, falta, grade: g, faltaGrade };
+    }).filter((r) => r.falta > 0);
+    return {
+      pedido: { id: pai.id, numero: pai.numero, status: pai.status, etapa: pai.etapa, cliente: (pai as { cliente?: { nome?: string } }).cliente?.nome ?? null },
+      filhos,
+      residual,
+      totalFalta: residual.reduce((s, r) => s + r.falta, 0),
+    };
+  }
+
   /** Cria orçamento/pedido. Cliente novo ⇒ exigePiloto (trava a produção depois). */
   /** Valor a gravar em instrucoesEntrega: objeto → grava; {}/null → limpa (JsonNull); ausente → não mexe. */
   private entregaData(dto: CreatePedidoDto): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {

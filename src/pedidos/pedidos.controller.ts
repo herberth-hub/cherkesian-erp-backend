@@ -42,6 +42,13 @@ export class PedidosController {
     return this.pedidosService.findOne(id, user.empresaId);
   }
 
+  /** Pedidos-filhos parciais (desmembramento) + residual do pedido (o que falta expedir). */
+  @Areas('vendas', 'pcp')
+  @Get(':id/parciais')
+  parciais(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.parciais(id, user.empresaId);
+  }
+
   @Areas('vendas')
   @Post()
   create(@Body() dto: CreatePedidoDto, @CurrentUser() user: AuthUser) {

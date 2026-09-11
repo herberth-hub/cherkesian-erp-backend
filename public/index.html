@@ -1621,6 +1621,11 @@ function pedidoAcoes(p){
   if(['parcial','concluido','producao','estoque','expedicao'].includes(p.etapa)){
     b+=`<button class="btn-sm" style="color:#8a5a00" title="Retificar o pedido (preserva o que já foi expedido). Cancele a NF antes." onclick="APP.retificarPedido(${p.id})">✏️ Retificar</button> `;
   }
+  // Parciais + Residual: só aparecem quando houve expedição/faturamento parcial (existem filhos ou etapa parcial).
+  if((p.filhos && p.filhos.length) || p.etapa==='parcial'){
+    if(p.filhos && p.filhos.length) b+=`<button class="btn-sm" style="color:#6b3fa0;border-color:#d6c8ee" title="Ver os pedidos parciais (filhos) gerados deste pedido" onclick="APP.pedParciais(${p.id})">🧩 Parciais (${p.filhos.length})</button> `;
+    b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Ver o residual — o que ainda falta expedir do pedido original" onclick="APP.pedResidual(${p.id})">📊 Residual</button> `;
+  }
   b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button> `;
   // Cancelar (mantém o registro) — disponível enquanto não estiver cancelado/concluído.
   if(!['cancelado','concluido'].includes(p.etapa)){
@@ -1629,6 +1634,33 @@ function pedidoAcoes(p){
   return b||'<span class="muted">—</span>';
 }
 
+// Canal dos pedidos PARCIAIS (filhos do desmembramento) — não polui a lista de vendas.
+async function pedParciais(id){
+  let d; try{ d=await api('/pedidos/'+id+'/parciais'); }catch(e){ toast(e.message,'err'); return; }
+  const filhos=(d.filhos||[]);
+  const rows = filhos.length? filhos.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-top:1px solid #f0e7d0">
+      <div style="min-width:0"><b class="mono gold">${esc(f.numero)}</b> <span class="pill" style="font-size:9px">${esc(f.status||'')}</span>
+        <div class="muted" style="font-size:11px">${f.pecas} pç · ${money(f.valorTotal)} · ${(f.itens||[]).map(i=>esc(String(i.descricao).split(' - ')[0])+' '+i.quantidade).join(' · ')}</div></div>
+      <button class="btn-sm" onclick="APP.formPedido(${f.id})">abrir ›</button>
+    </div>`).join('') : '<div class="muted" style="padding:10px">Nenhum pedido parcial (filho) gerado.</div>';
+  openModal(`<h3>🧩 Pedidos parciais de ${esc(d.pedido.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Cada expedição/faturamento parcial gera um pedido-filho. Ficam todos aqui, sem poluir a lista de vendas.</div>
+    <div class="panel">${rows}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.pedResidual(${d.pedido.id})">📊 Ver residual</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+// Canal do RESIDUAL — o que falta expedir do pedido original por conta dos envios parciais.
+async function pedResidual(id){
+  let d; try{ d=await api('/pedidos/'+id+'/parciais'); }catch(e){ toast(e.message,'err'); return; }
+  const r=(d.residual||[]);
+  const rows = r.length? r.map(x=>{
+    const gf=Object.entries(x.faltaGrade||{}).map(([t,q])=>esc(t)+':'+q).join(' · ');
+    return `<tr><td style="padding:5px 8px">${esc(x.descricao)}${x.cor?'<div class="muted" style="font-size:10px">'+esc(x.cor)+'</div>':''}</td><td style="padding:5px 8px;text-align:center">${x.quantidade}</td><td style="padding:5px 8px;text-align:center;color:#1e7a44">${x.expedida}</td><td style="padding:5px 8px;text-align:center;color:#c14a34;font-weight:800">${x.falta}</td><td style="padding:5px 8px;font-size:11px">${gf||'—'}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="muted" style="padding:10px">Nada pendente — tudo expedido. 🎉</td></tr>';
+  openModal(`<h3>📊 Residual de ${esc(d.pedido.numero)}${d.pedido.cliente?' · '+esc(d.pedido.cliente):''}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">O que ainda falta expedir do pedido original, por conta dos envios parciais. Faltam <b>${d.totalFalta}</b> peça(s).</div>
+    <div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Item</th><th style="padding:5px 8px">Pedido</th><th style="padding:5px 8px">Expedido</th><th style="padding:5px 8px">Falta</th><th style="padding:5px 8px;text-align:left">Falta por tam.</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="mactions">${(d.filhos&&d.filhos.length)?`<button class="btn-sm" onclick="APP.pedParciais(${d.pedido.id})">🧩 Ver parciais (${d.filhos.length})</button>`:''}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
 // Normaliza o tamanho p/ casar grade x estoque (ex.: "G1 (FRISO VERMELHO)" -> "G1").
 function normTam(s){ return String(s||'').trim().toUpperCase().split(/[\s(]/)[0]; }
 // Nome do produto sem o sufixo "- Linha N Cores".
@@ -10652,7 +10684,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
