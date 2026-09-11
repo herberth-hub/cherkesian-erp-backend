@@ -10099,7 +10099,126 @@ async function saveMockupAsset(){
   rd.readAsDataURL(file);
 }
 async function delMockupAsset(id){ if(!(await uiConfirm({tipo:'err',titulo:'Remover desenho?',msg:'Ele sai do acervo (mockups já salvos não mudam).',ok:'Remover'}))) return; try{ await api('/engenharia/mockups/'+id,{method:'DELETE'}); toast('Removido.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); } }
-function montarMockup(){ uiAlert({tipo:'info', titulo:'Montar mockup — próxima fase', msg:'A montagem visual (arrastar as peças, trocar cor dos opcionais e posicionar o logo do cliente) é a próxima fase. Primeiro cadastre aqui os desenhos base e os opcionais que você vai me enviar.'}); }
+// ===== Compositor de mockup (arrastar peças, trocar cor, posicionar logo) =====
+const MK_CW=520, MK_CH=640;
+const MK_CORES=[['#1b2a4a','Azul Marinho'],['#0e5aa7','Azul Royal'],['#0a3d2a','Verde Musgo'],['#1f7a44','Verde Bandeira'],['#7a1f1f','Vinho'],['#c0392b','Vermelho'],['#111111','Preto'],['#ffffff','Branco'],['#9aa0a6','Cinza'],['#cdb27a','Bege'],['#e0a92a','Ouro Velho'],['#6b3fa0','Roxo']];
+async function montarMockup(){
+  let prods=[]; try{ prods=await api('/produtos'); }catch(e){}
+  window.__MKPRODS=prods||[];
+  let salvos=[]; try{ salvos=await api('/engenharia/produto-mockups'); }catch(e){}
+  window.__MKSALVOS=salvos||[];
+  window.__MKC={ id:null, produtoId:'', nome:'', tipo:'', vista:'frente', base:null, camadas:[], logo:null, sel:null, seq:1 };
+  const prodOpts=['<option value="">— vincular a produto (opcional) —</option>'].concat((prods||[]).map(p=>`<option value="${p.id}">${esc((p.codigo?p.codigo+' · ':'')+(p.descricao||''))}</option>`)).join('');
+  const salvosOpts=['<option value="">— abrir mockup salvo —</option>'].concat((salvos||[]).map(s=>`<option value="${s.id}">${esc(s.nome)}${s.produtoId?'':' (avulso)'}</option>`)).join('');
+  openModal(`<h3>🧩 Montar mockup do produto</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      ${field('mkc_nome','','placeholder="nome do mockup (ex.: Camisa Social HC)" style="min-width:220px"')}
+      <select id="mkc_prod" class="inp" style="max-width:260px">${prodOpts}</select>
+      <select id="mkc_abrir" class="inp" style="max-width:200px" onchange="APP.mkLoad(this.value)">${salvosOpts}</select>
+      <button class="btn-sm" onclick="APP.mkNovo()">＋ Novo</button>
+      <button class="btn-primary" onclick="APP.mkSave()">💾 Salvar</button>
+      <button class="btn-sm" onclick="APP.mkImprimir()">🖨 Imprimir/Baixar</button>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="width:212px;flex:none">
+        <div style="display:flex;gap:6px;margin-bottom:6px">
+          <select id="mkc_tipo" class="inp" style="font-size:11px;padding:5px" onchange="APP.mkPalette()"><option value="">Tipo…</option>${MK_TIPOS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select>
+          <select id="mkc_vista" class="inp" style="font-size:11px;padding:5px;max-width:90px" onchange="APP.mkPalette()"><option value="">Vista</option><option value="frente">frente</option><option value="costas">costas</option><option value="lateral">lateral</option></select>
+        </div>
+        <div id="mkc_palette" style="max-height:560px;overflow:auto"></div>
+      </div>
+      <div style="flex:1;display:flex;justify-content:center">
+        <div id="mkcanvas" style="position:relative;width:${MK_CW}px;height:${MK_CH}px;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none"></div>
+      </div>
+      <div style="width:200px;flex:none" id="mkc_ctrl"></div>
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:6px">Clique numa peça-base à esquerda para o fundo · clique num opcional para adicioná-lo · arraste na tela p/ posicionar · selecione p/ trocar cor, tamanho ou remover · suba o logo do cliente e arraste até onde será aplicado.</div>`, {wide:true});
+  mkPalette(); mkRenderCanvas(); mkCtrl();
+}
+function mkPalette(){
+  const box=$('mkc_palette'); if(!box) return;
+  const tipo=val('mkc_tipo'), vista=val('mkc_vista');
+  const all=(window.__MKASSETS||[]);
+  const bases=all.filter(a=>a.categoria==='base' && (!tipo||a.tipoProduto===tipo) && (!vista||!a.vista||a.vista===vista));
+  const opc=all.filter(a=>a.categoria!=='base' && (!tipo||!a.tipoProduto||a.tipoProduto===tipo||a.tipoProduto==='generico'));
+  const thumb=(a,acao)=>`<div title="${esc(a.nome)}" onclick="APP.${acao}(${a.id})" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:4px;background:#fff;width:96px;text-align:center"><div style="height:66px;display:flex;align-items:center;justify-content:center"><img src="${esc(a.imagem)}" style="max-width:100%;max-height:100%;pointer-events:none"></div><div style="font-size:9px;line-height:1.1;margin-top:2px">${esc(a.nome.slice(0,26))}</div></div>`;
+  const grp=(titulo,arr,acao)=>arr.length?`<div style="font-weight:700;font-size:11px;color:#8a5a00;margin:6px 0 4px">${titulo}</div><div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(a=>thumb(a,acao)).join('')}</div>`:'';
+  box.innerHTML = (grp('Peça base (fundo)',bases,'mkPickBase')||'<div class="muted" style="font-size:11px">Sem peça-base p/ este filtro. Cadastre no acervo.</div>') + grp('Opcionais (clique p/ adicionar)',opc,'mkAddCamada');
+}
+function mkPickBase(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; window.__MKC.base={assetId:a.id,img:a.imagem}; if(a.vista&&$('mkc_vista'))$('mkc_vista').value=a.vista; mkRenderCanvas(); }
+function mkAddCamada(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; const c={id:window.__MKC.seq++, assetId:a.id, img:a.imagem, x:MK_CW/2-60, y:MK_CH/2-60, w:120, cor:''}; window.__MKC.camadas.push(c); window.__MKC.sel='c'+c.id; mkRenderCanvas(); mkCtrl(); }
+function mkImgHtml(img,w,cor){ return `<img src="${esc(img)}" style="width:${w}px;display:block;pointer-events:none">`+(cor?`<div style="position:absolute;inset:0;background:${cor};-webkit-mask:url('${esc(img)}') center/contain no-repeat;mask:url('${esc(img)}') center/contain no-repeat;mix-blend-mode:multiply;pointer-events:none"></div>`:''); }
+function mkRenderCanvas(){
+  const cv=$('mkcanvas'); if(!cv) return; const C=window.__MKC;
+  let h='';
+  if(C.base) h+=`<img src="${esc(C.base.img)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none">`;
+  else h+=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:13px">escolha uma peça-base à esquerda</div>`;
+  C.camadas.forEach(c=>{ const selc=C.sel==='c'+c.id; h+=`<div class="mklayer" data-key="c${c.id}" onmousedown="APP.mkDown(event,'c${c.id}')" style="position:absolute;left:${c.x}px;top:${c.y}px;width:${c.w}px;cursor:move;outline:${selc?'2px dashed #c99a2e':'none'}">${mkImgHtml(c.img,c.w,c.cor)}</div>`; });
+  if(C.logo){ const sell=C.sel==='logo'; h+=`<div class="mklayer" data-key="logo" onmousedown="APP.mkDown(event,'logo')" style="position:absolute;left:${C.logo.x}px;top:${C.logo.y}px;width:${C.logo.w}px;cursor:move;outline:${sell?'2px dashed #2b6bd6':'1px dashed #2b6bd6'}"><img src="${esc(C.logo.img)}" style="width:100%;display:block;pointer-events:none"></div>`; }
+  cv.innerHTML=h;
+}
+function mkDown(e,key){ e.preventDefault(); const C=window.__MKC; C.sel=key; mkCtrl(); mkRenderCanvas();
+  const obj = key==='logo'?C.logo:C.camadas.find(c=>'c'+c.id===key); if(!obj) return;
+  const sx=e.clientX, sy=e.clientY, ox=obj.x, oy=obj.y;
+  const el=document.querySelector('#mkcanvas .mklayer[data-key="'+key+'"]');
+  const mv=(ev)=>{ obj.x=Math.round(ox+(ev.clientX-sx)); obj.y=Math.round(oy+(ev.clientY-sy)); if(el){el.style.left=obj.x+'px';el.style.top=obj.y+'px';} };
+  const up=()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
+  document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+}
+function mkSelObj(){ const C=window.__MKC; if(C.sel==='logo') return C.logo; return C.camadas.find(c=>'c'+c.id===C.sel); }
+function mkCtrl(){
+  const box=$('mkc_ctrl'); if(!box) return; const C=window.__MKC; const o=mkSelObj();
+  let h=`<div style="border:1px solid var(--line);border-radius:8px;padding:8px">
+    <div style="font-weight:700;font-size:12px;margin-bottom:6px">🖼 Logo do cliente</div>
+    <input id="mkc_logofile" type="file" accept="image/*" class="inp" style="font-size:11px" onchange="APP.mkLogoUpload()">
+    <div class="muted" style="font-size:10px;margin-top:3px">Suba e arraste até onde a aplicação vai na peça.</div></div>`;
+  if(!o){ h+=`<div class="muted" style="font-size:11.5px;margin-top:10px">Selecione um item na tela para editar (cor, tamanho, remover).</div>`; box.innerHTML=h; return; }
+  const ehLogo=C.sel==='logo';
+  h+=`<div style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px">
+    <div style="font-weight:700;font-size:12px;margin-bottom:6px">${ehLogo?'Logo selecionado':'Opcional selecionado'}</div>
+    <label class="fl" style="font-size:11px">Tamanho</label>
+    <input type="range" min="40" max="${MK_CW}" value="${o.w}" style="width:100%" oninput="APP.mkSize(this.value)">
+    ${!ehLogo?`<label class="fl" style="font-size:11px;margin-top:6px">Cor</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">
+        <span onclick="APP.mkCor('')" title="sem cor" style="cursor:pointer;width:20px;height:20px;border-radius:4px;border:1px solid #ccc;background:repeating-conic-gradient(#eee 0% 25%,#fff 0% 50%) 50%/8px 8px"></span>
+        ${MK_CORES.map(([hex,n])=>`<span onclick="APP.mkCor('${hex}')" title="${esc(n)}" style="cursor:pointer;width:20px;height:20px;border-radius:4px;border:1px solid #ccc;background:${hex}"></span>`).join('')}
+        <input type="color" onchange="APP.mkCor(this.value)" style="width:24px;height:24px;padding:0;border:none;background:none" title="outra cor">
+      </div>`:''}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+      ${!ehLogo?`<button class="btn-sm" onclick="APP.mkFrente()">⬆ frente</button><button class="btn-sm" onclick="APP.mkTras()">⬇ trás</button>`:''}
+      <button class="btn-sm" style="color:#c14a34" onclick="APP.mkDel()">🗑 remover</button>
+    </div></div>`;
+  box.innerHTML=h;
+}
+function mkSize(v){ const o=mkSelObj(); if(!o) return; o.w=Math.round(Number(v)); mkRenderCanvas(); }
+function mkCor(hex){ const o=mkSelObj(); if(!o||window.__MKC.sel==='logo') return; o.cor=hex||''; mkRenderCanvas(); }
+function mkFrente(){ const C=window.__MKC; const i=C.camadas.findIndex(c=>'c'+c.id===C.sel); if(i>=0&&i<C.camadas.length-1){ const [c]=C.camadas.splice(i,1); C.camadas.push(c); mkRenderCanvas(); } }
+function mkTras(){ const C=window.__MKC; const i=C.camadas.findIndex(c=>'c'+c.id===C.sel); if(i>0){ const [c]=C.camadas.splice(i,1); C.camadas.unshift(c); mkRenderCanvas(); } }
+function mkDel(){ const C=window.__MKC; if(C.sel==='logo'){ C.logo=null; } else { C.camadas=C.camadas.filter(c=>'c'+c.id!==C.sel); } C.sel=null; mkRenderCanvas(); mkCtrl(); }
+function mkLogoUpload(){ const f=$('mkc_logofile'); const file=f&&f.files&&f.files[0]; if(!file) return; if(file.size>2*1024*1024){ toast('Logo muito grande (máx 2 MB).','err'); return; } const rd=new FileReader(); rd.onload=()=>{ window.__MKC.logo={img:String(rd.result), x:MK_CW/2-50, y:120, w:100}; window.__MKC.sel='logo'; mkRenderCanvas(); mkCtrl(); }; rd.readAsDataURL(file); }
+function mkNovo(){ window.__MKC={ id:null, produtoId:'', nome:'', tipo:val('mkc_tipo'), vista:val('mkc_vista'), base:null, camadas:[], logo:null, sel:null, seq:1 }; if($('mkc_nome'))$('mkc_nome').value=''; if($('mkc_prod'))$('mkc_prod').value=''; if($('mkc_abrir'))$('mkc_abrir').value=''; mkRenderCanvas(); mkCtrl(); }
+async function mkLoad(id){ if(!id) return; let m; try{ m=await api('/engenharia/produto-mockups/'+id); }catch(e){ toast(e.message,'err'); return; } const comp=m.composicao||{}; window.__MKC={ id:m.id, produtoId:m.produtoId||'', nome:m.nome||'', tipo:comp.tipo||'', vista:comp.vista||'frente', base:comp.base||null, camadas:(comp.camadas||[]).map((c,i)=>({id:i+1,assetId:c.assetId,img:c.img,x:c.x,y:c.y,w:c.w,cor:c.cor||''})), logo:comp.logo||null, sel:null, seq:(comp.camadas||[]).length+1 }; if($('mkc_nome'))$('mkc_nome').value=window.__MKC.nome; if($('mkc_prod'))$('mkc_prod').value=window.__MKC.produtoId||''; if($('mkc_tipo'))$('mkc_tipo').value=window.__MKC.tipo||''; if($('mkc_vista'))$('mkc_vista').value=window.__MKC.vista||'frente'; mkPalette(); mkRenderCanvas(); mkCtrl(); }
+async function mkSave(){
+  const C=window.__MKC; const nome=(val('mkc_nome')||'').trim(); if(!nome){ toast('Dê um nome ao mockup.','err'); return; }
+  if(!C.base){ toast('Escolha a peça-base primeiro.','err'); return; }
+  const composicao={ tipo:val('mkc_tipo')||C.tipo||'', vista:val('mkc_vista')||C.vista||'frente', base:C.base, camadas:C.camadas.map(c=>({assetId:c.assetId,img:c.img,x:c.x,y:c.y,w:c.w,cor:c.cor||''})), logo:C.logo };
+  const preview=await mkGerarPreview();
+  const body={ nome, produtoId:val('mkc_prod')?Number(val('mkc_prod')):undefined, composicao, preview }; if(C.id) body.id=C.id;
+  try{ const r=await api('/engenharia/produto-mockups',{method:'POST',body}); window.__MKC.id=r.id; toast('Mockup salvo.','ok'); }catch(e){ toast(e.message,'err'); }
+}
+// Rasteriza o mockup (base + camadas coloridas + logo) num PNG p/ preview/impressão.
+async function mkGerarPreview(){
+  const C=window.__MKC; const cv=document.createElement('canvas'); cv.width=MK_CW; cv.height=MK_CH; const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,MK_CW,MK_CH);
+  const load=src=>new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; });
+  if(C.base){ const im=await load(C.base.img); if(im){ const r=Math.min(MK_CW/im.width,MK_CH/im.height); const w=im.width*r,hh=im.height*r; ctx.drawImage(im,(MK_CW-w)/2,(MK_CH-hh)/2,w,hh); } }
+  for(const c of C.camadas){ const im=await load(c.img); if(!im) continue; const w=c.w, hh=c.w*(im.height/im.width);
+    if(c.cor){ const oc=document.createElement('canvas'); oc.width=Math.max(1,Math.round(w)); oc.height=Math.max(1,Math.round(hh)); const o2=oc.getContext('2d'); o2.drawImage(im,0,0,oc.width,oc.height); o2.globalCompositeOperation='source-in'; o2.fillStyle=c.cor; o2.fillRect(0,0,oc.width,oc.height); ctx.drawImage(oc,c.x,c.y); ctx.globalCompositeOperation='multiply'; ctx.drawImage(im,c.x,c.y,w,hh); ctx.globalCompositeOperation='source-over'; }
+    else ctx.drawImage(im,c.x,c.y,w,hh);
+  }
+  if(C.logo){ const im=await load(C.logo.img); if(im){ ctx.drawImage(im,C.logo.x,C.logo.y,C.logo.w,C.logo.w*(im.height/im.width)); } }
+  return cv.toDataURL('image/png');
+}
+async function mkImprimir(){ const png=await mkGerarPreview(); const w=window.open('','_blank','width=640,height=800'); if(!w){ toast('Libere o pop-up.','err'); return; } const nome=(val('mkc_nome')||'Mockup'); w.document.write(`<html><head><meta charset=utf-8><title>${esc(nome)}</title></head><body style="margin:0;text-align:center;font-family:Arial"><h3 style="margin:10px">${esc(nome)}</h3><img src="${png}" style="max-width:100%"><div style="margin:10px"><button onclick="window.print()">Imprimir</button></div></body></html>`); w.document.close(); }
 
 // ================== SGQ · Universidade do Sistema ==================
 async function viewSGQ(c){
@@ -10314,6 +10433,7 @@ window.APP = {
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav, viewPCT, pctToggle, pctAddTeste, pctDelTeste, pctDiag,
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
+  mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
