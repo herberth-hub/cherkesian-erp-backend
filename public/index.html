@@ -133,6 +133,18 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 .win.wide .win-body{padding:12px}
 .win.max{left:1.5vw!important;right:1.5vw!important;top:1.5vh!important;width:97vw!important;max-height:97vh!important;height:97vh!important;transform:none!important}
 .win.max .win-body{max-height:none;flex:1}
+/* Celular: toda janela pop-up vira uma FOLHA de tela cheia (sobe de baixo, largura total). */
+@media (max-width:760px){
+  .win,.win.wide,.win.max{left:0!important;right:0!important;top:auto!important;bottom:0!important;transform:none!important;width:100vw!important;max-width:100vw!important;height:auto!important;max-height:92vh!important;border-radius:16px 16px 0 0!important}
+  .win .win-body,.win.wide .win-body{padding:14px!important}
+  .win-hd{cursor:default}
+  .win-hd .t{font-size:14px}
+  .win-hd button{font-size:18px;padding:6px 10px}
+  .win-hd .wmx{display:none}
+  .win .grid2,.win .grid3{grid-template-columns:1fr!important}
+  .win .mactions{position:sticky;bottom:0;background:#fff;padding-top:8px;margin:0 -14px -14px;padding:10px 14px;border-top:1px solid #eee}
+  .win .mactions button{min-height:42px}
+}
 .win-hd{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;background:#f4f2ed;border-bottom:1px solid #e7e3d8;cursor:move;user-select:none}
 .win-hd .t{flex:1;font-weight:700;font-size:13.5px;color:#3a2f08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .win-hd button{border:none;background:transparent;font-size:15px;line-height:1;cursor:pointer;padding:3px 8px;border-radius:6px;color:#6a5f38}
