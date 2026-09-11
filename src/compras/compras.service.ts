@@ -136,6 +136,31 @@ export class ComprasService {
   }
 
   /**
+   * Ciclo de compra (Fase 2): avança a SITUAÇÃO da OC e marca as datas.
+   *  enviada  → registra o envio ao fornecedor (e-mail/WhatsApp).
+   *  comprado → fornecedor confirmou; informa o prazo de entrega (dias).
+   *  pago     → inicia o lead time; previsão = hoje + prazoEntregaDias.
+   */
+  async definirSituacao(id: number, empresaId: number, situacao: string, prazoEntregaDias?: number): Promise<OrdemCompra> {
+    const oc = await this.findOne(id, empresaId);
+    const validas = ['enviada', 'comprado', 'pago', 'recebido', 'aguardando'];
+    if (!validas.includes(situacao)) throw new ConflictException(`Situação inválida: ${situacao}.`);
+    const data: Prisma.OrdemCompraUpdateInput = { situacao };
+    const agora = new Date();
+    if (situacao === 'enviada') data.enviadaEm = agora;
+    if (situacao === 'comprado') {
+      data.compradaEm = agora;
+      if (prazoEntregaDias != null && prazoEntregaDias >= 0) data.prazoEntregaDias = Math.floor(prazoEntregaDias);
+    }
+    if (situacao === 'pago') {
+      data.pagaEm = agora;
+      const dias = prazoEntregaDias != null ? Math.floor(prazoEntregaDias) : (oc.prazoEntregaDias ?? null);
+      if (dias != null && dias >= 0) { data.prazoEntregaDias = dias; const prev = new Date(agora); prev.setDate(prev.getDate() + dias); data.previsaoEntrega = prev; }
+    }
+    return this.prisma.ordemCompra.update({ where: { id }, data });
+  }
+
+  /**
    * Sugestão automática de compra do TECIDO/insumo faltante: soma a demanda residual
    * dos pedidos em aberto × consumo por peça (por material), desconta saldo + OCs já
    * abertas, e gera uma OC (idempotente) para cada material em falta.

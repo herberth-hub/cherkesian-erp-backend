@@ -71,4 +71,15 @@ export class ComprasController {
   cancelar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.comprasService.cancelar(id, user.empresaId);
   }
+
+  /** Avança o CICLO de compra da OC: enviada -> comprado -> pago (Fase 2). */
+  @Post(':id/situacao')
+  @HttpCode(HttpStatus.OK)
+  situacao(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { situacao: string; prazoEntregaDias?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.comprasService.definirSituacao(id, user.empresaId, body?.situacao, body?.prazoEntregaDias);
+  }
 }

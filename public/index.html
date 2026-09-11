@@ -5711,15 +5711,70 @@ async function saveBriefing(){
 
 async function viewCompras(c){
   const [list, forn] = await Promise.all([api('/ordens-compra'), api('/fornecedores')]);
-  const nome={}; forn.forEach(f=>nome[f.id]=f.nome);
+  const nome={}, tel={}; forn.forEach(f=>{ nome[f.id]=f.nome; tel[f.id]=f.telefone||''; });
+  window.__OCLIST=list; window.__OCFORN=forn;
   c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'+relBtn('compras')) + panelTable(
-    ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
+    ['Número','Fornecedor','Descrição','Qtd','Valor','Situação','Ações'],
     list.map(o=>[
       `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao)+(o.codigoFornecedor?`<div class="muted" style="font-size:10px">🏭 cód. fornecedor: <b>${esc(o.codigoFornecedor)}</b></div>`:'')+((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:''),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
-      ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
-      (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" title="Enviar a ordem de compra por e-mail ao fornecedor" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧 Enviar</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
+      ocSitPill(o)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 NF ${esc(o.recebidaViaNf)}</div>`:''),
+      ocAcoes(o, tel[o.fornecedorId])
     ]), list.length?null:'Nenhuma ordem de compra.');
+}
+// Badge da situação do ciclo de compra + previsão/lead time.
+function ocSitPill(o){
+  if(o.status==='recebida') return '<span class="pill green" style="font-size:10px">✅ recebido</span>';
+  if(o.status==='cancelada') return '<span class="pill red" style="font-size:10px">cancelada</span>';
+  const s=o.situacao||'aguardando';
+  const map={ aguardando:['#8a6d1e','#faf6ea','⏳ aguardando'], enviada:['#2b4a8b','#eef3ff','📤 enviada'], comprado:['#8a5a00','#fbf1da','🛒 comprado'], pago:['#1e7a44','#e6f4ea','💰 pago'] };
+  const [cor,bg,txt]=map[s]||map.aguardando;
+  let extra='';
+  if(s==='comprado'&&o.prazoEntregaDias!=null) extra=`<div class="muted" style="font-size:9px;margin-top:2px">prazo ${o.prazoEntregaDias}d</div>`;
+  if(s==='pago'&&o.previsaoEntrega){ const prev=new Date(o.previsaoEntrega); const dias=Math.ceil((prev-new Date())/86400000); const atras=dias<0; extra=`<div style="font-size:9px;margin-top:2px;color:${atras?'#b03a2e':'#6a675e'}">📅 ${prev.toLocaleDateString('pt-BR')}${atras?(' · ATRASADO '+(-dias)+'d'):(' · faltam '+dias+'d')}</div>`; }
+  return `<span class="pill" style="font-size:10px;color:${cor};background:${bg}">${txt}</span>${extra}`;
+}
+function ocAcoes(o, telefone){
+  if(o.status!=='aguardando') return `<button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨 PDF</button>`;
+  const s=o.situacao||'aguardando';
+  let b='';
+  // Enviar: e-mail + WhatsApp (marca como 'enviada' junto)
+  b+=`<button class="btn-sm" title="Enviar OC por e-mail" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧</button> `;
+  if(telefone) b+=`<button class="btn-sm" title="Enviar OC por WhatsApp" onclick="APP.ocWhats(${o.id})">🟢 Whats</button> `;
+  // Ciclo: enviada -> comprado -> pago
+  if(s==='aguardando'||s==='enviada') b+=`<button class="btn-sm" style="color:#8a5a00" title="Fornecedor confirmou — informar prazo de entrega" onclick="APP.ocSituacao(${o.id},'comprado')">🛒 Comprado</button> `;
+  if(s==='comprado') b+=`<button class="btn-sm" style="color:#1e7a44" title="Pagamento efetuado — inicia o lead time" onclick="APP.ocSituacao(${o.id},'pago')">💰 Pago</button> `;
+  b+=`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">📥 Receber</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button> <button class="btn-sm" style="color:#c14a34" onclick="APP.cancelarCompra(${o.id})">✕</button>`;
+  return b;
+}
+// Monta a mensagem da OC (WhatsApp/registro).
+function ocMsgTexto(o){
+  const forn=(window.__OCFORN||[]).find(f=>f.id===o.fornecedorId);
+  const linhas=[`*Ordem de Compra ${o.numero}* — ${forn?forn.nome:''}`.trim(), o.descricao];
+  if(o.codigoFornecedor) linhas.push(`Cód. do fornecedor (artigo): ${o.codigoFornecedor}`);
+  if(o.grade&&Object.keys(o.grade).length) linhas.push('Grade: '+Object.entries(o.grade).map(([t,q])=>t+':'+q).join('  '));
+  linhas.push(`Qtd: ${o.quantidade} ${o.unidade} · Valor: ${money(o.valor)}`);
+  linhas.push('Confirme o pedido e o prazo de entrega, por favor.');
+  return linhas.join('\n');
+}
+async function ocWhats(id){
+  const o=(window.__OCLIST||[]).find(x=>x.id===id); if(!o) return;
+  const forn=(window.__OCFORN||[]).find(f=>f.id===o.fornecedorId);
+  const tel=(forn&&forn.telefone||'').replace(/\D/g,'');
+  if(!tel){ toast('Fornecedor sem telefone cadastrado.','err'); return; }
+  const num=tel.length<=11?('55'+tel):tel; // assume Brasil se vier sem DDI
+  window.open('https://wa.me/'+num+'?text='+encodeURIComponent(ocMsgTexto(o)),'_blank');
+  // marca como enviada (não bloqueia se falhar)
+  try{ await api('/ordens-compra/'+id+'/situacao',{method:'POST',body:{situacao:'enviada'},silent:true}); loadRoute(); }catch(_){}
+}
+async function ocSituacao(id, situacao){
+  let prazo;
+  if(situacao==='comprado'){
+    const r=window.prompt('🛒 Comprado — em quantos DIAS o fornecedor entrega? (prazo de entrega)','15');
+    if(r===null) return; prazo=Math.max(0,Math.floor(Number(r)||0));
+  }
+  try{ await api('/ordens-compra/'+id+'/situacao',{method:'POST',body:{situacao, prazoEntregaDias:prazo}}); toast('Situação atualizada.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
 }
 // Reposição por déficit: materiais abaixo do mínimo → gerar OC (com fornecedor editável) e opção de enviar por e-mail.
 async function formReposicao(){
@@ -10783,7 +10838,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocMat, ocProd, ocGradeSync, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
+  formCompra, ocMat, ocProd, ocGradeSync, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,

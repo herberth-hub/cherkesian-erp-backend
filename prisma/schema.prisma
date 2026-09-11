@@ -693,6 +693,13 @@ model OrdemCompra {
   status       OCStatus   @default(aguardando)
   previsao     DateTime?
   motivo       String?
+  // ===== Ciclo de compra (Fase 2): envio -> comprado -> pago -> recebido =====
+  situacao     String?    // 'aguardando' | 'enviada' | 'comprado' | 'pago' | 'recebido'
+  enviadaEm    DateTime?  // quando a OC foi enviada ao fornecedor (e-mail/WhatsApp)
+  compradaEm   DateTime?  // fornecedor confirmou o pedido
+  pagaEm       DateTime?  // pagamento efetuado (inicia o lead time de recebimento)
+  prazoEntregaDias Int?   // prazo de entrega informado pelo fornecedor (dias)
+  previsaoEntrega  DateTime? // previsão de chegada = pagaEm + prazoEntregaDias
   // Recebimento vinculado à NF de entrada (necessidade × compra) — a entrada da NF
   // dá baixa automática na OC; o estoque entra só uma vez (na NF), sem duplicar.
   notaEntradaId Int?
