@@ -870,6 +870,46 @@ export class NfeService {
     // consumiu o número. Nesses casos NÃO reutiliza.
     const podeReutilizar = nota.status === 'rejeitada' || nota.status === 'simulada';
     const resultado = await this.prisma.$transaction(async (tx) => {
+      // ===== REVERSÃO DO DESMEMBRAMENTO (trava anti-duplicidade) =====
+      // Excluir uma NF de venda parcial DEVE desfazer o que ela criou: senão sobram
+      // conta a receber órfã e pedido-filho órfão, e o PAI fica abatido a mais
+      // (foi o que gerou a duplicidade no PV123).
+      // 1) Remove contas a receber NÃO pagas originadas nesta NF (recebível fantasma).
+      await tx.contaReceber.deleteMany({ where: { notaFiscalId: id, pago: 0 } });
+      // 2) Se a NF gerou um pedido-filho de desmembramento, restaura o PAI e apaga o filho.
+      const filho = nota.pedidoId ? await tx.pedido.findUnique({ where: { id: nota.pedidoId }, include: { itens: true, ops: true } }) : null;
+      if (filho?.pedidoPaiId) {
+        const paga = await tx.contaReceber.count({ where: { pedidoId: filho.id, pago: { gt: 0 } } });
+        if (paga > 0 || filho.ops.length > 0) {
+          throw new ConflictException(`O pedido-filho ${filho.numero} tem recebível pago ou produção própria — cancele a NF (não exclua) para reverter com segurança.`);
+        }
+        const snap = nota.expedicaoId
+          ? (((await tx.expedicao.findUnique({ where: { id: nota.expedicaoId } }))?.itens as Array<{ pedidoItemId?: number; quantidade?: number; grade?: Record<string, number> | null }> | null) ?? [])
+          : [];
+        for (const s of snap) {
+          if (!s.pedidoItemId) continue;
+          const it = await tx.pedidoItem.findUnique({ where: { id: s.pedidoItemId } });
+          if (!it || it.pedidoId !== filho.pedidoPaiId) continue;
+          const data: Prisma.PedidoItemUpdateInput = { quantidade: { increment: Number(s.quantidade || 0) }, quantidadeExpedida: { increment: Number(s.quantidade || 0) } };
+          if (s.grade) {
+            const g = { ...((it.grade as Record<string, number> | null) ?? {}) };
+            const ge = { ...((it.gradeExpedida as Record<string, number> | null) ?? {}) };
+            for (const [t, q] of Object.entries(s.grade)) { g[t] = Number(g[t] ?? 0) + Number(q); ge[t] = Number(ge[t] ?? 0) + Number(q); }
+            data.grade = g as unknown as Prisma.InputJsonValue;
+            data.gradeExpedida = ge as unknown as Prisma.InputJsonValue;
+          }
+          await tx.pedidoItem.update({ where: { id: it.id }, data });
+        }
+        // Apaga o filho (só existia por causa desta NF). CRs remanescentes já foram removidas acima.
+        await tx.contaReceber.deleteMany({ where: { pedidoId: filho.id } });
+        await tx.pedidoItem.deleteMany({ where: { pedidoId: filho.id } });
+        await tx.pedido.delete({ where: { id: filho.id } });
+        // Reavalia o PAI a partir dos itens restaurados.
+        const itPai = await tx.pedidoItem.findMany({ where: { pedidoId: filho.pedidoPaiId }, select: { quantidade: true, valorUnit: true } });
+        const totalPai = itPai.reduce((s, i) => s + i.quantidade, 0);
+        const vPai = itPai.reduce((s, i) => s + i.quantidade * Number(i.valorUnit), 0);
+        await tx.pedido.update({ where: { id: filho.pedidoPaiId }, data: { valorTotal: new Prisma.Decimal(vPai.toFixed(2)), etapa: totalPai > 0 ? 'parcial' : 'concluido', status: totalPai > 0 ? `Parcial — faltam ${totalPai} pç` : 'Concluído' } });
+      }
       await tx.notaFiscal.delete({ where: { id } });
       // Libera a expedição: se ela apontava esta NF, limpa o vínculo p/ poder REEMITIR.
       if (nota.expedicaoId) {
