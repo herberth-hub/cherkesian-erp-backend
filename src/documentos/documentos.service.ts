@@ -955,55 +955,91 @@ export class DocumentosService {
     if (filialCompra?.logo) setLogoDoc(filialCompra.logo);
     const doc = novoDocumento('Pedido de Compra', numero);
 
-    secao(doc, 'Comprador (emitente)');
-    const endComprador = [filialCompra?.logradouro, filialCompra?.numeroEndereco, filialCompra?.bairro].filter(Boolean).join(', ') || '—';
-    camposDuplos(doc, [
-      ['Empresa', filialCompra?.nome ?? '—'],
-      ['CNPJ', filialCompra?.cnpj ?? '—'],
-      ['Endereço', endComprador],
-      ['Cidade/UF', filialCompra ? `${filialCompra.municipio ?? '—'}${filialCompra.uf ? '/' + filialCompra.uf : ''}` : '—'],
-    ]);
+    const NAVY = '#1b2a4a', GOLD = '#8a6d1e', TINTA = '#242a26', CINZA = '#6a675e', LINHA = '#e7e3d8', BGSOFT = '#faf8f2';
+    const W = doc.page.width, X = 50, CW = W - 100;
 
-    secao(doc, 'Fornecedor');
-    camposDuplos(doc, [
-      ['Nome', oc.fornecedor.nome],
-      ['CNPJ/CPF', oc.fornecedor.cnpjCpf ?? '—'],
-      ['Contato', oc.fornecedor.contato ?? oc.fornecedor.telefone ?? '—'],
-      ['Cidade/UF', oc.fornecedor.cidadeUf ?? '—'],
-    ]);
+    // ===== Dois cards lado a lado: COMPRADOR | FORNECEDOR =====
+    const card = (x: number, y: number, w: number, titulo: string, rows: Array<[string, string]>): number => {
+      const pad = 9;
+      doc.font('Helvetica').fontSize(10);
+      let h = 26;
+      for (const [, v] of rows) h += 10 + doc.heightOfString(v || '—', { width: w - pad * 2 }) + 5;
+      h += pad - 3;
+      doc.roundedRect(x, y, w, h, 8).fillColor(BGSOFT).fill();
+      doc.roundedRect(x, y, w, h, 8).lineWidth(0.8).strokeColor(LINHA).stroke();
+      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8.5).text(titulo.toUpperCase(), x + pad, y + 7, { characterSpacing: 0.5, width: w - pad * 2 });
+      let cy = y + 26;
+      for (const [k, v] of rows) {
+        doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(k.toUpperCase(), x + pad, cy);
+        cy += 10;
+        doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10).text(v || '—', x + pad, cy, { width: w - pad * 2 });
+        cy += doc.heightOfString(v || '—', { width: w - pad * 2 }) + 5;
+      }
+      return h;
+    };
+    const endComprador = [filialCompra?.logradouro, filialCompra?.numeroEndereco, filialCompra?.bairro, filialCompra?.municipio ? `${filialCompra.municipio}${filialCompra.uf ? '/' + filialCompra.uf : ''}` : ''].filter(Boolean).join(' · ') || '—';
+    const gap = 14, cw = (CW - gap) / 2, y0 = doc.y + 2;
+    const h1 = card(X, y0, cw, 'Comprador (nosso CNPJ)', [['Empresa', filialCompra?.nome ?? '—'], ['CNPJ', filialCompra?.cnpj ?? '—'], ['Endereço', endComprador]]);
+    const h2 = card(X + cw + gap, y0, cw, 'Fornecedor', [['Nome', oc.fornecedor.nome], ['CNPJ/CPF', oc.fornecedor.cnpjCpf ?? '—'], ['Contato', [oc.fornecedor.contato ?? oc.fornecedor.telefone, oc.fornecedor.cidadeUf].filter(Boolean).join(' · ') || '—']]);
+    doc.y = y0 + Math.max(h1, h2) + 14; doc.x = X;
 
-    secao(doc, 'Item');
-    // Descrição do item: o SEU produto/código + o item NO FORNECEDOR (código do artigo + nome) + grade.
+    // Título de seção compacto (sublinhado dourado).
+    const tituloSecao = (t: string) => { doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(9).text(t.toUpperCase(), X, doc.y, { characterSpacing: 0.5 }); doc.moveTo(X, doc.y + 2).lineTo(W - X, doc.y + 2).lineWidth(0.6).strokeColor(LINHA).stroke(); doc.moveDown(0.6); doc.fillColor(TINTA); };
+
+    // ===== ITEM =====
+    tituloSecao('Item');
     const grade = (oc.grade && typeof oc.grade === 'object') ? (oc.grade as Record<string, number>) : null;
-    const gradeTxt = grade && Object.keys(grade).length ? Object.entries(grade).map(([t, q]) => `${t}:${q}`).join('  ') : '';
-    const linhaForn = [oc.codigoFornecedor ? `Cód. ${oc.codigoFornecedor}` : '', oc.descricaoFornecedor ? oc.descricaoFornecedor : ''].filter(Boolean).join(' · ');
-    const descItem = [
-      oc.descricao,
-      linhaForn ? `No fornecedor: ${linhaForn}` : '',
-      gradeTxt ? `Grade: ${gradeTxt}` : '',
-    ].filter(Boolean).join('\n');
-    tabela(
-      doc,
-      [
-        { titulo: 'Descrição', largura: 265 },
-        { titulo: 'Qtd', largura: 90, alinhamento: 'right' },
-        { titulo: 'Un.', largura: 55 },
-        { titulo: 'Valor', largura: 85, alinhamento: 'right' },
-      ],
-      [[descItem, this.qtdBR(oc.quantidade), oc.unidade, money(oc.valor)]],
-    );
-    totalDestaque(doc, 'Valor do pedido', money(oc.valor));
+    const linhaForn = [oc.codigoFornecedor ? oc.codigoFornecedor : '', oc.descricaoFornecedor ? oc.descricaoFornecedor : ''].filter(Boolean).join('  ·  ');
+    const iy = doc.y + 2;
+    const hDesc = doc.font('Helvetica-Bold').fontSize(11).heightOfString(oc.descricao, { width: CW - 24 });
+    const hForn = linhaForn ? doc.font('Helvetica').fontSize(9).heightOfString(linhaForn, { width: CW - 24 }) : 0;
+    const cardH = 12 + hDesc + (linhaForn ? hForn + 5 : 0) + 8;
+    doc.roundedRect(X, iy, CW, cardH, 8).fillColor('#fbf9f3').fill();
+    doc.roundedRect(X, iy, CW, cardH, 8).lineWidth(0.8).strokeColor(LINHA).stroke();
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11).text(oc.descricao, X + 12, iy + 9, { width: CW - 24 });
+    if (linhaForn) {
+      doc.fillColor(CINZA).font('Helvetica').fontSize(9).text('No fornecedor:  ', X + 12, iy + 9 + hDesc + 4, { continued: true }).fillColor(TINTA).font('Helvetica-Bold').text(linhaForn, { width: CW - 24 });
+    }
+    doc.y = iy + cardH + 10; doc.x = X;
 
-    secao(doc, 'Condições');
-    const sitTxt: Record<string, string> = { aguardando: 'Aguardando', enviada: 'Enviada ao fornecedor', comprado: 'Comprado', pago: 'Pago', recebido: 'Recebido' };
-    camposDuplos(doc, [
-      ['Situação', oc.status === 'recebida' ? 'Recebido' : (sitTxt[oc.situacao ?? 'aguardando'] ?? 'Aguardando')],
-      ['Prazo de entrega', oc.prazoEntregaDias != null ? `${oc.prazoEntregaDias} dias` : '—'],
-      ['Previsão de entrega', dataBR(oc.previsaoEntrega ?? oc.previsao)],
-      ['Pagamento', filialCompra?.dadosBancarios?.trim() ? filialCompra.dadosBancarios.trim().split('\n')[0] : '—'],
-    ]);
+    // Grade por tamanho (mini-tabela) — quando houver.
+    if (grade && Object.keys(grade).length) {
+      const ESC = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8'];
+      const ordTam = (a: string, b: string) => { const A = a.toUpperCase(), B = b.toUpperCase(); const na = Number(A), nb = Number(B); if (!isNaN(na) && !isNaN(nb)) return na - nb; const i = ESC.indexOf(A), j = ESC.indexOf(B); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); };
+      doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(8).text('GRADE POR TAMANHO', X, doc.y); doc.moveDown(0.2);
+      gradeTabela(doc, Object.entries(grade).sort((x, y) => ordTam(x[0], y[0])).map(([t, q]) => [t, String(q)] as [string, string]));
+    }
 
-    if (oc.motivo) { secao(doc, 'Observações'); textoBloco(doc, oc.motivo); }
+    // Faixa Qtd · Valor unit · Total do item.
+    const valorUnit = Number(oc.quantidade) > 0 ? Number(oc.valor) / Number(oc.quantidade) : Number(oc.valor);
+    const ry = doc.y + 2;
+    doc.roundedRect(X, ry, CW, 26, 6).lineWidth(0.8).strokeColor(LINHA).stroke();
+    const col = CW / 3;
+    const cell = (i: number, lab: string, valTxt: string) => { const cx = X + i * col; doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(lab, cx + 10, ry + 4); doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11).text(valTxt, cx + 10, ry + 13); if (i > 0) doc.moveTo(cx, ry + 3).lineTo(cx, ry + 23).lineWidth(0.5).strokeColor(LINHA).stroke(); };
+    cell(0, 'QUANTIDADE', `${this.qtdBR(oc.quantidade)} ${oc.unidade}`); cell(1, 'VALOR UNIT.', money(valorUnit)); cell(2, 'TOTAL DO ITEM', money(oc.valor));
+    doc.y = ry + 26 + 12; doc.x = X;
+
+    // Valor do pedido — barra azul-marinho.
+    const ty = doc.y; doc.roundedRect(X, ty, CW, 34, 8).fillColor(NAVY).fill();
+    doc.fillColor('#cdd6e6').font('Helvetica').fontSize(9).text('VALOR DO PEDIDO', X + 14, ty + 12);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(16).text(money(oc.valor), X, ty + 8, { width: CW - 14, align: 'right' });
+    doc.y = ty + 34 + 14; doc.x = X;
+
+    // ===== CONDIÇÕES: 4 chips =====
+    tituloSecao('Condições');
+    const sitTxt: Record<string, string> = { aguardando: 'Aguardando', enviada: 'Enviada', comprado: 'Comprado', pago: 'Pago', recebido: 'Recebido' };
+    const sit = oc.status === 'recebida' ? 'Recebido' : (sitTxt[oc.situacao ?? 'aguardando'] ?? 'Aguardando');
+    const sitCor = (sit === 'Pago' || sit === 'Recebido') ? '#1e7a44' : TINTA;
+    const pgTxt = filialCompra?.dadosBancarios?.trim() ? filialCompra.dadosBancarios.trim().split('\n')[0] : '—';
+    const cy2 = doc.y + 2, cW4 = (CW - 3 * 8) / 4;
+    const chip = (i: number, lab: string, val: string, cor: string) => { const cx = X + i * (cW4 + 8); doc.roundedRect(cx, cy2, cW4, 40, 6).fillColor(BGSOFT).fill(); doc.roundedRect(cx, cy2, cW4, 40, 6).lineWidth(0.7).strokeColor(LINHA).stroke(); doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 8, cy2 + 7, { width: cW4 - 16 }); doc.fillColor(cor).font('Helvetica-Bold').fontSize(11).text(val, cx + 8, cy2 + 19, { width: cW4 - 16 }); };
+    chip(0, 'SITUAÇÃO', sit, sitCor);
+    chip(1, 'PRAZO', oc.prazoEntregaDias != null ? `${oc.prazoEntregaDias} dias` : '—', TINTA);
+    chip(2, 'PREVISÃO', dataBR(oc.previsaoEntrega ?? oc.previsao), TINTA);
+    chip(3, 'PAGAMENTO', pgTxt.length > 16 ? pgTxt.slice(0, 15) + '…' : pgTxt, TINTA);
+    doc.y = cy2 + 40 + 14; doc.x = X;
+
+    if (oc.motivo) { tituloSecao('Observações'); doc.fillColor('#4a463c').font('Helvetica').fontSize(9.5).text(oc.motivo, X, doc.y, { width: CW, lineGap: 1.5 }); doc.moveDown(1); doc.x = X; }
 
     assinaturas(doc, `${filialCompra?.nome ?? 'GRUPO CHERKESIAN'} — Compras`, `${oc.fornecedor.nome} — De acordo`);
     rodapeGrupo(doc);
