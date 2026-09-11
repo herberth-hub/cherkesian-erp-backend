@@ -51,6 +51,8 @@ export class FichaMedidaDto {
 export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(60) referencia?: string;
   @IsOptional() @IsInt() @IsPositive() fornecedorId?: number;
+  /** Código/artigo deste produto NO FORNECEDOR (revenda) — puxado na OC. */
+  @IsOptional() @IsString() @MaxLength(60) codigoFornecedor?: string;
   @IsOptional() @IsString() @MaxLength(80) marca?: string;
   @IsOptional() @IsString() @MaxLength(60) linha?: string;
   @IsOptional() @IsString() @MaxLength(60) grupo?: string;

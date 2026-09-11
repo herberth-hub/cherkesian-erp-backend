@@ -233,6 +233,7 @@ export class ProdutosService {
     return {
       referencia: dto.referencia,
       fornecedorId: dto.fornecedorId,
+      codigoFornecedor: dto.codigoFornecedor,
       marca: dto.marca,
       linha: dto.linha,
       grupo: dto.grupo,

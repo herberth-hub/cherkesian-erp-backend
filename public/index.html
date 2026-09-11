@@ -2628,7 +2628,8 @@ async function formProdutoRevenda(){
     ${dl}
     <div class="grid2">${field('rev_ref','Referência / código','placeholder="ex.: 101004966"')}${field('rev_desc','Descrição *','placeholder="ex.: Boné trucker azul"')}</div>
     <div class="grid3">${field('rev_cat','Categoria *','value="Revenda"')}${field('rev_marca','Marca / cliente','placeholder="ex.: INTS"')}${field('rev_cor','Cor','placeholder="ex.: Royal"')}</div>
-    <div class="mrow"><label class="fl">Fornecedor (de quem compramos)</label><input id="rev_forn" class="inp" list="rev_fornlist" placeholder="digite — cadastra se novo"></div>
+    <div class="grid2"><div class="mrow"><label class="fl">Fornecedor (de quem compramos)</label><input id="rev_forn" class="inp" list="rev_fornlist" placeholder="digite — cadastra se novo"></div>
+      ${field('rev_codforn','Código do fornecedor (artigo) — o que ELE usa p/ este item','placeholder="ex.: 10644988"')}</div>
     <div class="grid3">${field('rev_custo','Custo de compra (R$)','type="number" step="0.01" min="0" placeholder="0,00"')}${field('rev_preco','Preço de venda (R$)','type="number" step="0.01" min="0" placeholder="0,00"')}${field('rev_un','Unidade','value="UN"')}</div>
     ${field('rev_ncm','NCM (8 díg.)','placeholder="ex.: 65050011" maxlength="8"')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
@@ -2639,7 +2640,8 @@ async function saveProdutoRevenda(){
   if(!desc){ toast('Informe a descrição.','err'); return; }
   const body={ tipo:'revenda', categoria:cat, descricao:desc,
     referencia:val('rev_ref')||undefined, marca:val('rev_marca')||undefined, cor:val('rev_cor')||undefined,
-    unidadeComercial:val('rev_un')||'UN', ncm:(val('rev_ncm')||'').replace(/\D/g,'')||undefined };
+    unidadeComercial:val('rev_un')||'UN', ncm:(val('rev_ncm')||'').replace(/\D/g,'')||undefined,
+    codigoFornecedor:val('rev_codforn')||undefined };
   const custo=val('rev_custo'); if(custo!=='') body.custo=Number(custo);
   const preco=val('rev_preco'); if(preco!=='') body.precoBase=Number(preco);
   // Fornecedor: acha pelo nome ou cadastra na hora, e vincula.
@@ -5801,7 +5803,10 @@ function ocProd(){
   window.__OCPRODSEL=p;
   if($('f_desc')) $('f_desc').value=(p.codigo?p.codigo+' · ':'')+(p.descricao||'');
   if($('f_un')) $('f_un').value=p.unidadeComercial||'UN';
-  if($('f_codforn')) $('f_codforn').value=p.referencia||''; // referência externa como cód. do fornecedor (editável)
+  // Puxa o código do fornecedor vinculado ao MEU produto (artigo dele); fallback p/ a referência.
+  if($('f_codforn')) $('f_codforn').value=p.codigoFornecedor||p.referencia||'';
+  // Seleciona o fornecedor do produto (de quem compramos), se cadastrado.
+  if(p.fornecedorId && $('f_forn')){ const opt=[...$('f_forn').options].find(o=>Number(o.value)===p.fornecedorId); if(opt) $('f_forn').value=String(p.fornecedorId); }
   const tams=tamsDoProduto(p);
   const box=$('oc_grade');
   if(box){ box.innerHTML = tams.map(t=>`<div style="display:flex;flex-direction:column;align-items:center"><label class="fl" style="font-size:10px;letter-spacing:.5px">${esc(t)}</label><input class="inp ocgi" data-tam="${esc(t)}" type="number" min="0" step="1" value="" style="width:60px;text-align:center;padding:4px 3px;font-size:12px" oninput="APP.ocGradeSync()"></div>`).join(''); }
