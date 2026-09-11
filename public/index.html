@@ -144,6 +144,19 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
   .win .grid2,.win .grid3{grid-template-columns:1fr!important}
   .win .mactions{position:sticky;bottom:0;background:#fff;padding-top:8px;margin:0 -14px -14px;padding:10px 14px;border-top:1px solid #eee}
   .win .mactions button{min-height:42px}
+  /* Lista densa (Opção B): cada linha da tabela vira um bloco "rótulo: valor". */
+  .panel{overflow-x:visible!important}
+  table.ptable, table.ptable tbody{display:block;width:100%}
+  table.ptable thead{display:none}
+  table.ptable tr{display:block;border:1px solid var(--line);border-radius:10px;margin:0 0 8px;padding:4px 10px;background:#fff}
+  table.ptable td{display:flex;justify-content:space-between;gap:12px;align-items:baseline;border:none!important;padding:5px 0;text-align:right;font-size:12.5px}
+  table.ptable td::before{content:attr(data-label);color:var(--muted);font-weight:600;font-size:10.5px;letter-spacing:.3px;text-transform:uppercase;text-align:left;flex:0 0 auto;padding-top:1px}
+  table.ptable td[data-label='']{display:none}
+  table.ptable td:first-child{font-weight:700;font-size:14px;border-bottom:1px dashed var(--line)!important;padding-bottom:7px;margin-bottom:3px;text-align:left}
+  table.ptable td:first-child::before{display:none}
+  table.ptable td:last-child{display:block;text-align:left;padding-top:7px}
+  table.ptable td:last-child::before{display:block;margin-bottom:4px}
+  table.ptable td:last-child button{min-height:34px;margin:2px 3px 2px 0}
 }
 .win-hd{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;background:#f4f2ed;border-bottom:1px solid #e7e3d8;cursor:move;user-select:none}
 .win-hd .t{flex:1;font-weight:700;font-size:13.5px;color:#3a2f08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1817,8 +1830,9 @@ async function baixarRel(tipo, qs, fmt){
 }
 function panelTable(cols, rows, emptyMsg){
   if(emptyMsg) return `<div class="panel"><div class="empty">${esc(emptyMsg)}</div></div>`;
-  return `<div class="panel" style="overflow-x:auto"><table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(r=>`<tr>${r.map(cell=>`<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const lbl=c=>esc(String(c==null?'':c).replace(/<[^>]+>/g,'').trim()); // rótulo p/ a visão mobile (data-label)
+  return `<div class="panel" style="overflow-x:auto"><table class="ptable"><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${r.map((cell,ci)=>`<td data-label="${lbl(cols[ci])}">${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
 // ---------- Modais / Formulários ----------
