@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -81,6 +82,11 @@ export class UpdateClienteDto extends ClienteFiscalDto {
   @IsString()
   @MaxLength(1000)
   obs?: string;
+
+  /** Padrão de entrega/etiquetagem do cliente (auto-preenche o pedido). null/{} limpa. */
+  @IsOptional()
+  @IsObject()
+  padraoEntrega?: Record<string, unknown> | null;
 
   @IsOptional()
   @IsArray()

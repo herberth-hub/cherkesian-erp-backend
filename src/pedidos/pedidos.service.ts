@@ -103,6 +103,14 @@ export class PedidosService {
   }
 
   /** Cria orçamento/pedido. Cliente novo ⇒ exigePiloto (trava a produção depois). */
+  /** Valor a gravar em instrucoesEntrega: objeto → grava; {}/null → limpa (JsonNull); ausente → não mexe. */
+  private entregaData(dto: CreatePedidoDto): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
+    if (dto.instrucoesEntrega === undefined) return undefined;
+    const obj = dto.instrucoesEntrega;
+    if (!obj || (typeof obj === 'object' && Object.keys(obj).length === 0)) return Prisma.JsonNull;
+    return obj as Prisma.InputJsonValue;
+  }
+
   async create(dto: CreatePedidoDto, empresaId: number, criadoPor: string, vendedorId?: number) {
     const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) {
@@ -169,6 +177,7 @@ export class PedidosService {
         comissaoComImposto: dto.comissaoComImposto ?? undefined,
         ocArquivo: dto.ocArquivo === null ? null : (dto.ocArquivo ?? undefined),
         ocArquivoNome: dto.ocArquivoNome === null ? null : (dto.ocArquivoNome ?? undefined),
+        instrucoesEntrega: this.entregaData(dto),
         criadoPor,
         vendedorId: vendedorId ?? null,
         itens: { create: itensData },
@@ -229,6 +238,7 @@ export class PedidosService {
       obsComercial: dto.obsComercial,
       comissaoRepresentante: dto.comissaoRepresentante,
       comissaoPercent: dto.comissaoPercent ?? undefined,
+      instrucoesEntrega: this.entregaData(dto),
     };
 
     const temExpedido = pedido.itens.some((i) => (i.quantidadeExpedida ?? 0) > 0);

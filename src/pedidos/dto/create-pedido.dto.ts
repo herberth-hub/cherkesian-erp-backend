@@ -144,4 +144,9 @@ export class CreatePedidoDto {
   @IsOptional()
   @IsBoolean()
   comissaoComImposto?: boolean;
+
+  /** Instruções de entrega/etiquetagem (padrão do cliente). null/{} limpa. */
+  @IsOptional()
+  @IsObject()
+  instrucoesEntrega?: Record<string, unknown> | null;
 }

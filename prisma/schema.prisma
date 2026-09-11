@@ -234,6 +234,8 @@ model Cliente {
   comissaoPercent Decimal? @db.Decimal(5,2) // % de comissão do representante nesta conta (interno)
   comissaoComImposto Boolean? // base da comissão do representante: true = com imposto (bruto), false/null = sem imposto (líquido)
   obs        String?
+  // Padrão de ENTREGA/ETIQUETAGEM deste cliente (auto-preenche o pedido). Mesmo formato de Pedido.instrucoesEntrega.
+  padraoEntrega Json?
   pedidos    Pedido[]
   medidas    Medida[]
   criadoEm   DateTime @default(now())
@@ -587,6 +589,9 @@ model Pedido {
   ocArquivoNome  String?  // nome original do arquivo da OC
   obs            String?    // observação FISCAL: vai nas informações complementares da NF-e
   obsComercial   String?    // observação COMERCIAL: sai na proposta e no pedido (não vai na NF-e)
+  // Instruções de ENTREGA/ETIQUETAGEM (padrão do cliente, ex.: VIVARA via transportadora ZENATUR):
+  // { transportadora:{nome,cnpj}, entrega:{razaoSocial,logradouro,bairro,cidade,uf,cep,referencia}, instrucoes }
+  instrucoesEntrega Json?
   vendedorId     Int?         // vendedor dono (Usuario) — escopo do CRM/comissão
   // Comissão de venda do REPRESENTANTE — INTERNO: não sai na proposta/pedido do cliente.
   comissaoRepresentante String?

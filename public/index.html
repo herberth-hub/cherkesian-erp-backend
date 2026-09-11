@@ -3324,6 +3324,7 @@ async function formPedido(id){
     ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
+  window.__PEDENTREGA = (ped && ped.instrucoesEntrega && typeof ped.instrucoesEntrega==='object') ? ped.instrucoesEntrega : null;
   const preCli = (!id && window.__CRM_PRECLI) ? Number(window.__CRM_PRECLI) : null; window.__CRM_PRECLI=null;
   const selCli = ped?ped.clienteId:preCli;
   const selFil = ped?ped.filialId:null;
@@ -3386,6 +3387,7 @@ async function formPedido(id){
       <div id="ped_oc_pv" style="margin:4px 0">${pedOcThumb(ped)}</div>
       <input type="file" id="f_oc_file" accept="application/pdf,image/*" onchange="APP.pedOcSel(this)" style="font-size:12px">
       <div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo da OC no pedido (máx. ~9 MB) — uso interno.</div></div>
+    ${pedEntregaBoxHtml()}
     <div class="mrow" style="margin-top:6px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_bonif" ${ped&&ped.bonificacao?'checked':''}> <b>🎁 Pedido de bonificação</b> <span class="muted">— sem conta a receber; a NF sai como <b>remessa de bonificação</b> (CFOP 5910/6910), não gera cobrança</span></label></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.savePedido(${id||''})">${id?'Salvar alterações':'Criar pedido'}</button></div>`);
@@ -3440,6 +3442,79 @@ function pedOcSel(inp){
 }
 function pedOcDel(){ window.__PEDOC=null; const pv=$('ped_oc_pv'); if(pv) pv.innerHTML=pedOcRender(); const fi=$('f_oc_file'); if(fi) fi.value=''; }
 function pedOcAbrir(){ const oc=window.__PEDOC; if(!oc||!oc.data) return; const w=window.open('','_blank'); if(w){ w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+oc.data+'" style="width:100%;height:100vh;border:0"></iframe>'); } else { toast('Libere o pop-up para abrir.','err'); } }
+// ===== Instruções de ENTREGA / ETIQUETAGEM (padrão por cliente) =====
+const PED_ENTREGA_INSTR_PADRAO =
+`Todos os volumes devem estar identificados com:
+• NOME DO CLIENTE (comprador do material)
+• CÓDIGO DO MATERIAL (código do cliente)
+• DESCRIÇÃO DO MATERIAL (o mais próximo do físico: cor, campanha, conceito, slogan)
+• QUANTIDADE PADRÃO POR EMBALAGEM (múltiplo do material dentro do volume; ex.: caixa com 100 un = "múltiplo de 100 unidades")`;
+// Modelos prontos por cliente (aplicados quando o cliente ainda não tem padrão salvo).
+const PED_ENTREGA_SEEDS = [
+  { match:'VIVARA', dados:{
+    transportadora:{ nome:'ZENATUR TRANSPORTES DE CARGAS LTDA', cnpj:'53.717.120/0001-70' },
+    entrega:{ razaoSocial:'ZENATUR TRANSPORTES DE CARGAS LTDA', logradouro:'Estrada Sadae Takagi, Nº 3040', bairro:'Cooperativa', cidade:'São Bernardo do Campo', uf:'SP', cep:'09852-070', referencia:'Zenatur G2' },
+    instrucoes: PED_ENTREGA_INSTR_PADRAO } },
+];
+function pedEntregaSeed(label){ const s=(label||'').toUpperCase(); const m=PED_ENTREGA_SEEDS.find(x=>s.includes(x.match)); return m?JSON.parse(JSON.stringify(m.dados)):null; }
+function pedEntregaBoxHtml(){
+  const e=window.__PEDENTREGA||{}; const t=e.transportadora||{}, en=e.entrega||{};
+  const has=!!(t.nome||t.cnpj||en.cep||en.logradouro||en.cidade||e.instrucoes);
+  return `<div style="border:1px dashed #cdb27a;border-radius:8px;padding:10px;background:#fbf9f3;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:12px;font-weight:700;color:#8a5a00">📦 Instruções de entrega / etiquetagem <span class="muted" style="font-weight:400">— padrão do cliente (opcional)</span></div>
+      <button type="button" class="btn-sm" onclick="APP.pedEntregaToggle()">${has?'ver / editar':'abrir'}</button>
+    </div>
+    <div id="ped_entrega_box" style="display:${has?'block':'none'};margin-top:8px">
+      <div class="grid2">${field('ent_tnome','Transportadora','value="'+esc(t.nome||'')+'" placeholder="ex.: ZENATUR TRANSPORTES DE CARGAS LTDA"')}${field('ent_tcnpj','CNPJ da transportadora','value="'+esc(t.cnpj||'')+'"')}</div>
+      <div class="grid3" style="margin-top:6px">
+        <div class="mrow"><label class="fl">CEP de entrega</label><div style="display:flex;gap:6px"><input id="ent_cep" class="inp" value="${esc(en.cep||'')}" placeholder="00000-000" style="flex:1"><button type="button" class="btn-sm" onclick="APP.pedEntregaCep()">buscar</button></div></div>
+        ${field('ent_cidade','Cidade','value="'+esc(en.cidade||'')+'"')}${field('ent_uf','UF','value="'+esc(en.uf||'')+'"')}
+      </div>
+      <div class="grid2" style="margin-top:6px">${field('ent_log','Endereço de entrega (rua, nº)','value="'+esc(en.logradouro||'')+'"')}${field('ent_bairro','Bairro','value="'+esc(en.bairro||'')+'"')}</div>
+      <div class="grid2" style="margin-top:6px">${field('ent_ref','Referência (ex.: Zenatur G2)','value="'+esc(en.referencia||'')+'"')}${field('ent_raz','Razão social do destino','value="'+esc(en.razaoSocial||'')+'"')}</div>
+      <div class="mrow" style="margin-top:6px"><label class="fl">Regras de identificação do volume (o que deve constar na etiqueta)</label><textarea id="ent_instr" class="inp" rows="6" placeholder="o que deve constar em cada volume">${esc(e.instrucoes||'')}</textarea></div>
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" class="btn-sm" onclick="APP.pedEntregaPadraoIdent()">↩ regras de identificação padrão</button>
+        <button type="button" class="btn-sm" onclick="APP.pedEntregaSalvarPadrao()">💾 Salvar como padrão deste cliente</button>
+        <button type="button" class="btn-sm" style="color:#c14a34" onclick="APP.pedEntregaLimpar()">limpar</button>
+      </div>
+    </div>
+  </div>`;
+}
+function pedEntregaToggle(){ const b=$('ped_entrega_box'); if(b) b.style.display=(b.style.display==='none'?'block':'none'); }
+function pedEntregaCep(){ return lookupCep('ent_cep',{logradouro:'ent_log',bairro:'ent_bairro',municipio:'ent_cidade',uf:'ent_uf'}); }
+function pedEntregaPadraoIdent(){ const t=$('ent_instr'); if(t && (!t.value.trim() || confirm('Substituir o texto atual pelas regras de identificação padrão?'))) t.value=PED_ENTREGA_INSTR_PADRAO; }
+function pedEntregaLimpar(){ ['ent_tnome','ent_tcnpj','ent_cep','ent_cidade','ent_uf','ent_log','ent_bairro','ent_ref','ent_raz','ent_instr'].forEach(id=>{ const e=$(id); if(e) e.value=''; }); }
+function pedEntregaLer(){
+  const g=id=>(($(id)&&$(id).value)||'').trim();
+  const o={ transportadora:{ nome:g('ent_tnome'), cnpj:g('ent_tcnpj') },
+    entrega:{ razaoSocial:g('ent_raz'), logradouro:g('ent_log'), bairro:g('ent_bairro'), cidade:g('ent_cidade'), uf:g('ent_uf'), cep:g('ent_cep'), referencia:g('ent_ref') },
+    instrucoes:g('ent_instr') };
+  const vazio = !o.transportadora.nome && !o.transportadora.cnpj && !o.instrucoes && !Object.values(o.entrega).some(Boolean);
+  return vazio?null:o;
+}
+function pedEntregaAplicar(d){ d=d||{}; const t=d.transportadora||{}, en=d.entrega||{};
+  const set=(id,v)=>{ const e=$(id); if(e) e.value=(v||''); };
+  set('ent_tnome',t.nome); set('ent_tcnpj',t.cnpj);
+  set('ent_raz',en.razaoSocial); set('ent_log',en.logradouro); set('ent_bairro',en.bairro); set('ent_cidade',en.cidade); set('ent_uf',en.uf); set('ent_cep',en.cep); set('ent_ref',en.referencia);
+  set('ent_instr',d.instrucoes);
+  const b=$('ped_entrega_box'); if(b) b.style.display='block';
+}
+// Ao escolher o cliente num pedido NOVO, aplica o padrão de entrega salvo dele (ou um modelo pronto p/ VIVARA).
+async function pedEntregaAutoLoad(cid, label){
+  if(!window.__PEDNEW) return; if(pedEntregaLer()) return; // não sobrescreve o que já foi digitado/editado
+  let pad=null;
+  try{ const cl=await api('/clientes/'+cid); if(cl&&cl.padraoEntrega&&typeof cl.padraoEntrega==='object'&&Object.keys(cl.padraoEntrega).length) pad=cl.padraoEntrega; }catch(_){}
+  if(!pad) pad=pedEntregaSeed(label);
+  if(pad){ pedEntregaAplicar(pad); toast('📦 Padrão de entrega do cliente aplicado — confira/edite se precisar.','ok'); }
+}
+async function pedEntregaSalvarPadrao(){
+  const cid=Number(val('f_cli')); if(!cid){ toast('Selecione o cliente antes de salvar o padrão.','err'); return; }
+  const o=pedEntregaLer();
+  try{ await api('/clientes/'+cid,{method:'PATCH',body:{padraoEntrega:o||{}}}); toast(o?'Padrão de entrega salvo para este cliente.':'Padrão de entrega do cliente removido.','ok'); }
+  catch(e){ toast(e.message,'err'); }
+}
 function calcVenc(){
   const el=$('f_pag_venc'); if(!el) return;
   const forma=val('f_pag');
@@ -3540,6 +3615,7 @@ function pedCliPick(){
     if(hint) hint.innerHTML = full + (e.unidadeId?'📍 Unidade selecionada. ':'')+(window.__PEDFILTER&&n<tot?('Produtos filtrados por <b>'+esc(e.filterKey)+'</b> ('+n+').'):'');
     renderItens();
     pedPrefillCliente();
+    pedEntregaAutoLoad(e.clienteId, e.label);
   } else {
     $('f_cli').value=''; $('f_cliuni').value=''; window.__PEDFILTER='';
     if(hint) hint.innerHTML = txt?('✏️ Cliente novo — será cadastrado com o nome <b>'+esc(txt)+'</b> ao salvar.'):'';
@@ -3743,6 +3819,7 @@ async function savePedido(id){
   body.comissaoComImposto = (val('f_combase_p')==='bruto');
   if(window.__PEDOC && window.__PEDOC.data){ body.ocArquivo=window.__PEDOC.data; body.ocArquivoNome=window.__PEDOC.nome||'ordem-compra'; }
   else if(id){ body.ocArquivo=null; body.ocArquivoNome=null; } // removeu o anexo num pedido existente
+  body.instrucoesEntrega = pedEntregaLer() || {}; // {} = limpa; objeto = grava
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
       let m='Pedido '+p.numero+' atualizado.';
@@ -10117,6 +10194,8 @@ async function delMockupAsset(id){ if(!(await uiConfirm({tipo:'err',titulo:'Remo
 const MK_CW=520, MK_CH=640;
 const MK_CORES=[['#1b2a4a','Azul Marinho'],['#0e5aa7','Azul Royal'],['#0a3d2a','Verde Musgo'],['#1f7a44','Verde Bandeira'],['#7a1f1f','Vinho'],['#c0392b','Vermelho'],['#111111','Preto'],['#ffffff','Branco'],['#9aa0a6','Cinza'],['#cdb27a','Bege'],['#e0a92a','Ouro Velho'],['#6b3fa0','Roxo']];
 async function montarMockup(){
+  // Recarrega o acervo (pega desenhos que você acabou de cadastrar).
+  try{ window.__MKASSETS=await api('/engenharia/mockups'); }catch(e){ window.__MKASSETS=window.__MKASSETS||[]; }
   let prods=[]; try{ prods=await api('/produtos'); }catch(e){}
   window.__MKPRODS=prods||[];
   let salvos=[]; try{ salvos=await api('/engenharia/produto-mockups'); }catch(e){}
@@ -10157,7 +10236,13 @@ function mkPalette(){
   const opc=all.filter(a=>a.categoria!=='base' && (!tipo||!a.tipoProduto||a.tipoProduto===tipo||a.tipoProduto==='generico'));
   const thumb=(a,acao)=>`<div title="${esc(a.nome)}" onclick="APP.${acao}(${a.id})" style="cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:4px;background:#fff;width:96px;text-align:center"><div style="height:66px;display:flex;align-items:center;justify-content:center"><img src="${esc(a.imagem)}" style="max-width:100%;max-height:100%;pointer-events:none"></div><div style="font-size:9px;line-height:1.1;margin-top:2px">${esc(a.nome.slice(0,26))}</div></div>`;
   const grp=(titulo,arr,acao)=>arr.length?`<div style="font-weight:700;font-size:11px;color:#8a5a00;margin:6px 0 4px">${titulo}</div><div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(a=>thumb(a,acao)).join('')}</div>`:'';
-  box.innerHTML = (grp('Peça base (fundo)',bases,'mkPickBase')||'<div class="muted" style="font-size:11px">Sem peça-base p/ este filtro. Cadastre no acervo.</div>') + grp('Opcionais (clique p/ adicionar)',opc,'mkAddCamada');
+  const totBases=all.filter(a=>a.categoria==='base').length;
+  const vazioMsg = totBases===0
+    ? '<div class="muted" style="font-size:11px">Nenhuma peça-base no acervo ainda. Feche e clique em <b>+ Adicionar desenho</b> (categoria <b>Peça base</b>) para cadastrar.</div>'
+    : (tipo||vista)
+      ? '<div class="muted" style="font-size:11px">Nenhuma peça-base <b>neste filtro</b> ('+((mkTipoLabel(tipo)||'todos')+' · '+(vista||'todas'))+'). Mude o <b>Tipo</b>/<b>Vista</b> acima ou deixe em <b>Tipo…</b> para ver todas ('+totBases+').</div>'
+      : '<div class="muted" style="font-size:11px">Sem peça-base. Cadastre no acervo.</div>';
+  box.innerHTML = (grp('Peça base (fundo)',bases,'mkPickBase')||vazioMsg) + grp('Opcionais (clique p/ adicionar)',opc,'mkAddCamada');
 }
 function mkPickBase(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; window.__MKC.base={assetId:a.id,img:a.imagem}; if(a.vista&&$('mkc_vista'))$('mkc_vista').value=a.vista; mkRenderCanvas(); }
 function mkAddCamada(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; const c={id:window.__MKC.seq++, assetId:a.id, img:a.imagem, x:MK_CW/2-60, y:MK_CH/2-60, w:120, cor:''}; window.__MKC.camadas.push(c); window.__MKC.sel='c'+c.id; mkRenderCanvas(); mkCtrl(); }
@@ -10452,7 +10537,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,

@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Cliente } from '@prisma/client';
+import { Cliente, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
@@ -218,6 +218,12 @@ export class ClientesService {
         comissaoComImposto: dto.comissaoComImposto ?? undefined,
         clienteNovo: dto.clienteNovo,
         obs: dto.obs,
+        padraoEntrega:
+          dto.padraoEntrega === undefined
+            ? undefined
+            : !dto.padraoEntrega || Object.keys(dto.padraoEntrega).length === 0
+              ? Prisma.JsonNull
+              : (dto.padraoEntrega as Prisma.InputJsonValue),
         ...this.dadosFiscais(dto),
         ...(trocaUnidades ? { unidades: { deleteMany: {}, create: (dto.unidades ?? []).map((u) => this.dadosUnidade(u)) } } : {}),
       },
