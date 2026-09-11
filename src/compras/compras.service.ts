@@ -70,10 +70,12 @@ export class ComprasService {
       data: {
         numero,
         fornecedorId: dto.fornecedorId,
+        filialId: dto.filialId,
         materialId: dto.materialId,
         produtoId: dto.produtoId,
         grade,
         codigoFornecedor: dto.codigoFornecedor?.trim() || null,
+        descricaoFornecedor: dto.descricaoFornecedor?.trim() || null,
         descricao: dto.descricao,
         quantidade,
         unidade: dto.unidade,

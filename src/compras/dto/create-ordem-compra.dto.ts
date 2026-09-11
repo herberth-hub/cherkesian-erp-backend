@@ -20,6 +20,12 @@ export class CreateOrdemCompraDto {
   @IsPositive()
   materialId?: number;
 
+  /** Nosso CNPJ comprador (filial emitente da OC). */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  filialId?: number;
+
   /** Produto de revenda comprado pronto (alternativa ao material). */
   @IsOptional()
   @IsInt()
@@ -36,6 +42,12 @@ export class CreateOrdemCompraDto {
   @IsString()
   @MaxLength(60)
   codigoFornecedor?: string;
+
+  /** Nome do produto no FORNECEDOR (como ele chama o artigo). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  descricaoFornecedor?: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Informe a descrição da compra.' })

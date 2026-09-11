@@ -234,6 +234,7 @@ export class ProdutosService {
       referencia: dto.referencia,
       fornecedorId: dto.fornecedorId,
       codigoFornecedor: dto.codigoFornecedor,
+      descricaoFornecedor: dto.descricaoFornecedor,
       marca: dto.marca,
       linha: dto.linha,
       grupo: dto.grupo,

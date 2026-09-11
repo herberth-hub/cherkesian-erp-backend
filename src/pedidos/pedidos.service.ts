@@ -533,7 +533,7 @@ export class PedidosService {
   private async avaliarRevendaTx(
     tx: Prisma.TransactionClient,
     empresaId: number,
-    pedido: { id: number; numero: string },
+    pedido: { id: number; numero: string; filialId?: number | null },
     itensRevenda: Array<{ produtoId: number | null; descricao: string; quantidade: number; grade?: unknown }>,
   ): Promise<{ faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }>; ocs: string[] }> {
     const faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }> = [];
@@ -552,7 +552,7 @@ export class PedidosService {
     }
     if (!necPorProd.size) return { faltas, ocs };
     const ids = [...necPorProd.keys()];
-    const prods = await tx.produto.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true, custo: true, fornecedorId: true, unidadeComercial: true } });
+    const prods = await tx.produto.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true, custo: true, fornecedorId: true, unidadeComercial: true, codigoFornecedor: true, descricaoFornecedor: true } });
     const prodMap = new Map(prods.map((p) => [p.id, p]));
     // Estoque disponível por produto (entradas - saídas, somando tamanhos).
     const estoques = await tx.estoque.findMany({ where: { produtoId: { in: ids } }, select: { produtoId: true, entradas: true, saidas: true } });
@@ -579,7 +579,7 @@ export class PedidosService {
         // Grade: só quando o pedido pede por tamanho E não há estoque (senão não dá p/ mapear tamanhos ao estoque agregado).
         const gradePedida = gradePorProd.get(produtoId);
         const grade = (gradePedida && Object.keys(gradePedida).length && Math.round(emEstoque) <= 0) ? (gradePedida as Prisma.InputJsonValue) : undefined;
-        await tx.ordemCompra.create({ data: { numero, fornecedorId: fornId, produtoId, grade, codigoFornecedor: codFornPorProd.get(produtoId) ?? null, descricao: `${p.codigo} · ${p.descricao}`, quantidade: new Prisma.Decimal(falta), unidade: p.unidadeComercial ?? 'UN', valor: custo.mul(falta), status: 'aguardando', motivo } });
+        await tx.ordemCompra.create({ data: { numero, fornecedorId: fornId, filialId: pedido.filialId ?? null, produtoId, grade, codigoFornecedor: p.codigoFornecedor ?? codFornPorProd.get(produtoId) ?? null, descricaoFornecedor: p.descricaoFornecedor ?? null, descricao: `${p.codigo} · ${p.descricao}`, quantidade: new Prisma.Decimal(falta), unidade: p.unidadeComercial ?? 'UN', valor: custo.mul(falta), status: 'aguardando', motivo } });
         ocNumero = numero;
         ocs.push(numero);
       }
@@ -830,7 +830,7 @@ export class PedidosService {
             const criadas: { numero: string }[] = [];
             if (aCriar.length) {
               const forn = await this.fornecedorPlaceholder(tx, empresaId);
-              for (const f of aCriar) { const numero = await this.gerarNumeroOC(tx); await tx.ordemCompra.create({ data: { numero, fornecedorId: forn.id, materialId: f.material.id, descricao: f.material.descricao, quantidade: f.faltam, unidade: f.material.unidade, valor: f.faltam.mul(f.material.custo), status: 'aguardando', motivo: motivoPedido } }); criadas.push({ numero }); }
+              for (const f of aCriar) { const numero = await this.gerarNumeroOC(tx); await tx.ordemCompra.create({ data: { numero, fornecedorId: forn.id, filialId: pedido.filialId ?? null, materialId: f.material.id, descricao: f.material.descricao, quantidade: f.faltam, unidade: f.material.unidade, valor: f.faltam.mul(f.material.custo), status: 'aguardando', motivo: motivoPedido } }); criadas.push({ numero }); }
             }
             await tx.pedido.update({ where: { id }, data: { etapa: 'producao', status: 'Em produção (parcial)', producaoParcial: true } });
             return { ops, ocs: criadas.length + ocsAbertas.length };
@@ -865,6 +865,7 @@ export class PedidosService {
               data: {
                 numero,
                 fornecedorId: fornecedor.id,
+                filialId: pedido.filialId ?? null,
                 materialId: f.material.id,
                 descricao: f.material.descricao,
                 quantidade: f.faltam,

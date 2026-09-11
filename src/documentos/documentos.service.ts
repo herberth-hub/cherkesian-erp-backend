@@ -942,7 +942,22 @@ export class DocumentosService {
     if (!oc || oc.fornecedor.empresaId !== empresaId) {
       throw new NotFoundException(`Ordem de compra ${ocId} não encontrada.`);
     }
+    // NOSSO CNPJ comprador (filial emitente): a OC informada, senão a matriz.
+    const filialCompra = oc.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: oc.filialId } })
+      : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+
     const doc = novoDocumento('Pedido de Compra', numero);
+
+    secao(doc, 'Comprador (emitente)');
+    const endComprador = [filialCompra?.logradouro, filialCompra?.numeroEndereco, filialCompra?.bairro].filter(Boolean).join(', ') || '—';
+    camposDuplos(doc, [
+      ['Empresa', filialCompra?.nome ?? '—'],
+      ['CNPJ', filialCompra?.cnpj ?? '—'],
+      ['Endereço', endComprador],
+      ['Cidade/UF', filialCompra ? `${filialCompra.municipio ?? '—'}${filialCompra.uf ? '/' + filialCompra.uf : ''}` : '—'],
+    ]);
+
     secao(doc, 'Fornecedor');
     camposDuplos(doc, [
       ['Nome', oc.fornecedor.nome],
@@ -950,11 +965,17 @@ export class DocumentosService {
       ['Contato', oc.fornecedor.contato ?? oc.fornecedor.telefone ?? '—'],
       ['Cidade/UF', oc.fornecedor.cidadeUf ?? '—'],
     ]);
+
     secao(doc, 'Item');
-    // Descrição com o SEU produto/código e o CÓDIGO DO FORNECEDOR (artigo) — os dois lados se identificam.
+    // Descrição do item: o SEU produto/código + o item NO FORNECEDOR (código do artigo + nome) + grade.
     const grade = (oc.grade && typeof oc.grade === 'object') ? (oc.grade as Record<string, number>) : null;
     const gradeTxt = grade && Object.keys(grade).length ? Object.entries(grade).map(([t, q]) => `${t}:${q}`).join('  ') : '';
-    const descItem = [oc.descricao, oc.codigoFornecedor ? `Cód. fornecedor (artigo): ${oc.codigoFornecedor}` : '', gradeTxt ? `Grade: ${gradeTxt}` : ''].filter(Boolean).join('\n');
+    const linhaForn = [oc.codigoFornecedor ? `Cód. ${oc.codigoFornecedor}` : '', oc.descricaoFornecedor ? oc.descricaoFornecedor : ''].filter(Boolean).join(' · ');
+    const descItem = [
+      oc.descricao,
+      linhaForn ? `No fornecedor: ${linhaForn}` : '',
+      gradeTxt ? `Grade: ${gradeTxt}` : '',
+    ].filter(Boolean).join('\n');
     tabela(
       doc,
       [
@@ -966,12 +987,20 @@ export class DocumentosService {
       [[descItem, this.qtdBR(oc.quantidade), oc.unidade, money(oc.valor)]],
     );
     totalDestaque(doc, 'Valor do pedido', money(oc.valor));
-    secao(doc, 'Observações');
-    doc.text(
-      `OC ${oc.numero} · status ${oc.status} · previsão de entrega ${dataBR(oc.previsao)}.` +
-        (oc.motivo ? ` Motivo: ${oc.motivo}` : ''),
-    );
-    assinaturas(doc, 'GRUPO CHERKESIAN — Compras', oc.fornecedor.nome);
+
+    secao(doc, 'Condições');
+    const sitTxt: Record<string, string> = { aguardando: 'Aguardando', enviada: 'Enviada ao fornecedor', comprado: 'Comprado', pago: 'Pago', recebido: 'Recebido' };
+    camposDuplos(doc, [
+      ['Situação', oc.status === 'recebida' ? 'Recebido' : (sitTxt[oc.situacao ?? 'aguardando'] ?? 'Aguardando')],
+      ['Prazo de entrega', oc.prazoEntregaDias != null ? `${oc.prazoEntregaDias} dias` : '—'],
+      ['Previsão de entrega', dataBR(oc.previsaoEntrega ?? oc.previsao)],
+      ['Pagamento', filialCompra?.dadosBancarios?.trim() ? filialCompra.dadosBancarios.trim().split('\n')[0] : '—'],
+    ]);
+
+    if (oc.motivo) { secao(doc, 'Observações'); textoBloco(doc, oc.motivo); }
+
+    assinaturas(doc, `${filialCompra?.nome ?? 'GRUPO CHERKESIAN'} — Compras`, `${oc.fornecedor.nome} — De acordo`);
+    rodapeGrupo(doc);
     return doc;
   }
 
