@@ -1025,19 +1025,29 @@ export class DocumentosService {
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(16).text(money(oc.valor), X, ty + 8, { width: CW - 14, align: 'right' });
     doc.y = ty + 34 + 14; doc.x = X;
 
-    // ===== CONDIÇÕES: 4 chips =====
+    // ===== CONDIÇÕES: 3 chips (o pagamento vai num bloco proprio, que cabe tudo) =====
     tituloSecao('Condições');
     const sitTxt: Record<string, string> = { aguardando: 'Aguardando', enviada: 'Enviada', comprado: 'Comprado', pago: 'Pago', recebido: 'Recebido' };
     const sit = oc.status === 'recebida' ? 'Recebido' : (sitTxt[oc.situacao ?? 'aguardando'] ?? 'Aguardando');
     const sitCor = (sit === 'Pago' || sit === 'Recebido') ? '#1e7a44' : TINTA;
-    const pgTxt = filialCompra?.dadosBancarios?.trim() ? filialCompra.dadosBancarios.trim().split('\n')[0] : '—';
-    const cy2 = doc.y + 2, cW4 = (CW - 3 * 8) / 4;
-    const chip = (i: number, lab: string, val: string, cor: string) => { const cx = X + i * (cW4 + 8); doc.roundedRect(cx, cy2, cW4, 40, 6).fillColor(BGSOFT).fill(); doc.roundedRect(cx, cy2, cW4, 40, 6).lineWidth(0.7).strokeColor(LINHA).stroke(); doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 8, cy2 + 7, { width: cW4 - 16 }); doc.fillColor(cor).font('Helvetica-Bold').fontSize(11).text(val, cx + 8, cy2 + 19, { width: cW4 - 16 }); };
+    const cy2 = doc.y + 2, cW3 = (CW - 2 * 8) / 3;
+    const chip = (i: number, lab: string, val: string, cor: string) => { const cx = X + i * (cW3 + 8); doc.roundedRect(cx, cy2, cW3, 40, 6).fillColor(BGSOFT).fill(); doc.roundedRect(cx, cy2, cW3, 40, 6).lineWidth(0.7).strokeColor(LINHA).stroke(); doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 10, cy2 + 7, { width: cW3 - 20 }); doc.fillColor(cor).font('Helvetica-Bold').fontSize(12).text(val, cx + 10, cy2 + 19, { width: cW3 - 20 }); };
     chip(0, 'SITUAÇÃO', sit, sitCor);
     chip(1, 'PRAZO', oc.prazoEntregaDias != null ? `${oc.prazoEntregaDias} dias` : '—', TINTA);
     chip(2, 'PREVISÃO', dataBR(oc.previsaoEntrega ?? oc.previsao), TINTA);
-    chip(3, 'PAGAMENTO', pgTxt.length > 16 ? pgTxt.slice(0, 15) + '…' : pgTxt, TINTA);
-    doc.y = cy2 + 40 + 14; doc.x = X;
+    doc.y = cy2 + 40 + 12; doc.x = X;
+
+    // Dados para pagamento — bloco de largura total (cabe favorecido/banco/PIX completos).
+    const banco = filialCompra?.dadosBancarios?.trim();
+    if (banco) {
+      const txtH = doc.font('Helvetica').fontSize(9.5).heightOfString(banco, { width: CW - 20 });
+      const by = doc.y, bh = 22 + txtH + 8;
+      doc.roundedRect(X, by, CW, bh, 6).fillColor(BGSOFT).fill();
+      doc.roundedRect(X, by, CW, bh, 6).lineWidth(0.7).strokeColor(LINHA).stroke();
+      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('DADOS PARA PAGAMENTO', X + 10, by + 7, { characterSpacing: 0.5 });
+      doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(banco, X + 10, by + 19, { width: CW - 20, lineGap: 1.5 });
+      doc.y = by + bh + 12; doc.x = X;
+    }
 
     if (oc.motivo) { tituloSecao('Observações'); doc.fillColor('#4a463c').font('Helvetica').fontSize(9.5).text(oc.motivo, X, doc.y, { width: CW, lineGap: 1.5 }); doc.moveDown(1); doc.x = X; }
 
