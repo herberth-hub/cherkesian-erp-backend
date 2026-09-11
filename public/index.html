@@ -208,9 +208,9 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente','sgq'],
+  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente','sgq','engenharia'],
   vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas','sgq'],
-  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq'],
+  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq','engenharia'],
   chao:['tv','producao','kits','piloto','estoque','sgq'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq'],
   financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente','sgq'],
@@ -226,13 +226,13 @@ const NAVDEF = [
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
   ['Qualidade / SGQ', [['sgq','SGQ · Universidade','book']]],
-  ['Cadastros', [['produtos','Produtos','shirt'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
+  ['Cadastros', [['produtos','Produtos','shirt'],['engenharia','Engenharia de Produtos','layers'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
   ['Integrações', [['whatsapp','Robô WhatsApp','spark'],['mercadolivre','Mercado Livre','cart'],['tray','Tray','cart']]],
   ['Administração', [['filiais','Filiais / CNPJs','box'],['empresa','Config. Fiscal (NF-e)','file'],['usuarios','Usuários & Acessos','shield'],['logs','Auditoria / Logs','clock'],['pct','PCT · Testes & Gaps','spark']]],
   ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -243,6 +243,7 @@ const TITLES = {
   clientes:['Clientes','Cadastro central de clientes'],
   representantes:['Representantes','Carteira de clientes por representante · ranking de vendas'],
   produtos:['Produtos','Catálogo · SKU PRD-CAT-0000'],
+  engenharia:['Engenharia de Produtos','Biblioteca de desenhos + montagem de mockup/ficha técnica'],
   materia:['Matéria-prima','Tecidos e insumos · MP-CAT-0000'],
   fornecedores:['Fornecedores','Fornecedores e facções'],
   receber:['Contas a Receber','O que os clientes devem'],
@@ -585,6 +586,7 @@ async function loadRoute(){
     if(S.route==='portal') return await viewPortal(c);
     if(S.route==='pct') return await viewPCT(c);
     if(S.route==='sgq') return await viewSGQ(c);
+    if(S.route==='engenharia') return await viewEngenharia(c);
   }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
@@ -1300,7 +1302,7 @@ async function viewProdutos(c){
   window.__PRODLIST = list;
   const _gruposP=[...new Set(list.map(p=>p.clienteGrupo).filter(Boolean))].sort();
   const gFilterP = _gruposP.length? `<div style="margin:-2px 0 10px"><select id="prod_grupo" class="inp" style="width:auto" onchange="APP.prodFiltrar()"><option value="">Todos os grupos de cliente</option>${_gruposP.map(g=>'<option value="'+esc(g)+'">'+esc(g)+' ('+list.filter(p=>p.clienteGrupo===g).length+')</option>').join('')}</select></div>` : '';
-  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', `<button class="btn-sm" onclick="APP.formProdutoRevenda()">🛒 Novo produto de revenda</button> `+relBtn('produtos'))
+  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', `<button class="btn-sm" onclick="APP.formProdutoRevenda()">🛒 Novo produto de revenda</button> <button class="btn-sm" title="Biblioteca de desenhos + montagem de mockup/ficha técnica" onclick="APP.go('engenharia')">🧩 Engenharia de produtos</button> `+relBtn('produtos'))
     + `<div style="margin:0 0 10px"><input id="prod_busca" class="inp" placeholder="🔍 Buscar por código, descrição, categoria, cor ou NCM…" oninput="APP.prodFiltrar()" style="max-width:520px"></div>`
     + gFilterP
     + `<div id="prodwrap">${prodTabela(list)}</div>`;
@@ -10039,6 +10041,66 @@ async function kitDetalhe(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ================== ENGENHARIA DE PRODUTOS · biblioteca de mockups ==================
+const MK_CATS=[['base','Peça base'],['gola','Gola/Colarinho'],['punho','Punho'],['manga','Manga'],['bolso','Bolso'],['cos','Cós'],['detalhe','Detalhe'],['logo_area','Área de logo']];
+const MK_TIPOS=[['camisa_social_masc','Camisa social masc.'],['camisa_social_fem','Camisa social fem.'],['camiseta_mc','Camiseta manga curta'],['polo','Camiseta polo'],['camiseta_ml','Camiseta manga longa'],['calca_cos_elastico','Calça cós elástico total'],['calca_meio_elastico','Calça meio elástico'],['calca_cos_total','Calça cós total'],['generico','Genérico']];
+const mkCatLabel=k=>{const f=MK_CATS.find(x=>x[0]===k);return f?f[1]:k;};
+const mkTipoLabel=k=>{const f=MK_TIPOS.find(x=>x[0]===k);return f?f[1]:(k||'—');};
+async function viewEngenharia(c){
+  let list; try{ list=await api('/engenharia/mockups'); }catch(e){ list=[]; }
+  window.__MKASSETS=list||[];
+  c.innerHTML = toolbar('Engenharia de Produtos', '+ Adicionar desenho', 'APP.formMockupAsset()', `<button class="btn-ghost" title="Montar o mockup do produto" onclick="APP.montarMockup()">🧩 Montar mockup</button>`)
+    + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <select id="mk_fcat" class="inp" style="max-width:210px" onchange="APP.engRender()"><option value="">Todas as categorias</option>${MK_CATS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select>
+        <select id="mk_ftipo" class="inp" style="max-width:230px" onchange="APP.engRender()"><option value="">Todos os tipos de produto</option>${MK_TIPOS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select>
+      </div><div id="mk_grid"></div>
+      <div class="muted" style="font-size:11.5px;margin-top:10px">💡 Cadastre aqui os <b>desenhos base</b> (frente/costas/lateral) e os <b>opcionais</b> (golas, punhos, bolsos, cós, áreas de logo). Depois o <b>Montar mockup</b> deixa arrastar e montar a ficha visual do produto.</div>`;
+  engRender();
+}
+function engRender(){
+  const box=$('mk_grid'); if(!box) return;
+  const fc=val('mk_fcat'), ft=val('mk_ftipo');
+  let list=(window.__MKASSETS||[]);
+  if(fc) list=list.filter(a=>a.categoria===fc);
+  if(ft) list=list.filter(a=>a.tipoProduto===ft);
+  if(!list.length){ box.innerHTML='<div class="empty">Nenhum desenho neste filtro. Clique em "+ Adicionar desenho".</div>'; return; }
+  box.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:12px">${list.map(a=>`
+    <div style="width:152px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff">
+      <div style="height:120px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:6px;overflow:hidden"><img src="${esc(a.imagem)}" style="max-width:100%;max-height:100%" loading="lazy"></div>
+      <div style="font-size:11.5px;font-weight:600;margin-top:5px;line-height:1.2">${esc(a.nome)}</div>
+      <div class="muted" style="font-size:10px">${esc(mkCatLabel(a.categoria))}${a.vista?' · '+esc(a.vista):''}${a.tipoProduto?'<br>'+esc(mkTipoLabel(a.tipoProduto)):''}</div>
+      <div style="text-align:right;margin-top:4px"><button class="btn-sm" style="color:#c14a34;padding:1px 7px" onclick="APP.delMockupAsset(${a.id})">🗑</button></div>
+    </div>`).join('')}</div>`;
+}
+function formMockupAsset(){
+  openModal(`<h3>Adicionar desenho ao acervo</h3>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Categoria *</label><select id="mka_cat" class="inp">${MK_CATS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
+      <div class="mrow"><label class="fl">Tipo de produto</label><select id="mka_tipo" class="inp"><option value="">— genérico —</option>${MK_TIPOS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select></div>
+    </div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Vista</label><select id="mka_vista" class="inp"><option value="">—</option><option>frente</option><option>costas</option><option>lateral</option><option>detalhe</option></select></div>
+      ${field('mka_nome','Nome *','placeholder="ex.: Camisa social masc · frente"')}
+    </div>
+    <div class="mrow"><label class="fl">Desenho (PNG/JPG/SVG) *</label><input id="mka_file" type="file" accept="image/*" class="inp"></div>
+    <div class="muted" style="font-size:11px;margin:-2px 0 6px">Prefira <b>PNG com fundo transparente</b> (sobrepõe melhor no mockup). Máx. 3 MB.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.saveMockupAsset()">Salvar</button></div>`);
+}
+async function saveMockupAsset(){
+  const f=$('mka_file'); const file=f&&f.files&&f.files[0];
+  if(!file){ toast('Escolha a imagem do desenho.','err'); return; }
+  if(file.size>3*1024*1024){ toast('Imagem muito grande (máx 3 MB). Exporte menor.','err'); return; }
+  const nome=(val('mka_nome')||'').trim(); if(!nome){ toast('Informe o nome.','err'); return; }
+  const rd=new FileReader();
+  rd.onload=async()=>{ try{
+    const body={ categoria:val('mka_cat'), tipoProduto:val('mka_tipo')||undefined, vista:val('mka_vista')||undefined, nome, imagem:String(rd.result) };
+    await api('/engenharia/mockups',{method:'POST',body}); closeModal(); toast('Desenho adicionado ao acervo.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); } };
+  rd.readAsDataURL(file);
+}
+async function delMockupAsset(id){ if(!(await uiConfirm({tipo:'err',titulo:'Remover desenho?',msg:'Ele sai do acervo (mockups já salvos não mudam).',ok:'Remover'}))) return; try{ await api('/engenharia/mockups/'+id,{method:'DELETE'}); toast('Removido.','ok'); loadRoute(); }catch(e){ toast(e.message,'err'); } }
+function montarMockup(){ uiAlert({tipo:'info', titulo:'Montar mockup — próxima fase', msg:'A montagem visual (arrastar as peças, trocar cor dos opcionais e posicionar o logo do cliente) é a próxima fase. Primeiro cadastre aqui os desenhos base e os opcionais que você vai me enviar.'}); }
+
 // ================== SGQ · Universidade do Sistema ==================
 async function viewSGQ(c){
   let d; try{ d=await api('/sgq'); }catch(e){ c.innerHTML='<div class="empty" style="color:#c14a34">Erro ao carregar SGQ: '+esc(e.message)+'</div>'; return; }
@@ -10251,6 +10313,7 @@ window.APP = {
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav, viewPCT, pctToggle, pctAddTeste, pctDelTeste, pctDiag,
+  viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,

@@ -30,6 +30,7 @@ import { NotasEntradaModule } from './notas-entrada/notas-entrada.module';
 import { CreditoModule } from './credito/credito.module';
 import { EmpresaModule } from './empresa/empresa.module';
 import { SgqModule } from './sgq/sgq.module';
+import { EngenhariaModule } from './engenharia/engenharia.module';
 import { FiliaisModule } from './filiais/filiais.module';
 import { AgenteModule } from './agente/agente.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
@@ -101,6 +102,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     CreditoModule,
     EmpresaModule,
     SgqModule,
+    EngenhariaModule,
     FiliaisModule,
     AgenteModule,
     RelatoriosModule,

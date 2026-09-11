@@ -931,6 +931,35 @@ model SgqProgresso {
   @@index([empresaId, usuario])
 }
 
+// ===== Engenharia de Produtos — biblioteca de desenhos p/ montar o mockup/ficha técnica =====
+model MockupAsset {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  categoria   String   // base | gola | punho | bolso | cos | manga | detalhe | logo_area
+  tipoProduto String?  // camisa_social_masc | camisa_social_fem | camiseta_mc | polo | camiseta_ml | calca_cos_elastico | calca_meio_elastico | calca_cos_total | generico
+  vista       String?  // frente | costas | lateral | detalhe
+  nome        String
+  imagem      String   @db.Text // PNG/SVG em data URI base64 (linha do desenho)
+  larguraPct  Int?     // tamanho sugerido do opcional ao arrastar (% da peça)
+  ordem       Int      @default(0)
+  ativo       Boolean  @default(true)
+  criadoEm    DateTime @default(now())
+  @@index([empresaId, categoria])
+}
+
+// Mockup montado de um produto (composição de assets + logo posicionado) p/ ficha/apresentação.
+model ProdutoMockup {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  produtoId   Int?
+  nome        String
+  composicao  Json     // { base, vista, camadas:[{assetId?,tipo,x,y,w,rot,cor,img?}], logo?:{img,x,y,w} }
+  preview     String?  @db.Text // imagem final rasterizada (data URI) p/ impressão rápida
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @default(now()) @updatedAt
+  @@index([empresaId, produtoId])
+}
+
 model Log {
   id         Int      @id @default(autoincrement())
   usuario    String
