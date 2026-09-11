@@ -464,6 +464,7 @@ model Produto {
   // Peso e embalagem (cálculo automático de peso líquido/bruto e volumes no pedido/NF)
   pesoUnitario   Decimal? @db.Decimal(10,3) // kg por peça (padrão)
   pesoPorTamanho Json?                        // { "PP":0.32, "M":0.38, ... }
+  codigosPorTamanho Json?                     // código do cliente por tamanho: { "36":"MC0400054", "38":"MC0400055", ... }
   caixaId        Int?                         // Embalagem tipo caixa
   pecasPorCaixa  Int?                         // encaixe padrão por caixa
   fardoId        Int?                         // Embalagem tipo fardo

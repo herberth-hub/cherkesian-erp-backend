@@ -2313,6 +2313,7 @@ async function formProduto(id, prefill){
   try{ window.__MATLIST=await api('/materiais'); }catch(e){ window.__MATLIST=window.__MATLIST||[]; }
   try{ window.__EMBLIST=await api('/embalagens'); }catch(e){ window.__EMBLIST=window.__EMBLIST||[]; }
   window.__pesoPorTam=(p.pesoPorTamanho&&typeof p.pesoPorTamanho==='object')?Object.assign({},p.pesoPorTamanho):{};
+  window.__codPorTam=(p.codigosPorTamanho&&typeof p.codigosPorTamanho==='object')?Object.assign({},p.codigosPorTamanho):{};
   let __tecMat=null, __tecCons='', __tecUn='m'; window.__tecPorTam={};
   if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){ const c=cs.slice().sort((a,b)=>Number(b.quantidade)-Number(a.quantidade))[0]; __tecMat=(window.__MATLIST||[]).find(m=>m.id===c.materialId)||null; __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; } }catch(_){} }
   const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
@@ -2335,6 +2336,7 @@ async function formProduto(id, prefill){
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
+    <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.codTamToggle()" title="Um código do cliente por tamanho (ex.: CALÇA 36 = MC0400054, 38 = MC0400055). Assim você cadastra 1 produto com vários códigos, sem duplicar por tamanho.">🏷️ Código por tamanho (código do cliente)</button><div id="f_codtam" style="display:none;margin-top:8px"></div></div>
     <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
     <div class="grid2" style="align-items:start">
       <div class="mrow" style="position:relative"><label class="fl">Tecido principal <span class="muted">(homologado do estoque)</span></label>
@@ -2426,6 +2428,17 @@ function pesoTamToggle(){
   box.style.display='';
 }
 function pesoLerPorTam(){ const pt={}; document.querySelectorAll('#f_pesotam .pesotam').forEach(inp=>{ const v=Number(inp.value); if(v>0) pt[(inp.dataset.tam||'').toUpperCase()]=v; }); return pt; }
+// ----- Código do cliente POR TAMANHO (VIVARA: 1 produto, vários códigos por tamanho) -----
+function codTamToggle(){
+  const box=$('f_codtam'); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  const pt=window.__codPorTam||{};
+  const sizes=tecTamSizes();
+  box.innerHTML='<div class="muted" style="font-size:11px;margin-bottom:5px">Código do cliente por tamanho. Preencha a <b>Grade</b> acima (ex.: 36,38,42,44,46) e informe o código de cada tamanho — deixe vazio os que não têm código próprio.</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px">'+sizes.map(t=>`<div style="display:flex;flex-direction:column;align-items:center"><label class="fl" style="font-size:10px;letter-spacing:.5px">${esc(t)}</label><input class="inp codtam" data-tam="${esc(t)}" value="${esc(pt[t]!=null?pt[t]:'')}" placeholder="ex.: MC0400054" style="width:120px;text-align:center;padding:4px 6px;font-size:12px"></div>`).join('')+'</div>';
+  box.style.display='';
+}
+function codLerPorTam(){ const pt={}; document.querySelectorAll('#f_codtam .codtam').forEach(inp=>{ const v=(inp.value||'').trim(); if(v) pt[(inp.dataset.tam||'').toUpperCase()]=v; }); return pt; }
 // CRUD rápido de embalagens (caixa/fardo)
 async function formEmbalagens(){
   let list; try{ list=await api('/embalagens'); }catch(e){ toast(e.message,'err'); return; }
@@ -2514,6 +2527,7 @@ async function saveProduto(id){
   // Peso e embalagem
   const pu=val('f_peso'); body.pesoUnitario = pu!=='' ? Number(pu) : null;
   body.pesoPorTamanho = pesoLerPorTam();
+  body.codigosPorTamanho = codLerPorTam();
   const cx=val('f_caixa'); body.caixaId = cx? Number(cx) : null;
   const pcx=val('f_pcaixa'); body.pecasPorCaixa = pcx!=='' ? Number(pcx) : null;
   const fd=val('f_fardo'); body.fardoId = fd? Number(fd) : null;
@@ -10435,7 +10449,7 @@ window.APP = {
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
-  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,

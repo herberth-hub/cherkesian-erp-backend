@@ -66,6 +66,8 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   /** Peso e embalagem (p/ peso líquido/bruto e volumes no pedido/NF). */
   @IsOptional() @IsNumber() pesoUnitario?: number;
   @IsOptional() @IsObject() pesoPorTamanho?: Record<string, number>;
+  /** Código do cliente por tamanho { "36":"MC0400054", ... } — 1 produto com vários códigos por tamanho. */
+  @IsOptional() @IsObject() codigosPorTamanho?: Record<string, string>;
   @IsOptional() @IsInt() caixaId?: number;
   @IsOptional() @IsInt() pecasPorCaixa?: number;
   @IsOptional() @IsInt() fardoId?: number;

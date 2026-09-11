@@ -205,9 +205,20 @@ export class ProdutosService {
       }
       pesoPorTamanho = limpo as Prisma.InputJsonValue;
     }
+    // Código do cliente por tamanho (VIVARA etc.): { "36":"MC0400054", ... } — valores são texto.
+    let codigosPorTamanho: Prisma.InputJsonValue | undefined;
+    if (dto.codigosPorTamanho && typeof dto.codigosPorTamanho === 'object') {
+      const limpo: Record<string, string> = {};
+      for (const [k, v] of Object.entries(dto.codigosPorTamanho)) {
+        const cod = String(v ?? '').trim();
+        if (k && cod) limpo[String(k).toUpperCase()] = cod;
+      }
+      codigosPorTamanho = limpo as Prisma.InputJsonValue;
+    }
     return {
       pesoUnitario: dto.pesoUnitario != null ? new Prisma.Decimal(Number(dto.pesoUnitario).toFixed(3)) : dto.pesoUnitario === null ? null : undefined,
       ...(pesoPorTamanho !== undefined ? { pesoPorTamanho } : {}),
+      ...(codigosPorTamanho !== undefined ? { codigosPorTamanho } : {}),
       caixaId: dto.caixaId ?? undefined,
       pecasPorCaixa: dto.pecasPorCaixa ?? undefined,
       fardoId: dto.fardoId ?? undefined,
