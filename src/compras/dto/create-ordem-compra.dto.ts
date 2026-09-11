@@ -3,6 +3,7 @@ import {
   IsISO8601,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsPositive,
   IsString,
@@ -18,6 +19,17 @@ export class CreateOrdemCompraDto {
   @IsInt()
   @IsPositive()
   materialId?: number;
+
+  /** Produto de revenda comprado pronto (alternativa ao material). */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  produtoId?: number;
+
+  /** Compra por tamanho: { "36":10, "38":8, ... }. A quantidade = soma da grade. */
+  @IsOptional()
+  @IsObject()
+  grade?: Record<string, number>;
 
   @IsString()
   @IsNotEmpty({ message: 'Informe a descrição da compra.' })

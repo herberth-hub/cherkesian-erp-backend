@@ -5696,7 +5696,7 @@ async function viewCompras(c){
   c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'+relBtn('compras')) + panelTable(
     ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
     list.map(o=>[
-      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao),
+      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao)+((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:''),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
       ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
       (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" title="Enviar a ordem de compra por e-mail ao fornecedor" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧 Enviar</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
@@ -5752,21 +5752,56 @@ async function saveReposicao(){
   }catch(e){ toast(e.message,'err'); }
 }
 async function formCompra(){
-  const [forn, mats] = await Promise.all([api('/fornecedores'), api('/materiais')]);
+  const [forn, mats, prods] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/produtos').catch(()=>[])]);
+  window.__OCPRODS = (prods||[]);
   const fo = forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
   const mo = ['<option value="">— sem material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-desc="${esc(m.descricao)}">${esc(m.codigo)} · ${esc(m.descricao)}</option>`)).join('');
+  // Produtos de revenda (comprados prontos) — os que fazem sentido comprar por grade.
+  const revenda = (prods||[]).filter(p=>p.tipo==='revenda');
+  const po = ['<option value="">— sem produto —</option>'].concat(revenda.map(p=>`<option value="${p.id}">${esc((p.codigo||'')+' · '+(p.descricao||''))}</option>`)).join('');
   openModal(`<h3>Nova ordem de compra</h3>
     <div class="mrow"><label class="fl">Fornecedor *</label><select id="f_forn" class="inp">${fo||'<option>—</option>'}</select></div>
-    <div class="mrow"><label class="fl">Material</label><select id="f_mat" class="inp" onchange="APP.ocMat()">${mo}</select></div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Material <span class="muted">(matéria-prima)</span></label><select id="f_mat" class="inp" onchange="APP.ocMat()">${mo}</select></div>
+      <div class="mrow"><label class="fl">Produto de revenda <span class="muted">(compra por tamanho)</span></label><select id="f_prod" class="inp" onchange="APP.ocProd()">${po}</select></div>
+    </div>
+    <div id="oc_gradebox" style="display:none;margin:2px 0 8px;border:1px dashed #cdb27a;background:#fbf9f3;border-radius:8px;padding:8px 10px">
+      <div style="font-size:11.5px;font-weight:700;color:#8a5a00;margin-bottom:5px">🏷️ Quantidade por tamanho <span class="muted" style="font-weight:400">— a quantidade total é a soma da grade</span></div>
+      <div id="oc_grade" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
     ${field('f_desc','Descrição *','')}
     <div class="grid3">${field('f_qtd','Quantidade *','type="number" step="0.001"')}${field('f_un','Unidade *','value="un"')}${field('f_val','Valor total *','type="number" step="0.01"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCompra()">Salvar</button></div>`);
 }
-function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0]; if(o&&o.value){ if(!$('f_desc').value) $('f_desc').value=o.getAttribute('data-desc')||''; if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un'; } }
+function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0]; if(o&&o.value){ if($('f_prod')) $('f_prod').value=''; ocGradeHide(); if(!$('f_desc').value) $('f_desc').value=o.getAttribute('data-desc')||''; if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un'; } }
+function ocGradeHide(){ const b=$('oc_gradebox'); if(b) b.style.display='none'; const g=$('oc_grade'); if(g) g.innerHTML=''; window.__OCPRODSEL=null; }
+// Produto de revenda escolhido: mostra os tamanhos da grade dele p/ digitar a quantidade de cada.
+function ocProd(){
+  const id=Number(val('f_prod'));
+  if(!id){ ocGradeHide(); return; }
+  if($('f_mat')) $('f_mat').value='';
+  const p=(window.__OCPRODS||[]).find(x=>x.id===id); if(!p){ ocGradeHide(); return; }
+  window.__OCPRODSEL=p;
+  if($('f_desc')) $('f_desc').value=(p.codigo?p.codigo+' · ':'')+(p.descricao||'');
+  if($('f_un')) $('f_un').value=p.unidadeComercial||'UN';
+  const tams=tamsDoProduto(p);
+  const box=$('oc_grade');
+  if(box){ box.innerHTML = tams.map(t=>`<div style="display:flex;flex-direction:column;align-items:center"><label class="fl" style="font-size:10px;letter-spacing:.5px">${esc(t)}</label><input class="inp ocgi" data-tam="${esc(t)}" type="number" min="0" step="1" value="" style="width:60px;text-align:center;padding:4px 3px;font-size:12px" oninput="APP.ocGradeSync()"></div>`).join(''); }
+  const gb=$('oc_gradebox'); if(gb) gb.style.display='';
+  ocGradeSync();
+}
+function ocLerGrade(){ const g={}; document.querySelectorAll('#oc_grade .ocgi').forEach(inp=>{ const n=Math.round(Number(inp.value)); if(n>0) g[(inp.dataset.tam||'').toUpperCase()]=n; }); return g; }
+function ocGradeSync(){
+  const g=ocLerGrade(); const soma=Object.values(g).reduce((a,b)=>a+b,0);
+  if($('f_qtd')) $('f_qtd').value = soma||'';
+  const p=window.__OCPRODSEL; const custo=p&&p.custo!=null?Number(p.custo):0;
+  if(custo>0 && $('f_val')) $('f_val').value=(soma*custo).toFixed(2);
+}
 async function saveCompra(){
   const body = { fornecedorId:Number(val('f_forn')), descricao:val('f_desc'), quantidade:Number(val('f_qtd')), unidade:val('f_un')||'un', valor:Number(val('f_val')) };
   const mid=val('f_mat'); if(mid) body.materialId=Number(mid);
+  const pid=val('f_prod'); if(pid){ body.produtoId=Number(pid); const g=ocLerGrade(); if(Object.keys(g).length) body.grade=g; }
   if(!body.fornecedorId||!body.descricao||!body.quantidade||!body.valor){ toast('Preencha fornecedor, descrição, quantidade e valor.','err'); return; }
   // Aviso: se o valor ultrapassar o crédito disponível que o fornecedor concede.
   try{
@@ -10694,7 +10729,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocMat, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
+  formCompra, ocMat, ocProd, ocGradeSync, saveCompra, receberCompra, cancelarCompra, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,

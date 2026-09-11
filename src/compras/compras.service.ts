@@ -48,6 +48,22 @@ export class ComprasService {
         throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
       }
     }
+    if (dto.produtoId) {
+      const produto = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
+      if (!produto || produto.empresaId !== empresaId) {
+        throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
+      }
+    }
+    // Grade por tamanho (compra de produto com tamanhos): limpa e, se houver, a
+    // quantidade passa a ser a SOMA da grade (fonte única da verdade).
+    let grade: Prisma.InputJsonValue | undefined;
+    let quantidade = dto.quantidade;
+    if (dto.grade && typeof dto.grade === 'object') {
+      const limpo: Record<string, number> = {};
+      let soma = 0;
+      for (const [t, q] of Object.entries(dto.grade)) { const n = Math.round(Number(q)); if (t && n > 0) { limpo[String(t).toUpperCase()] = n; soma += n; } }
+      if (soma > 0) { grade = limpo as Prisma.InputJsonValue; quantidade = soma; }
+    }
 
     const numero = await this.gerarNumero();
     return this.prisma.ordemCompra.create({
@@ -55,8 +71,10 @@ export class ComprasService {
         numero,
         fornecedorId: dto.fornecedorId,
         materialId: dto.materialId,
+        produtoId: dto.produtoId,
+        grade,
         descricao: dto.descricao,
-        quantidade: dto.quantidade,
+        quantidade,
         unidade: dto.unidade,
         valor: dto.valor,
         status: 'aguardando',

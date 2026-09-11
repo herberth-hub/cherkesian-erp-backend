@@ -682,6 +682,7 @@ model OrdemCompra {
   fornecedor   Fornecedor @relation(fields: [fornecedorId], references: [id])
   materialId   Int?
   produtoId    Int?       // OC de PRODUTO DE REVENDA (comprado pronto p/ atender um pedido)
+  grade        Json?      // compra por TAMANHO: { "36":10, "38":8, ... } (quando o produto tem grade)
   descricao    String
   quantidade   Decimal    @db.Decimal(12,3)
   unidade      String
