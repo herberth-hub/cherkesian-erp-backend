@@ -30,6 +30,14 @@ export function setLogoDoc(dataUri: string | null | undefined): void {
   LOGO_DOC = dataUri && /^data:image\//.test(dataUri) ? dataUri : null;
 }
 
+// Data exibida no cabeçalho ("Emitido em"). Por padrão é a data de HOJE; alguns
+// documentos (pedido/proposta) passam a data de ENTRADA (criação) do registro.
+let DATA_DOC: Date | null = null;
+export function setDataDoc(d: Date | string | null | undefined): void {
+  const dt = d instanceof Date ? d : d ? new Date(d) : null;
+  DATA_DOC = dt && !isNaN(dt.getTime()) ? dt : null;
+}
+
 export function novoDocumento(titulo: string, numero: string): Pdf {
   const doc = new PDFDocument({ size: 'A4', margins: { top: 128, bottom: 70, left: 50, right: 50 } });
   // Título do PDF (metadado): vira o nome sugerido ao baixar pelo visualizador do navegador.
@@ -72,7 +80,7 @@ function cabecalho(doc: Pdf, titulo: string, numero: string): void {
     .fillColor(CINZA)
     .font('Helvetica')
     .fontSize(8)
-    .text(`Emitido em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, w - 300, 64, { width: 250, align: 'right' });
+    .text(`Emitido em ${(DATA_DOC ?? new Date()).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, w - 300, 64, { width: 250, align: 'right' });
   // Rodapé — zera a margem inferior enquanto escreve, senão o text() abaixo de
   // maxY dispara a auto-paginação do pdfkit (addPage em cascata).
   const margemInferior = doc.page.margins.bottom;

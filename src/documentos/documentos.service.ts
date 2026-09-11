@@ -19,6 +19,7 @@ import {
   imagem,
   imagemMini,
   setLogoDoc,
+  setDataDoc,
   itemPedido,
   pedidoGradeTabela,
   money,
@@ -261,6 +262,7 @@ export class DocumentosService {
     // Aplica o logo da empresa no cabeçalho dos documentos.
     const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
     setLogoDoc(emp?.logo ?? null);
+    setDataDoc(null); // padrão: data de HOJE; alguns documentos sobrepõem c/ a data de entrada.
     switch (tipo) {
       case 'proposta':
       case 'pedido':
@@ -305,6 +307,8 @@ export class DocumentosService {
       : [];
     const prodMap = new Map<number, Produto>(prodsArr.map((p) => [p.id, p]));
     const titulo = tipo === 'proposta' ? 'Proposta Comercial' : 'Pedido de Venda';
+    // O cabeçalho mostra a data de ENTRADA (criação) do pedido, não a da impressão.
+    setDataDoc(pedido.data ?? pedido.criadoEm ?? null);
     const doc = novoDocumento(titulo, numero);
 
     // Se o pedido aponta uma UNIDADE/FILIAL do cliente, os dados exibidos são os DELA
