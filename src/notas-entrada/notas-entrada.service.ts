@@ -164,6 +164,7 @@ export class NotasEntradaService {
       // Entrada no estoque de matéria-prima (soma ao saldo dos materiais vinculados)
       const lancados: string[] = [];
       const recebidoPorMat = new Map<number, number>();
+      const recebidoPorProd = new Map<number, number>(); // revenda: produtoId -> qtd recebida
       if (dto.lancarEstoque) {
         for (const it of dto.itens) {
           if (!it.materialId) continue;
@@ -197,6 +198,7 @@ export class NotasEntradaService {
           });
           await tx.lote.create({ data: { estoqueId: est.id, codigoLote: `NF-${dto.numero}`, quantidade: qtd } }).catch(() => undefined);
           lancados.push(prod.codigo);
+          recebidoPorProd.set(it.produtoId, (recebidoPorProd.get(it.produtoId) ?? 0) + qtd);
         }
       }
 
@@ -229,7 +231,34 @@ export class NotasEntradaService {
         }
       }
 
-      return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas };
+      // BAIXA das OCs de REVENDA (produtoId) — mesma lógica dos materiais.
+      const pedidosAfetados = new Set<string>(); // números de pedido cujas OCs de revenda foram recebidas
+      for (const [prodId, qtdRecebida] of recebidoPorProd) {
+        let restante = qtdRecebida;
+        const ocs = await tx.ordemCompra.findMany({ where: { produtoId: prodId, status: 'aguardando', fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
+        for (const oc of ocs) {
+          const qtdOc = Number(oc.quantidade);
+          if (restante < qtdOc * 0.99) break;
+          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
+          restante -= qtdOc;
+          ocsBaixadas.push(oc.numero);
+          const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
+          if (m) pedidosAfetados.add(m[1]);
+        }
+      }
+      // Pedido aguardando material: se não há mais OC de revenda aberta dele, libera p/ expedição.
+      const pedidosLiberados: string[] = [];
+      for (const numero of pedidosAfetados) {
+        const restam = await tx.ordemCompra.count({ where: { status: 'aguardando', motivo: `Pedido ${numero} (revenda)`, fornecedor: { empresaId } } });
+        if (restam > 0) continue;
+        const ped = await tx.pedido.findFirst({ where: { numero, empresaId }, select: { id: true, etapa: true } });
+        if (ped && ped.etapa === 'compra') {
+          await tx.pedido.update({ where: { id: ped.id }, data: { etapa: 'estoque', status: 'Pronto para expedição' } });
+          pedidosLiberados.push(numero);
+        }
+      }
+
+      return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas, pedidosLiberados };
     });
   }
 

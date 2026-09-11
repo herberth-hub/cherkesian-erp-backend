@@ -429,6 +429,35 @@ export class PedidosService {
     return this.prisma.pedido.update({ where: { id }, data: { bonificacao: valor }, include: { itens: true } });
   }
 
+  /**
+   * Pedidos AGUARDANDO MATERIAL de revenda: agrupa as OCs de revenda ainda abertas
+   * por pedido (o que compramos de fornecedores e estamos esperando chegar p/ faturar).
+   */
+  async aguardandoMaterial(empresaId: number) {
+    const ocs = await this.prisma.ordemCompra.findMany({
+      where: { status: 'aguardando', produtoId: { not: null }, fornecedor: { empresaId } },
+      select: { numero: true, descricao: true, quantidade: true, unidade: true, motivo: true, previsao: true, fornecedor: { select: { nome: true } } },
+      orderBy: { id: 'asc' },
+    });
+    const map = new Map<string, Array<{ oc: string; descricao: string; quantidade: number; unidade: string; fornecedor: string; previsao: Date | null }>>();
+    for (const o of ocs) {
+      const m = /^Pedido (\S+) \(revenda\)$/.exec(o.motivo ?? '');
+      const key = m ? m[1] : '(avulsa)';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push({ oc: o.numero, descricao: o.descricao, quantidade: Number(o.quantidade), unidade: o.unidade, fornecedor: o.fornecedor?.nome ?? 'A definir', previsao: o.previsao });
+    }
+    const numeros = [...map.keys()].filter((k) => k !== '(avulsa)');
+    const peds = numeros.length ? await this.prisma.pedido.findMany({ where: { empresaId, numero: { in: numeros } }, select: { id: true, numero: true, status: true, cliente: { select: { nome: true } } } }) : [];
+    const pedMap = new Map(peds.map((p) => [p.numero, p]));
+    return [...map.entries()].map(([pedido, itens]) => ({
+      pedido,
+      pedidoId: pedMap.get(pedido)?.id ?? null,
+      cliente: pedMap.get(pedido)?.cliente?.nome ?? null,
+      status: pedMap.get(pedido)?.status ?? null,
+      itens,
+    }));
+  }
+
   /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);
@@ -462,6 +491,56 @@ export class PedidosService {
       refTipo: 'op',
       refId: ops[0]?.id ?? null,
     });
+  }
+
+  /**
+   * REVENDA: para os itens de revenda do pedido, confere o estoque do produto e,
+   * onde faltar, gera Ordem de Compra (aguardando) para o fornecedor. Retorna as
+   * faltas e as OCs criadas. Roda dentro de uma transação (tx).
+   */
+  private async avaliarRevendaTx(
+    tx: Prisma.TransactionClient,
+    empresaId: number,
+    pedido: { id: number; numero: string },
+    itensRevenda: Array<{ produtoId: number | null; descricao: string; quantidade: number }>,
+  ): Promise<{ faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }>; ocs: string[] }> {
+    const faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }> = [];
+    const ocs: string[] = [];
+    // Agrega a necessidade por produto de revenda.
+    const necPorProd = new Map<number, number>();
+    for (const it of itensRevenda) {
+      if (it.produtoId == null) continue;
+      necPorProd.set(it.produtoId, (necPorProd.get(it.produtoId) ?? 0) + Number(it.quantidade || 0));
+    }
+    if (!necPorProd.size) return { faltas, ocs };
+    const ids = [...necPorProd.keys()];
+    const prods = await tx.produto.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true, custo: true, fornecedorId: true, unidadeComercial: true } });
+    const prodMap = new Map(prods.map((p) => [p.id, p]));
+    // Estoque disponível por produto (entradas - saídas, somando tamanhos).
+    const estoques = await tx.estoque.findMany({ where: { produtoId: { in: ids } }, select: { produtoId: true, entradas: true, saidas: true } });
+    const dispPorProd = new Map<number, number>();
+    for (const e of estoques) dispPorProd.set(e.produtoId, (dispPorProd.get(e.produtoId) ?? 0) + ((e.entradas ?? 0) - (e.saidas ?? 0)));
+    const motivo = `Pedido ${pedido.numero} (revenda)`;
+    for (const [produtoId, necessario] of necPorProd) {
+      const p = prodMap.get(produtoId);
+      if (!p) continue;
+      const emEstoque = dispPorProd.get(produtoId) ?? 0;
+      const falta = Math.max(0, Math.round(necessario) - Math.round(emEstoque));
+      if (falta <= 0) continue;
+      // Já existe OC aberta p/ este produto + pedido? Não duplica.
+      const jaExiste = await tx.ordemCompra.findFirst({ where: { produtoId, status: 'aguardando', motivo, fornecedor: { empresaId } }, select: { numero: true } });
+      let ocNumero = jaExiste?.numero;
+      if (!ocNumero) {
+        const fornId = p.fornecedorId ?? (await this.fornecedorPlaceholder(tx, empresaId)).id;
+        const numero = await this.gerarNumeroOC(tx);
+        const custo = p.custo != null ? new Prisma.Decimal(p.custo) : new Prisma.Decimal(0);
+        await tx.ordemCompra.create({ data: { numero, fornecedorId: fornId, produtoId, descricao: `${p.codigo} · ${p.descricao}`, quantidade: new Prisma.Decimal(falta), unidade: p.unidadeComercial ?? 'UN', valor: custo.mul(falta), status: 'aguardando', motivo } });
+        ocNumero = numero;
+        ocs.push(numero);
+      }
+      faltas.push({ produtoId, codigo: p.codigo, descricao: p.descricao, necessario: Math.round(necessario), emEstoque: Math.round(emEstoque), falta, ocNumero });
+    }
+    return { faltas, ocs };
   }
 
   /**
@@ -524,14 +603,40 @@ export class PedidosService {
     const itensProducao = pedido.itens.filter(ehProducao);
     const itensRevenda = pedido.itens.filter((i) => !ehProducao(i));
 
-    // Só revenda → não gera OP; pedido segue direto para expedição.
+    // Só revenda → não gera OP. Mas confere ESTOQUE: se faltar, gera Ordem de Compra
+    // e deixa o pedido AGUARDANDO MATERIAL (chegada da mercadoria do fornecedor).
     if (itensProducao.length === 0) {
-      await this.prisma.pedido.update({ where: { id }, data: { etapa: 'estoque', status: 'Pronto para expedição' } });
+      const res = await this.prisma.$transaction(async (tx) => {
+        const rev = await this.avaliarRevendaTx(tx, empresaId, pedido, itensRevenda);
+        if (rev.faltas.length) {
+          await tx.pedido.update({ where: { id }, data: { etapa: 'compra', status: 'Aguardando material (revenda)' } });
+        } else {
+          await tx.pedido.update({ where: { id }, data: { etapa: 'estoque', status: 'Pronto para expedição' } });
+        }
+        return rev;
+      });
+      if (res.faltas.length) {
+        await this.notificacoes.criar(empresaId, {
+          tipo: 'op_nova',
+          areas: ['compras', 'pcp', 'producao'],
+          titulo: `Aguardando material (revenda) — pedido ${pedido.numero}`,
+          mensagem: `${res.faltas.length} produto(s) de revenda sem estoque: ${res.faltas.map((f) => `${f.codigo} falta ${f.falta}`).join(', ')}. Ordem(ns) de compra: ${res.ocs.join(', ') || '—'}. O pedido fatura quando a mercadoria chegar.`,
+          refTipo: 'pedido',
+          refId: pedido.id,
+        });
+        return {
+          status: 'aguardando_revenda' as const,
+          pedido: { numero: pedido.numero, etapa: 'compra' },
+          faltas: res.faltas,
+          ocs: res.ocs,
+          message: `Produto(s) de revenda sem estoque suficiente. Geramos ${res.ocs.length} ordem(ns) de compra e o pedido ficou AGUARDANDO MATERIAL — fatura quando a mercadoria do fornecedor chegar (dar entrada na NF baixa a OC e credita o estoque).`,
+        };
+      }
       return {
         status: 'sem_producao' as const,
         pedido: { numero: pedido.numero, etapa: 'estoque' },
         revenda: itensRevenda.map((i) => ({ descricao: i.descricao, quantidade: i.quantidade })),
-        message: 'Todos os itens são de revenda — nenhuma OP necessária. Pedido liberado para expedição.',
+        message: 'Todos os itens são de revenda e há estoque — nenhuma OP necessária. Pedido liberado para expedição.',
       };
     }
 

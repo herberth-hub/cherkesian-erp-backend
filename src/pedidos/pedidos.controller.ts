@@ -29,6 +29,13 @@ export class PedidosController {
     return this.pedidosService.findAll(user.empresaId, scope);
   }
 
+  // Rota literal ANTES de ':id' (senão o ParseIntPipe captura "aguardando-material").
+  @Areas('vendas', 'pcp', 'producao', 'compras')
+  @Get('aguardando-material')
+  aguardandoMaterial(@CurrentUser() user: AuthUser) {
+    return this.pedidosService.aguardandoMaterial(user.empresaId);
+  }
+
   @Areas('vendas', 'pcp')
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

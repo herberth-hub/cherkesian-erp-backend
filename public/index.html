@@ -3930,6 +3930,11 @@ async function gerarOp(id, parcial){
     }
     else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await abrirOpsGeradas(r.ops); }
     else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
+    else if(r.status==='aguardando_revenda'){
+      const falt=(r.faltas||[]).map(f=>'• '+f.codigo+' '+f.descricao+': falta '+f.falta+' (em estoque '+f.emEstoque+' de '+f.necessario+') -> OC '+(f.ocNumero||'-')).join('\n');
+      await uiAlert({tipo:'info', titulo:'📦 Aguardando material (revenda)', ok:'Entendi',
+        msg:'Produto(s) de revenda sem estoque suficiente. Geramos ordem(ns) de compra e o pedido ficou AGUARDANDO MATERIAL.\n\n'+falt+'\n\nQuando a mercadoria chegar (dar entrada na NF do fornecedor), a OC baixa, o estoque entra e o pedido libera para faturar/expedir. Acompanhe em Produção › Aguardando material e em Compras.'});
+    }
     else if(r.status==='bloqueado_material'){
       const oc=(r.ordensCompra||[]).map(o=>o.numero).join(', ');
       // Se já veio do PARCIAL e ainda bloqueou = estoque não cobre nem 1 peça. NÃO reabre o popup (evita loop).
@@ -5022,6 +5027,8 @@ function opToggleView(){ window.__opKanban=!window.__opKanban; loadRoute(); }
 async function viewProducao(c){
   const list = await api('/ops');
   window.__OPS = list; // p/ o drag-and-drop do kanban achar a OP pelo id
+  let aguard=[]; try{ aguard=await api('/pedidos/aguardando-material'); }catch(e){}
+  window.__AGUARDMAT=aguard;
   const fin = list.filter(o=>o.status==='concluido');
   const ativas = list.filter(o=>o.status!=='concluido');
   const verFin = !!window.__opVerFin;
@@ -5031,7 +5038,21 @@ async function viewProducao(c){
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
   const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
   const btnAvulsa = canAccess('pcp')?`<button class="btn-primary" style="padding:2px 10px" onclick="APP.formOpAvulsa()">+ OP avulsa</button> `:'';
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + aguardMaterialHtml(aguard) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+}
+// Área "Aguardando material" (produtos de revenda comprados p/ atender pedidos).
+function aguardMaterialHtml(aguard){
+  if(!aguard || !aguard.length) return '';
+  const cards = aguard.map(a=>{
+    const itens = (a.itens||[]).map(it=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:2px 0"><span>📦 ${esc(it.descricao)} <span class="muted">· ${esc(it.fornecedor)} · OC ${esc(it.oc)}</span></span><b>${Number(it.quantidade).toLocaleString('pt-BR')} ${esc(it.unidade||'')}</b></div>`).join('');
+    const abrir = a.pedidoId?`<button class="btn-sm" onclick="APP.go('vendas')" title="Ver nos pedidos de venda">ver pedido</button>`:'';
+    return `<div style="border:1px solid #e6c98a;background:#fffaf0;border-radius:8px;padding:8px 10px;min-width:280px;flex:1">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><b style="font-size:12.5px;color:#8a5a00">⏳ ${esc(a.pedido)}${a.cliente?' · '+esc(a.cliente):''}</b>${abrir}</div>
+      ${itens}</div>`;
+  }).join('');
+  return `<div class="sect" style="margin-bottom:12px"><h3 style="margin:0 0 6px;color:#8a5a00">📦 Aguardando material (revenda) — ${aguard.length} pedido(s)</h3>
+    <div class="muted" style="font-size:11.5px;margin:-2px 0 8px">Produtos de fornecedores que revendemos, comprados para atender pedidos e aguardando chegar. Ao dar entrada na NF do fornecedor, a OC baixa e o pedido libera para faturar/expedir.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">${cards}</div></div>`;
 }
 let OPAVITENS=[];
 // Interpreta o texto de grade. "P:10, M:20" -> {P:10,M:20}. Se vier só o TAMANHO
