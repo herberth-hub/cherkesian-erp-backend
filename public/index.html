@@ -131,6 +131,8 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 .win{position:absolute;pointer-events:auto;background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.28);width:min(560px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #e7e3d8}
 .win.wide{width:min(1240px,96vw);max-height:94vh}
 .win.wide .win-body{padding:12px}
+.win.max{left:1.5vw!important;right:1.5vw!important;top:1.5vh!important;width:97vw!important;max-height:97vh!important;height:97vh!important;transform:none!important}
+.win.max .win-body{max-height:none;flex:1}
 .win-hd{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;background:#f4f2ed;border-bottom:1px solid #e7e3d8;cursor:move;user-select:none}
 .win-hd .t{flex:1;font-weight:700;font-size:13.5px;color:#3a2f08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .win-hd button{border:none;background:transparent;font-size:15px;line-height:1;cursor:pointer;padding:3px 8px;border-radius:6px;color:#6a5f38}
@@ -1663,6 +1665,8 @@ async function pedResidual(id){
 }
 // Normaliza o tamanho p/ casar grade x estoque (ex.: "G1 (FRISO VERMELHO)" -> "G1").
 function normTam(s){ return String(s||'').trim().toUpperCase().split(/[\s(]/)[0]; }
+// Ordena tamanhos em ordem CRESCENTE: numéricos por valor (35,36,...), letras pela escada (PP,P,M,G,GG,G1..).
+function ordemTam(a,b){ const A=normTam(a),B=normTam(b); const na=Number(A),nb=Number(B); if(!isNaN(na)&&!isNaN(nb)) return na-nb; const i=ESCADA_TAM.indexOf(A),j=ESCADA_TAM.indexOf(B); return (i<0?999:i)-(j<0?999:j); }
 // Nome do produto sem o sufixo "- Linha N Cores".
 function nomeProdLimpo(d){ return String(d||'').replace(/\s*-\s*Linha\s+\d+\s+Cores/ig,'').trim(); }
 // Casa a cor do item (ex.: "5143 Vermelho") com a cor do estoque (ex.: "5143 VERMELHO LOTE: 668657").
@@ -1697,7 +1701,7 @@ async function formExpParcial(pedidoId){
     const grade = it.grade && Object.keys(it.grade).length ? it.grade : null;
     if(grade){
       const jaG = it.gradeExpedida||{};
-      const sizes = Object.entries(grade).map(([t,q])=>{
+      const sizes = Object.entries(grade).sort((x,y)=>ordemTam(x[0],y[0])).map(([t,q])=>{
         const res = Number(q) - Number(jaG[t]||0);
         const avail = dd.byTam[normTam(t)]||0;
         const val0 = Math.min(res>0?res:0, avail);
@@ -1856,7 +1860,7 @@ function openModal(html, opts){
   const ex=__wins.find(w=>w.title===title && !w.minimized);
   if(ex){ ex.el.querySelector('.win-body').innerHTML=body; if(opts.wide) ex.el.classList.add('wide'); _winFocus(ex); return ex.el; }
   const id=++__winSeq; const el=document.createElement('div'); el.className='win'+(opts.wide?' wide':''); el.dataset.id=id;
-  el.innerHTML=`<div class="win-hd"><span class="t">${esc(title)}</span><button title="Minimizar" onclick="APP._winMin(${id})">—</button><button title="Fechar (Esc)" onclick="APP._winClose(${id})">✕</button></div><div class="win-body">${body}</div>`;
+  el.innerHTML=`<div class="win-hd"><span class="t">${esc(title)}</span><button title="Minimizar" onclick="APP._winMin(${id})">—</button><button class="wmx" title="Maximizar / restaurar" onclick="APP._winMax(${id})">⤢</button><button title="Fechar (Esc)" onclick="APP._winClose(${id})">✕</button></div><div class="win-body">${body}</div>`;
   $('winlayer').appendChild(el);
   const off=(__wins.length%6)*26;
   el.style.left=opts.wide?`calc(50% - min(620px,48vw) + ${off}px)`:`calc(50% - min(280px,47vw) + ${off}px)`; el.style.top=`calc(${opts.wide?'3.5':'7'}vh + ${off}px)`;
@@ -1867,6 +1871,7 @@ function openModal(html, opts){
 function closeModal(){ const w=_winTop(); if(w) _winClose(w.id); }
 function _winClose(id){ const i=__wins.findIndex(w=>w.id===id); if(i<0)return; __wins[i].el.remove(); __wins.splice(i,1); _winBg(); _winDock(); }
 function _winMin(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=true; w.el.style.display='none'; _winBg(); _winDock(); }
+function _winMax(id){ const w=__wins.find(x=>x.id===id); if(!w)return; const on=w.el.classList.toggle('max'); if(on){ w.el.style.left=''; w.el.style.top=''; } _winFocus(w); }
 function _winRestore(id){ const w=__wins.find(x=>x.id===id); if(!w)return; w.minimized=false; w.el.style.display=''; _winDock(); _winFocus(w); }
 // ESC fecha a janela ativa (a não ser que haja um diálogo de confirmação aberto).
 document.addEventListener('keydown',e=>{ if(e.key!=='Escape')return; if(document.querySelector('.uidlg-ov.on'))return; const w=_winTop(); if(w){ e.preventDefault(); _winClose(w.id); } });
@@ -10753,7 +10758,7 @@ window.APP = {
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
-  closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
