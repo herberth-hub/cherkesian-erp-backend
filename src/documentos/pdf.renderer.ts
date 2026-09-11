@@ -447,10 +447,27 @@ export function pedidoGradeTabela(
   const sv = !!opts.semValor;
   const x0 = 50;
   const tableW = doc.page.width - 100;
-  const cItem = 18, cCod = 76, cCor = 56, cVU = sv ? 0 : 44, cVT = sv ? 0 : 58;
-  const nS = data.sizes.length;
-  const cSize = Math.max(15, Math.min(30, Math.floor((tableW * 0.34) / Math.max(1, nS))));
-  const cDesc = tableW - cItem - cCod - cCor - cVU - cVT - cSize * nS;
+  const cItem = 16, cCod = 62, cCor = 44, cVU = sv ? 0 : 42, cVT = sv ? 0 : 56;
+  const nS = Math.max(1, data.sizes.length);
+  // As colunas de tamanho ganham o espaço restante depois de reservar uma
+  // descrição mínima. Se não couber, encolhem até o mínimo (e a fonte diminui).
+  const cDescMin = 64;
+  const fixo = cItem + cCod + cCor + cVU + cVT;
+  const paraSizesEDesc = tableW - fixo;
+  let cSize = Math.floor((paraSizesEDesc - cDescMin) / nS);
+  cSize = Math.max(13, Math.min(30, cSize));
+  let cDesc = paraSizesEDesc - cSize * nS;
+  if (cDesc < cDescMin) { cSize = Math.max(11, Math.floor((paraSizesEDesc - cDescMin) / nS)); cDesc = Math.max(46, paraSizesEDesc - cSize * nS); }
+  // Fonte das colunas de tamanho: encolhe p/ o maior número (2-4 dígitos) caber
+  // sem quebrar linha. Helvetica: cada dígito ≈ 0.56em.
+  const conteudoTam = [
+    ...data.sizes,
+    ...data.rows.flatMap((r) => data.sizes.map((s) => (r.qtyBySize[s] ? String(r.qtyBySize[s]) : ''))),
+    ...data.sizes.map((s) => (data.totBySize[s] ? String(data.totBySize[s]) : '')),
+  ];
+  const maxLen = Math.max(2, ...conteudoTam.map((x) => x.length));
+  const sizeFs = Math.max(5.2, Math.min(7.4, (cSize - 3) / (maxLen * 0.56)));
+  const idxSizeIni = 4, idxSizeFim = 3 + data.sizes.length; // colunas de tamanho: [4 .. 3+nS]
   const cols: Array<{ w: number; a: 'left' | 'center' | 'right' }> = [
     { w: cItem, a: 'center' }, { w: cCod, a: 'left' }, { w: cDesc, a: 'left' }, { w: cCor, a: 'left' },
     ...data.sizes.map(() => ({ w: cSize, a: 'center' as const })),
@@ -468,14 +485,20 @@ export function pedidoGradeTabela(
   };
   // Desenha a linha na posição atual (SEM decidir quebra de página).
   const desenha = (cells: string[], rowH: number, o: { header?: boolean; total?: boolean } = {}) => {
-    const fs = o.header ? 6.8 : 7.4;
+    const fsBase = o.header ? 6.8 : 7.4;
     let x = x0; const y = doc.y;
     for (let i = 0; i < cols.length; i++) {
       if (o.header) doc.rect(x, y, cols[i].w, rowH).fill('#f4f0e2');
       else if (o.total) doc.rect(x, y, cols[i].w, rowH).fill('#faf6ea');
       doc.rect(x, y, cols[i].w, rowH).lineWidth(0.4).strokeColor('#c9bd93').stroke();
+      // Colunas de tamanho: fonte reduzida e SEM quebra (número nunca empilha).
+      const ehTam = i >= idxSizeIni && i < idxSizeFim;
+      const fs = ehTam ? Math.min(fsBase, sizeFs) : fsBase;
+      const pad = ehTam ? 2 : 3;
+      // Tamanho: linha única, centralizada na vertical; demais colunas alinham no topo (podem quebrar).
+      const ty = ehTam ? y + (rowH - fs) / 2 - 1 : y + 3;
       doc.fillColor(o.header ? OURO_ESCURO : TINTA).font(o.header || o.total ? 'Helvetica-Bold' : 'Helvetica').fontSize(fs)
-        .text(cells[i] ?? '', x + 3, y + 3, { width: cols[i].w - 6, align: cols[i].a, lineBreak: true });
+        .text(cells[i] ?? '', x + pad, ty, { width: cols[i].w - pad * 2, align: cols[i].a, lineBreak: !ehTam });
       x += cols[i].w;
     }
     doc.x = x0; doc.y = y + rowH;
