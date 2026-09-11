@@ -534,15 +534,21 @@ export class PedidosService {
     tx: Prisma.TransactionClient,
     empresaId: number,
     pedido: { id: number; numero: string },
-    itensRevenda: Array<{ produtoId: number | null; descricao: string; quantidade: number }>,
+    itensRevenda: Array<{ produtoId: number | null; descricao: string; quantidade: number; grade?: unknown }>,
   ): Promise<{ faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }>; ocs: string[] }> {
     const faltas: Array<{ produtoId: number; codigo: string; descricao: string; necessario: number; emEstoque: number; falta: number; ocNumero?: string }> = [];
     const ocs: string[] = [];
-    // Agrega a necessidade por produto de revenda.
+    // Agrega a necessidade (e a grade pedida) por produto de revenda.
     const necPorProd = new Map<number, number>();
+    const gradePorProd = new Map<number, Record<string, number>>();
     for (const it of itensRevenda) {
       if (it.produtoId == null) continue;
       necPorProd.set(it.produtoId, (necPorProd.get(it.produtoId) ?? 0) + Number(it.quantidade || 0));
+      if (it.grade && typeof it.grade === 'object') {
+        const g = gradePorProd.get(it.produtoId) ?? {};
+        for (const [t, q] of Object.entries(it.grade as Record<string, number>)) { const n = Number(q) || 0; if (n > 0) g[String(t).toUpperCase()] = (g[String(t).toUpperCase()] ?? 0) + n; }
+        gradePorProd.set(it.produtoId, g);
+      }
     }
     if (!necPorProd.size) return { faltas, ocs };
     const ids = [...necPorProd.keys()];
@@ -552,6 +558,10 @@ export class PedidosService {
     const estoques = await tx.estoque.findMany({ where: { produtoId: { in: ids } }, select: { produtoId: true, entradas: true, saidas: true } });
     const dispPorProd = new Map<number, number>();
     for (const e of estoques) dispPorProd.set(e.produtoId, (dispPorProd.get(e.produtoId) ?? 0) + ((e.entradas ?? 0) - (e.saidas ?? 0)));
+    // Código do produto NO FORNECEDOR: pega o mais recente das entradas de NF (se houver).
+    const codFornPorProd = new Map<number, string>();
+    const entradas = await tx.notaEntradaItem.findMany({ where: { produtoId: { in: ids }, codigoFornecedor: { not: null }, nota: { empresaId } }, orderBy: { id: 'desc' }, select: { produtoId: true, codigoFornecedor: true } });
+    for (const e of entradas) { if (e.produtoId != null && !codFornPorProd.has(e.produtoId) && e.codigoFornecedor) codFornPorProd.set(e.produtoId, e.codigoFornecedor); }
     const motivo = `Pedido ${pedido.numero} (revenda)`;
     for (const [produtoId, necessario] of necPorProd) {
       const p = prodMap.get(produtoId);
@@ -566,7 +576,10 @@ export class PedidosService {
         const fornId = p.fornecedorId ?? (await this.fornecedorPlaceholder(tx, empresaId)).id;
         const numero = await this.gerarNumeroOC(tx);
         const custo = p.custo != null ? new Prisma.Decimal(p.custo) : new Prisma.Decimal(0);
-        await tx.ordemCompra.create({ data: { numero, fornecedorId: fornId, produtoId, descricao: `${p.codigo} · ${p.descricao}`, quantidade: new Prisma.Decimal(falta), unidade: p.unidadeComercial ?? 'UN', valor: custo.mul(falta), status: 'aguardando', motivo } });
+        // Grade: só quando o pedido pede por tamanho E não há estoque (senão não dá p/ mapear tamanhos ao estoque agregado).
+        const gradePedida = gradePorProd.get(produtoId);
+        const grade = (gradePedida && Object.keys(gradePedida).length && Math.round(emEstoque) <= 0) ? (gradePedida as Prisma.InputJsonValue) : undefined;
+        await tx.ordemCompra.create({ data: { numero, fornecedorId: fornId, produtoId, grade, codigoFornecedor: codFornPorProd.get(produtoId) ?? null, descricao: `${p.codigo} · ${p.descricao}`, quantidade: new Prisma.Decimal(falta), unidade: p.unidadeComercial ?? 'UN', valor: custo.mul(falta), status: 'aguardando', motivo } });
         ocNumero = numero;
         ocs.push(numero);
       }
