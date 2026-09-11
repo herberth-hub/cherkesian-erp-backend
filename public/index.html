@@ -6720,6 +6720,7 @@ function imprimirEtqUnidades(pecas, meta){
   const n = (pecas||[]).length;
   const pages=(pecas||[]).map(p=>`<div class="page"><div class="ul">
       ${p.ref?`<div class="ulref">REF ${esc(p.ref)}</div>`:''}
+      ${p.refCliente?`<div class="ulrefcli">COD. CLIENTE ${esc(p.refCliente)}</div>`:''}
       <div class="ulp">${esc(abrevEtq(p.descricao))}</div>
       <div class="uld"><b>${p.tamanho?('TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+esc(p.qtdLote)+' '+esc(p.unLote||'un')):''}</b>${p.cor?((p.tamanho||p.qtdLote?' · ':'')+esc(p.cor)):''}</div>
       ${p.loteFornecedor?`<div class="ullote">LOTE ${esc(p.loteFornecedor)}</div>`:''}
@@ -6732,7 +6733,7 @@ function imprimirEtqUnidades(pecas, meta){
     <style>
     *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
-    .ulref{font-size:8pt;font-weight:700;color:#333} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ullote{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.3mm 0} .ulend{font-size:9pt;font-weight:800;background:#000;color:#fff;border-radius:3px;padding:0 5px;margin:.3mm 0} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
+    .ulref{font-size:8pt;font-weight:700;color:#333} .ulrefcli{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.2mm 0} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ullote{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.3mm 0} .ulend{font-size:9pt;font-weight:800;background:#000;color:#fff;border-radius:3px;padding:0 5px;margin:.3mm 0} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
     /* Folha A4: grade de várias por página */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
     body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
@@ -8171,6 +8172,7 @@ async function etiquetasUnitariasExp(id){
     const pages=(d.pecas||[]).map(p=>`<div class="page"><div class="ul">
       <div class="ulh">${esc(d.pedido)} · NF ${esc(d.nf||'—')}</div>
       <div class="ulp">${esc(p.produto)} · <b>TAM ${esc(p.tamanho)}</b></div>
+      ${p.codCliente?`<div class="ulcli">COD. CLIENTE ${esc(p.codCliente)}</div>`:''}
       <div class="uld">${esc(p.descricao)}</div>
       <img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
     const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up.','err'); return; }
@@ -8179,7 +8181,7 @@ async function etiquetasUnitariasExp(id){
       <style>
       *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial,Helvetica,sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
-      .ulh{font-size:7.5pt;color:#666} .ulp{font-size:11pt;font-weight:800} .uld{font-size:7.5pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
+      .ulh{font-size:7.5pt;color:#666} .ulp{font-size:11pt;font-weight:800} .ulcli{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.2mm 0} .uld{font-size:7.5pt;color:#333} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
       /* Zebra 100x50: 1 etiqueta por folha (padrão) */
       body.z50mode .wrap{display:block} body.z50mode{background:#eee}
       body.z50mode .page{width:100mm;height:50mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 3mm}

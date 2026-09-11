@@ -1133,25 +1133,32 @@ export class ExpedicoesService {
     const exp = await this.getExp(id, empresaId);
     const pedido = exp.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } }) : null;
     const prodIds = (pedido?.itens ?? []).map((i) => i.produtoId).filter((x): x is number => !!x);
-    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : [];
+    const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, codigosPorTamanho: true } }) : [];
     const codMap = new Map(produtos.map((p) => [p.id, p.codigo]));
+    const codsTamMap = new Map(produtos.map((p) => [p.id, (p.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null]));
     const codBip = String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    // Código do cliente daquele produto/tamanho (ex.: VIVARA) — vai na etiqueta unitária.
+    const codCli = (produtoId: number | null, tam: string) => {
+      if (!produtoId) return '';
+      const m = codsTamMap.get(produtoId); if (!m) return '';
+      return String(m[tam.toUpperCase()] ?? m[tam] ?? '').trim();
+    };
 
-    const pecas: Array<{ produto: string; descricao: string; tamanho: string }> = [];
+    const pecas: Array<{ produto: string; codCliente: string; descricao: string; tamanho: string }> = [];
     for (const it of pedido?.itens ?? []) {
       const g = it.grade as Record<string, number> | null;
       const prod = it.produtoId ? codMap.get(it.produtoId) ?? '—' : '—';
       if (g && Object.keys(g).length) {
-        for (const [tam, q] of Object.entries(g)) for (let k = 0; k < Number(q); k++) pecas.push({ produto: prod, descricao: it.descricao, tamanho: tam.toUpperCase() });
+        for (const [tam, q] of Object.entries(g)) { const cc = codCli(it.produtoId, tam); for (let k = 0; k < Number(q); k++) pecas.push({ produto: prod, codCliente: cc, descricao: it.descricao, tamanho: tam.toUpperCase() }); }
       } else {
-        for (let k = 0; k < it.quantidade; k++) pecas.push({ produto: prod, descricao: it.descricao, tamanho: '—' });
+        for (let k = 0; k < it.quantidade; k++) pecas.push({ produto: prod, codCliente: '', descricao: it.descricao, tamanho: '—' });
       }
     }
     if (!pecas.length) throw new BadRequestException('Sem itens no pedido para gerar etiquetas unitárias.');
     if (pecas.length > 500) throw new BadRequestException(`${pecas.length} peças — muitas etiquetas unitárias (máx. 500). Use a conferência por kit.`);
 
     const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
-    const out: Array<{ produto: string; descricao: string; tamanho: string; codigo: string; barcode: string }> = [];
+    const out: Array<{ produto: string; codCliente: string; descricao: string; tamanho: string; codigo: string; barcode: string }> = [];
     let seq = 0;
     for (const p of pecas) {
       seq++;

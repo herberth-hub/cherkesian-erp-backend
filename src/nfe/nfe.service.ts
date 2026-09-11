@@ -1034,19 +1034,25 @@ export class NfeService {
     }
     const cliente = clienteId ? await this.prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
     const pids = [...new Set(itensSrc.map((i) => i.produtoId).filter((x): x is number => x != null))];
-    const prods = pids.length ? await this.prisma.produto.findMany({ where: { id: { in: pids } }, select: { id: true, codigo: true, ncm: true, cfop: true, unidadeComercial: true } }) : [];
+    const prods = pids.length ? await this.prisma.produto.findMany({ where: { id: { in: pids } }, select: { id: true, codigo: true, ncm: true, cfop: true, unidadeComercial: true, codigosPorTamanho: true } }) : [];
     const pmap = new Map(prods.map((p) => [p.id, p]));
 
     const linhas: PreviaNfeData['itens'] = [];
     for (const it of itensSrc) {
       const p = it.produtoId ? pmap.get(it.produtoId) : undefined;
       const baseDesc = this.descComCor(it.descricao, it.cor);
+      const codsTam = (p?.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null;
       const g = it.grade && Object.keys(it.grade).length ? it.grade : null;
       const ent = g ? Object.entries(g).filter(([, q]) => Number(q) > 0) : [];
       const soma = ent.reduce((s, [, q]) => s + Number(q), 0);
-      const mk = (desc: string, qtd: number) => ({ codigo: p?.codigo ?? null, descricao: desc, ncm: p?.ncm ?? null, cfop: p?.cfop ?? nota.cfop ?? null, unidade: p?.unidadeComercial ?? 'UN', qtd, vUnit: it.valorUnit, vTotal: Number((it.valorUnit * qtd).toFixed(2)) });
-      if (ent.length && soma === Number(it.quantidade)) { for (const [tam, qtd] of ent) linhas.push(mk(baseDesc + ' | TAM ' + tam, Number(qtd))); }
-      else if (Number(it.quantidade) > 0) linhas.push(mk(baseDesc, Number(it.quantidade)));
+      // codOverride = código do cliente daquele tamanho (VIVARA etc.); senão o nosso código.
+      const mk = (desc: string, qtd: number, codOverride?: string | null) => ({ codigo: (codOverride || p?.codigo) ?? null, descricao: desc, ncm: p?.ncm ?? null, cfop: p?.cfop ?? nota.cfop ?? null, unidade: p?.unidadeComercial ?? 'UN', qtd, vUnit: it.valorUnit, vTotal: Number((it.valorUnit * qtd).toFixed(2)) });
+      if (ent.length && soma === Number(it.quantidade)) {
+        for (const [tam, qtd] of ent) {
+          const cc = codsTam ? String(codsTam[String(tam).toUpperCase()] ?? codsTam[tam] ?? '').trim() : '';
+          linhas.push(mk(baseDesc + ' | TAM ' + tam + (cc ? ' · Cod ' + cc : ''), Number(qtd), cc || null));
+        }
+      } else if (Number(it.quantidade) > 0) linhas.push(mk(baseDesc, Number(it.quantidade)));
     }
     const produtosTot = Number(linhas.reduce((s, l) => s + l.vTotal, 0).toFixed(2));
 
@@ -1256,8 +1262,8 @@ export class NfeService {
    */
   private explodirPorTamanho(
     itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; grade?: Record<string, number> | null; ncm?: string | null }>,
-  ): Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> {
-    const out: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> = [];
+  ): Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null; tam?: string | null }> {
+    const out: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null; tam?: string | null }> = [];
     for (const it of itens) {
       const g = it.grade;
       const ent = g ? Object.entries(g).filter(([, q]) => Number(q) > 0) : [];
@@ -1268,10 +1274,11 @@ export class NfeService {
           // suficiente p/ o "| TAM XX" caber nos 120 caracteres — o tamanho NUNCA é cortado.
           const suf = ` | TAM ${tam}`;
           const base = it.descricao.slice(0, Math.max(0, 120 - suf.length));
-          out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null });
+          // Guarda o TAM p/ o montarPayload buscar o código do cliente daquele tamanho (cProd).
+          out.push({ descricao: base + suf, quantidade: Number(qtd), valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null, tam });
         }
       } else if (Number(it.quantidade) > 0) {
-        out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null });
+        out.push({ descricao: this.descComGrade(it.descricao, g), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId, ncm: it.ncm ?? null, tam: null });
       }
     }
     // Nunca envia linha com quantidade 0 para a NF (ex.: faturar só o conferido).
@@ -1619,7 +1626,7 @@ export class NfeService {
     emitente: Filial,
     cliente: Cliente,
     exp: { pecas: number; volumes?: number; transportadora?: string | null; caixas?: unknown },
-    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }>,
+    itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null; tam?: string | null }>,
     serie: string,
     numero: number,
     valorTotal: Prisma.Decimal,
@@ -1673,10 +1680,16 @@ export class NfeService {
       const unidade = p?.unidadeComercial ?? 'UN';
       const valorUnit = Number(it.valorUnit.toFixed(2));
       const baseItem = Number(bruto.toFixed(2));
+      // Código do CLIENTE por tamanho (ex.: VIVARA): vai no cProd da linha daquele TAM
+      // e também na descrição (xProd, respeitando o limite de 120). Sem código → mantém o nosso.
+      const codsTam = (p?.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null;
+      const codCliente = (it.tam && codsTam) ? String(codsTam[String(it.tam).toUpperCase()] ?? codsTam[String(it.tam)] ?? '').trim() : '';
+      let descricao = it.descricao;
+      if (codCliente) { const suf = ` · Cod ${codCliente}`; descricao = descricao.slice(0, Math.max(0, 120 - suf.length)) + suf; }
       const item: Record<string, unknown> = {
         numero_item: idx + 1,
-        codigo_produto: p?.codigo ?? String(it.produtoId ?? idx + 1),
-        descricao: it.descricao,
+        codigo_produto: (codCliente || p?.codigo || String(it.produtoId ?? idx + 1)).slice(0, 60),
+        descricao,
         cfop: extra?.cfopOverride ? this.ajustarCfop(extra.cfopOverride, mesmaUf) : (extra?.bonificacao ? (mesmaUf ? '5910' : '6910') : this.ajustarCfop(p?.cfop ?? '5101', mesmaUf)),
         // NCM: a Focus/SEFAZ espera o campo "codigo_ncm" (8 dígitos). Prioriza o
         // NCM informado no item (avulso, sem produto cadastrado), depois o do produto.

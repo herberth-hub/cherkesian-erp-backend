@@ -55,12 +55,16 @@ export class EstoqueService {
     // Descrição + REF (código do produto/material) — vão na etiqueta.
     let descricao = dto.descricao;
     let ref = dto.ref ?? '';
+    let refCliente = ''; // código do cliente daquele TAMANHO (ex.: VIVARA) — vai na etiqueta
     let unidadeMedida = (dto.unidadeMedida || '').trim() || 'un';
     if (dto.produtoId) {
       const p = await this.prisma.produto.findUnique({ where: { id: dto.produtoId } });
       if (!p || p.empresaId !== empresaId) throw new NotFoundException(`Produto ${dto.produtoId} não encontrado.`);
       descricao = descricao ?? p.descricao;
       ref = ref || p.codigo;
+      const codsTam = (p.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null;
+      const t = (dto.tamanho || '').trim();
+      if (codsTam && t) refCliente = String(codsTam[t.toUpperCase()] ?? codsTam[t] ?? '').trim();
     } else if (dto.materialId) {
       const m = await this.prisma.material.findUnique({ where: { id: dto.materialId } });
       if (!m || m.empresaId !== empresaId) throw new NotFoundException(`Material ${dto.materialId} não encontrado.`);
@@ -120,7 +124,7 @@ export class EstoqueService {
     for (const c of criadas) {
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: c.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
       pecas.push({
-        codigo: c.codigo, ref, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
+        codigo: c.codigo, ref, refCliente, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
         loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
         endereco: this.enderecoTxt(dto) ?? '', // endereçamento na etiqueta (se já informado)
         // No rolo/volume de matéria-prima, mostra a medida na etiqueta (ex.: 5,90 m).
@@ -286,10 +290,11 @@ export class EstoqueService {
     const prodIds = [...new Set(unidades.map((u) => u.produtoId).filter((x): x is number => x != null))];
     const matIds = [...new Set(unidades.map((u) => u.materialId).filter((x): x is number => x != null))];
     const [prods, mats] = await Promise.all([
-      prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : Promise.resolve([]),
+      prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, codigosPorTamanho: true } }) : Promise.resolve([]),
       matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, codigo: true, unidade: true } }) : Promise.resolve([]),
     ]);
     const refProd = new Map(prods.map((p) => [p.id, p.codigo]));
+    const codsProd = new Map(prods.map((p) => [p.id, (p.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null]));
     const refMat = new Map(mats.map((m) => [m.id, m.codigo]));
     const unMat = new Map(mats.map((m) => [m.id, m.unidade]));
     // Preserva a ordem pedida (por código) para o operador.
@@ -299,9 +304,12 @@ export class EstoqueService {
       const u = porCodigo.get(codigo);
       if (!u) continue;
       const ref = (u.produtoId != null ? refProd.get(u.produtoId) : undefined) ?? (u.materialId != null ? refMat.get(u.materialId) : undefined) ?? '';
+      const codsTam = u.produtoId != null ? codsProd.get(u.produtoId) : null;
+      const t = (u.tamanho ?? '').trim();
+      const refCliente = (codsTam && t) ? String(codsTam[t.toUpperCase()] ?? codsTam[t] ?? '').trim() : '';
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: u.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
       pecas.push({
-        codigo: u.codigo, ref, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '',
+        codigo: u.codigo, ref, refCliente, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '',
         loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
         endereco: this.enderecoTxt({ coluna: u.coluna ?? undefined, andar: u.andar ?? undefined, caixaMaster: u.caixaMaster ?? undefined }) ?? '',
         ...(u.quantidade != null ? { qtdLote: Number(u.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }), unLote: (u.materialId != null ? unMat.get(u.materialId) : '') || '' } : {}),
