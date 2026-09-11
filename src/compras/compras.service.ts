@@ -114,7 +114,7 @@ export class ComprasService {
     }
 
     const [atualizada] = await this.prisma.$transaction([
-      this.prisma.ordemCompra.update({ where: { id }, data: { status: 'recebida' } }),
+      this.prisma.ordemCompra.update({ where: { id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date() } }),
       ...(oc.materialId
         ? [
             this.prisma.material.update({

@@ -6166,7 +6166,8 @@ async function saveNotaEntrada(){
     const n=await api('/notas-entrada',{method:'POST',body}); window.__NEPRE=null;
     let msg='Entrada registrada (NF '+n.numero+').';
     if(n.contaPagarGerada) msg+=' Conta a pagar gerada.';
-    if(n.ocsBaixadas&&n.ocsBaixadas.length) msg+=' Baixa automática: OC '+n.ocsBaixadas.join(', ')+' (necessidade × compra).';
+    if(n.ocsBaixadas&&n.ocsBaixadas.length) msg+=' OC baixada e vinculada (RECEBIDO): '+n.ocsBaixadas.join(', ')+'.';
+    if(n.pedidosLiberados&&n.pedidosLiberados.length) msg+=' Pedido liberado p/ expedição: '+n.pedidosLiberados.join(', ')+'.';
     toast(msg,'ok');
     // Só os itens de MATERIAL geram etiqueta/destino físico; produto de revenda já entrou no estoque do produto.
     const matItens = itens.filter(x=>!x.produtoId);

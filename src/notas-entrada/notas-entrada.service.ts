@@ -220,6 +220,7 @@ export class NotasEntradaService {
             where: { id: oc.id },
             data: {
               status: 'recebida',
+              situacao: 'recebido',
               recebidaEm: new Date(),
               notaEntradaId: nota.id,
               // Vincula o fornecedor real da compra (a sugestão nasce como "A DEFINIR").
@@ -239,8 +240,21 @@ export class NotasEntradaService {
         for (const oc of ocs) {
           const qtdOc = Number(oc.quantidade);
           if (restante < qtdOc * 0.99) break;
-          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
+          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
           restante -= qtdOc;
+          ocsBaixadas.push(oc.numero);
+          const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
+          if (m) pedidosAfetados.add(m[1]);
+        }
+      }
+
+      // BAIXA por CÓDIGO DO FORNECEDOR (artigo): OCs que casam pelo código do item da NF,
+      // mesmo sem vínculo de material/produto. Só as OCs "puras de código" (sem materialId/produtoId).
+      const codsNf = [...new Set((dto.itens ?? []).map((it) => (it.codigoFornecedor ?? '').trim()).filter(Boolean))];
+      for (const cod of codsNf) {
+        const ocs = await tx.ordemCompra.findMany({ where: { codigoFornecedor: cod, status: 'aguardando', materialId: null, produtoId: null, fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
+        for (const oc of ocs) {
+          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
           ocsBaixadas.push(oc.numero);
           const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
           if (m) pedidosAfetados.add(m[1]);
