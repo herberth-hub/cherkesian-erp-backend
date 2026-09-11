@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -78,4 +79,7 @@ export class CreateNfeAvulsaDto {
 
   /** Observações livres → saem em "Informações Adicionais" do DANFE. */
   @IsOptional() @IsString() @MaxLength(2000) observacoes?: string;
+
+  /** NF de BONIFICAÇÃO/doação: CFOP 5910/6910, ICMS não incidência (CST 41) + cBenef; sem cobrança. */
+  @IsOptional() @IsBoolean() bonificacao?: boolean;
 }

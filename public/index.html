@@ -8855,8 +8855,10 @@ async function formNfeAvulsa(){
   NFITENS=[{}]; window.__NF_FORNS = fornecedores||[];
   openModal(`<h3>Emitir NF-e avulsa</h3>
     <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Confira cliente, itens e impostos antes.</div>
-    <label style="display:block;font-size:12.5px;cursor:pointer;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin-bottom:10px">
+    <label style="display:block;font-size:12.5px;cursor:pointer;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin-bottom:8px">
       <input type="checkbox" id="nf_remessa" onchange="APP.nfRemessaToggle()"> 🏭 <b>Remessa para industrialização</b> <span class="muted">(CFOP 5901/6901 · ICMS suspenso · sem cobrança — destinatário é a facção/fornecedor)</span></label>
+    <label style="display:block;font-size:12.5px;cursor:pointer;background:#f3e8ff;border:1px solid #ddc9f0;border-radius:8px;padding:8px 11px;margin-bottom:10px">
+      <input type="checkbox" id="nf_bonif" onchange="APP.nfBonifToggle()"> 🎁 <b>Bonificação / doação</b> <span class="muted">(CFOP 5910/6910 · ICMS não incidência CST 41 + cBenef · sem cobrança)</span></label>
     <div class="mrow" id="nf_pedrow"><label class="fl">Pedido de venda vinculado (opcional — ao emitir, avança o pedido p/ aprovado)</label><select id="nf_ped" class="inp" onchange="APP.nfPedSel()">${po}</select></div>
     <div class="grid2">
       <div class="mrow" id="nf_clirow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
@@ -8927,8 +8929,20 @@ function nfAvulsoToggle(){
   show('nf_avulsorow', on);
   show('nf_clirow', !on); // no modo avulso o destinatário é digitado, sem select de cliente
 }
+// Bonificação: exclusiva com remessa; sem cobrança (esconde vencimento).
+function nfBonifToggle(){
+  const on=$('nf_bonif')&&$('nf_bonif').checked;
+  if(on && $('nf_remessa')&&$('nf_remessa').checked){ $('nf_remessa').checked=false; nfRemessaToggle(); }
+  const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
+  show('nf_vencrow', !on); // bonificação não gera cobrança
+  const nat=$('nf_nat'); if(nat){
+    if(on && (!nat.value.trim() || nat.value==='Venda de mercadoria')) nat.value='Remessa em bonificacao, doacao ou brinde';
+    if(!on && nat.value==='Remessa em bonificacao, doacao ou brinde') nat.value='Venda de mercadoria';
+  }
+}
 function nfRemessaToggle(){
   const on=$('nf_remessa')&&$('nf_remessa').checked;
+  if(on && $('nf_bonif')&&$('nf_bonif').checked){ $('nf_bonif').checked=false; const vr=$('nf_vencrow'); if(vr) vr.style.display=''; }
   const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
   const avulso=$('nf_avulso')&&$('nf_avulso').checked;
   show('nf_clirow', !on && !avulso); show('nf_fornrow', on);
@@ -8968,7 +8982,8 @@ async function saveNfeAvulsa(){
     return;
   }
   const avulso = $('nf_avulso') && $('nf_avulso').checked;
-  const body={ itens };
+  const bonif = $('nf_bonif') && $('nf_bonif').checked;
+  const body={ itens }; if(bonif) body.bonificacao=true;
   if(avulso){
     const nome=(val('nfa_nome')||'').trim();
     if(!nome){ toast('Informe o nome/razão do destinatário avulso.','err'); return; }
@@ -10851,7 +10866,7 @@ window.APP = {
   notifCiente, notifCienteTodas, notifImprimir,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
-  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,

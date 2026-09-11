@@ -412,7 +412,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId?: number; destinatario?: { nome?: string; cnpjCpf?: string; inscricaoEstadual?: string; indicadorIE?: number; logradouro?: string; numeroEndereco?: string; bairro?: string; municipio?: string; codMunicipio?: string; uf?: string; cep?: string; email?: string }; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; ncm?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string },
+    dto: { clienteId?: number; destinatario?: { nome?: string; cnpjCpf?: string; inscricaoEstadual?: string; indicadorIE?: number; logradouro?: string; numeroEndereco?: string; bairro?: string; municipio?: string; codMunicipio?: string; uf?: string; cep?: string; email?: string }; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; ncm?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string; bonificacao?: boolean },
     empresaId: number,
     usuario: string,
   ) {
@@ -502,7 +502,8 @@ export class NfeService {
     // Grade na descrição do item (por produto do pedido vinculado).
     const itensNf = this.explodirPorTamanho(itens.map((it) => ({ ...it, grade: it.produtoId ? gradePorProduto.get(it.produtoId) : undefined })));
     const volumes = dto.volumes && dto.volumes > 0 ? Math.round(dto.volumes) : Math.max(1, Math.round(totalQtd));
-    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas });
+    // Bonificação: CFOP 5910/6910, ICMS não incidência (CST 41) + cBenef; SEM cobrança.
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas: dto.bonificacao ? undefined : duplicatas, bonificacao: dto.bonificacao });
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
@@ -541,7 +542,8 @@ export class NfeService {
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       // Só quando há cliente cadastrado — destinatário avulso não gera título a receber.
-      if (dto.clienteId) {
+      // Bonificação/doação NÃO gera cobrança.
+      if (dto.clienteId && !dto.bonificacao) {
         await tx.contaReceber.create({
           data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
         });
