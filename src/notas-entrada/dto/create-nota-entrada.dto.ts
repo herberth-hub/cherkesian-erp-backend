@@ -26,6 +26,9 @@ export class NotaEntradaItemDto {
 
   @IsOptional() @IsString() @MaxLength(8) ncm?: string;
 
+  /** Código do produto NO FORNECEDOR (o que ele usa p/ este item). */
+  @IsOptional() @IsString() @MaxLength(60) codigoFornecedor?: string;
+
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'quantidade deve ter no máximo 3 casas.' })
   @IsPositive({ message: 'quantidade deve ser positiva.' })
   quantidade!: number;
