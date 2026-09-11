@@ -116,16 +116,16 @@ export class CreatePedidoDto {
   @IsBoolean()
   bonificacao?: boolean;
 
-  /** Observação FISCAL: vai nas informações complementares da NF-e. */
+  /** Observação FISCAL: vai nas informações complementares da NF-e (o payload da NF corta em 5000). */
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(5000)
   obs?: string;
 
   /** Observação COMERCIAL: sai na proposta e no pedido; não vai na NF-e. */
   @IsOptional()
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(5000)
   obsComercial?: string;
 
   /** Representante da comissão de venda — INTERNO (não sai nos documentos do cliente). */
