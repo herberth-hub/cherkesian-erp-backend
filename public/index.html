@@ -8205,6 +8205,22 @@ async function etiquetasUnitariasExp(id){
     w.document.close();
   }catch(e){ toast('Falha ao gerar etiquetas unitárias: '+(e.message||e),'err'); }
 }
+// Banner das instruções de entrega/etiquetagem (padrão do cliente) na conferência.
+function confEntregaBanner(ie){
+  if(!ie || typeof ie!=='object') return '';
+  const t=ie.transportadora||{}, en=ie.entrega||{};
+  const endereco=[en.logradouro,en.bairro,(en.cidade?en.cidade+(en.uf?'/'+en.uf:''):''),(en.cep?'CEP '+en.cep:'')].filter(Boolean).join(' · ');
+  const linhas=[];
+  if(t.nome) linhas.push('🚚 <b>'+esc(t.nome)+'</b>'+(t.cnpj?(' · '+esc(t.cnpj)):''));
+  if(endereco) linhas.push('📍 '+esc(endereco));
+  if(en.referencia) linhas.push('Ref.: <b>'+esc(en.referencia)+'</b>');
+  const instr=(ie.instrucoes||'').trim();
+  if(!linhas.length && !instr) return '';
+  return `<div style="border:1px solid #efe2b8;background:#fbf7ea;border-radius:8px;padding:8px 10px;margin:0 0 10px">
+    <div style="font-size:11.5px;font-weight:800;color:#8a5a00;margin-bottom:3px">📦 Instruções de entrega / etiquetagem (padrão do cliente)</div>
+    ${linhas.length?`<div style="font-size:12px;line-height:1.5">${linhas.join(' &nbsp;·&nbsp; ')}</div>`:''}
+    ${instr?`<div style="font-size:11.5px;white-space:pre-wrap;margin-top:4px;color:#4a463c">${esc(instr)}</div>`:''}</div>`;
+}
 // ---------- Dupla conferência + despacho ----------
 async function formConferencia(id){
   if(window.__confCaixa==null) window.__confCaixa=1;
@@ -8217,6 +8233,7 @@ async function formConferencia(id){
   const despachado=c.status==='despachado';
   openModal(`<h3>Conferência · Expedição ${esc(c.numero)}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe cada peça, kit${c.totalCaixas?' ou <b>a caixa</b> (o QR da caixa confere todas as peças dela de uma vez)':''}. O despacho só libera após conferir tudo.</div>
+    ${confEntregaBanner(c.instrucoesEntrega)}
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
     ${c.totalCaixas?`<div style="font-size:12px;color:#6a675e;margin:4px 0 2px">📦 Caixas: <b>${c.totalCaixas}</b>${c.caixasConferidas?(' · '+c.caixasConferidas+' conferida(s)'):''} ${(c.caixas||[]).map(cx=>{const tip=(cx.conteudo||[]).map(l=>[l.descricao,l.cor,l.tamanho].filter(Boolean).join(' · ')+': '+l.qtd).join(' | ')||(cx.pecas+' pç');const on=cx.conferida;const x=despachado?'':' <b style="cursor:pointer;color:#b03a2e" title="Zerar esta caixa (devolve as peças ao estoque)" onclick="APP.zerarCaixaConf('+id+','+cx.numero+')">✕</b>';return '<span class="pill" title="'+esc(tip)+'" style="font-size:10px;background:'+(on?'#e6f4ea':'#eef3ff')+';color:'+(on?'#1e7a44':'#2b4a8b')+'">CX'+cx.numero+(on?' ✓':'')+' ('+cx.pecas+' pç)'+x+'</span>';}).join(' ')}</div>`:''}
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>

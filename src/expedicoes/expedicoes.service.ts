@@ -627,13 +627,18 @@ export class ExpedicoesService {
       return { descricao: e?.descricao ?? cf?.descricao ?? d, cor: e?.cor ?? cf?.cor ?? null, tamanho: e?.tamanho ?? cf?.tamanho ?? (t || '—'), esperado, conferido, falta: Math.max(0, esperado - conferido) };
     }).sort((a, b) => (a.descricao === b.descricao ? a.tamanho.localeCompare(b.tamanho, 'pt', { numeric: true }) : a.descricao.localeCompare(b.descricao)));
 
+    // Instruções de entrega/etiquetagem do pedido (padrão do cliente) — o packing confere na tela.
+    const instrucoesEntrega = exp.pedidoId
+      ? (await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, select: { instrucoesEntrega: true } }))?.instrucoesEntrega ?? null
+      : null;
+
     return {
       numero: exp.numero,
       codBip: String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase(), // código da etiqueta MASTER
       esperadas: exp.pecas, conferidas: exp.pecasConferidas,
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
       caixas, totalCaixas: caixas.length, caixasConferidas: caixas.filter((c) => c.conferida).length,
-      grade,
+      grade, instrucoesEntrega,
     };
   }
 
