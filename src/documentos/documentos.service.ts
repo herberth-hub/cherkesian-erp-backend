@@ -425,26 +425,7 @@ export class DocumentosService {
     }
 
     // Instruções de entrega / etiquetagem (padrão do cliente — ex.: VIVARA via transportadora ZENATUR).
-    const ie = (pedido.instrucoesEntrega && typeof pedido.instrucoesEntrega === 'object')
-      ? (pedido.instrucoesEntrega as { transportadora?: { nome?: string; cnpj?: string }; entrega?: { razaoSocial?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cep?: string; referencia?: string }; instrucoes?: string })
-      : null;
-    if (ie) {
-      const t = ie.transportadora ?? {};
-      const en = ie.entrega ?? {};
-      const endereco = [en.logradouro, en.bairro, en.cidade ? en.cidade + (en.uf ? '/' + en.uf : '') : '', en.cep ? 'CEP ' + en.cep : ''].filter(Boolean).join(' · ');
-      const campos: Array<[string, string]> = [];
-      if (t.nome) campos.push(['Transportadora', t.nome + (t.cnpj ? ' · ' + t.cnpj : '')]);
-      if (endereco) campos.push(['Endereço de entrega', endereco]);
-      if (en.referencia) campos.push(['Referência', en.referencia]);
-      if (en.razaoSocial) campos.push(['Razão social do destino', en.razaoSocial]);
-      const temInstr = !!(ie.instrucoes && ie.instrucoes.trim());
-      if (campos.length || temInstr) {
-        if (doc.y > doc.page.height - 200) doc.addPage();
-        secao(doc, 'Instruções de entrega / etiquetagem');
-        if (campos.length) camposDuplos(doc, campos);
-        if (temInstr) textoBloco(doc, ie.instrucoes!.trim());
-      }
-    }
+    this.secaoEntrega(doc, pedido.instrucoesEntrega);
 
     // Dados bancários para pagamento (da filial emissora; se o pedido não tiver
     // filial, usa a matriz da empresa como padrão).
@@ -641,8 +622,33 @@ export class DocumentosService {
         ]),
       );
     }
+    // Instruções de entrega / etiquetagem do pedido (produção/packing já veem o padrão do cliente).
+    this.secaoEntrega(doc, op.pedido?.instrucoesEntrega);
+
     assinaturas(doc, 'Separado por (estoque)', 'Recebido no corte');
     return doc;
+  }
+
+  /** Renderiza a seção "Instruções de entrega / etiquetagem" de um pedido (se houver). */
+  private secaoEntrega(doc: Pdf, instrucoesEntrega: unknown): void {
+    const ie = (instrucoesEntrega && typeof instrucoesEntrega === 'object')
+      ? (instrucoesEntrega as { transportadora?: { nome?: string; cnpj?: string }; entrega?: { razaoSocial?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cep?: string; referencia?: string }; instrucoes?: string })
+      : null;
+    if (!ie) return;
+    const t = ie.transportadora ?? {};
+    const en = ie.entrega ?? {};
+    const endereco = [en.logradouro, en.bairro, en.cidade ? en.cidade + (en.uf ? '/' + en.uf : '') : '', en.cep ? 'CEP ' + en.cep : ''].filter(Boolean).join(' · ');
+    const campos: Array<[string, string]> = [];
+    if (t.nome) campos.push(['Transportadora', t.nome + (t.cnpj ? ' · ' + t.cnpj : '')]);
+    if (endereco) campos.push(['Endereço de entrega', endereco]);
+    if (en.referencia) campos.push(['Referência', en.referencia]);
+    if (en.razaoSocial) campos.push(['Razão social do destino', en.razaoSocial]);
+    const temInstr = !!(ie.instrucoes && ie.instrucoes.trim());
+    if (!campos.length && !temInstr) return;
+    if (doc.y > doc.page.height - 200) doc.addPage();
+    secao(doc, 'Instruções de entrega / etiquetagem');
+    if (campos.length) camposDuplos(doc, campos);
+    if (temInstr) textoBloco(doc, ie.instrucoes!.trim());
   }
 
   /**
@@ -712,6 +718,7 @@ export class DocumentosService {
         [...totMat.values()].map((m) => [m.codigo, m.descricao, `${this.qtdBR(m.quantidade)} ${m.unidade}`]),
       );
     }
+    this.secaoEntrega(doc, pedido.instrucoesEntrega);
     assinaturas(doc, 'Separado por (estoque)', 'Recebido no corte');
     rodapeGrupo(doc);
     return doc;
@@ -1072,6 +1079,8 @@ export class DocumentosService {
       ['Nota fiscal', exp.nf ?? '—'],
       ['Status', exp.status],
     ]);
+    // Instruções de entrega / etiquetagem do pedido — o packing confere aqui.
+    this.secaoEntrega(doc, pedido?.instrucoesEntrega);
     assinaturas(doc, 'Expedição — GRUPO CHERKESIAN', 'Recebido por (nome/documento)');
     return doc;
   }
