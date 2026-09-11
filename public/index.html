@@ -5696,7 +5696,7 @@ async function viewCompras(c){
   c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'+relBtn('compras')) + panelTable(
     ['Número','Fornecedor','Descrição','Qtd','Valor','Status','Ações'],
     list.map(o=>[
-      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao)+((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:''),
+      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao)+(o.codigoFornecedor?`<div class="muted" style="font-size:10px">🏭 cód. fornecedor: <b>${esc(o.codigoFornecedor)}</b></div>`:'')+((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:''),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
       ocPill(o.status)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 baixa via NF ${esc(o.recebidaViaNf)}</div>`:''),
       (o.status==='aguardando'?`<button class="btn-sm" onclick="APP.receberCompra(${o.id})">Receber</button> <button class="btn-sm" onclick="APP.cancelarCompra(${o.id})">Cancelar</button> `:'')+`<button class="btn-sm" title="Enviar a ordem de compra por e-mail ao fornecedor" onclick="APP.formEmailOc(${o.id},${o.fornecedorId})">📧 Enviar</button> <button class="btn-sm" onclick="APP.gerarDoc('pedido_compra',${o.id})">🖨</button>`
@@ -5755,7 +5755,7 @@ async function formCompra(){
   const [forn, mats, prods] = await Promise.all([api('/fornecedores'), api('/materiais'), api('/produtos').catch(()=>[])]);
   window.__OCPRODS = (prods||[]);
   const fo = forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
-  const mo = ['<option value="">— sem material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-desc="${esc(m.descricao)}">${esc(m.codigo)} · ${esc(m.descricao)}</option>`)).join('');
+  const mo = ['<option value="">— sem material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-cod="${esc(m.codigo)}" data-desc="${esc(m.descricao)}" data-artigo="${esc(m.codigoArtigo||'')}" data-artnome="${esc(m.artigo||'')}">${esc(m.codigo)} · ${esc(m.descricao)}${m.codigoArtigo?(' · forn.: '+esc(m.codigoArtigo)):''}</option>`)).join('');
   // Produtos de revenda (comprados prontos) — os que fazem sentido comprar por grade.
   const revenda = (prods||[]).filter(p=>p.tipo==='revenda');
   const po = ['<option value="">— sem produto —</option>'].concat(revenda.map(p=>`<option value="${p.id}">${esc((p.codigo||'')+' · '+(p.descricao||''))}</option>`)).join('');
@@ -5765,17 +5765,33 @@ async function formCompra(){
       <div class="mrow"><label class="fl">Material <span class="muted">(matéria-prima)</span></label><select id="f_mat" class="inp" onchange="APP.ocMat()">${mo}</select></div>
       <div class="mrow"><label class="fl">Produto de revenda <span class="muted">(compra por tamanho)</span></label><select id="f_prod" class="inp" onchange="APP.ocProd()">${po}</select></div>
     </div>
+    ${field('f_codforn','Código do fornecedor (artigo) — o que o fornecedor usa p/ este item','placeholder="ex.: 02.116.001.1"')}
     <div id="oc_gradebox" style="display:none;margin:2px 0 8px;border:1px dashed #cdb27a;background:#fbf9f3;border-radius:8px;padding:8px 10px">
       <div style="font-size:11.5px;font-weight:700;color:#8a5a00;margin-bottom:5px">🏷️ Quantidade por tamanho <span class="muted" style="font-weight:400">— a quantidade total é a soma da grade</span></div>
       <div id="oc_grade" style="display:flex;flex-wrap:wrap;gap:8px"></div>
     </div>
-    ${field('f_desc','Descrição *','')}
+    ${field('f_desc','Descrição * (seu produto/material)','')}
     <div class="grid3">${field('f_qtd','Quantidade *','type="number" step="0.001"')}${field('f_un','Unidade *','value="un"')}${field('f_val','Valor total *','type="number" step="0.01"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCompra()">Salvar</button></div>`);
 }
-function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0]; if(o&&o.value){ if($('f_prod')) $('f_prod').value=''; ocGradeHide(); if(!$('f_desc').value) $('f_desc').value=o.getAttribute('data-desc')||''; if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un'; } }
-function ocGradeHide(){ const b=$('oc_gradebox'); if(b) b.style.display='none'; const g=$('oc_grade'); if(g) g.innerHTML=''; window.__OCPRODSEL=null; }
+function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0];
+  if(!(o&&o.value)){ ocGradeHide(); return; }
+  if($('f_prod')) $('f_prod').value='';
+  window.__OCPRODSEL=null;
+  const cod=o.getAttribute('data-cod')||'', desc=o.getAttribute('data-desc')||'';
+  $('f_desc').value=(cod?cod+' · ':'')+desc;
+  if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un';
+  if($('f_codforn')) $('f_codforn').value=o.getAttribute('data-artigo')||'';
+  ocGradeLivre(); // material não tem lista de tamanhos: grade livre por texto
+}
+function ocGradeHide(){ const b=$('oc_gradebox'); if(b) b.style.display='none'; const g=$('oc_grade'); if(g) g.innerHTML=''; window.__OCPRODSEL=null; if($('f_qtd')) $('f_qtd').removeAttribute('readonly'); }
+// Grade LIVRE (material ou produto sem tamanhos): digita "36:10, 38:8" e soma.
+function ocGradeLivre(){
+  const box=$('oc_grade'); if(box){ box.innerHTML=`<div style="flex:1;min-width:240px"><input class="inp" id="oc_gradetxt" placeholder="ex.: 36:10, 38:8, 40:6 (deixe vazio p/ quantidade única)" oninput="APP.ocGradeSync()" style="width:100%"><div class="muted" id="oc_gradesum" style="font-size:10.5px;margin-top:3px"></div></div>`; }
+  const gb=$('oc_gradebox'); if(gb) gb.style.display='';
+  ocGradeSync();
+}
 // Produto de revenda escolhido: mostra os tamanhos da grade dele p/ digitar a quantidade de cada.
 function ocProd(){
   const id=Number(val('f_prod'));
@@ -5785,23 +5801,35 @@ function ocProd(){
   window.__OCPRODSEL=p;
   if($('f_desc')) $('f_desc').value=(p.codigo?p.codigo+' · ':'')+(p.descricao||'');
   if($('f_un')) $('f_un').value=p.unidadeComercial||'UN';
+  if($('f_codforn')) $('f_codforn').value=p.referencia||''; // referência externa como cód. do fornecedor (editável)
   const tams=tamsDoProduto(p);
   const box=$('oc_grade');
   if(box){ box.innerHTML = tams.map(t=>`<div style="display:flex;flex-direction:column;align-items:center"><label class="fl" style="font-size:10px;letter-spacing:.5px">${esc(t)}</label><input class="inp ocgi" data-tam="${esc(t)}" type="number" min="0" step="1" value="" style="width:60px;text-align:center;padding:4px 3px;font-size:12px" oninput="APP.ocGradeSync()"></div>`).join(''); }
   const gb=$('oc_gradebox'); if(gb) gb.style.display='';
   ocGradeSync();
 }
-function ocLerGrade(){ const g={}; document.querySelectorAll('#oc_grade .ocgi').forEach(inp=>{ const n=Math.round(Number(inp.value)); if(n>0) g[(inp.dataset.tam||'').toUpperCase()]=n; }); return g; }
+function ocLerGrade(){
+  const g={};
+  const inputs=document.querySelectorAll('#oc_grade .ocgi');
+  if(inputs.length){ inputs.forEach(inp=>{ const n=Math.round(Number(inp.value)); if(n>0) g[(inp.dataset.tam||'').toUpperCase()]=n; }); return g; }
+  // grade livre por texto "36:10, 38:8"
+  const txt=$('oc_gradetxt'); if(txt&&txt.value.trim()){ String(txt.value).split(/[,;]+/).forEach(par=>{ const m=par.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Math.round(Number((m[1]||'').trim())); if(t&&q>0) g[t]=(g[t]||0)+q; }); }
+  return g;
+}
 function ocGradeSync(){
-  const g=ocLerGrade(); const soma=Object.values(g).reduce((a,b)=>a+b,0);
-  if($('f_qtd')) $('f_qtd').value = soma||'';
+  const g=ocLerGrade(); const soma=Object.values(g).reduce((a,b)=>a+Number(b),0);
+  const temGrade=Object.keys(g).length>0;
+  if($('f_qtd')){ if(temGrade){ $('f_qtd').value=soma||''; $('f_qtd').setAttribute('readonly','readonly'); } else { $('f_qtd').removeAttribute('readonly'); } }
+  const sumEl=$('oc_gradesum'); if(sumEl) sumEl.textContent = temGrade?('Total: '+soma+' peça(s)'):'';
   const p=window.__OCPRODSEL; const custo=p&&p.custo!=null?Number(p.custo):0;
-  if(custo>0 && $('f_val')) $('f_val').value=(soma*custo).toFixed(2);
+  if(temGrade && custo>0 && $('f_val')) $('f_val').value=(soma*custo).toFixed(2);
 }
 async function saveCompra(){
   const body = { fornecedorId:Number(val('f_forn')), descricao:val('f_desc'), quantidade:Number(val('f_qtd')), unidade:val('f_un')||'un', valor:Number(val('f_val')) };
   const mid=val('f_mat'); if(mid) body.materialId=Number(mid);
-  const pid=val('f_prod'); if(pid){ body.produtoId=Number(pid); const g=ocLerGrade(); if(Object.keys(g).length) body.grade=g; }
+  const pid=val('f_prod'); if(pid) body.produtoId=Number(pid);
+  const g=ocLerGrade(); if(Object.keys(g).length) body.grade=g; // grade vale p/ material OU produto
+  const codf=val('f_codforn'); if(codf) body.codigoFornecedor=codf;
   if(!body.fornecedorId||!body.descricao||!body.quantidade||!body.valor){ toast('Preencha fornecedor, descrição, quantidade e valor.','err'); return; }
   // Aviso: se o valor ultrapassar o crédito disponível que o fornecedor concede.
   try{

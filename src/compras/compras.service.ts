@@ -73,6 +73,7 @@ export class ComprasService {
         materialId: dto.materialId,
         produtoId: dto.produtoId,
         grade,
+        codigoFornecedor: dto.codigoFornecedor?.trim() || null,
         descricao: dto.descricao,
         quantidade,
         unidade: dto.unidade,

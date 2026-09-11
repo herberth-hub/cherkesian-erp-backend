@@ -31,6 +31,12 @@ export class CreateOrdemCompraDto {
   @IsObject()
   grade?: Record<string, number>;
 
+  /** Código do item no FORNECEDOR (artigo) — para o fornecedor identificar o que comprei. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  codigoFornecedor?: string;
+
   @IsString()
   @IsNotEmpty({ message: 'Informe a descrição da compra.' })
   @MaxLength(200)

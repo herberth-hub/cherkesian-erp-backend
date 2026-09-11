@@ -951,6 +951,10 @@ export class DocumentosService {
       ['Cidade/UF', oc.fornecedor.cidadeUf ?? '—'],
     ]);
     secao(doc, 'Item');
+    // Descrição com o SEU produto/código e o CÓDIGO DO FORNECEDOR (artigo) — os dois lados se identificam.
+    const grade = (oc.grade && typeof oc.grade === 'object') ? (oc.grade as Record<string, number>) : null;
+    const gradeTxt = grade && Object.keys(grade).length ? Object.entries(grade).map(([t, q]) => `${t}:${q}`).join('  ') : '';
+    const descItem = [oc.descricao, oc.codigoFornecedor ? `Cód. fornecedor (artigo): ${oc.codigoFornecedor}` : '', gradeTxt ? `Grade: ${gradeTxt}` : ''].filter(Boolean).join('\n');
     tabela(
       doc,
       [
@@ -959,7 +963,7 @@ export class DocumentosService {
         { titulo: 'Un.', largura: 55 },
         { titulo: 'Valor', largura: 85, alinhamento: 'right' },
       ],
-      [[oc.descricao, this.qtdBR(oc.quantidade), oc.unidade, money(oc.valor)]],
+      [[descItem, this.qtdBR(oc.quantidade), oc.unidade, money(oc.valor)]],
     );
     totalDestaque(doc, 'Valor do pedido', money(oc.valor));
     secao(doc, 'Observações');
