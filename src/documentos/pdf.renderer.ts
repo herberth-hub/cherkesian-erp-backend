@@ -242,13 +242,20 @@ export function gradeTabela(
   const headers = [...itens.map((it, i) => (marcas[i]?.partial ? `${it[0]} *` : it[0])), 'Total'];
   const values = [...itens.map((it) => it[1] || ''), total ? String(total) : ''];
 
+  // Fonte cabe-tudo: quando há muitos tamanhos, a coluna fica estreita — reduz a
+  // fonte para o maior texto caber em UMA linha (nunca empilha o número).
+  const maxHeaderLen = Math.max(2, ...headers.map((h) => h.length));
+  const maxValLen = Math.max(1, ...values.map((v) => v.length));
+  const headerFs = Math.max(6, Math.min(10, (colW - 4) / (maxHeaderLen * 0.56)));
+  const valueFs = Math.max(7, Math.min(13, (colW - 4) / (maxValLen * 0.6)));
+
   // Cabeçalho (faixa dourada clara)
   for (let i = 0; i < cols; i++) {
     const x = x0 + i * colW;
     doc.rect(x, y, colW, rowH).fill('#f7efd3');
     doc.rect(x, y, colW, rowH).lineWidth(0.8).strokeColor(OURO).stroke();
-    doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(10)
-      .text(headers[i], x, y + rowH / 2 - 6, { width: colW, align: 'center' });
+    doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(headerFs)
+      .text(headers[i], x, y + (rowH - headerFs) / 2 - 1, { width: colW, align: 'center', lineBreak: false });
   }
   // Linha de quantidades (+ sublinha "de N" nos parciais)
   const y2 = y + rowH;
@@ -258,8 +265,8 @@ export function gradeTabela(
     const parcial = i < itens.length && marcas[i]?.partial;
     doc.rect(x, y2, colW, linhaH).fillColor(parcial ? '#fff3e0' : '#ffffff').fill();
     doc.rect(x, y2, colW, linhaH).lineWidth(0.8).strokeColor(OURO).stroke();
-    doc.fillColor(parcial ? '#9a5a00' : TINTA).font('Helvetica-Bold').fontSize(13)
-      .text(values[i] || ' ', x, y2 + rowH / 2 - 8, { width: colW, align: 'center' });
+    doc.fillColor(parcial ? '#9a5a00' : TINTA).font('Helvetica-Bold').fontSize(valueFs)
+      .text(values[i] || ' ', x, y2 + (rowH - valueFs) / 2 - 1, { width: colW, align: 'center', lineBreak: false });
     const sub = i < itens.length ? marcas[i]?.sub : undefined;
     if (sub) {
       doc.fillColor('#9a5a00').font('Helvetica').fontSize(7.5)
