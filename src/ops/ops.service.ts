@@ -5,6 +5,7 @@ import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
 import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
@@ -13,7 +14,10 @@ const bwipjs = require('bwip-js') as { toBuffer: (opts: Record<string, unknown>)
 
 @Injectable()
 export class OpsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificacoes: NotificacoesService,
+  ) {}
 
   async findAll(empresaId: number) {
     const ops = await this.prisma.oP.findMany({
@@ -71,7 +75,7 @@ export class OpsService {
   }
 
   /** Cria uma OP AVULSA (produção sem pedido) — para estoque, amostra, reposição. */
-  async criarAvulsa(dto: CreateOpAvulsaDto, empresaId: number, loteAvulso?: string): Promise<OP> {
+  async criarAvulsa(dto: CreateOpAvulsaDto, empresaId: number, loteAvulso?: string, opts?: { notificar?: boolean }): Promise<OP> {
     const produto = await this.prisma.produto.findFirst({ where: { id: dto.produtoId, empresaId }, select: { id: true, cor: true } });
     if (!produto) throw new NotFoundException('Produto não encontrado nesta empresa.');
     const grade =
@@ -105,7 +109,7 @@ export class OpsService {
 
     const existentes = await this.prisma.oP.findMany({ select: { numero: true } });
     const numero = proximoSequencial('OP', existentes.map((o) => o.numero), { pad: 4, separador: '-' });
-    return this.prisma.oP.create({
+    const op = await this.prisma.oP.create({
       data: {
         empresaId,
         numero,
@@ -124,6 +128,17 @@ export class OpsService {
         corteObs: dto.obs?.trim() || 'OP avulsa (sem pedido).',
       },
     });
+    if (opts?.notificar !== false) {
+      await this.notificacoes.criar(empresaId, {
+        tipo: 'op_nova',
+        areas: ['producao', 'pcp'],
+        titulo: `Nova OP avulsa ${op.numero}`,
+        mensagem: `OP avulsa (sem pedido) · ${total} peça(s). Iniciar risco/corte.`,
+        refTipo: 'op',
+        refId: op.id,
+      });
+    }
+    return op;
   }
 
   /**
@@ -149,9 +164,19 @@ export class OpsService {
         { produtoId: it.produtoId, quantidade: it.quantidade, gradeTamanhos: it.gradeTamanhos, cor: it.cor, filialId: dto.filialId, prioridade: dto.prioridade, obs: dto.obs },
         empresaId,
         loteAvulso,
+        { notificar: false }, // uma única notificação-resumo do lote abaixo (evita 1 por OP)
       );
       ops.push(op);
     }
+    const totalPecas = ops.reduce((s, o) => s + (Number(o.quantidade) || 0), 0);
+    await this.notificacoes.criar(empresaId, {
+      tipo: 'op_nova',
+      areas: ['producao', 'pcp'],
+      titulo: `Novo lote de OPs avulsas (${ops.length})`,
+      mensagem: `${ops.length} OP(s) avulsas geradas (${ops.map((o) => o.numero).join(', ')}). Total ${totalPecas} peça(s). Iniciar risco/corte.`,
+      refTipo: 'op',
+      refId: ops[0]?.id ?? null,
+    });
     return { loteAvulso, total: ops.length, ops };
   }
 

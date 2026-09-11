@@ -402,9 +402,11 @@ function onAuthed(d){
   // Alerta automático de reposição: materiais abaixo do mínimo (quem tem acesso a compras).
   if(canAccess('compras')){ api('/ordens-compra/sugestoes-reposicao').then(r=>{ const n=((r&&r.itens)||[]).length; window.__ESTOQUE_ALERTA=n; if(n>0) setTimeout(()=>toast('⚠️ '+n+' material(is) abaixo do mínimo — abra Compras › 🔁 Reposição.','err'),900); }).catch(()=>{}); }
   toast('Bem-vindo, '+S.user.nome.split(' ')[0]+'!', 'ok');
+  notifStart();
 }
 function firstReady(allowed){ for(const r of allowed){ if(READY.has(r)) return r; } return allowed[0]; }
 function logout(silent){
+  notifStop();
   S.user=S.access=S.refresh=null; S.cache={};
   localStorage.removeItem(LS.access); localStorage.removeItem(LS.refresh); localStorage.removeItem(LS.user);
   renderLogin(); if(!silent) toast('Sessão encerrada.');
@@ -7877,6 +7879,51 @@ async function gerarDoc(tipo, refId){
   }catch(e){ toast(e.message,'err'); }
 }
 
+// ===== Notificações com CIÊNCIA obrigatória (pedido novo / OP nova) =====
+const NOTIF_TITULO='🔔 Novas tarefas';
+let _notifTimer=null;
+function notifStart(){ notifStop(); if(!S.access||!S.user) return; setTimeout(notifCheck,1500); _notifTimer=setInterval(notifCheck,60000); }
+function notifStop(){ if(_notifTimer){ clearInterval(_notifTimer); _notifTimer=null; } }
+function notifAberto(){ try{ return (__wins||[]).some(w=>w.title===NOTIF_TITULO && !w.minimized); }catch(e){ return false; } }
+async function notifCheck(){
+  if(!S.access||!S.user) return;
+  let list; try{ list=await api('/notificacoes/pendentes',{silent:true}); }catch(e){ return; }
+  if(!Array.isArray(list)) return;
+  window.__NOTIF=list;
+  if(!list.length || notifAberto()) return; // vazio, ou já está na tela — não repica
+  notifModal(list);
+}
+function notifIcone(t){ return t==='op_nova'?'🏭':(t==='pedido_novo'?'🧾':'🔔'); }
+function notifModal(list){
+  const card=n=>{
+    const temRef = n.refTipo && n.refId;
+    const impLabel = n.refTipo==='op'?'🖨 Imprimir OP & ciente':'🖨 Abrir & ciente';
+    const imp = temRef?`<button class="btn-sm" onclick="APP.notifImprimir(${n.id},'${esc(n.refTipo)}',${n.refId})">${impLabel}</button>`:'';
+    return `<div style="border:1px solid #efe2b8;background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-weight:800;font-size:13px;color:#242a26">${notifIcone(n.tipo)} ${esc(n.titulo)}</div>
+      <div style="font-size:12px;color:#5a564c;margin:3px 0 8px">${esc(n.mensagem)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-primary" onclick="APP.notifCiente(${n.id})">OK, ciente</button>${imp}</div>
+    </div>`;
+  };
+  openModal(`<h3>${NOTIF_TITULO}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px"><b>${list.length}</b> nova(s) tarefa(s). Confirme a ciência de cada uma (ou imprima). Enquanto não confirmar, o aviso volta a aparecer.</div>
+    <div style="max-height:56vh;overflow:auto">${list.map(card).join('')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.notifCienteTodas()">✔ Ciente de todas</button></div>`);
+}
+async function notifCiente(id){
+  try{ await api('/notificacoes/'+id+'/ciente',{method:'POST',silent:true}); }catch(e){}
+  window.__NOTIF=(window.__NOTIF||[]).filter(n=>n.id!==id);
+  if(window.__NOTIF.length){ notifModal(window.__NOTIF); } else { closeModal(); toast('Tudo ciente. 👍','ok'); }
+}
+async function notifCienteTodas(){
+  try{ await api('/notificacoes/ciente-todas',{method:'POST',silent:true}); }catch(e){}
+  window.__NOTIF=[]; closeModal(); toast('Ciente de todas as novas tarefas.','ok');
+}
+async function notifImprimir(id, refTipo, refId){
+  await notifCiente(id);
+  if(refTipo && refId){ gerarDoc(refTipo==='op'?'op':'proposta', refId); }
+}
+
 // ---------- NF de Faturamento (venda para entrega futura) ----------
 function formFaturamento(pedidoId, total, frete){
   frete=Number(frete)||0;
@@ -9716,6 +9763,7 @@ function boot(){
     const hr=(location.hash||'').replace(/^#/,'');
     if(hr && canAccess(hr)) S.route=hr;
     renderShell(); loadRoute(); checkDeepLink();
+    notifStart();
   } else { renderLogin(); }
 }
 
@@ -10575,6 +10623,7 @@ window.APP = {
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
+  notifCiente, notifCienteTodas, notifImprimir,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,

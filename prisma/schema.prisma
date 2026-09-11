@@ -1328,3 +1328,32 @@ model Ferias {
 
   @@index([funcionarioId])
 }
+
+// ===== Notificações com CIÊNCIA obrigatória (pedido novo, OP nova, etc.) =====
+// Uma notificação é dirigida a ÁREAS (ex.: ["producao","pcp"]); todo usuário cujo
+// perfil enxerga alguma dessas áreas vê o alerta e precisa dar "ciente" (ou imprimir).
+model Notificacao {
+  id        Int      @id @default(autoincrement())
+  empresaId Int
+  tipo      String   // 'pedido_novo' | 'op_nova'
+  areas     Json     // string[] de áreas-alvo
+  titulo    String
+  mensagem  String
+  refTipo   String?  // 'pedido' | 'op'
+  refId     Int?
+  criadoEm  DateTime @default(now())
+  ciencias  NotificacaoCiencia[]
+
+  @@index([empresaId, criadoEm])
+}
+
+model NotificacaoCiencia {
+  id            Int         @id @default(autoincrement())
+  notificacaoId Int
+  notificacao   Notificacao @relation(fields: [notificacaoId], references: [id], onDelete: Cascade)
+  usuarioId     Int
+  cienteEm      DateTime    @default(now())
+
+  @@unique([notificacaoId, usuarioId])
+  @@index([usuarioId])
+}

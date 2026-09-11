@@ -9,12 +9,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
 import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 
 @Injectable()
 export class PedidosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly credito: CreditoService,
+    private readonly notificacoes: NotificacoesService,
   ) {}
 
   async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string }) {
@@ -183,6 +185,17 @@ export class PedidosService {
         itens: { create: itensData },
       },
       include: { itens: true },
+    });
+
+    // Alerta com ciência obrigatória: comercial/PCP/produção sabem do pedido novo.
+    const totalPecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0);
+    await this.notificacoes.criar(empresaId, {
+      tipo: 'pedido_novo',
+      areas: ['vendas', 'pcp', 'producao'],
+      titulo: `Novo pedido ${pedido.numero} — ${cliente.nome}`,
+      mensagem: `${totalPecas} peça(s) · valor ${new Prisma.Decimal(valorTotal).toFixed(2)}${pedido.clienteNovo ? ' · CLIENTE NOVO (exige peça-piloto)' : ''}. Providencie a próxima etapa (risco/corte).`,
+      refTipo: 'pedido',
+      refId: pedido.id,
     });
 
     return { ...pedido, exigePiloto: pedido.clienteNovo };
@@ -418,6 +431,25 @@ export class PedidosService {
     });
   }
 
+  /** Alerta (ciência obrigatória) para a produção quando OP(s) são geradas. */
+  private async notificarOpsGeradas(
+    empresaId: number,
+    pedido: { numero: string; cliente?: { nome?: string | null } | null },
+    ops: Array<{ id?: number; numero: string; quantidade: number }>,
+  ): Promise<void> {
+    if (!ops?.length) return;
+    const totalPecas = ops.reduce((s, o) => s + (Number(o.quantidade) || 0), 0);
+    const nums = ops.map((o) => o.numero).join(', ');
+    await this.notificacoes.criar(empresaId, {
+      tipo: 'op_nova',
+      areas: ['producao', 'pcp'],
+      titulo: `Nova(s) OP(s) — pedido ${pedido.numero}${pedido.cliente?.nome ? ' · ' + pedido.cliente.nome : ''}`,
+      mensagem: `${ops.length} OP(s) gerada(s): ${nums}. Total ${totalPecas} peça(s). Iniciar risco/corte.`,
+      refTipo: 'op',
+      refId: ops[0]?.id ?? null,
+    });
+  }
+
   /**
    * CORAÇÃO DO ERP — Gera a Ordem de Produção para um pedido:
    *  1. cliente novo exige peça-piloto liberada (senão bloqueia);
@@ -639,6 +671,7 @@ export class PedidosService {
             await tx.pedido.update({ where: { id }, data: { etapa: 'producao', status: 'Em produção (parcial)', producaoParcial: true } });
             return { ops, ocs: criadas.length + ocsAbertas.length };
           });
+          await this.notificarOpsGeradas(empresaId, pedido, res.ops);
           return {
             status: 'op_parcial' as const,
             pedido: { numero: pedido.numero, etapa: 'producao' },
@@ -756,6 +789,8 @@ export class PedidosService {
       });
       return opsCriadas;
     });
+
+    await this.notificarOpsGeradas(empresaId, pedido, resultado);
 
     return {
       status: 'op_gerada' as const,
