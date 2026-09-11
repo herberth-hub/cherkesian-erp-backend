@@ -1037,15 +1037,20 @@ export class DocumentosService {
     chip(2, 'PREVISÃO', dataBR(oc.previsaoEntrega ?? oc.previsao), TINTA);
     doc.y = cy2 + 40 + 12; doc.x = X;
 
-    // Dados para pagamento — bloco de largura total (cabe favorecido/banco/PIX completos).
-    const banco = filialCompra?.dadosBancarios?.trim();
-    if (banco) {
-      const txtH = doc.font('Helvetica').fontSize(9.5).heightOfString(banco, { width: CW - 20 });
+    // Dados para pagamento — o FAVORECIDO é o FORNECEDOR (nós compramos e pagamos a ele).
+    const fornForn: any = oc.fornecedor;
+    const pgLinhas = [
+      `Favorecido: ${fornForn.nome}${fornForn.cnpjCpf ? ` · ${fornForn.cnpjCpf}` : ''}`,
+      fornForn.dadosBancarios?.trim() ? fornForn.dadosBancarios.trim() : '',
+      fornForn.chavePix?.trim() ? `PIX: ${fornForn.chavePix.trim()}` : '',
+    ].filter(Boolean).join('\n');
+    {
+      const txtH = doc.font('Helvetica').fontSize(9.5).heightOfString(pgLinhas, { width: CW - 20 });
       const by = doc.y, bh = 22 + txtH + 8;
       doc.roundedRect(X, by, CW, bh, 6).fillColor(BGSOFT).fill();
       doc.roundedRect(X, by, CW, bh, 6).lineWidth(0.7).strokeColor(LINHA).stroke();
-      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('DADOS PARA PAGAMENTO', X + 10, by + 7, { characterSpacing: 0.5 });
-      doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(banco, X + 10, by + 19, { width: CW - 20, lineGap: 1.5 });
+      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8).text('DADOS PARA PAGAMENTO AO FORNECEDOR', X + 10, by + 7, { characterSpacing: 0.5 });
+      doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(pgLinhas, X + 10, by + 19, { width: CW - 20, lineGap: 1.5 });
       doc.y = by + bh + 12; doc.x = X;
     }
 

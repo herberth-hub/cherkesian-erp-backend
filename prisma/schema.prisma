@@ -335,6 +335,7 @@ model Fornecedor {
   email     String?   // e-mail p/ envio de ordem de compra (automação de compra)
   cidadeUf  String?
   chavePix  String?   // chave PIX p/ pagamento (CPF/CNPJ, e-mail, celular ou aleatória)
+  dadosBancarios String? @db.Text // banco/agência/conta/favorecido do FORNECEDOR — sai como favorecido na OC
   obs       String?
   // ===== Dados fiscais (p/ NF-e de remessa para industrialização à facção) =====
   faccao            Boolean @default(false) // marca fornecedor que é facção/oficina externa

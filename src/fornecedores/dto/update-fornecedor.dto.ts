@@ -46,6 +46,12 @@ export class UpdateFornecedorDto {
   @MaxLength(140)
   chavePix?: string;
 
+  /** Dados bancarios do fornecedor (favorecido/banco/agencia/conta) — sai na OC. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  dadosBancarios?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(1000)
