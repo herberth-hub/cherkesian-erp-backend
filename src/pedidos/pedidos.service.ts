@@ -415,6 +415,20 @@ export class PedidosService {
     return this.prisma.pedido.update({ where: { id }, data: { etapa: 'cancelado', status: 'Cancelado' } });
   }
 
+  /**
+   * Marca/desmarca BONIFICAÇÃO de um pedido sem tocar nos itens — assim NÃO esbarra
+   * na trava de retificação (quantidade já expedida). Bonificação = sem conta a
+   * receber; a NF sai como remessa de bonificação (CFOP 5910/6910).
+   * Trava: se já existe NF ATIVA, precisa cancelar a NF antes (o CFOP muda).
+   */
+  async definirBonificacao(id: number, empresaId: number, valor: boolean) {
+    const pedido = await this.prisma.pedido.findUnique({ where: { id } });
+    if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
+    const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
+    if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de mudar para bonificação (o CFOP da NF muda).`);
+    return this.prisma.pedido.update({ where: { id }, data: { bonificacao: valor }, include: { itens: true } });
+  }
+
   /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);

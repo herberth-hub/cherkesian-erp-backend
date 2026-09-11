@@ -69,6 +69,14 @@ export class PedidosController {
     return this.pedidosService.aprovar(id, user.empresaId);
   }
 
+  /** Marca/desmarca BONIFICAÇÃO sem mexer nos itens (não esbarra na trava de quantidade já expedida). */
+  @Areas('vendas')
+  @Post(':id/bonificacao')
+  @HttpCode(HttpStatus.OK)
+  definirBonificacao(@Param('id', ParseIntPipe) id: number, @Body() body: { bonificacao?: boolean }, @CurrentUser() user: AuthUser) {
+    return this.pedidosService.definirBonificacao(id, user.empresaId, body?.bonificacao !== false);
+  }
+
   // Ação de PCP/Produção: dispara a automação de material/OP.
   @Areas('pcp', 'producao')
   @Post(':id/gerar-op')
