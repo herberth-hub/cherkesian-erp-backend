@@ -1374,11 +1374,12 @@ async function fornecedorResumo(id){
   const ocRows=(r.listaCompras||[]).map(o=>`<tr><td style="padding:5px 8px"><b class="mono gold">${esc(o.numero)}</b></td><td style="padding:5px 8px"><span class="pill ${o.status==='recebida'?'green':(o.status==='cancelada'?'red':'gold')}" style="font-size:9px">${esc(o.status)}</span></td><td style="padding:5px 8px">${esc((o.motivo||'').slice(0,40))}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(o.valor)}</td></tr>`).join('');
   const ntRows=(r.listaNotas||[]).map(n=>`<tr><td style="padding:5px 8px"><b class="mono">${esc(n.numero)}</b></td><td style="padding:5px 8px">${n.emitidaEm?dfmt(n.emitidaEm):'—'}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(n.valor)}</td></tr>`).join('');
   const pgRows=(r.listaPagar||[]).map(t=>`<tr><td style="padding:5px 8px">${esc(t.categoria)}</td><td style="padding:5px 8px">${t.vencimento?dfmt(t.vencimento):'—'}</td><td style="padding:5px 8px">${tituloPill(t.status)}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(t.saldo)}</td></tr>`).join('');
-  const matRows=(r.materiais||[]).map(m=>`<tr>
+  const matRows=(r.materiais||[]).map(m=>`<tr style="cursor:pointer" onclick="APP.fornAbrirMaterial(${m.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" title="Abrir este material na matéria-prima">
     <td style="padding:5px 8px"><b class="mono gold">${esc(m.codigo)}</b></td>
     <td style="padding:5px 8px">${esc(m.descricao)}${m.artigo?'<div class="muted" style="font-size:10px">Artigo: '+esc(m.artigo)+'</div>':''}</td>
     <td style="padding:5px 8px;font-size:11px">${m.composicao?esc(m.composicao):'—'}${(m.largura||m.gramatura)?'<div class="muted" style="font-size:10px">'+[m.largura?('L '+m.largura+'m'):'',m.gramatura?(m.gramatura+' g/m²'):''].filter(Boolean).join(' · ')+'</div>':''}</td>
-    <td style="padding:5px 8px;text-align:right">${Number(m.saldo).toLocaleString('pt-BR')} ${esc(m.unidade||'')}</td></tr>`).join('');
+    <td style="padding:5px 8px;text-align:right">${Number(m.saldo).toLocaleString('pt-BR')} ${esc(m.unidade||'')}</td>
+    <td style="padding:5px 8px;text-align:center;color:#8a6d1e;font-weight:700">abrir ›</td></tr>`).join('');
   const catBox = r.fornecedor.temCatalogo
     ? `<button class="btn-sm" onclick="APP.verCatalogoForn(${id})">📎 Ver catálogo${r.fornecedor.catalogoNome?' ('+esc(r.fornecedor.catalogoNome)+')':''}</button> <button class="btn-sm" onclick="APP.uploadCatalogoForn(${id})">Trocar</button>`
     : `<button class="btn-primary" onclick="APP.uploadCatalogoForn(${id})">⬆ Enviar catálogo (PDF/imagem)</button>`;
@@ -1390,8 +1391,9 @@ async function fornecedorResumo(id){
       <div class="card kpi" style="border-left:4px solid #6b3fa0"><div class="k">Tecidos / materiais</div><div class="v" style="color:#6b3fa0">${r.materiaisQtd||0}</div><div class="s">deste fabricante</div></div>
     </div>
     <div style="margin-bottom:12px"><b style="font-size:12px">📎 Catálogo do fornecedor</b><div style="margin-top:6px">${catBox}<input type="file" id="forn_cat_file" accept="application/pdf,image/*" style="display:none" onchange="APP.uploadCatalogoFornGo(${id})"></div></div>
-    ${(r.materiais||[]).length?`<div style="margin-bottom:12px"><div style="font-weight:700;margin-bottom:6px">🧵 Tecidos / materiais deste fabricante (${r.materiais.length})</div>
-      <div class="panel" style="overflow:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Ficha</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>${matRows}</tbody></table></div></div>`:''}
+    <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:700">🧵 Tecidos / materiais deste fabricante (${(r.materiais||[]).length})</div>
+      <button class="btn-sm" onclick="APP.fornNovoMaterial(${id})">＋ Vincular material deste fabricante</button></div>
+      ${(r.materiais||[]).length?`<div class="panel" style="overflow:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Ficha</th><th style="padding:5px 8px;text-align:right">Saldo</th><th style="padding:5px 8px"></th></tr></thead><tbody>${matRows}</tbody></table></div>`:'<div class="muted" style="font-size:12px">Nenhum material vinculado a este fabricante ainda. Use o botão acima (ou cadastre em Matéria-prima informando este fabricante).</div>'}</div>
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:280px"><div style="font-weight:700;margin-bottom:6px">🛒 Compras (${(r.listaCompras||[]).length})</div>
         <div class="panel" style="overflow:auto;max-height:280px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">OC</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Ref.</th><th style="padding:5px 8px;text-align:right">Valor</th></tr></thead><tbody>${ocRows||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhuma OC.</td></tr>'}</tbody></table></div></div>
@@ -1401,6 +1403,16 @@ async function fornecedorResumo(id){
         <div class="panel" style="overflow:auto;max-height:280px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Categoria</th><th style="padding:5px 8px;text-align:left">Vencto</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:right">Saldo</th></tr></thead><tbody>${pgRows||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhum título.</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.fornecedorSituacaoReceita(${id})">🔎 Situação na Receita</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+// Acesso direto ao material (matéria-prima) a partir da ficha do fornecedor.
+async function fornAbrirMaterial(mid){ await formMaterial(mid); }
+// Novo material já vinculado a este fabricante (pré-preenche o campo Fabricante).
+async function fornNovoMaterial(fornId){
+  const f = window.__FORNFICHA && window.__FORNFICHA.fornecedor;
+  const nome = f ? (f.fantasia || f.nome) : '';
+  await formMaterial();
+  const el=$('mt_fabric'); if(el && nome){ el.value=nome; el.focus(); }
+  toast('Preencha o material — o fabricante já vem vinculado a '+(nome||'este fornecedor')+'.','ok');
 }
 async function verCatalogoForn(id){
   try{ const rr=await fetchAuth(API+'/fornecedores/'+id+'/catalogo',{headers:{Authorization:'Bearer '+S.access}});
@@ -10614,7 +10626,7 @@ window.APP = {
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
-  formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
+  formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
