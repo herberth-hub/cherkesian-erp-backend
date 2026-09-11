@@ -46,6 +46,7 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   ficha_tecnica: { titulo: 'Ficha Técnica', prefixo: 'FT', area: ['cadastros', 'vendas'] },
   etiqueta: { titulo: 'Etiqueta de Lote', prefixo: 'ETQ', area: 'estoque' },
   piloto: { titulo: 'Ficha de Peça Piloto', prefixo: 'PIL', area: ['producao', 'vendas'] },
+  piloto_ficha: { titulo: 'Ficha Técnica · Peça Piloto', prefixo: 'FTP', area: ['producao', 'vendas'] },
 };
 
 @Injectable()
@@ -282,6 +283,8 @@ export class DocumentosService {
         return this.pdfEtiqueta(referenciaId, empresaId, numero);
       case 'piloto':
         return this.pdfPiloto(referenciaId, empresaId, numero);
+      case 'piloto_ficha':
+        return this.pdfPilotoFicha(referenciaId, empresaId, numero);
       default:
         throw new BadRequestException(`Tipo "${tipo}" não suportado.`);
     }
@@ -1351,6 +1354,103 @@ export class DocumentosService {
     }
 
     assinaturas(doc, 'Enviado por (Cherkesian)', 'Recebido pela piloteira');
+    return doc;
+  }
+
+  /**
+   * FICHA TÉCNICA (rosto) da peça piloto — layout em caixas p/ impressão, estilo
+   * ficha de produto: cabeçalho + referência, desenho/modelo, Produto, Tecido,
+   * Aviamentos e Observações, preenchidos com o briefing quando houver.
+   */
+  private async pdfPilotoFicha(pilotoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const piloto = await this.prisma.piloto.findUnique({ where: { id: pilotoId } });
+    if (!piloto || (piloto.empresaId != null && piloto.empresaId !== empresaId)) throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
+    const produto = piloto.produtoId ? await this.prisma.produto.findUnique({ where: { id: piloto.produtoId } }) : null;
+    if (produto && produto.empresaId !== empresaId) throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
+    const cliente = piloto.clienteId ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } }) : null;
+
+    // Índice de campos do briefing por rótulo (sem acento) → valor.
+    const brief = piloto.briefing as { produto?: string; secoes?: Array<{ sec: string; campos: Array<{ label: string; valor?: string }> }> } | null;
+    const flat: Array<{ label: string; valor: string }> = [];
+    for (const s of brief?.secoes ?? []) for (const c of s.campos ?? []) if (c.valor != null && String(c.valor).trim() !== '') flat.push({ label: c.label, valor: String(c.valor) });
+    const norm = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const campo = (...subs: string[]): string => {
+      for (const sub of subs) { const f = flat.find((x) => norm(x.label).includes(norm(sub))); if (f) return f.valor; }
+      return '';
+    };
+    const secaoCampos = (sub: string) => (brief?.secoes ?? []).find((s) => norm(s.sec).includes(norm(sub)))?.campos?.filter((c) => c.valor != null && String(c.valor).trim() !== '') ?? [];
+
+    const doc = novoDocumento('Ficha Técnica · Peça Piloto', numero);
+    const OURO = '#C9A227', TIN = '#242a26';
+    const x0 = 50, W = doc.page.width - 100;
+    let y = doc.y + 2;
+    const box = (x: number, yy: number, w: number, h: number, titulo?: string) => {
+      doc.roundedRect(x, yy, w, h, 4).lineWidth(0.8).strokeColor(OURO).stroke();
+      if (titulo) { doc.fillColor('#7a5b12').font('Helvetica-Bold').fontSize(8).text(titulo.toUpperCase(), x + 6, yy + 4, { width: w - 12 }); }
+      doc.fillColor(TIN);
+    };
+    const linhas = (x: number, yy: number, w: number, pares: Array<[string, string]>) => {
+      let ly = yy;
+      for (const [rot, val] of pares) {
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#6b6b6b').text(rot.toUpperCase() + ': ', x, ly, { continued: true, width: w });
+        doc.font('Helvetica').fontSize(9).fillColor(TIN).text(val || '—', { width: w });
+        ly = doc.y + 3;
+      }
+      return ly;
+    };
+
+    // Cabeçalho: título + referência
+    const ref = campo('referência de modelo', 'código do modelo') || piloto.modelagem || piloto.codigo;
+    doc.rect(x0, y, W, 24).fillAndStroke('#faf6ea', OURO);
+    doc.fillColor('#1a1a1a').font('Helvetica-Bold').fontSize(13).text('FICHA TÉCNICA · PEÇA PILOTO', x0 + 8, y + 6, { width: W * 0.55 });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#7a5b12').text('REF.: ' + (piloto.codigo || numero) + (ref && ref !== piloto.codigo ? '  ·  ' + ref : ''), x0 + W * 0.55, y + 7, { width: W * 0.45 - 8, align: 'right' });
+    y += 24 + 8;
+
+    // Desenho / modelo da peça
+    const hDes = 180;
+    box(x0, y, W, hDes, 'Desenho / modelo da peça');
+    if (produto?.fotoModelo) { try { doc.image(Buffer.from(String(produto.fotoModelo).split(',').pop() || '', 'base64'), x0 + 8, y + 18, { fit: [W - 16, hDes - 26], align: 'center', valign: 'center' }); } catch { /* ignora imagem inválida */ } }
+    else { doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('(anexe o desenho técnico / foto — frente e costas)', x0, y + hDes / 2, { width: W, align: 'center' }); doc.fillColor(TIN); }
+    y += hDes + 8;
+
+    // Produto (esq) + Tecido (dir)
+    const colH = 132, lw = W * 0.52, rw = W - lw - 10, rx = x0 + lw + 10;
+    box(x0, y, lw, colH, 'Produto');
+    linhas(x0 + 8, y + 18, lw - 16, [
+      ['Nome', piloto.briefingProduto || produto?.descricao || campo('nome do produto') || '—'],
+      ['Modelagem', campo('modelagem', 'modelo') || piloto.modelagem || '—'],
+      ['Segmento / público', campo('público', 'segmento') || '—'],
+      ['Grade', campo('tamanhos da piloto', 'tamanho base') || produto?.grade || '—'],
+      ['Cor / variante', piloto.cor || campo('cor') || produto?.cor || '—'],
+      ['Cliente', cliente?.nome || piloto.clienteNome || '—'],
+    ]);
+    box(rx, y, rw, colH, 'Tecido');
+    linhas(rx + 8, y + 18, rw - 16, [
+      ['Tecido', campo('tipo de malha', 'tipo de tecido', 'tecido') || produto?.tecido || '—'],
+      ['Composição', campo('composição') || produto?.composicao || '—'],
+      ['Fornecedor', campo('fornecedor') || '—'],
+      ['Gramatura', campo('gramatura') || '—'],
+      ['Tratamentos', campo('tratamento') || '—'],
+    ]);
+    y += colH + 8;
+
+    // Aviamentos (seção do briefing) — tabela rótulo × valor
+    const avi = secaoCampos('aviamentos');
+    const aviRows = (avi.length ? avi.map((c) => [c.label, String(c.valor)]) : [['Linha de costura', campo('linha de costura') || ''], ['Etiqueta de marca', campo('etiqueta de marca') || ''], ['Etiqueta de composição', campo('composição e conservação') || ''], ['Embalagem', campo('embalagem individual') || '']]).filter((r) => r[1]);
+    if (doc.y > doc.page.height - 200) doc.addPage();
+    secao(doc, 'Aviamentos, etiquetas e embalagem');
+    if (aviRows.length) {
+      tabela(doc, [{ titulo: 'Item', largura: 210 }, { titulo: 'Especificação', largura: W - 210 }], aviRows.map((r) => [r[0], r[1]]));
+    } else {
+      doc.font('Helvetica').fontSize(9).fillColor('#8a8a8a').text('(preencher aviamentos no briefing)', x0, doc.y + 2); doc.fillColor(TIN);
+    }
+
+    // Observações
+    const obs = [campo('o que o cliente não abre', 'itens críticos'), campo('observações de processo'), campo('ajustes solicitados'), piloto.obs || ''].filter(Boolean).join('  ·  ');
+    secao(doc, 'Observações');
+    textoBloco(doc, obs || '—');
+
+    assinaturas(doc, 'Aprovado — Modelagem/Qualidade', 'Recebido pela piloteira');
     return doc;
   }
 

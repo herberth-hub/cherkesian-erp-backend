@@ -5346,7 +5346,7 @@ async function viewPiloto(c){
         `<span class="mono gold">${esc(p.codigo)}</span>${p.pedidoId?'':' <span class="pill gray" style="font-size:9px">avulso</span>'}${(()=>{ const fl=(p.briefing&&p.briefing.fluxo)||null; if(!fl||!fl.length) return ''; const fe=fl.filter(f=>f.feito).length; return `<div style="margin-top:2px"><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px" title="Fluxo da piloto">🔄 ${fe}/${fl.length}</span>${p.briefingProduto?' <span class="pill gray" style="font-size:9px">📋 '+esc(String(p.briefingProduto).split(' ')[0])+'</span>':''}</div>`; })()}`,
         pedCol, pilPill(p.status),
         p.liberado?'<span class="pill green">sim</span>':'<span class="pill gray">não</span>', p.tentativa,
-        `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button class="btn-sm" style="background:var(--gold);color:#3a2f08" title="Preencher o briefing completo da peça piloto" onclick="APP.formBriefingPiloto(${p.id})">📋 Briefing</button><button class="btn-sm" title="Imprimir a ficha da peça piloto p/ enviar à piloteira" onclick="APP.gerarDoc('piloto',${p.id})">🖨 Ficha</button>${p.liberado?'':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`}</div>`
+        `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button class="btn-sm" style="background:var(--gold);color:#3a2f08" title="Preencher o briefing completo da peça piloto" onclick="APP.formBriefingPiloto(${p.id})">📋 Briefing</button><button class="btn-sm" title="Ficha técnica (rosto) p/ impressão — desenho, produto, tecido, aviamentos" onclick="APP.gerarDoc('piloto_ficha',${p.id})">🎨 Ficha técnica</button><button class="btn-sm" title="Ficha detalhada da peça piloto (todas as seções)" onclick="APP.gerarDoc('piloto',${p.id})">🖨 Ficha</button>${p.liberado?'':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`}</div>`
       ];
     }), list.length?null:'Nenhuma peça-piloto.');
 }
@@ -7729,7 +7729,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
