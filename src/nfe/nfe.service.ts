@@ -1757,6 +1757,14 @@ export class NfeService {
           item.pis_situacao_tributaria = '08';   // sem incidência da contribuição
           item.cofins_situacao_tributaria = '08';
         }
+      } else if (extra?.bonificacao) {
+        // Remessa em BONIFICAÇÃO/doação (CFOP 5910/6910): ICMS NÃO INCIDÊNCIA (CST 41)
+        // + cBenef informado pelo contador. Sem ICMS destacado; PIS/COFINS sem incidência.
+        item.icms_situacao_tributaria = simples ? '400' : '41';
+        item.pis_situacao_tributaria = simples ? '49' : '08';
+        item.cofins_situacao_tributaria = simples ? '49' : '08';
+        const cBenefBonif = (emitente.cBenefBonificacao ?? '').trim().toUpperCase().slice(0, 10);
+        if (cBenefBonif) item.codigo_beneficio_fiscal = cBenefBonif;
       } else if (simples) {
         // Simples Nacional: CSOSN no ICMS + PIS/COFINS CST 49 (recolhidos no DAS).
         item.icms_situacao_tributaria = p?.icmsCst ?? csosnEmp;
@@ -1790,7 +1798,8 @@ export class NfeService {
 
       // ===== Grupo IBS/CBS (Reforma Tributária) — transição 2026: CBS 0,9% e IBS 0,1% =====
       // Na remessa de entrega futura o fato gerador (venda) já ocorreu no faturamento → sem IBS/CBS aqui.
-      if (reformaAtiva && !extra?.semImpostos) {
+      // Na bonificação (não incidência) também não há IBS/CBS destacado.
+      if (reformaAtiva && !extra?.semImpostos && !extra?.bonificacao) {
         const bcIbsCbs = baseItem;
         const vCbs = Number((bcIbsCbs * cbsAliq / 100).toFixed(2));
         const vIbsUf = Number((bcIbsCbs * ibsUfAliq / 100).toFixed(2));

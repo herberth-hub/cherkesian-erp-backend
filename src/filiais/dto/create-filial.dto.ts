@@ -44,6 +44,7 @@ export class CreateFilialDto {
   @IsOptional() @IsString() @MaxLength(3) pisCofinsCst?: string;
   @IsOptional() @IsString() @MaxLength(3) csosn?: string;
   @IsOptional() @IsString() @MaxLength(10) cBenefRemessa?: string;
+  @IsOptional() @IsString() @MaxLength(10) cBenefBonificacao?: string;
   // Reforma Tributária (IBS/CBS)
   @IsOptional() @IsBoolean() reformaAtiva?: boolean;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }) cbsAliquota?: number;
