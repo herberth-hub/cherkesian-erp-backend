@@ -163,6 +163,7 @@ model Filial {
   focusTokenHomolog String? // token Focus de HOMOLOGAÇÃO da empresa (por CNPJ)
   focusTokenProd    String? // token Focus de PRODUÇÃO da empresa (por CNPJ)
   dadosBancarios    String? @db.Text // banco/agência/conta/PIX/favorecido — sai na proposta/pedido
+  logo              String? @db.Text // logo desta empresa/CNPJ (data URI base64) — sai no cabeçalho da OC
   criadoEm          DateTime @default(now())
   pedidos           Pedido[]
   ops               OP[]

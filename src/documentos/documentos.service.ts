@@ -947,6 +947,8 @@ export class DocumentosService {
       ? await this.prisma.filial.findUnique({ where: { id: oc.filialId } })
       : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
 
+    // Logo do cabeçalho: o da EMPRESA COMPRADORA (filial), se tiver; senão mantém o da empresa/grupo.
+    if (filialCompra?.logo) setLogoDoc(filialCompra.logo);
     const doc = novoDocumento('Pedido de Compra', numero);
 
     secao(doc, 'Comprador (emitente)');
