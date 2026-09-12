@@ -5847,17 +5847,23 @@ async function formCompra(){
   window.__OCPRODS = (prods||[]);
   const filo = (filiais||[]).filter(f=>f.ativa!==false).map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   const fo = forn.map(f=>`<option value="${f.id}">${esc(f.nome)}</option>`).join('');
-  const mo = ['<option value="">— sem material —</option>'].concat(mats.map(m=>`<option value="${m.id}" data-un="${esc(m.unidade)}" data-cod="${esc(m.codigo)}" data-desc="${esc(m.descricao)}" data-artigo="${esc(m.codigoArtigo||'')}" data-artnome="${esc(m.artigo||'')}">${esc(m.codigo)} · ${esc(m.descricao)}${m.codigoArtigo?(' · forn.: '+esc(m.codigoArtigo)):''}</option>`)).join('');
   // Produtos de revenda (comprados prontos) — os que fazem sentido comprar por grade.
   const revenda = (prods||[]).filter(p=>p.tipo==='revenda');
-  const po = ['<option value="">— sem produto —</option>'].concat(revenda.map(p=>`<option value="${p.id}">${esc((p.codigo||'')+' · '+(p.descricao||''))}</option>`)).join('');
+  // Índice único de busca (digitar p/ achar): material (matéria-prima) + produto de revenda, com a COR p/ diferenciar itens de mesma descrição.
+  window.__OCITENS = [].concat(
+    (mats||[]).map(m=>({kind:'mat', id:m.id, codigo:m.codigo||'', descricao:m.descricao||'', cor:m.cor||'', unidade:m.unidade||'un', codigoArtigo:m.codigoArtigo||'', artigo:m.artigo||''})),
+    revenda.map(p=>({kind:'prod', id:p.id, codigo:p.codigo||'', descricao:p.descricao||'', cor:p.cor||''}))
+  );
   openModal(`<h3>Nova ordem de compra</h3>
     <div class="grid2"><div class="mrow"><label class="fl">Fornecedor *</label><select id="f_forn" class="inp">${fo||'<option>—</option>'}</select></div>
       <div class="mrow"><label class="fl">Empresa compradora <span class="muted">(nosso CNPJ)</span></label><select id="f_ocfil" class="inp">${filo||'<option value="">— matriz —</option>'}</select></div></div>
-    <div class="grid2">
-      <div class="mrow"><label class="fl">Material <span class="muted">(matéria-prima)</span></label><select id="f_mat" class="inp" onchange="APP.ocMat()">${mo}</select></div>
-      <div class="mrow"><label class="fl">Produto de revenda <span class="muted">(compra por tamanho)</span></label><select id="f_prod" class="inp" onchange="APP.ocProd()">${po}</select></div>
-    </div>
+    <div class="mrow"><label class="fl">Item da compra * <span class="muted">(digite código, descrição ou cor — material ou produto de revenda)</span></label>
+      <div style="position:relative">
+        <input id="f_itembusca" class="inp" autocomplete="off" placeholder="🔍 Digite p/ buscar: ex.: TWILL AZUL, MP-TEC-0033, tênis…" oninput="APP.ocBusca()" onfocus="APP.ocBusca()" onblur="APP.ocBuscaHide()">
+        <div id="f_itemdd" style="display:none;position:absolute;z-index:60;left:0;right:0;top:100%;max-height:280px;overflow:auto;background:#fff;border:1px solid #d9c48a;border-radius:0 0 8px 8px;box-shadow:0 8px 20px rgba(0,0,0,.12)"></div>
+      </div>
+      <div id="f_itemsel" style="font-size:11.5px;margin-top:4px"></div>
+      <input type="hidden" id="f_mat" value=""><input type="hidden" id="f_prod" value=""></div>
     <div class="grid2">${field('f_codforn','Código do fornecedor (artigo)','placeholder="ex.: 10644988"')}${field('f_descforn','Nome do produto no fornecedor','placeholder="ex.: TENIS ADULTO EM LONA..."')}</div>
     <div id="oc_gradebox" style="display:none;margin:2px 0 8px;border:1px dashed #cdb27a;background:#fbf9f3;border-radius:8px;padding:8px 10px">
       <div style="font-size:11.5px;font-weight:700;color:#8a5a00;margin-bottom:5px">🏷️ Quantidade por tamanho <span class="muted" style="font-weight:400">— a quantidade total é a soma da grade</span></div>
@@ -5868,16 +5874,51 @@ async function formCompra(){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCompra()">Salvar</button></div>`);
 }
-function ocMat(){ const s=$('f_mat'); const o=s.selectedOptions[0];
-  if(!(o&&o.value)){ ocGradeHide(); return; }
-  if($('f_prod')) $('f_prod').value='';
-  window.__OCPRODSEL=null;
-  const cod=o.getAttribute('data-cod')||'', desc=o.getAttribute('data-desc')||'';
-  $('f_desc').value=(cod?cod+' · ':'')+desc;
-  if($('f_un')) $('f_un').value=o.getAttribute('data-un')||'un';
-  if($('f_codforn')) $('f_codforn').value=o.getAttribute('data-artigo')||'';
-  if($('f_descforn')) $('f_descforn').value=o.getAttribute('data-artnome')||'';
-  ocGradeLivre(); // material não tem lista de tamanhos: grade livre por texto
+// Busca digitável do item da OC (material OU produto de revenda). Mostra a COR p/ diferenciar itens de mesma descrição.
+function ocBusca(){
+  const inp=$('f_itembusca'), dd=$('f_itemdd'); if(!inp||!dd) return;
+  const q=bnorm(inp.value||'');
+  let l=(window.__OCITENS||[]);
+  if(q){ const terms=q.split(/\s+/); l=l.filter(it=>{ const s=bnorm((it.codigo||'')+' '+(it.descricao||'')+' '+(it.cor||'')+' '+(it.codigoArtigo||'')+' '+(it.artigo||'')); return terms.every(t=>s.includes(t)); }); }
+  l=l.slice(0,60);
+  dd.innerHTML = l.length
+    ? l.map(it=>{
+        const tag = it.kind==='mat'
+          ? '<span style="font-size:9px;background:#e7edf7;color:#2a4a7a;padding:1px 5px;border-radius:4px;font-weight:700">MATERIAL</span>'
+          : '<span style="font-size:9px;background:#eef3e7;color:#3a6a2a;padding:1px 5px;border-radius:4px;font-weight:700">REVENDA</span>';
+        const cor = it.cor ? ` · <b style="color:#8a5a00">${esc(it.cor)}</b>` : '';
+        const forn = it.codigoArtigo ? ` <span class="muted" style="font-size:10px">forn.: ${esc(it.codigoArtigo)}</span>` : '';
+        return `<div onmousedown="APP.ocItemPick('${it.kind}',${it.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" style="padding:7px 10px;border-bottom:1px solid #f0e7d0;cursor:pointer;font-size:12.5px;line-height:1.35">${tag} <span class="mono gold" style="font-weight:700">${esc(it.codigo)}</span> ${esc(it.descricao)}${cor}${forn}</div>`;
+      }).join('')
+    : '<div class="muted" style="padding:8px 10px">Nenhum material/produto com esse termo.</div>';
+  dd.style.display='';
+}
+function ocBuscaHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style.display='none'; }, 180); }
+function ocItemLimpar(){ if($('f_mat'))$('f_mat').value=''; if($('f_prod'))$('f_prod').value=''; if($('f_itemsel'))$('f_itemsel').innerHTML=''; if($('f_itembusca'))$('f_itembusca').value=''; ocGradeHide(); }
+function ocItemPick(kind,id){
+  const dd=$('f_itemdd'); if(dd) dd.style.display='none';
+  id=Number(id);
+  const it=(window.__OCITENS||[]).find(x=>x.kind===kind && x.id===id); if(!it) return;
+  if($('f_itembusca')) $('f_itembusca').value=(it.codigo?it.codigo+' · ':'')+(it.descricao||'')+(it.cor?' · '+it.cor:'');
+  const selEl=$('f_itemsel');
+  const selHtml=lbl=>`✔️ ${lbl}: <b>${esc(it.codigo)}</b>${it.cor?(' · cor <b style="color:#8a5a00">'+esc(it.cor)+'</b>'):''} <a href="javascript:void 0" onmousedown="event.preventDefault();APP.ocItemLimpar()" style="color:#c14a34;text-decoration:underline">trocar</a>`;
+  if(kind==='mat'){
+    if($('f_mat')) $('f_mat').value=String(id);
+    if($('f_prod')) $('f_prod').value='';
+    window.__OCPRODSEL=null;
+    const cor=it.cor?(' · '+it.cor):'';
+    if($('f_desc')) $('f_desc').value=(it.codigo?it.codigo+' · ':'')+(it.descricao||'')+cor;
+    if($('f_un')) $('f_un').value=it.unidade||'un';
+    if($('f_codforn')) $('f_codforn').value=it.codigoArtigo||'';
+    if($('f_descforn')) $('f_descforn').value=it.artigo||'';
+    if(selEl) selEl.innerHTML=selHtml('Material');
+    ocGradeLivre(); // material não tem lista de tamanhos: grade livre por texto
+  } else {
+    if($('f_prod')) $('f_prod').value=String(id);
+    if($('f_mat')) $('f_mat').value='';
+    if(selEl) selEl.innerHTML=selHtml('Produto');
+    ocProd(); // usa o produto (lê f_prod) p/ montar a grade de tamanhos
+  }
 }
 function ocGradeHide(){ const b=$('oc_gradebox'); if(b) b.style.display='none'; const g=$('oc_grade'); if(g) g.innerHTML=''; window.__OCPRODSEL=null; if($('f_qtd')) $('f_qtd').removeAttribute('readonly'); }
 // Grade LIVRE (material ou produto sem tamanhos): digita "36:10, 38:8" e soma.
@@ -5893,7 +5934,7 @@ function ocProd(){
   if($('f_mat')) $('f_mat').value='';
   const p=(window.__OCPRODS||[]).find(x=>x.id===id); if(!p){ ocGradeHide(); return; }
   window.__OCPRODSEL=p;
-  if($('f_desc')) $('f_desc').value=(p.codigo?p.codigo+' · ':'')+(p.descricao||'');
+  if($('f_desc')) $('f_desc').value=(p.codigo?p.codigo+' · ':'')+(p.descricao||'')+(p.cor?(' · '+p.cor):'');
   if($('f_un')) $('f_un').value=p.unidadeComercial||'UN';
   // Puxa o código do fornecedor vinculado ao MEU produto (artigo dele); fallback p/ a referência.
   if($('f_codforn')) $('f_codforn').value=p.codigoFornecedor||p.referencia||'';
@@ -10885,7 +10926,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocMat, ocProd, ocGradeSync, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
+  formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
