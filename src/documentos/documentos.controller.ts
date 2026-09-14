@@ -60,6 +60,7 @@ export class DocumentosController {
     );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${numero}.pdf"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     doc.pipe(res);
     doc.end();
   }
@@ -74,6 +75,8 @@ export class DocumentosController {
     const { doc, numero } = await this.documentosService.gerarPdf(id, user);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${numero}.pdf"`);
+    // PDF é sempre regenerado dos dados atuais — nunca cachear (senão edições recentes não aparecem).
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     doc.pipe(res);
     doc.end();
   }

@@ -8222,7 +8222,10 @@ async function gerarOS(pedidoId){
 async function gerarDoc(tipo, refId){
   try{
     const d = await api('/documentos/'+tipo, {method:'POST', body:{referenciaId:refId}});
-    const r = await fetchAuth(d.urlPdf, { headers: { Authorization:'Bearer '+S.access } });
+    // Cache-buster + no-store: o PDF é regenerado do banco vivo a cada geração, então
+    // nunca deve vir cacheado (senão uma alteração recente — ex.: tecido da ficha — não aparece).
+    const sep = d.urlPdf.indexOf('?')>=0 ? '&' : '?';
+    const r = await fetchAuth(d.urlPdf+sep+'t='+Date.now(), { cache:'no-store', headers: { Authorization:'Bearer '+S.access } });
     if(!r.ok) throw new Error('Falha ao baixar o PDF ('+r.status+').');
     const blob = await r.blob();
     // Abre o PDF numa janela interna (desktop) ou botões Abrir/Baixar (celular).
