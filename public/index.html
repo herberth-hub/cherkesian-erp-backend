@@ -1234,13 +1234,29 @@ async function clienteResumo(id){
     <td style="padding:5px 8px">${(i.locais||[]).map(l=>`<div style="font-size:11.5px">📍 ${esc(l.local)} <b class="gold">(${l.qtd})</b></div>`).join('')||'<span class="muted">— sem endereço —</span>'}</td></tr>`).join('');
   const estHtml=`<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:6px">📦 Estoque pronta-entrega do cliente — <span class="gold">${estTot} pç</span> · onde está</div>
     <div class="panel" style="overflow:auto;max-height:300px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Produto</th><th style="padding:5px 8px;text-align:left">Tamanhos</th><th style="padding:5px 8px;text-align:center">Total</th><th style="padding:5px 8px;text-align:left">Localização</th></tr></thead><tbody>${estRows||'<tr><td colspan=4 class="muted" style="padding:10px">Sem estoque pronta-entrega deste cliente no momento.</td></tr>'}</tbody></table></div></div>`;
+  const fin=r.financeiro||{aReceber:0,recebido:0,vencido:0,titulos:[]};
+  const titRows=(fin.titulos||[]).map(t=>`<tr>
+    <td style="padding:5px 8px">${t.nf?('<b class="mono">'+esc(t.nf)+'</b>'):'<span class="muted">—</span>'}</td>
+    <td style="padding:5px 8px">${t.vencimento?dfmt(t.vencimento):'—'}</td>
+    <td style="padding:5px 8px;text-align:right">${money(t.valor)}</td>
+    <td style="padding:5px 8px;text-align:right;color:#1e7a44">${money(t.pago)}</td>
+    <td style="padding:5px 8px;text-align:right;font-weight:700${t.status==='vencida'?';color:#c14a34':''}">${money(t.saldo)}</td>
+    <td style="padding:5px 8px;text-align:center">${tituloPill(t.status)}</td></tr>`).join('');
+  const finHtml=`<div style="flex:1;min-width:320px"><div style="font-weight:700;margin-bottom:6px">💰 Contas a receber (${(fin.titulos||[]).length}) ${fin.vencido>0?`<span class="pill red" style="font-size:10px">vencido ${money(fin.vencido)}</span>`:''}</div>
+    <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">NF/Doc.</th><th style="padding:5px 8px;text-align:left">Vencim.</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:right">Pago</th><th style="padding:5px 8px;text-align:right">Saldo</th><th style="padding:5px 8px;text-align:center">Status</th></tr></thead><tbody>${titRows||'<tr><td colspan=6 class="muted" style="padding:10px">Sem títulos a receber.</td></tr>'}</tbody></table></div></div>`;
+  const prods=r.produtos||[];
+  const prodHtml=`<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:6px">🏷️ Produtos vinculados ao cliente (${prods.length})</div>
+    ${prods.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto">${prods.map(p=>`<span class="pill gray" style="font-size:11px" title="${esc(p.descricao)}"><b class="mono gold">${esc(p.codigo)}</b> ${esc(String(p.descricao).slice(0,32))}${p.cor?' · '+esc(p.cor):''}</span>`).join('')}</div>`:'<div class="muted" style="font-size:12px">Nenhum produto vinculado a este cliente/grupo.</div>'}</div>`;
   openModal(`<h3>📊 Ficha — ${esc(r.cliente.nome)}</h3>
     <div class="cards" style="margin-bottom:14px">
       ${card('Orçamentos', r.orcamentos.qtd+' orçamento(s)', r.orcamentos.valor, '#C9A227')}
       ${card('Pedidos', r.pedidos.qtd+' pedido(s)', r.pedidos.valor, '#3a8f4f')}
-      ${card('NFs emitidas', r.nfs.validas+' de '+r.nfs.qtd+' válida(s)', r.nfs.valor, '#3a6ea5')}
+      ${card('Faturado (NFs)', r.nfs.validas+' de '+r.nfs.qtd+' válida(s)', r.nfs.valor, '#3a6ea5')}
+      ${card('A receber', fin.vencido>0?('vencido '+money(fin.vencido)):'em aberto', fin.aReceber, '#c14a34')}
+      ${card('Recebido', 'já pago', fin.recebido, '#1e7a44')}
       <div class="card" style="padding:12px 16px;border-left:4px solid #8a5a00"><div class="k" style="font-size:11px;color:var(--muted)">Estoque pronta-entrega</div><div style="font-size:22px;font-weight:800;color:#8a5a00">${estTot}</div><div class="s" style="font-size:11px">peça(s) · ${estItens.length} item(ns)</div></div>
     </div>
+    ${prodHtml}
     ${estHtml}
     ${chartHtml}
     <div style="display:flex;gap:14px;flex-wrap:wrap">
@@ -1248,8 +1264,27 @@ async function clienteResumo(id){
         <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Etapa</th><th style="padding:5px 8px;text-align:left">Data</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:center">PDF</th></tr></thead><tbody>${peds||'<tr><td colspan=5 class="muted" style="padding:10px">Nenhum pedido/orçamento.</td></tr>'}</tbody></table></div></div>
       <div style="flex:1;min-width:300px"><div style="font-weight:700;margin-bottom:6px">🧾 Notas fiscais (${(r.listaNfs||[]).length})</div>
         <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Nº</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">CFOP</th><th style="padding:5px 8px;text-align:left">Emissão</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:center">DANFE</th></tr></thead><tbody>${nfs||'<tr><td colspan=6 class="muted" style="padding:10px">Nenhuma NF emitida.</td></tr>'}</tbody></table></div></div>
+      ${finHtml}
     </div>
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+    <div class="mactions">${S.user.acesso==='total'?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" title="Criar/atualizar o login do cliente no Portal (Meu Estoque & Prazos)" onclick="APP.formAcessoPortal(${r.cliente.id},'${esc(r.cliente.nome).replace(/'/g,'&#39;')}')">🔑 Acesso do portal</button>`:''}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+// Cria o login do cliente no Portal (perfil 'cliente' vinculado). A SENHA é digitada pelo admin.
+function formAcessoPortal(clienteId, nome){
+  const sug='cliente'+(String(nome||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'').slice(0,16)||clienteId);
+  openModal(`<h3>🔑 Acesso do portal — ${esc(nome)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Cria um login com perfil <b>cliente</b> vinculado a este cadastro. Ele acessa o <b>Portal (Meu Estoque &amp; Prazos)</b> e vê só o estoque pronta-entrega dele e o andamento dos pedidos. A senha é definida por você.</div>
+    ${field('ap_user','Usuário (login)','value="'+esc(sug)+'"')}
+    ${field('ap_pass','Senha (mín. 6 caracteres)','type="password" placeholder="defina a senha do cliente"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveAcessoPortal(${clienteId},'${esc(nome).replace(/'/g,'&#39;')}')">Criar acesso</button></div>`);
+}
+async function saveAcessoPortal(clienteId, nome){
+  const usuario=(val('ap_user')||'').trim(); const senha=val('ap_pass')||'';
+  if(!usuario){ toast('Informe o usuário (login).','err'); return; }
+  if((senha||'').length<6){ toast('A senha deve ter ao menos 6 caracteres.','err'); return; }
+  try{ await api('/usuarios',{method:'POST',body:{ nome:('Portal · '+nome).slice(0,150), usuario, senha, acesso:'cliente', clienteId }});
+    closeModal(); toast('Acesso do portal criado para "'+esc(nome)+'".','ok');
+  }catch(e){ toast(e.message||'Falha ao criar o acesso.','err'); }
 }
 // ===== Configuração da consulta de crédito (Serasa/parceiro) =====
 async function formCreditoConfig(){
@@ -11076,7 +11111,7 @@ window.APP = {
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
-  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,

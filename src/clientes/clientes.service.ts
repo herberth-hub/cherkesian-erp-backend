@@ -156,6 +156,39 @@ export class ClientesService {
     }).sort((a, b) => b.total - a.total);
     const estoqueTotal = estoqueItens.reduce((s, i) => s + i.total, 0);
 
+    // ===== Financeiro do cliente: a receber (aberto), recebido (pago) e vencido =====
+    const hoje0 = new Date();
+    hoje0.setHours(0, 0, 0, 0);
+    const titulos = await this.prisma.contaReceber.findMany({
+      where: { empresaId, clienteId: id },
+      select: { id: true, valor: true, pago: true, vencimento: true, notaFiscalId: true, documento: true },
+      orderBy: { vencimento: 'asc' },
+    });
+    const nfIdsTit = [...new Set(titulos.map((t) => t.notaFiscalId).filter((x): x is number => x != null))];
+    const nfsTit = nfIdsTit.length
+      ? await this.prisma.notaFiscal.findMany({ where: { id: { in: nfIdsTit } }, select: { id: true, numero: true } })
+      : [];
+    const nfMapTit = new Map(nfsTit.map((n) => [n.id, n.numero]));
+    let aReceber = 0;
+    let recebido = 0;
+    let vencido = 0;
+    const listaTitulos = titulos.map((t) => {
+      const saldo = Number((Number(t.valor) - Number(t.pago)).toFixed(2));
+      recebido += Number(t.pago);
+      const atrasado = saldo > 0.005 && new Date(t.vencimento) < hoje0;
+      if (saldo > 0.005) { aReceber += saldo; if (atrasado) vencido += saldo; }
+      const st = saldo <= 0.005 ? 'pago' : atrasado ? 'vencida' : 'a_vencer';
+      return {
+        id: t.id,
+        nf: (t.notaFiscalId ? nfMapTit.get(t.notaFiscalId) : null) ?? t.documento ?? null,
+        vencimento: t.vencimento,
+        valor: Number(t.valor),
+        pago: Number(t.pago),
+        saldo,
+        status: st,
+      };
+    });
+
     return {
       cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
       orcamentos: { qtd: orc.length, valor: somaP(orc) },
@@ -166,6 +199,13 @@ export class ClientesService {
         validas: notasValidas.length,
         valor: Number(notasValidas.reduce((s, n) => s + Number(n.valor), 0).toFixed(2)),
       },
+      financeiro: {
+        aReceber: Number(aReceber.toFixed(2)),
+        recebido: Number(recebido.toFixed(2)),
+        vencido: Number(vencido.toFixed(2)),
+        titulos: listaTitulos,
+      },
+      produtos: produtosCli.map((p) => ({ id: p.id, codigo: p.codigo, descricao: p.descricao, cor: p.cor })),
       faturamentoMensal,
       listaPedidos: pedidos.map((p) => ({ id: p.id, numero: p.numero, etapa: p.etapa, status: p.status, valor: Number(p.valorTotal), data: p.data })),
       listaNfs: notas.map((n) => ({ id: n.id, numero: n.numero, serie: n.serie, status: n.status, valor: Number(n.valor), cfop: n.cfop, chave: n.chave, tipo: n.tipo, provedor: n.provedor, emitidaEm: n.emitidaEm })),
