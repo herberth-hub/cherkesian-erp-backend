@@ -304,11 +304,17 @@ export class PedidosService {
     const norm = (s?: string | null) => String(s ?? '').trim().toUpperCase();
     const preco = (v: Prisma.Decimal) => Number(v).toFixed(2);
     const chave = (produtoId: number | null, cor: string | null, valorUnit: Prisma.Decimal) => `${produtoId ?? 0}|${norm(cor)}|${preco(valorUnit)}`;
-    const porChave = new Map(pedido.itens.map((i) => [chave(i.produtoId, i.cor, i.valorUnit), i]));
+    // Pode haver VÁRIAS linhas com a MESMA chave (grade normal + grade especial do mesmo
+    // produto/cor quando precoEspecial == precoBase). Guardamos uma LISTA por chave e casamos
+    // 1:1 — senão a 2ª linha sobrescreve a 1ª e uma grade some (bug do PV71: sumiu a grade
+    // normal e sobrou só a especial).
+    const porChave = new Map<string, typeof pedido.itens>();
+    for (const i of pedido.itens) { const k = chave(i.produtoId, i.cor, i.valorUnit); const a = porChave.get(k) ?? []; a.push(i); porChave.set(k, a); }
     const usados = new Set<number>();
     return this.prisma.$transaction(async (tx) => {
       for (const nv of novos) {
-        const ex = porChave.get(chave(nv.produtoId, nv.cor, nv.valorUnit));
+        const lista = porChave.get(chave(nv.produtoId, nv.cor, nv.valorUnit));
+        const ex = lista && lista.length ? lista.shift() : undefined;
         if (ex) {
           usados.add(ex.id);
           const jaExp = ex.quantidadeExpedida ?? 0;
