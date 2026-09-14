@@ -169,8 +169,10 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 #windock .chip .cx{opacity:.65;font-weight:700}#windock .chip .cx:hover{opacity:1}
 /* ===== Kanban ===== */
 .kanban{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 12px;align-items:flex-start}
-.kcol{min-width:210px;max-width:250px;flex:0 0 auto;background:#f4f2ed;border:1px solid #e7e3d8;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px}
-.kcol h4{margin:0;font-size:11.5px;color:#6a5f38;display:flex;justify-content:space-between;align-items:center;padding:2px 4px;text-transform:uppercase;letter-spacing:.4px}
+.kcol{min-width:210px;max-width:250px;flex:0 0 auto;background:#f4f2ed;border:1px solid #e7e3d8;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 250px)}
+.kcol .kbody{display:flex;flex-direction:column;gap:8px;overflow-y:auto;flex:1 1 auto;min-height:44px;padding-right:2px}
+.kcol .kbody::-webkit-scrollbar{width:7px}.kcol .kbody::-webkit-scrollbar-thumb{background:#d8cfae;border-radius:4px}
+.kcol h4{margin:0;font-size:11.5px;color:#6a5f38;display:flex;justify-content:space-between;align-items:center;padding:2px 4px;text-transform:uppercase;letter-spacing:.4px;flex:0 0 auto}
 .kcol h4 .n{background:#e7dcc0;color:#5a4d1f;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:800}
 .kcard{background:#fff;border:1px solid #e7e3d8;border-left:3px solid #caa53d;border-radius:8px;padding:8px 10px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:12px}
 .kcard .kt{font-weight:800;color:#3a2f08;display:flex;justify-content:space-between;gap:6px;align-items:center}
@@ -5033,13 +5035,13 @@ function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
   return `<div class="kanban">${cols.map((col,ci)=>{
     const items=arr.filter(col.t);
-    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4>${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
+    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4><div class="kbody">${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
       ${opOsBadges(o)}
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
-    </div>`).join(''):'<div class="kempty">— <span style="font-size:10px">solte aqui</span></div>'}</div>`;
+    </div>`).join(''):'<div class="kempty">— <span style="font-size:10px">solte aqui</span></div>'}</div></div>`;
   }).join('')}</div>`;
 }
 // ---- Drag-and-drop do Kanban de OPs ----
@@ -5106,7 +5108,67 @@ async function viewProducao(c){
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
   const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
   const btnAvulsa = canAccess('pcp')?`<button class="btn-primary" style="padding:2px 10px" onclick="APP.formOpAvulsa()">+ OP avulsa</button> `:'';
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + aguardMaterialHtml(aguard) + ((window.__opKanban && !verFin) ? opsKanban(mostra) : opsAgrupadas(mostra, verFin));
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + aguardMaterialHtml(aguard) + opControlsBar() + `<div id="op_body"></div>`;
+  opRenderBody();
+}
+// Barra de busca (digitar p/ filtrar) + ordenação das OPs.
+function opControlsBar(){
+  const kanban = window.__opKanban && !window.__opVerFin;
+  const b=esc(window.__opBusca||'');
+  const s=window.__opSort||'';
+  const opt=(v,txt)=>`<option value="${v}" ${s===v?'selected':''}>${txt}</option>`;
+  const sortSel = kanban?'':`<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#6b5d33">Ordenar:
+      <select id="op_sort" class="inp" style="width:auto;padding:5px 8px;font-size:12px" onchange="APP.opRenderBody()">
+        ${opt('','Padrão (por pedido)')}${opt('az','Produto A → Z')}${opt('venc','Vencimento (mais próximo)')}${opt('novo','Mais recentes')}${opt('prior','Prioridade')}
+      </select></label>`;
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px">
+    <input id="op_busca" class="inp" autocomplete="off" value="${b}" placeholder="🔍 Buscar OP, produto, cor, pedido, fase…" oninput="APP.opRenderBody()" style="flex:1;min-width:220px;max-width:420px;padding:7px 10px">
+    ${sortSel}
+    <span id="op_count" class="muted" style="font-size:11.5px"></span>
+  </div>`;
+}
+// (Re)desenha só o corpo da lista/kanban a partir de window.__OPS, sem refazer a API — mantém o foco na busca.
+function opRenderBody(){
+  const bodyEl=$('op_body'); if(!bodyEl) return;
+  const verFin=!!window.__opVerFin;
+  const list=window.__OPS||[];
+  let arr = verFin ? list.filter(o=>o.status==='concluido') : list.filter(o=>o.status!=='concluido');
+  const bEl=$('op_busca'); if(bEl) window.__opBusca=bEl.value;
+  const sEl=$('op_sort'); if(sEl) window.__opSort=sEl.value;
+  const q=bnorm(window.__opBusca||'');
+  if(q){ const terms=q.split(/\s+/); arr=arr.filter(o=>{ const s=bnorm([o.numero,o.produtoDescricao,o.produtoCodigo,o.cor,(o.pedido&&o.pedido.numero)||'',o.setorAtual,o.status,o.responsavel].filter(Boolean).join(' ')); return terms.every(t=>s.includes(t)); }); }
+  const kanban = window.__opKanban && !verFin;
+  const sort = window.__opSort||'';
+  if(kanban){ bodyEl.innerHTML=opsKanban(arr); }
+  else if(sort){ bodyEl.innerHTML=opsFlat(arr, sort); }
+  else { bodyEl.innerHTML=opsAgrupadas(arr, verFin); }
+  const cnt=$('op_count'); if(cnt) cnt.textContent = arr.length+' OP(s)'+(q?' encontrada(s)':'');
+}
+// Lista PLANA ordenada (A-Z / vencimento / mais recentes / prioridade) — usada quando há ordenação escolhida.
+function opsFlat(arr, sort){
+  if(!arr.length) return `<div class="panel"><div class="empty">Nenhuma OP encontrada.</div></div>`;
+  const a=arr.slice();
+  const vt=o=>o.entregaPrev?new Date(o.entregaPrev).getTime():null;
+  const prioRank={alta:0,media:1,baixa:2};
+  if(sort==='az') a.sort((x,y)=>bnorm(x.produtoDescricao||x.numero||'').localeCompare(bnorm(y.produtoDescricao||y.numero||'')));
+  else if(sort==='venc') a.sort((x,y)=>{ const dx=vt(x),dy=vt(y); if(dx==null&&dy==null) return y.id-x.id; if(dx==null) return 1; if(dy==null) return -1; return dx-dy; });
+  else if(sort==='novo') a.sort((x,y)=>y.id-x.id);
+  else if(sort==='prior') a.sort((x,y)=>((prioRank[x.prioridade]??1)-(prioRank[y.prioridade]??1))||(y.id-x.id));
+  const hoje0=new Date(); hoje0.setHours(0,0,0,0);
+  const rows=a.map(o=>{
+    const venc=vt(o); const atras = venc!=null && o.status!=='concluido' && venc<hoje0.getTime();
+    const vencCel = o.entregaPrev?`<span style="${atras?'color:#c14a34;font-weight:700':''}">${opDataBR(o.entregaPrev)}${atras?' ⚠':''}</span>`:'<span class="muted">—</span>';
+    const ped = o.pedido?('<span class="muted">'+esc(o.pedido.numero)+'</span>'):(o.loteAvulso?'<span class="muted">avulsa</span>':'—');
+    return `<tr>
+      <td><span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</td>
+      <td style="min-width:150px;font-size:12.5px">${o.produtoDescricao?esc(o.produtoDescricao):'—'}${o.cor?' <span class="muted">· '+esc(o.cor)+'</span>':''}${opOsBadges(o)}</td>
+      <td>${ped}</td>
+      <td>${o.quantidade}</td><td>${opPill(o.status)}</td>
+      <td><b>${esc(o.setorAtual||'—')}</b></td><td>${prioPill(o.prioridade)}</td>
+      <td style="white-space:nowrap">${vencCel}</td>
+      <td>${opAcoesHtml(o)}</td></tr>`;
+  }).join('');
+  return `<div class="panel" style="overflow:hidden"><div style="overflow-x:auto"><table><thead><tr><th>OP</th><th>Produto</th><th>Pedido</th><th>Qtd</th><th>Status</th><th>Fase atual</th><th>Prioridade</th><th>Vencim.</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
 }
 // Área "Aguardando material" (produtos de revenda comprados p/ atender pedidos).
 function aguardMaterialHtml(aguard){
@@ -5192,14 +5254,20 @@ async function saveOpAvulsa(){
     toast(r.total+' OP(s) criada(s)'+(r.total>1?' no lote':' ('+(r.ops[0]&&r.ops[0].numero||'')+')')+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
+// Botões de ação de uma OP (reusado na lista agrupada e na lista plana ordenada).
+function opAcoesHtml(o){
+  const _adminOp = S.user.acesso==='total';
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+}
+// Data curta pt-BR (vencimento da OP).
+function opDataBR(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}); }catch(_){ return ''; } }
 // Lista de OPs AGRUPADA por pedido: um cabeçalho por pedido (com OP do Pedido / OS
 // oficina) e as OPs do pedido embaixo — evita poluir com OPs soltas do mesmo pedido.
 function opsAgrupadas(arr, verFin){
   if(!arr.length) return `<div class="panel"><div class="empty">${verFin?'Nenhuma OP finalizada ainda.':'Nenhuma OP em produção. As finalizadas ficam em "📁 Finalizadas".'}</div></div>`;
   const groups=new Map();
   arr.forEach(o=>{ const k=o.pedidoId?('ped'+o.pedidoId):(o.loteAvulso?('lote:'+o.loteAvulso):('sem'+o.id)); if(!groups.has(k)) groups.set(k,{ped:o.pedido?o.pedido.numero:null, pedidoId:o.pedidoId||0, lote:o.loteAvulso||null, ops:[]}); groups.get(k).ops.push(o); });
-  const _adminOp = S.user.acesso==='total';
-  const opAcoes=o=>`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+  const opAcoes=opAcoesHtml;
   return [...groups.values()].map(g=>{
     const totPecas=g.ops.reduce((s,o)=>s+(o.quantidade||0),0);
     const head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;background:#faf6ea;border-bottom:1px solid var(--line);flex-wrap:wrap">
@@ -10923,7 +10991,7 @@ window.APP = {
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
