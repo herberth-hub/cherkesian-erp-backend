@@ -8903,8 +8903,32 @@ async function viewNotas(c){
   const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
   c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
     + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
+    + `<div id="nfAutoAviso" class="muted" style="font-size:11.5px;margin:-4px 0 8px"></div>`
     + `<div id="nfLista"></div>`;
   nfFiltrar();
+  nfAutoConsultarPendentes(); // reconsulta as pendentes na SEFAZ em segundo plano (atualiza sozinho)
+}
+// Reconsulta automaticamente as notas PENDENTES na Focus/SEFAZ e atualiza a lista sem recarregar.
+async function nfAutoConsultarPendentes(){
+  const pend = (window.__NFS||[]).filter(n=>n.status==='pendente' && n.provedor==='focusnfe').slice(0,15);
+  const aviso=$('nfAutoAviso');
+  if(!pend.length){ if(aviso) aviso.textContent=''; return; }
+  if(aviso) aviso.innerHTML=`🔄 Verificando ${pend.length} nota(s) pendente(s) na SEFAZ…`;
+  let mudou=0, autoriz=0, rej=0;
+  for(const n of pend){
+    if(S.route!=='nfs') return; // usuário saiu da tela
+    try{
+      const r=await api('/nfe/'+n.id+'/consultar',{method:'POST',silent:true});
+      const idx=(window.__NFS||[]).findIndex(x=>x.id===n.id);
+      if(idx>=0 && r && r.status && r.status!==window.__NFS[idx].status){
+        window.__NFS[idx]=Object.assign({}, window.__NFS[idx], { status:r.status, chave:r.chave??window.__NFS[idx].chave, protocolo:r.protocolo??window.__NFS[idx].protocolo, motivo:r.motivo??window.__NFS[idx].motivo });
+        mudou++; if(r.status==='autorizada') autoriz++; else if(r.status==='rejeitada') rej++;
+      }
+    }catch(_){}
+  }
+  if(S.route!=='nfs') return;
+  if(aviso) aviso.textContent='';
+  if(mudou){ nfFiltrar(); toast(`${mudou} nota(s) atualizada(s)`+(autoriz?` · ${autoriz} autorizada(s)`:'')+(rej?` · ${rej} rejeitada(s)`:'')+'.', rej?'err':'ok'); }
 }
 function nfFiltrar(){
   const list = window.__NFS||[];
@@ -8917,7 +8941,7 @@ function nfFiltrar(){
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie),
       n.cfop?`<span class="mono" style="font-weight:700" title="${esc(n.natureza||'')}">${esc(n.cfop)}</span>`:'<span class="muted">—</span>',
       n.clienteNome?`<b style="font-size:12.5px">${esc(n.clienteNome)}</b>${n.tipo==='remessa'?' <span class="pill" style="background:#eef;color:#446;font-size:9px">REMESSA</span>':''}`:'<span class="muted">—</span>',
-      nfPill(n.status), money(n.valor),
+      nfPill(n.status)+(n.status==='autorizada'?' <span class="pill green" style="font-size:9px;background:#e6f5ea;color:#1e7a44">DANFE ✓</span>':''), money(n.valor),
       n.valorIcms!=null?`<span title="Base ICMS: ${n.baseIcms!=null?money(n.baseIcms):'—'} · PIS: ${n.valorPis!=null?money(n.valorPis):'—'} · COFINS: ${n.valorCofins!=null?money(n.valorCofins):'—'}">${money(n.valorIcms)}</span>`:'<span class="muted">—</span>',
       n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
       n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
