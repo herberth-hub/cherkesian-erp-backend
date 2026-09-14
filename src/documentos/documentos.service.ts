@@ -1263,6 +1263,31 @@ export class DocumentosService {
       textoBloco(doc, produto.especificacoes);
     }
 
+    // Composição do conjunto (peças componentes) definida na Receita técnica.
+    const componentes = Array.isArray(produto.componentes)
+      ? (produto.componentes as Array<{ produtoId?: number; quantidade?: number }>)
+      : [];
+    if (componentes.length) {
+      const ids = [...new Set(componentes.map((c) => c.produtoId).filter((x): x is number => !!x))];
+      const pcs = ids.length
+        ? await this.prisma.produto.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true } })
+        : [];
+      const pmap = new Map(pcs.map((p) => [p.id, p]));
+      secao(doc, 'Composição do conjunto');
+      tabela(
+        doc,
+        [
+          { titulo: 'Código', largura: 110 },
+          { titulo: 'Peça componente', largura: 290 },
+          { titulo: 'Qtd / conjunto', largura: 95, alinhamento: 'right' },
+        ],
+        componentes.map((c) => {
+          const p = c.produtoId ? pmap.get(c.produtoId) : null;
+          return [p?.codigo ?? `#${c.produtoId ?? '—'}`, p?.descricao ?? '—', String(c.quantidade ?? 1)];
+        }),
+      );
+    }
+
     const aplicacoes = Array.isArray(produto.aplicacoes)
       ? (produto.aplicacoes as Array<{ tipo?: string; tamanho?: string; local?: string }>)
       : [];
