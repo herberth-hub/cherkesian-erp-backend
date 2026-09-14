@@ -1273,7 +1273,7 @@ export class DocumentosService {
         ? await this.prisma.produto.findMany({ where: { id: { in: ids } }, select: { id: true, codigo: true, descricao: true } })
         : [];
       const pmap = new Map(pcs.map((p) => [p.id, p]));
-      secao(doc, 'Composição do conjunto');
+      secao(doc, 'Composição do conjunto', 28 + componentes.length * 22);
       tabela(
         doc,
         [
@@ -1292,7 +1292,7 @@ export class DocumentosService {
       ? (produto.aplicacoes as Array<{ tipo?: string; tamanho?: string; local?: string }>)
       : [];
     if (aplicacoes.length) {
-      secao(doc, 'Aplicações (bordado / DTF / silk)');
+      secao(doc, 'Aplicações (bordado / DTF / silk)', 28 + aplicacoes.length * 22);
       tabela(
         doc,
         [
@@ -1305,7 +1305,7 @@ export class DocumentosService {
     }
 
     if (produto.medidas.length) {
-      secao(doc, 'Tabela de medidas');
+      secao(doc, 'Tabela de medidas', 30 + produto.medidas.length * 20);
       const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
       tabelaMedidas(
         doc,
@@ -1322,7 +1322,7 @@ export class DocumentosService {
     }
 
     if (bom.length) {
-      secao(doc, 'Materiais / consumo por peça');
+      secao(doc, 'Materiais / consumo por peça', 28 + bom.length * 22);
       tabela(
         doc,
         [

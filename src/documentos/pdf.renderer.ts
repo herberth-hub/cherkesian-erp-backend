@@ -100,8 +100,21 @@ function cabecalho(doc: Pdf, titulo: string, numero: string): void {
   doc.y = 118;
 }
 
-/** Título de seção dourado. */
-export function secao(doc: Pdf, titulo: string): void {
+/** Título de seção dourado. Se `reservaConteudo` (altura estimada do que vem
+ *  logo abaixo) for informado e não couber junto do título no restante da
+ *  página, começa em NOVA página antes do título — evita "título numa página e
+ *  a tabela na outra". Não força quebra quando o conteúdo é maior que uma
+ *  página inteira (aí a tabela pagina sozinha). */
+export function secao(doc: Pdf, titulo: string, reservaConteudo = 0): void {
+  if (reservaConteudo > 0) {
+    const alturaTitulo = 34; // moveDown + texto + linha + moveDown
+    const limite = doc.page.height - doc.page.margins.bottom;
+    const utilPagina = limite - doc.page.margins.top; // espaço útil de uma página inteira
+    const bloco = alturaTitulo + reservaConteudo;
+    if (doc.y + bloco > limite && bloco <= utilPagina) {
+      doc.addPage(); // o handler pageAdded redesenha o timbre e reposiciona o cursor
+    }
+  }
   doc.moveDown(0.8);
   doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(9).text(titulo.toUpperCase(), { characterSpacing: 0.8 });
   const y = doc.y + 3;
