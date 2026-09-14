@@ -1768,8 +1768,13 @@ export class NfeService {
         const cBenefBonif = (emitente.cBenefBonificacao ?? '').trim().toUpperCase().slice(0, 10);
         if (cBenefBonif) item.codigo_beneficio_fiscal = cBenefBonif;
       } else if (simples) {
-        // Simples Nacional: CSOSN no ICMS + PIS/COFINS CST 49 (recolhidos no DAS).
-        item.icms_situacao_tributaria = p?.icmsCst ?? csosnEmp;
+        // Simples Nacional: ICMS SEMPRE por CSOSN (101/102/.../900) + PIS/COFINS CST 49.
+        // Se o produto tiver um CST de REGIME NORMAL cadastrado por engano (ex.: '00'),
+        // ignora e usa o CSOSN da empresa — senão o provedor monta o grupo ICMS00 (gera
+        // vBC sem modBC) e a SEFAZ rejeita ("vBC não esperado, esperado modBC").
+        const CSOSN_VALIDOS = ['101', '102', '103', '201', '202', '203', '300', '400', '500', '900'];
+        const cstProd = (p?.icmsCst ?? '').trim();
+        item.icms_situacao_tributaria = CSOSN_VALIDOS.includes(cstProd) ? cstProd : csosnEmp;
         item.pis_situacao_tributaria = pisCofinsCstEmp;
         item.cofins_situacao_tributaria = pisCofinsCstEmp;
       } else {
