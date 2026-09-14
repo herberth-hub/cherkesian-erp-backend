@@ -238,9 +238,12 @@ export class NfeService {
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       // BONIFICAÇÃO não gera cobrança — não lança a receber.
       if (!bonificacao) {
-        await tx.contaReceber.create({
-          data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: valorComFrete, vencimento: cobranca.primeiroVenc, status: 'a_vencer' },
-        });
+        // Um título por PARCELA (duplicata) — o "A receber" reflete as parcelas, não o total.
+        for (const t of this.titulosReceber(cobranca.duplicatas, Number(valorComFrete), cobranca.primeiroVenc)) {
+          await tx.contaReceber.create({
+            data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' },
+          });
+        }
       }
       // Faturamento PARCIAL: gera o pedido-filho (PVxxx-N) com o faturado e abate do pai.
       if (pedido && snap && snap.length) {
@@ -355,9 +358,11 @@ export class NfeService {
         },
       });
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
-      // Conta a receber do RESIDUAL (o sinal já entrou fora desta NF).
+      // Conta a receber do RESIDUAL (o sinal já entrou fora desta NF) — um título por parcela.
       if (residual > 0) {
-        await tx.contaReceber.create({ data: { empresaId, clienteId: cliente.id, pedidoId, notaFiscalId: criada.id, valor: new Prisma.Decimal(residual.toFixed(2)), vencimento: cobranca.primeiroVenc, status: 'a_vencer' } });
+        for (const t of this.titulosReceber(cobranca.duplicatas, residual, cobranca.primeiroVenc)) {
+          await tx.contaReceber.create({ data: { empresaId, clienteId: cliente.id, pedidoId, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' } });
+        }
       }
       return criada;
     });
@@ -580,9 +585,11 @@ export class NfeService {
       // Só quando há cliente cadastrado — destinatário avulso não gera título a receber.
       // Bonificação/doação NÃO gera cobrança.
       if (dto.clienteId && !dto.bonificacao) {
-        await tx.contaReceber.create({
-          data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor, vencimento: vencimentoData, status: 'a_vencer' },
-        });
+        for (const t of this.titulosReceber(duplicatas, Number(valor), vencimentoData)) {
+          await tx.contaReceber.create({
+            data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' },
+          });
+        }
       }
       // Setores: se veio de um pedido em orçamento, avança para aprovado (faturado).
       if (pedidoVinc && pedidoVinc.etapa === 'orcamento') {
@@ -1432,6 +1439,20 @@ export class NfeService {
     const primeiroVenc = new Date(hoje); primeiroVenc.setDate(primeiroVenc.getDate() + dias[0]);
     const venctoTxt = `Vencimento: ${duplicatas.map((x) => x.data_vencimento.split('-').reverse().join('/')).join(', ')}`;
     return { duplicatas, venctoTxt, primeiroVenc };
+  }
+
+  /** Títulos a receber a partir da cobrança: UM por PARCELA (duplicata) com seu próprio
+   *  valor e vencimento; sem parcelas (à vista), um único título pelo total. Assim o
+   *  "A receber" mostra as parcelas reais em vez de um total que confunde. */
+  private titulosReceber(
+    dups: Array<{ data_vencimento: string; valor: number }> | undefined,
+    valorTotal: number,
+    primeiroVenc: Date,
+  ): Array<{ valor: Prisma.Decimal; vencimento: Date }> {
+    if (dups && dups.length) {
+      return dups.map((d) => ({ valor: new Prisma.Decimal(Number(d.valor).toFixed(2)), vencimento: new Date(d.data_vencimento + 'T12:00:00') }));
+    }
+    return [{ valor: new Prisma.Decimal(Number(valorTotal).toFixed(2)), vencimento: primeiroVenc }];
   }
 
   /**
