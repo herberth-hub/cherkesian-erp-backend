@@ -1250,7 +1250,7 @@ export class DocumentosService {
       ['Tecido', produto.tecido ?? '—'],
       ['Composição', produto.composicao ?? '—'],
       ['Modelagem (Audaces)', produto.modelagem ?? '—'],
-      ['Preço base', produto.precoBase ? money(produto.precoBase) : '—'],
+      // Preço NÃO entra na ficha técnica: este documento vai para o cliente (só dados técnicos).
     ]);
 
     if (produto.fotoModelo) {
