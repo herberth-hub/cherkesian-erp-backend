@@ -194,7 +194,7 @@ export class NfeService {
     });
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
 
     // Rejeitada: não persiste nem consome número (a SEFAZ/provedor não aceitou).
@@ -339,7 +339,7 @@ export class NfeService {
     (payload as Record<string, unknown>).finalidade_emissao = 1;
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEFAT-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFEFAT-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
     if (emissao.status === 'rejeitada') {
       return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
@@ -421,7 +421,7 @@ export class NfeService {
     if (faturamento.chave) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: faturamento.chave }];
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEREMF-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFEREMF-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
     if (emissao.status === 'rejeitada') {
       return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
@@ -543,7 +543,7 @@ export class NfeService {
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFEAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
 
     if (emissao.status === 'rejeitada') {
@@ -1497,7 +1497,7 @@ export class NfeService {
     const cBenefFilial = (filial.cBenefRemessa ?? '').trim().toUpperCase().slice(0, 10) || undefined;
     const payload = this.montarPayloadRemessa(filial, faccao, itens, serie, numeroSeq, valorTotal, controleFaccao, cBenefFilial);
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEREM-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFEREM-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
 
     if (emissao.status === 'rejeitada') {
@@ -1599,7 +1599,7 @@ export class NfeService {
     }
 
     const emissao = token
-      ? await this.emitirFocusNfe(token, `NFEREMAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente)
+      ? await this.emitirFocusNfe(token, `NFEREMAV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
       : this.emitirSimulada();
 
     if (emissao.status === 'rejeitada') {
@@ -1989,8 +1989,13 @@ export class NfeService {
   }
 
   // ===== Provedores =====
-  private async emitirFocusNfe(token: string, ref: string, payload: unknown, amb?: string | null) {
-    const url = `https://${this.focusHost(amb)}/v2/nfe?ref=${encodeURIComponent(ref)}`;
+  private async emitirFocusNfe(token: string, ref: string, payload: unknown, amb?: string | null, filial?: { id: number; reemissaoSeq?: number | null }) {
+    // Sufixo de tentativa: a mesma nota, quando REJEITADA de forma síncrona (ex.: erro de
+    // schema), é reenviada com uma referência NOVA (-rN) para o Focus REPROCESSAR em vez de
+    // devolver a rejeição em cache. Em sucesso/pendente a referência é estável (mesmo N),
+    // preservando a recuperação de nota "já processada" — sem risco de duplicar.
+    const refFinal = ref + (filial ? `-r${filial.reemissaoSeq ?? 0}` : '');
+    const url = `https://${this.focusHost(amb)}/v2/nfe?ref=${encodeURIComponent(refFinal)}`;
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -2015,7 +2020,7 @@ export class NfeService {
       // em vez de rejeitar — evita "corrija e reemita" numa nota que já saiu.
       const jaProcessada = body['codigo'] === 'already_processed' || /já foi (autorizada|processada|enviada)/i.test(String(body['mensagem'] ?? ''));
       if (res.status === 422 && jaProcessada) {
-        const c = await this.consultarFocus(token, ref, amb);
+        const c = await this.consultarFocus(token, refFinal, amb);
         const mapa: Record<string, 'pendente' | 'autorizada' | 'rejeitada'> = {
           autorizado: 'autorizada', processando_autorizacao: 'pendente',
           erro_autorizacao: 'rejeitada', denegado: 'rejeitada', cancelado: 'rejeitada',
@@ -2028,6 +2033,11 @@ export class NfeService {
           motivo: st === 'autorizada' ? 'Nota já estava autorizada na SEFAZ — recuperada automaticamente.' : c.motivo,
           provedor: 'focusnfe',
         };
+      }
+      // Rejeição síncrona: avança o salt da referência p/ a PRÓXIMA tentativa reprocessar
+      // (não fica presa na rejeição em cache do Focus para a mesma referência).
+      if (filial) {
+        await this.prisma.filial.update({ where: { id: filial.id }, data: { reemissaoSeq: { increment: 1 } } }).catch(() => undefined);
       }
       return {
         chave: null,

@@ -158,6 +158,7 @@ model Filial {
   telefone          String?
   nfeSerie          String  @default("1")
   nfeProximoNumero  Int     @default(1)
+  reemissaoSeq      Int     @default(0) // salt da referência Focus: +1 a cada rejeição síncrona p/ forçar reprocessamento (evita cache de rejeição)
   nfeAmbiente       String? // homologacao | producao — sobrepõe o NFE_AMBIENTE global (null = usa o global)
   focusToken        String? // token Focus NFe genérico da filial (fallback)
   focusTokenHomolog String? // token Focus de HOMOLOGAÇÃO da empresa (por CNPJ)
