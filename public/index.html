@@ -2394,7 +2394,16 @@ async function formProduto(id, prefill){
   window.__pesoPorTam=(p.pesoPorTamanho&&typeof p.pesoPorTamanho==='object')?Object.assign({},p.pesoPorTamanho):{};
   window.__codPorTam=(p.codigosPorTamanho&&typeof p.codigosPorTamanho==='object')?Object.assign({},p.codigosPorTamanho):{};
   let __tecMat=null, __tecCons='', __tecUn='m'; window.__tecPorTam={};
-  if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){ const c=cs.slice().sort((a,b)=>Number(b.quantidade)-Number(a.quantidade))[0]; __tecMat=(window.__MATLIST||[]).find(m=>m.id===c.materialId)||null; __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; } }catch(_){} }
+  if(id){ try{ const cs=await api('/consumo?produtoId='+id); if(cs&&cs.length){
+    const matDe=cid=>(window.__MATLIST||[]).find(m=>m.id===cid)||null;
+    // Tecido PRINCIPAL = material (tecido/malha/matéria-prima) com maior consumo, EXCLUINDO
+    // aviamentos (código AVI-* ou categoria de aviamento). Assim uma fita refletiva/zíper com
+    // quantidade maior nunca vira o "tecido principal" no topo da ficha.
+    const ehAviamento=m=> !m || /^AVI-/i.test(m.codigo||'') || /^(cursor|fecho|fita|gorgur|reflet|regulador|velcro|vivo|z[íi]per|aviament|linha|bot|el[áa]stic|etiqueta|cord|vi[ée]s)/i.test(m.categoria||'');
+    const tecidos=cs.filter(x=>!ehAviamento(matDe(x.materialId))).sort((a,b)=>Number(b.quantidade)-Number(a.quantidade));
+    const c=tecidos[0]||null; // se a receita só tem aviamentos, não puxa nada (mantém o tecido já digitado)
+    if(c){ __tecMat=matDe(c.materialId); __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; }
+  } }catch(_){} }
   const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
