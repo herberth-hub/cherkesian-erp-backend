@@ -2855,19 +2855,27 @@ async function recSalvarComponentes(){
   }catch(e){ toast(e.message,'err'); }
 }
 // ----- Aplicações da receita (Bordado / DTF / Silk) + tamanho -----
+// Cada adição/edição/remoção PERSISTE na hora (PATCH), pra não se perder se a receita recarregar.
+async function recAplicPersist(silent){
+  const R=window.__REC;
+  const lista=(R.aplicacoes||[]).map(a=>({tipo:(a.tipo||'').trim(), tamanho:(a.tamanho||'').trim()||undefined, local:(a.local||'').trim()||undefined})).filter(a=>a.tipo);
+  try{ await api('/produtos/'+R.id,{method:'PATCH',body:{aplicacoes:lista},silent:true}); R.prod.aplicacoes=lista.slice(); if(!silent) toast('Aplicações salvas.','ok'); return true; }
+  catch(e){ toast(e.message,'err'); return false; }
+}
 function recAplicAdd(){
   const R=window.__REC; const tipo=(val('rec_apltipo')||'').trim(); const tamanho=(val('rec_apltam')||'').trim(); const local=(val('rec_apllocal')||'').trim();
   if(!tipo){ toast('Escolha a aplicação.','err'); return; }
-  R.aplicacoes.push({tipo, tamanho, local}); renderReceita();
+  R.aplicacoes.push({tipo, tamanho, local}); renderReceita(); recAplicPersist(true).then(ok=>{ if(ok) toast('Aplicação "'+tipo+'" adicionada.','ok'); });
 }
-function recAplicSet(i,campo,v){ const R=window.__REC; if(R.aplicacoes[i]) R.aplicacoes[i][campo]=String(v==null?'':v).trim(); }
-function recAplicDel(i){ window.__REC.aplicacoes.splice(i,1); renderReceita(); }
+function recAplicSet(i,campo,v){ const R=window.__REC; if(R.aplicacoes[i]){ R.aplicacoes[i][campo]=String(v==null?'':v).trim(); recAplicPersist(true); } }
+function recAplicDel(i){ window.__REC.aplicacoes.splice(i,1); renderReceita(); recAplicPersist(true); }
 async function recAplicSalvar(){
   const R=window.__REC;
-  const lista=(R.aplicacoes||[]).map(a=>({tipo:(a.tipo||'').trim(), tamanho:(a.tamanho||'').trim()||undefined, local:(a.local||'').trim()||undefined})).filter(a=>a.tipo);
-  try{ await api('/produtos/'+R.id,{method:'PATCH',body:{aplicacoes:lista}}); toast('Aplicações salvas.','ok');
-    R.aplicacoes=lista.map(a=>({tipo:a.tipo, tamanho:a.tamanho||'', local:a.local||''})); R.prod.aplicacoes=R.aplicacoes.slice(); renderReceita();
-  }catch(e){ toast(e.message,'err'); }
+  // Captura uma linha digitada no rodapé e ainda não adicionada (evita salvar vazio por engano).
+  const tipo=(val('rec_apltipo')||'').trim(), tam=(val('rec_apltam')||'').trim(), loc=(val('rec_apllocal')||'').trim();
+  if(tipo && (tam||loc) && !R.aplicacoes.some(a=>a.tipo===tipo && (a.tamanho||'')===tam && (a.local||'')===loc)){ R.aplicacoes.push({tipo, tamanho:tam, local:loc}); }
+  const ok=await recAplicPersist(false);
+  if(ok){ R.aplicacoes=(R.prod.aplicacoes||[]).map(a=>({tipo:a.tipo, tamanho:a.tamanho||'', local:a.local||''})); renderReceita(); }
 }
 
 async function formMaterial(id){
