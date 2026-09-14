@@ -272,10 +272,46 @@ export class NfeService {
       : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
     if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
     const token = this.tokenDaFilial(filial);
-    const cliente = pedido.cliente;
+    // Destinatário: quando o pedido é para uma UNIDADE do cliente, o endereço/CNPJ/IE
+    // saem da unidade (a matriz pode não ter endereço cadastrado) — espelha o PDF do pedido.
+    let cliente = pedido.cliente;
+    if (pedido.clienteUnidadeId) {
+      const uni = await this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } });
+      if (uni) {
+        const usaEndUni = !!(uni.logradouro || uni.bairro || uni.cep);
+        cliente = {
+          ...cliente,
+          nome: uni.nome || cliente.nome,
+          cnpjCpf: uni.cnpjCpf || cliente.cnpjCpf,
+          inscricaoEstadual: uni.inscricaoEstadual ?? cliente.inscricaoEstadual,
+          indicadorIE: uni.indicadorIE ?? cliente.indicadorIE,
+          ...(usaEndUni
+            ? { logradouro: uni.logradouro, numeroEndereco: uni.numeroEndereco, bairro: uni.bairro, municipio: uni.municipio, uf: uni.uf, cep: uni.cep }
+            : {}),
+        } as typeof cliente;
+      }
+    }
+    // Endereço do destinatário é obrigatório na NF — valida ANTES de mandar à SEFAZ (erro claro).
+    const faltaEnd = [
+      !(cliente.logradouro || '').trim() && 'logradouro',
+      !(cliente.numeroEndereco || '').trim() && 'número',
+      !(cliente.bairro || '').trim() && 'bairro',
+      !(cliente.municipio || '').trim() && 'município',
+      !(cliente.uf || '').trim() && 'UF',
+      !digitos(cliente.cep || '') && 'CEP',
+    ].filter(Boolean);
+    if (faltaEnd.length) {
+      throw new BadRequestException(`Endereço do destinatário incompleto (falta: ${faltaEnd.join(', ')}). Cadastre o endereço ${pedido.clienteUnidadeId ? 'da unidade de entrega' : 'do cliente'} "${cliente.nome}" antes de faturar.`);
+    }
 
     const vFrete = Number(opts?.valorFrete != null ? opts.valorFrete : (pedido.valorFrete ?? 0)); // frete cobrado do cliente (R$)
-    const valor = new Prisma.Decimal(pedido.valorTotal).plus(vFrete); // total da NF = produtos + frete
+    // O total da NF TEM que bater com a soma dos itens, senão a SEFAZ rejeita ("Total da NF
+    // difere do somatório"). Trava divergência grande (dado inconsistente) com mensagem clara.
+    const somaItens = Number(pedido.itens.reduce((s, it) => s + Number((Number(it.valorUnit) * it.quantidade).toFixed(2)), 0).toFixed(2));
+    if (Math.abs(Number(pedido.valorTotal) - somaItens) > 0.5) {
+      throw new BadRequestException(`O total do pedido ${pedido.numero} (R$ ${Number(pedido.valorTotal).toFixed(2)}) não confere com a soma dos itens (R$ ${somaItens.toFixed(2)}). Ajuste os itens (ou o valor total) do pedido antes de faturar.`);
+    }
+    const valor = new Prisma.Decimal(somaItens).plus(vFrete); // total da NF = itens + frete (consistente com o payload)
     const itensNf = pedido.itens.map((it) => ({ descricao: this.descComCor(it.descricao, it.cor), quantidade: it.quantidade, valorUnit: it.valorUnit, produtoId: it.produtoId }));
     const totalPecas = pedido.itens.reduce((s, it) => s + it.quantidade, 0);
 
