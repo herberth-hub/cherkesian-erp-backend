@@ -48,6 +48,8 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   etiqueta: { titulo: 'Etiqueta de Lote', prefixo: 'ETQ', area: 'estoque' },
   piloto: { titulo: 'Ficha de Peça Piloto', prefixo: 'PIL', area: ['producao', 'vendas'] },
   piloto_ficha: { titulo: 'Ficha Técnica · Peça Piloto', prefixo: 'FTP', area: ['producao', 'vendas'] },
+  // Demonstrativo de cobrança do cliente (títulos em aberto) — referenciaId = clienteId.
+  cobranca: { titulo: 'Demonstrativo de Cobrança', prefixo: 'COB', area: 'receber' },
 };
 
 @Injectable()
@@ -281,6 +283,8 @@ export class DocumentosService {
         return this.pdfMedidas(referenciaId, empresaId, numero);
       case 'ficha_tecnica':
         return this.pdfFichaTecnica(referenciaId, empresaId, numero);
+      case 'cobranca':
+        return this.pdfCobranca(referenciaId, empresaId, numero);
       case 'etiqueta':
         return this.pdfEtiqueta(referenciaId, empresaId, numero);
       case 'piloto':
@@ -1351,6 +1355,79 @@ export class DocumentosService {
     }
 
     assinaturas(doc, 'GRUPO CHERKESIAN — Modelagem/PCP', `${produto.marca ?? 'Cliente'} — Aprovado`);
+    return doc;
+  }
+
+  /** Demonstrativo de cobrança: títulos EM ABERTO do cliente, com o nº da NF de
+   *  origem, vencimento, valor/recebido/saldo, total e a linha do PIX. */
+  private async pdfCobranca(clienteId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) {
+      throw new NotFoundException(`Cliente ${clienteId} não encontrado.`);
+    }
+    const titulos = await this.prisma.contaReceber.findMany({
+      where: { empresaId, clienteId },
+      orderBy: { vencimento: 'asc' },
+    });
+    const abertos = titulos.filter((t) => Number(t.valor) - Number(t.pago) > 0.005);
+    const nfIds = [...new Set(abertos.map((t) => t.notaFiscalId).filter((x): x is number => x != null))];
+    const nfs = nfIds.length
+      ? await this.prisma.notaFiscal.findMany({ where: { id: { in: nfIds } }, select: { id: true, numero: true } })
+      : [];
+    const nfMap = new Map(nfs.map((n) => [n.id, n.numero]));
+
+    const doc = novoDocumento('Demonstrativo de Cobrança', numero);
+    secao(doc, 'Cliente');
+    camposDuplos(doc, [
+      ['Razão social / nome', cliente.nome],
+      ['CNPJ/CPF', cliente.cnpjCpf ?? '—'],
+      ['Cidade/UF', cliente.cidadeUf ?? '—'],
+      ['Contato', cliente.contato ?? cliente.telefone ?? '—'],
+    ]);
+
+    const hoje0 = new Date();
+    hoje0.setHours(0, 0, 0, 0);
+    let totalSaldo = 0;
+    let totalVencido = 0;
+    const rows = abertos.map((t) => {
+      const saldo = Number(t.valor) - Number(t.pago);
+      totalSaldo += saldo;
+      const venc = new Date(t.vencimento);
+      const vencido = venc.getTime() < hoje0.getTime();
+      if (vencido) totalVencido += saldo;
+      const nf = (t.notaFiscalId ? nfMap.get(t.notaFiscalId) : null) ?? t.documento ?? '—';
+      return [nf, dataBR(t.vencimento) + (vencido ? ' (vencido)' : ''), money(t.valor), money(t.pago), money(saldo)];
+    });
+
+    secao(doc, 'Títulos em aberto', 28 + abertos.length * 22);
+    if (rows.length) {
+      tabela(
+        doc,
+        [
+          { titulo: 'NF / Doc.', largura: 110 },
+          { titulo: 'Vencimento', largura: 130 },
+          { titulo: 'Valor', largura: 95, alinhamento: 'right' },
+          { titulo: 'Recebido', largura: 90, alinhamento: 'right' },
+          { titulo: 'Saldo', largura: 70, alinhamento: 'right' },
+        ],
+        rows,
+      );
+    } else {
+      textoBloco(doc, 'Não há títulos em aberto para este cliente no momento. Obrigado!');
+    }
+
+    totalDestaque(doc, 'Total em aberto', money(totalSaldo));
+    if (totalVencido > 0) totalDestaque(doc, 'Total vencido', money(totalVencido));
+
+    // Linha de pagamento (PIX): usa a filial de um dos títulos ou a matriz.
+    const filialId = abertos.find((t) => t.filialId)?.filialId ?? null;
+    const linhaPix = await this.linhaPagamento(empresaId, filialId);
+    if (linhaPix) {
+      secao(doc, 'Pagamento');
+      textoBloco(doc, linhaPix);
+    }
+
+    rodapeGrupo(doc);
     return doc;
   }
 

@@ -4148,7 +4148,7 @@ function receberFiltrar(){
     if(st==='pago' && t.status!=='pago') return false;
     if(emp){ const en=t.filial?t.filial.nome:'Sem empresa'; if(en!==emp) return false; }
     if(q){
-      const hay=bnorm([nome[t.clienteId]||'', cnpj[t.clienteId]||'', t.documento||'', t.filial?t.filial.nome:''].join(' '));
+      const hay=bnorm([nome[t.clienteId]||'', cnpj[t.clienteId]||'', t.documento||'', t.nfNumero||'', t.filial?t.filial.nome:''].join(' '));
       const valBate = qn && (Number(t.valor).toFixed(2).includes(qn) || Number(t.saldo).toFixed(2).includes(qn));
       if(!hay.includes(q) && !valBate) return false;
     }
@@ -4168,16 +4168,18 @@ function receberFiltrar(){
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#3a8f4f;color:#fff;border-color:#3a8f4f" onclick="APP.receberReceberSel()">✓ Receber selecionados</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
   </div>`;
   body.innerHTML = bulkBar + panelTable(
-    [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','Doc.','Valor','Pago','Saldo','Status','Ações'],
+    [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','NF / Doc.','Valor','Pago','Saldo','Status','Ações'],
     fil.map(t=>[
       `<input type="checkbox" class="rc_chk" value="${t.id}" data-saldo="${t.saldo}" onchange="APP.receberSelCount()">`,
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.receberEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
-      esc(nome[t.clienteId]||('#'+t.clienteId)), esc(t.documento||'—'),
+      esc(nome[t.clienteId]||('#'+t.clienteId)), (t.nfNumero?`<span class="mono" style="font-weight:700">${esc(t.nfNumero)}</span>`+(t.notaFiscalId?'':' <span class="muted" style="font-size:9px">(doc.)</span>'):'<span class="muted">—</span>'),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir cobrança deste cliente (todos os títulos em aberto)" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
+// Imprime o demonstrativo de cobrança do cliente (todos os títulos em aberto, com o nº da NF).
+function imprimirCobranca(clienteId){ gerarDoc('cobranca', clienteId); }
 function receberSelCount(){
   const chks=[...document.querySelectorAll('.rc_chk')];
   const sel=chks.filter(c=>c.checked);
@@ -8234,7 +8236,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
@@ -11044,7 +11046,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
-  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,

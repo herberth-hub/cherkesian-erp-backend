@@ -12,7 +12,7 @@ import { calcularStatusTitulo } from './titulo-status.util';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
 /** Título a receber com status recalculado e saldo em aberto. */
-export type ContaReceberView = ContaReceber & { status: TituloStatus; saldo: string; filial?: FilialResumo | null };
+export type ContaReceberView = ContaReceber & { status: TituloStatus; saldo: string; filial?: FilialResumo | null; nfNumero?: string | null };
 
 /**
  * Regra de comissão automática: ao QUITAR uma venda, gera comissão "a receber"
@@ -110,7 +110,18 @@ export class ContasReceberService {
       include: { filial: { select: { id: true, nome: true, cnpj: true } } },
       orderBy: { vencimento: 'asc' },
     });
-    return titulos.map((t) => this.comStatus(t)).filter((t) => !status || t.status === status);
+    // Número da NF de origem (p/ o financeiro saber a que NF cada título se refere).
+    const nfIds = [...new Set(titulos.map((t) => t.notaFiscalId).filter((x): x is number => x != null))];
+    const nfs = nfIds.length
+      ? await this.prisma.notaFiscal.findMany({ where: { id: { in: nfIds } }, select: { id: true, numero: true } })
+      : [];
+    const nfMap = new Map(nfs.map((n) => [n.id, n.numero]));
+    return titulos
+      .map((t) => ({
+        ...this.comStatus(t),
+        nfNumero: (t.notaFiscalId ? nfMap.get(t.notaFiscalId) : null) ?? t.documento ?? null,
+      }))
+      .filter((t) => !status || t.status === status);
   }
 
   async create(dto: CreateContaReceberDto, empresaId: number): Promise<ContaReceberView> {
