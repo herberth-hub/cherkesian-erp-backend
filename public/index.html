@@ -8906,14 +8906,24 @@ async function viewNotas(c){
     + `<div id="nfAutoAviso" class="muted" style="font-size:11.5px;margin:-4px 0 8px"></div>`
     + `<div id="nfLista"></div>`;
   nfFiltrar();
-  nfAutoConsultarPendentes(); // reconsulta as pendentes na SEFAZ em segundo plano (atualiza sozinho)
+  nfPollStart(); // reconsulta pendentes agora e a cada 45s enquanto a tela estiver aberta
+}
+// Timer de auto-refresh das NFs pendentes (só roda enquanto a tela de NFs está aberta).
+let _nfTimer=null;
+function nfPollStart(){
+  if(_nfTimer){ clearInterval(_nfTimer); _nfTimer=null; }
+  nfAutoConsultarPendentes(false); // 1ª verificação (mostra o aviso)
+  _nfTimer=setInterval(()=>{
+    if(S.route!=='nfs' || !document.getElementById('nfLista')){ clearInterval(_nfTimer); _nfTimer=null; return; }
+    if((window.__NFS||[]).some(n=>n.status==='pendente' && n.provedor==='focusnfe')) nfAutoConsultarPendentes(true); // silencioso
+  }, 45000);
 }
 // Reconsulta automaticamente as notas PENDENTES na Focus/SEFAZ e atualiza a lista sem recarregar.
-async function nfAutoConsultarPendentes(){
+async function nfAutoConsultarPendentes(quiet){
   const pend = (window.__NFS||[]).filter(n=>n.status==='pendente' && n.provedor==='focusnfe').slice(0,15);
   const aviso=$('nfAutoAviso');
   if(!pend.length){ if(aviso) aviso.textContent=''; return; }
-  if(aviso) aviso.innerHTML=`🔄 Verificando ${pend.length} nota(s) pendente(s) na SEFAZ…`;
+  if(aviso && !quiet) aviso.innerHTML=`🔄 Verificando ${pend.length} nota(s) pendente(s) na SEFAZ…`;
   let mudou=0, autoriz=0, rej=0;
   for(const n of pend){
     if(S.route!=='nfs') return; // usuário saiu da tela
