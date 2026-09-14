@@ -219,17 +219,8 @@ export class PedidosService {
       include: { itens: true },
     });
 
-    // Alerta com ciência obrigatória: comercial/PCP/produção sabem do pedido novo.
-    const totalPecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0);
-    await this.notificacoes.criar(empresaId, {
-      tipo: 'pedido_novo',
-      areas: ['vendas', 'pcp', 'producao'],
-      titulo: `Novo pedido ${pedido.numero} — ${cliente.nome}`,
-      mensagem: `${totalPecas} peça(s) · valor ${new Prisma.Decimal(valorTotal).toFixed(2)}${pedido.clienteNovo ? ' · CLIENTE NOVO (exige peça-piloto)' : ''}. Providencie a próxima etapa (risco/corte).`,
-      refTipo: 'pedido',
-      refId: pedido.id,
-    });
-
+    // A notificação de "pedido novo" NÃO sai aqui: todo pedido nasce como ORÇAMENTO.
+    // Ela é disparada só quando o orçamento é APROVADO (vira pedido) — ver aprovar().
     return { ...pedido, exigePiloto: pedido.clienteNovo };
   }
 
@@ -505,11 +496,24 @@ export class PedidosService {
       );
     }
     const proximaEtapa = pedido.clienteNovo ? 'piloto' : 'aprovado';
-    return this.prisma.pedido.update({
+    const atualizado = await this.prisma.pedido.update({
       where: { id },
       data: { etapa: proximaEtapa, status: 'Aprovado' },
       include: { itens: true },
     });
+    // Alerta com ciência obrigatória: comercial/PCP/produção só sabem do pedido
+    // QUANDO o orçamento é aprovado (vira pedido) — não no orçamento.
+    const cli = await this.prisma.cliente.findUnique({ where: { id: atualizado.clienteId }, select: { nome: true } });
+    const totalPecas = atualizado.itens.reduce((s, i) => s + i.quantidade, 0);
+    await this.notificacoes.criar(empresaId, {
+      tipo: 'pedido_novo',
+      areas: ['vendas', 'pcp', 'producao'],
+      titulo: `Pedido aprovado ${atualizado.numero} — ${cli?.nome ?? ''}`.trim(),
+      mensagem: `${totalPecas} peça(s) · valor ${new Prisma.Decimal(atualizado.valorTotal).toFixed(2)}${atualizado.clienteNovo ? ' · CLIENTE NOVO (exige peça-piloto)' : ''}. Providencie a próxima etapa (risco/corte).`,
+      refTipo: 'pedido',
+      refId: atualizado.id,
+    });
+    return atualizado;
   }
 
   /** Alerta (ciência obrigatória) para a produção quando OP(s) são geradas. */
