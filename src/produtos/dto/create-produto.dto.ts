@@ -92,6 +92,20 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   @ValidateNested({ each: true })
   @Type(() => FichaMedidaDto)
   medidas?: FichaMedidaDto[];
+
+  /** Aplicações da receita (bordado/DTF/silk) com o tamanho. Sai na ficha técnica. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AplicacaoDto)
+  aplicacoes?: AplicacaoDto[];
+}
+
+/** Uma aplicação da receita técnica: tipo (Bordado/DTF/Silk) + tamanho (livre) + local opcional. */
+export class AplicacaoDto {
+  @IsString() @IsNotEmpty({ message: 'Informe o tipo da aplicação.' }) @MaxLength(40) tipo!: string;
+  @IsOptional() @IsString() @MaxLength(60) tamanho?: string;
+  @IsOptional() @IsString() @MaxLength(80) local?: string;
 }
 
 export class CreateProdutoDto extends ProdutoFichaDto {

@@ -98,6 +98,7 @@ export class ProdutosService {
             custo: dto.custo,
             tipo: dto.tipo,
             componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
+            aplicacoes: (dto.aplicacoes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
             ...this.dadosFicha(dto),
             ...this.dadosPeso(dto),
             ...this.dadosFiscais(dto),
@@ -163,6 +164,10 @@ export class ProdutosService {
             dto.componentes === undefined
               ? undefined
               : (dto.componentes as unknown as Prisma.InputJsonValue),
+          aplicacoes:
+            dto.aplicacoes === undefined
+              ? undefined
+              : (dto.aplicacoes as unknown as Prisma.InputJsonValue),
           ...this.dadosFicha(dto),
           ...this.dadosPeso(dto),
           ...this.dadosFiscais(dto),

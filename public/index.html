@@ -2703,6 +2703,7 @@ async function formReceita(id){
     materiais: materiais||[],
     produtos: (produtos||[]).filter(p=>p.id!==id),
     componentes: Array.isArray(prod.componentes)? prod.componentes.map(c=>({produtoId:c.produtoId, quantidade:Number(c.quantidade)||1})) : [],
+    aplicacoes: Array.isArray(prod.aplicacoes)? prod.aplicacoes.map(a=>({tipo:a.tipo||'', tamanho:a.tamanho||'', local:a.local||''})) : [],
     open: null, // id do consumo com o painel "por tamanho" aberto
   };
   renderReceita();
@@ -2742,6 +2743,16 @@ function renderReceita(){
       <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" type="number" step="0.001" value="${c.quantidade}" onchange="APP.recCompQtd(${i},this.value)" style="width:80px;text-align:right;padding:5px 6px;font-size:12px"></td>
       <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.recCompDel(${i})">✕</button></td></tr>`).join('');
   const prodOpts = (R.produtos||[]).map(p=>`<option value="${p.id}">${esc(p.codigo)} · ${esc(p.descricao)}</option>`).join('');
+  // ----- Aplicações (Bordado / DTF / Silk) -----
+  const TIPOS_APLIC=['Bordado','DTF','Silk'];
+  const aplicRows=(R.aplicacoes||[]).map((a,i)=>{
+    const ops=TIPOS_APLIC.concat(TIPOS_APLIC.includes(a.tipo)||!a.tipo?[]:[a.tipo]);
+    return `<tr>
+      <td style="padding:4px 8px;border-top:1px solid #eee"><select class="inp" onchange="APP.recAplicSet(${i},'tipo',this.value)" style="padding:5px 6px;font-size:12px;min-width:110px">${ops.map(t=>`<option value="${esc(t)}" ${a.tipo===t?'selected':''}>${esc(t)}</option>`).join('')}</select></td>
+      <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.tamanho||'')}" onchange="APP.recAplicSet(${i},'tamanho',this.value)" placeholder="ex.: 10 x 8 cm" style="padding:5px 6px;font-size:12px"></td>
+      <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.local||'')}" onchange="APP.recAplicSet(${i},'local',this.value)" placeholder="opcional (ex.: peito esq.)" style="padding:5px 6px;font-size:12px"></td>
+      <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.recAplicDel(${i})">✕</button></td></tr>`;
+  }).join('');
 
   openModal(`<h3>🧬 Receita técnica — ${esc(R.prod.codigo)} <span class="muted" style="font-size:12px;font-weight:400">${esc(R.prod.descricao)}</span></h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 10px">Grade: ${R.grade.length?R.grade.map(esc).join(' · '):'<i>sem grade — defina em Produto p/ consumo por tamanho</i>'}</div>
@@ -2769,6 +2780,19 @@ function renderReceita(){
       <div style="width:80px"><label class="fl">Un.</label><input id="rec_un" class="inp" value="m"></div>
       <button class="btn-sm" onclick="APP.recAddMaterial()">+ Adicionar</button>
     </div>
+
+    ${secDivisor('APLICAÇÕES (Bordado / DTF / Silk)')}
+    <div class="muted" style="font-size:11.5px;margin:-2px 0 6px">Aplicações da peça e o tamanho de cada uma (aparecem na ficha técnica enviada ao cliente).</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Aplicação</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Tamanho</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Local</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${aplicRows||'<tr><td colspan="4" style="padding:8px;text-align:center;color:#999">Nenhuma aplicação.</td></tr>'}</tbody></table></div>
+    <div style="display:flex;gap:6px;align-items:end;margin-top:6px;flex-wrap:wrap">
+      <div style="width:150px"><label class="fl">Aplicação</label><select id="rec_apltipo" class="inp">${TIPOS_APLIC.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+      <div style="flex:1;min-width:120px"><label class="fl">Tamanho</label><input id="rec_apltam" class="inp" placeholder="ex.: 10 x 8 cm"></div>
+      <div style="flex:1;min-width:120px"><label class="fl">Local (opcional)</label><input id="rec_apllocal" class="inp" placeholder="ex.: peito esq., costas"></div>
+      <button class="btn-sm" onclick="APP.recAplicAdd()">+ Adicionar</button>
+    </div>
+    <div style="margin-top:6px"><button class="btn-primary" onclick="APP.recAplicSalvar()">Salvar aplicações</button></div>
 
     <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Fechar</button></div>`);
 }
@@ -2819,6 +2843,21 @@ async function recSalvarComponentes(){
   const R=window.__REC;
   try{ await api('/produtos/'+R.id,{method:'PATCH',body:{componentes:R.componentes.map(c=>({produtoId:c.produtoId, quantidade:Number(c.quantidade)||1}))}});
     toast('Composição do conjunto salva.','ok'); R.prod.componentes=R.componentes.slice();
+  }catch(e){ toast(e.message,'err'); }
+}
+// ----- Aplicações da receita (Bordado / DTF / Silk) + tamanho -----
+function recAplicAdd(){
+  const R=window.__REC; const tipo=(val('rec_apltipo')||'').trim(); const tamanho=(val('rec_apltam')||'').trim(); const local=(val('rec_apllocal')||'').trim();
+  if(!tipo){ toast('Escolha a aplicação.','err'); return; }
+  R.aplicacoes.push({tipo, tamanho, local}); renderReceita();
+}
+function recAplicSet(i,campo,v){ const R=window.__REC; if(R.aplicacoes[i]) R.aplicacoes[i][campo]=String(v==null?'':v).trim(); }
+function recAplicDel(i){ window.__REC.aplicacoes.splice(i,1); renderReceita(); }
+async function recAplicSalvar(){
+  const R=window.__REC;
+  const lista=(R.aplicacoes||[]).map(a=>({tipo:(a.tipo||'').trim(), tamanho:(a.tamanho||'').trim()||undefined, local:(a.local||'').trim()||undefined})).filter(a=>a.tipo);
+  try{ await api('/produtos/'+R.id,{method:'PATCH',body:{aplicacoes:lista}}); toast('Aplicações salvas.','ok');
+    R.aplicacoes=lista.map(a=>({tipo:a.tipo, tamanho:a.tamanho||'', local:a.local||''})); R.prod.aplicacoes=R.aplicacoes.slice(); renderReceita();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -10985,7 +11024,7 @@ window.APP = {
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
-  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes,
+  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,

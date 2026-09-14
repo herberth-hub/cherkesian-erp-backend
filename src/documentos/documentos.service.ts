@@ -1263,6 +1263,22 @@ export class DocumentosService {
       textoBloco(doc, produto.especificacoes);
     }
 
+    const aplicacoes = Array.isArray(produto.aplicacoes)
+      ? (produto.aplicacoes as Array<{ tipo?: string; tamanho?: string; local?: string }>)
+      : [];
+    if (aplicacoes.length) {
+      secao(doc, 'Aplicações (bordado / DTF / silk)');
+      tabela(
+        doc,
+        [
+          { titulo: 'Aplicação', largura: 140 },
+          { titulo: 'Tamanho', largura: 160 },
+          { titulo: 'Local', largura: 195 },
+        ],
+        aplicacoes.map((a) => [a.tipo ?? '—', a.tamanho ?? '—', a.local ?? '—']),
+      );
+    }
+
     if (produto.medidas.length) {
       secao(doc, 'Tabela de medidas');
       const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);

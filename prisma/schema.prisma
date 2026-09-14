@@ -485,6 +485,7 @@ model Produto {
   equivalenteId Int?                       // produto "principal" equivalente: a expedição trata as etiquetas deste como sendo do principal (códigos diferentes = mesma peça)
   setor        String?                     // setor de uso (ex.: HIGIENE/LIMPEZA)
   componentes  Json?                       // conjunto/kit: [{produtoId, quantidade}] — ao gerar OP, explode nestes
+  aplicacoes   Json?                       // aplicações da receita: [{tipo:"Bordado"|"DTF"|"Silk", tamanho:"10x8 cm", local?}] — sai na ficha técnica
   consumo   Consumo[]
   estoque   Estoque[]
   medidas   ProdutoMedida[]
