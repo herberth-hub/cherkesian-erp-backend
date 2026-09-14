@@ -222,6 +222,7 @@ export class NfeService {
           chave: emissao.chave,
           status: emissao.status,
           protocolo: emissao.protocolo,
+          focusRef: emissao.ref ?? null,
           motivo: emissao.motivo,
           valor: valorComFrete,
           provedor: emissao.provedor,
@@ -353,7 +354,7 @@ export class NfeService {
         data: {
           ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, pedidoId, tipo: 'faturamento',
-          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo, focusRef: emissao.ref ?? null,
           motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario, ordemCompraCliente: pedido.ordemCompraCliente,
         },
       });
@@ -437,7 +438,7 @@ export class NfeService {
         data: {
           ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, expedicaoId, pedidoId: exp.pedidoId, tipo: 'remessa_futura', notaRefId: faturamento.id,
-          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo, focusRef: emissao.ref ?? null,
           motivo: emissao.motivo, valor, provedor: emissao.provedor, emitidaPor: usuario,
         },
       });
@@ -573,6 +574,7 @@ export class NfeService {
           chave: emissao.chave,
           status: emissao.status,
           protocolo: emissao.protocolo,
+          focusRef: emissao.ref ?? null,
           motivo: emissao.motivo,
           valor,
           provedor: emissao.provedor,
@@ -1399,6 +1401,8 @@ export class NfeService {
 
   /** Referência da nota na Focus (avulsa usa prefixo NFEAV-, normal usa NFE-). */
   private refDaNota(nota: NotaFiscal): string {
+    // Preferir a referência EXATA gravada na emissão (inclui o sufixo -rN de reemissão).
+    if (nota.focusRef && nota.focusRef.trim()) return nota.focusRef.trim();
     const numeroSeq = Number(String(nota.numero).split('/').pop());
     const fid = nota.filialId ?? 0;
     // O prefixo TEM que ser o mesmo usado na emissão (emitirFocusNfe), senão a
@@ -1539,7 +1543,7 @@ export class NfeService {
         data: {
           ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial.id, tipo: 'remessa', fornecedorId: faccao.id, controleFaccao,
-          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo, focusRef: emissao.ref ?? null,
           motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
         },
       });
@@ -1641,7 +1645,7 @@ export class NfeService {
         data: {
           ...this.resumoFiscalPayload(payload),
           empresaId, filialId: filial!.id, tipo: 'remessa', fornecedorId: faccao.id,
-          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo, focusRef: emissao.ref ?? null,
           motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
         },
       });
@@ -2043,6 +2047,7 @@ export class NfeService {
           protocolo: (body['protocolo'] as string) ?? null,
           motivo: 'Enviada ao provedor; aguardando autorização da SEFAZ.',
           provedor: 'focusnfe',
+          ref: refFinal,
         };
       }
       // Referência já processada: a nota JÁ existe na Focus (talvez autorizada num
@@ -2062,6 +2067,7 @@ export class NfeService {
           protocolo: c.protocolo,
           motivo: st === 'autorizada' ? 'Nota já estava autorizada na SEFAZ — recuperada automaticamente.' : c.motivo,
           provedor: 'focusnfe',
+          ref: refFinal,
         };
       }
       // Rejeição síncrona: avança o salt da referência p/ a PRÓXIMA tentativa reprocessar
@@ -2095,6 +2101,7 @@ export class NfeService {
       protocolo: `SIM${Date.now()}`,
       motivo: 'NF-e SIMULADA (sem valor fiscal). Configure FOCUS_NFE_TOKEN + certificado A1 para emitir de verdade.',
       provedor: 'simulado',
+      ref: null as string | null,
     };
   }
 

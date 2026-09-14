@@ -921,6 +921,7 @@ model NotaFiscal {
   valorIpi      Decimal? @db.Decimal(12,2)
   emitidaEm   DateTime  @default(now())
   emitidaPor  String?
+  focusRef    String?   // referência EXATA usada na Focus na emissão (com sufixo de reemissão) — usada p/ DANFE/XML/consulta/cancelamento
 }
 
 // ===== SGQ / Universidade do Sistema — procedimentos, instruções de trabalho e trilha de treino =====
