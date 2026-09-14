@@ -1424,8 +1424,10 @@ export class NfeService {
     primeiroVenc: Date;
   } {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-    const dias = [...String(forma ?? '').matchAll(/(\d{1,3})/g)]
-      .map((m) => parseInt(m[1], 10))
+    // Ignora anotações entre parênteses (ex.: "30 dias (vencimento 27/09/2026)") p/ não
+    // ler a DATA como se fossem parcelas. Só os dias de prazo (1..360) contam.
+    const dias = [...String(forma ?? '').replace(/\([^)]*\)/g, ' ').matchAll(/\d+/g)]
+      .map((m) => parseInt(m[0], 10))
       .filter((d) => d > 0 && d <= 360)
       .sort((a, b) => a - b);
     if (!dias.length) return { primeiroVenc: hoje }; // à vista / sem prazo → vence hoje
