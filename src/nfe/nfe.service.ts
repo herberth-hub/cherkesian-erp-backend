@@ -1044,7 +1044,7 @@ export class NfeService {
     const filial = nota.filialId ? await this.prisma.filial.findUnique({ where: { id: nota.filialId } }) : null;
     const token = this.tokenDaFilial(filial);
     if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
-    const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente);
+    const arq = await this.baixarArquivosFocus(token, this.refDaNota(nota), filial?.nfeAmbiente, tipo);
     const nome = String(nota.numero).replace('/', '-');
     if (tipo === 'danfe') {
       if (!arq.pdf) throw new BadRequestException('DANFE ainda não disponível na Focus. Tente novamente em instantes.');
@@ -1201,17 +1201,24 @@ export class NfeService {
     }
   }
 
-  /** Baixa DANFE (PDF) e XML da nota na Focus. */
-  private async baixarArquivosFocus(token: string, ref: string, amb?: string | null) {
+  /** Baixa DANFE (PDF) e XML da nota na Focus. Após autorizar, a Focus leva alguns
+   *  segundos p/ publicar o DANFE/XML — tenta algumas vezes até o arquivo aparecer
+   *  (evita o "ainda não disponível, tente novamente" logo após a autorização). */
+  private async baixarArquivosFocus(token: string, ref: string, amb?: string | null, esperar: 'danfe' | 'xml' = 'danfe') {
     const auth = 'Basic ' + Buffer.from(token + ':').toString('base64');
+    const campo = esperar === 'xml' ? 'caminho_xml_nota_fiscal' : 'caminho_danfe';
     // Descobre em qual host a nota realmente existe (ambiente pode divergir do global).
     let host = this.focusHost(amb);
     let det: Record<string, unknown> | undefined;
-    for (const a of this.ambientesParaLeitura(amb)) {
-      const h = this.focusHost(a);
-      const d = (await (await fetch(`https://${h}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
-      if (d && (d['caminho_xml_nota_fiscal'] || d['caminho_danfe'])) { host = h; det = d; break; }
-      if (!det) det = d;
+    for (let tentativa = 0; tentativa < 4; tentativa++) {
+      for (const a of this.ambientesParaLeitura(amb)) {
+        const h = this.focusHost(a);
+        const d = (await (await fetch(`https://${h}/v2/nfe/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } }).catch(() => null))?.json().catch(() => ({}))) as Record<string, unknown> | undefined;
+        if (d && (d['caminho_xml_nota_fiscal'] || d['caminho_danfe'])) { host = h; det = d; }
+        else if (!det) det = d;
+      }
+      if (det && det[campo]) break; // arquivo pedido já publicado
+      if (tentativa < 3) await new Promise((r) => setTimeout(r, 1200)); // espera a Focus gerar
     }
     const baixar = async (caminho?: unknown): Promise<Buffer | null> => {
       if (!caminho || typeof caminho !== 'string') return null;
