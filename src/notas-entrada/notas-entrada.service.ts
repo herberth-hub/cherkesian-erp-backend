@@ -276,7 +276,7 @@ export class NotasEntradaService {
       }
 
       return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas, pedidosLiberados };
-    });
+    }, { timeout: 30000, maxWait: 15000 }); // NF com muitos itens: evita timeout de 5s (Neon) → erro 500
   }
 
   /**
@@ -410,7 +410,7 @@ export class NotasEntradaService {
       }
 
       return { ...atualizada, ocsBaixadas, tituloAjustado, tituloPago };
-    });
+    }, { timeout: 30000, maxWait: 15000 });
   }
 
   async remove(id: number, empresaId: number) {
@@ -438,7 +438,7 @@ export class NotasEntradaService {
       }
       await tx.notaEntrada.delete({ where: { id } });
       return { removido: true, id };
-    });
+    }, { timeout: 30000, maxWait: 15000 });
   }
 
   // ===== Rastreador SEFAZ (Focus — distribuição de NF-e) =====
