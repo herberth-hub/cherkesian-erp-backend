@@ -101,6 +101,13 @@ export class KitsController {
     return this.kits.porControle(u.empresaId, controle);
   }
 
+  /** Peças ainda não enviadas da OP, por tamanho (base p/ dividir entre facções). */
+  @Areas('pcp', 'producao')
+  @Get('op/:opId/disponivel')
+  disponivelOp(@Param('opId', ParseIntPipe) opId: number, @CurrentUser() u: AuthUser) {
+    return this.kits.disponivelPorTamanho(opId, u.empresaId);
+  }
+
   /** Envio automatizado da OP p/ facção externa: gera controle + expede + vincula lote (PCP/master). */
   @Areas('pcp', 'producao')
   @Post('faccao-externa')

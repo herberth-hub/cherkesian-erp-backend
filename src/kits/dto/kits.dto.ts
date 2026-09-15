@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsObject, IsOptional, IsPositive, IsString, MaxLength, Min } from 'class-validator';
 
 /** Cadastro do lote de tecido recebido do fornecedor. */
 export class CreateLoteDto {
@@ -91,4 +91,7 @@ export class EnviarFaccaoDto {
   @IsOptional() @IsBoolean() interna?: boolean;
   /** Custo de mão de obra POR PEÇA a pagar ao terceiro (interno = deixe em branco). */
   @IsOptional() @IsNumber() @Min(0) custoMaoObra?: number;
+  /** Divisão por quantidade por tamanho: { "M": 150, "G": 80 }. Envia SÓ essa parte da OP
+   *  para esta facção (o restante fica para outra OS). Vazio = envia tudo o que resta. */
+  @IsOptional() @IsObject() grade?: Record<string, number>;
 }

@@ -483,6 +483,62 @@ export class KitsService {
     return `KIT-${ymd}-${String(doDia + 1).padStart(6, '0')}`;
   }
 
+  /** Peças AINDA NÃO enviadas da OP, por tamanho (base p/ a divisão entre facções). */
+  async disponivelPorTamanho(opId: number, empresaId: number) {
+    const op = await this.prisma.oP.findUnique({ where: { id: opId }, include: { pedido: { select: { empresaId: true } } } });
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${opId} não encontrada.`);
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, opId } });
+    const naoEnviados = kits.filter((k) => !k.controleFaccao && !['em_faccao', 'retornado', 'finalizado'].includes(k.status));
+    const grade: Record<string, number> = {};
+    for (const k of naoEnviados) { const t = String(k.tamanho || '—').toUpperCase(); grade[t] = (grade[t] || 0) + (k.pecasTotal || 0); }
+    // Se ainda não há kits gerados, cai na grade planejada da OP.
+    if (!kits.length) {
+      const g = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+      for (const [t, q] of Object.entries(g)) grade[String(t).toUpperCase()] = Number(q) || 0;
+    }
+    const total = Object.values(grade).reduce((s, q) => s + q, 0);
+    return { grade, total, temKits: kits.length > 0 };
+  }
+
+  /** Seleciona (e quebra, se preciso) kits NÃO enviados p/ bater a quantidade pedida por
+   *  tamanho. O que sobra num tamanho continua disponível p/ outra OS/facção. */
+  private async alocarKitsPorGrade(pool: Kit[], grade: Record<string, number>): Promise<Kit[]> {
+    const disp = pool.filter((k) => !k.controleFaccao && !['em_faccao', 'retornado', 'finalizado'].includes(k.status));
+    const sel: Kit[] = [];
+    for (const [tamRaw, qRaw] of Object.entries(grade)) {
+      const tam = String(tamRaw).toUpperCase();
+      const qtd = Math.max(0, Math.round(Number(qRaw) || 0));
+      if (!qtd) continue;
+      const doTam = disp.filter((k) => String(k.tamanho || '').toUpperCase() === tam);
+      const totalTam = doTam.reduce((s, k) => s + (k.pecasTotal || 0), 0);
+      if (qtd > totalTam) throw new BadRequestException(`Tamanho ${tam}: você pediu ${qtd}, mas só há ${totalTam} peça(s) disponível(is) para enviar nesta OP.`);
+      let resto = qtd;
+      for (const k of doTam) {
+        if (resto <= 0) break;
+        const p = k.pecasTotal || 0;
+        if (p <= resto) { sel.push(k); resto -= p; }
+        else {
+          // Quebra: novo kit com `resto` peças (vai p/ a facção); o original perde `resto`.
+          const novo = await this.prisma.kit.create({
+            data: {
+              empresaId: k.empresaId, pedidoId: k.pedidoId, opId: k.opId, loteTecidoId: k.loteTecidoId,
+              codigo: await this.proximoCodigoKit(new Date()),
+              clienteNome: k.clienteNome, modelo: k.modelo, variante: k.variante, cor: k.cor, tamanho: k.tamanho,
+              jogos: 0, pecasTotal: resto,
+              ordemProducao: k.ordemProducao, ordemCorte: k.ordemCorte, operacaoFaccao: k.operacaoFaccao,
+              loteTecidoNf: k.loteTecidoNf, status: 'aguardando_expedicao',
+            },
+          });
+          await this.prisma.kit.update({ where: { id: k.id }, data: { pecasTotal: p - resto } });
+          sel.push(novo);
+          resto = 0;
+        }
+      }
+    }
+    if (!sel.length) throw new BadRequestException('Informe a quantidade por tamanho a enviar para esta facção.');
+    return sel;
+  }
+
   /** Extrai o código do kit de um input que pode ser o QR (JSON) ou o próprio código. */
   private extrairCodigo(input: string): string {
     const t = (input ?? '').trim();
@@ -511,7 +567,7 @@ export class KitsService {
    * próxima) sem digitação manual. Idempotente por OP+facção.
    */
   async enviarFaccaoExterna(
-    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean; custoMaoObra?: number },
+    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean; custoMaoObra?: number; grade?: Record<string, number> },
     empresaId: number,
     usuario: string,
     ip?: string,
@@ -552,6 +608,12 @@ export class KitsService {
         const criados = await this.criarDeOp({ opId: op.id, faccaoId: dto.faccaoId, faccaoNome, operacaoFaccao: operacao } as CriarKitsDeOpDto, empresaId, usuario);
         kits = criados.kits;
       }
+    }
+
+    // DIVISÃO POR QUANTIDADE POR TAMANHO: envia SÓ a parte pedida para esta facção;
+    // o restante da OP fica disponível para outra OS/facção (quebra o kit se necessário).
+    if (dto.grade && Object.keys(dto.grade).length) {
+      kits = await this.alocarKitsPorGrade(kits as Kit[], dto.grade);
     }
 
     // Lote do tecido: NF informada → lote vinculado (LoteTecido) → lotes do romaneio da OP.
