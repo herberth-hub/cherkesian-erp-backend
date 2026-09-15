@@ -82,6 +82,11 @@ export class CreatePedidoDto {
   @MaxLength(120)
   formaPagamento?: string;
 
+  /** Colaborador confirmou avançar com cliente em RESTRIÇÃO por ser pagamento À VISTA. */
+  @IsOptional()
+  @IsBoolean()
+  creditoAVistaConfirmado?: boolean;
+
   /** Condição de frete (ex.: "CIF — incluso" / "FOB — por conta do cliente"). */
   @IsOptional()
   @IsString()

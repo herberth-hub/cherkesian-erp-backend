@@ -129,8 +129,23 @@ export class CreditoService {
     });
   }
 
-  /** Avalia o cliente para criar um pedido (usa consulta recente ou consulta agora). */
-  async avaliarParaPedido(clienteId: number, empresaId: number, usuario: string) {
+  /** Pagamento é À VISTA? (sem prazo em dias na forma de pagamento). */
+  private ehAVista(forma?: string | null): boolean {
+    const dias = [...String(forma ?? '').replace(/\([^)]*\)/g, ' ').matchAll(/\d+/g)]
+      .map((m) => parseInt(m[0], 10))
+      .filter((d) => d > 0 && d <= 360);
+    return dias.length === 0;
+  }
+
+  /** Avalia o cliente para criar um pedido (usa consulta recente ou consulta agora).
+   *  Com restrição: se o pagamento for À VISTA e o colaborador confirmar, libera (com
+   *  ciência); a prazo continua exigindo liberação do admin. */
+  async avaliarParaPedido(
+    clienteId: number,
+    empresaId: number,
+    usuario: string,
+    opts?: { formaPagamento?: string | null; aVistaConfirmado?: boolean },
+  ) {
     const cfg = await this.getConfig(empresaId);
     if (!cfg.bloqueiaPedido || cfg.provedor === 'off' || !cfg.ativo) {
       return { permitido: true, situacao: 'regular', motivo: 'Bloqueio de crédito desativado.' };
@@ -143,14 +158,30 @@ export class CreditoService {
     let consulta = await this.prisma.consultaCredito.findFirst({ where: { clienteId, consultadoEm: { gte: limite } }, orderBy: { consultadoEm: 'desc' } });
     if (!consulta) consulta = await this.consultar(clienteId, empresaId, usuario);
     const bloqueado = consulta.situacao === 'restricao';
+    if (!bloqueado) {
+      return { permitido: true, situacao: consulta.situacao, score: consulta.score, resumo: consulta.resumo, motivo: consulta.resumo };
+    }
+    const aVista = this.ehAVista(opts?.formaPagamento);
+    // À vista + colaborador confirmou → libera com ciência (não precisa de admin).
+    if (aVista && opts?.aVistaConfirmado) {
+      return {
+        permitido: true,
+        situacao: consulta.situacao,
+        score: consulta.score,
+        resumo: consulta.resumo,
+        motivo: `Restrição de crédito — pedido À VISTA liberado com ciência de ${usuario}. ${consulta.resumo}`,
+      };
+    }
+    // Bloqueado: à vista pede CONFIRMAÇÃO do colaborador; a prazo exige o admin.
     return {
-      permitido: !bloqueado,
+      permitido: false,
       situacao: consulta.situacao,
       score: consulta.score,
       resumo: consulta.resumo,
-      motivo: bloqueado
-        ? `Cliente com restrição de crédito: ${consulta.resumo}. Um administrador precisa liberar o cliente para prosseguir.`
-        : consulta.resumo,
+      exigeConfirmacaoAVista: aVista,
+      motivo: aVista
+        ? `Cliente com restrição de crédito: ${consulta.resumo}. Pagamento à VISTA — confirme para avançar com o pedido.`
+        : `Cliente com restrição de crédito: ${consulta.resumo}. Um administrador precisa liberar o cliente, OU registre o pagamento à VISTA para prosseguir.`,
     };
   }
 

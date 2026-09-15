@@ -4006,6 +4006,7 @@ async function savePedido(id){
   if(window.__PEDOC && window.__PEDOC.data){ body.ocArquivo=window.__PEDOC.data; body.ocArquivoNome=window.__PEDOC.nome||'ordem-compra'; }
   else if(id){ body.ocArquivo=null; body.ocArquivoNome=null; } // removeu o anexo num pedido existente
   body.instrucoesEntrega = pedEntregaLer() || {}; // {} = limpa; objeto = grava
+  if(window.__pedCredAVista) body.creditoAVistaConfirmado=true; // restrição + à vista confirmado pelo colaborador
   try{
     if(id){ const p=await api('/pedidos/'+id,{method:'PATCH',body}); closeModal();
       let m='Pedido '+p.numero+' atualizado.';
@@ -4014,8 +4015,23 @@ async function savePedido(id){
       if(p.opsAviso&&p.opsAviso.length){ await uiAlert({tipo:'warn', titulo:'⚠ Revisar OPs após a retificação', ok:'Entendi', msg:p.opsAviso.join('\n')}); }
     }
     else { const p=await api('/pedidos',{method:'POST',body}); closeModal(); toast('Pedido '+p.numero+' criado'+(p.exigePiloto?' (exige piloto)':'')+'.','ok'); }
+    window.__pedCredAVista=false;
     loadRoute();
-  } catch(e){ toast(e.message,'err'); }
+  } catch(e){
+    // Cliente com RESTRIÇÃO de crédito: se o pagamento for À VISTA, pergunta ao colaborador e reenvia confirmando.
+    if(!id && /restri[cç][aã]o de cr[eé]dito/i.test(e.message||'') && !window.__pedCredAVista){
+      const forma=val('f_pag')||'';
+      const aVista = ![...forma.replace(/\([^)]*\)/g,' ').matchAll(/\d+/g)].map(m=>Number(m[0])).some(d=>d>0&&d<=360);
+      if(aVista){
+        const ok=await uiConfirm({tipo:'warn', titulo:'⚠️ Cliente com restrição de crédito', ok:'Sim, avançar (à vista)', cancel:'Não avançar',
+          msg:'Este cliente está com RESTRIÇÃO de crédito.\n\nComo o pagamento é À VISTA, dá para avançar mesmo assim. Tem certeza que quer criar o pedido?'});
+        if(ok){ window.__pedCredAVista=true; try{ await savePedido(id); } finally{ window.__pedCredAVista=false; } }
+        return; // desistiu ou já reenviou
+      }
+    }
+    window.__pedCredAVista=false;
+    toast(e.message,'err');
+  }
 }
 async function excluirPedido(id,numero){
   if(!(await uiConfirm({tipo:'err', titulo:'Excluir pedido '+numero+'?', msg:'Só é permitido enquanto não gerou OP nem NF. Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;

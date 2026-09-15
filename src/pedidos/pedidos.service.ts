@@ -151,8 +151,12 @@ export class PedidosService {
       throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
     }
 
-    // Crédito: consulta na criação do pedido; restrição bloqueia (admin libera).
-    const credito = await this.credito.avaliarParaPedido(dto.clienteId, empresaId, criadoPor);
+    // Crédito: consulta na criação do pedido. Restrição bloqueia; À VISTA pode avançar
+    // com a confirmação do colaborador; a prazo exige liberação do admin.
+    const credito = await this.credito.avaliarParaPedido(dto.clienteId, empresaId, criadoPor, {
+      formaPagamento: dto.formaPagamento,
+      aVistaConfirmado: dto.creditoAVistaConfirmado,
+    });
     if (!credito.permitido) throw new ConflictException(credito.motivo);
 
     // Resolve itens (valida produto, herda descrição) e soma o total.
