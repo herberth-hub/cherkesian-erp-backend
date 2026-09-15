@@ -89,4 +89,10 @@ export class CreateNotaEntradaDto {
 
   /** Categoria do título a pagar (padrão "Matéria-prima"). */
   @IsOptional() @IsString() @MaxLength(60) categoria?: string;
+
+  /** NF já paga: gera o(s) título(s) já QUITADO(s) (pago = valor, status "pago"). */
+  @IsOptional() @IsBoolean() pago?: boolean;
+
+  /** Banco/conta de onde saiu o pagamento (registrado na baixa, quando pago). */
+  @IsOptional() @IsString() @MaxLength(80) bancoPagto?: string;
 }

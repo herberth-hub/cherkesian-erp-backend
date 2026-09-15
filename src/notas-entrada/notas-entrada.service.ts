@@ -113,6 +113,7 @@ export class NotasEntradaService {
         const n = parcelas.length;
         for (let i = 0; i < n; i++) {
           const pc = parcelas[i];
+          const pcValor = new Prisma.Decimal(Number(pc.valor).toFixed(2));
           const cp = await tx.contaPagar.create({
             data: {
               empresaId,
@@ -121,7 +122,9 @@ export class NotasEntradaService {
               categoria: dto.categoria || 'Matéria-prima',
               referencia: `NF entrada ${dto.numero}${n > 1 ? ` (${i + 1}/${n})` : ''}`,
               vencimento: new Date(pc.vencimento),
-              valor: new Prisma.Decimal(Number(pc.valor).toFixed(2)),
+              valor: pcValor,
+              // NF já paga: nasce quitada (não fica em aberto no contas a pagar).
+              ...(dto.pago ? { pago: pcValor, status: 'pago' as never, bancoPagto: dto.bancoPagto || undefined } : {}),
             },
           });
           if (i === 0) contaPagarId = cp.id;
