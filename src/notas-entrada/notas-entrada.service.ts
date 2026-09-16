@@ -89,19 +89,25 @@ export class NotasEntradaService {
     return this.prisma.$transaction(async (tx) => {
       // Auto-cadastro de materiais: cada item SEM vínculo acha (por descrição) ou CADASTRA
       // um material seguindo a regra de código MP-CAT-0000. Toda entrada fica no cadastro.
-      const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
+      // Pré-carrega os materiais UMA vez (mapa por descrição) — evita 1 consulta por item
+      // (NF grande com dezenas de itens sem vínculo estourava o tempo da transação).
+      const matsExist = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true } });
+      const codigosMP = matsExist.map((m) => m.codigo);
+      const matPorDesc = new Map(matsExist.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
       for (const it of dto.itens) {
         if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
-        const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
-        if (existente) { it.materialId = existente.id; continue; }
+        const chave = desc.toLowerCase();
+        const existenteId = matPorDesc.get(chave);
+        if (existenteId) { it.materialId = existenteId; continue; }
         const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
         codigosMP.push(codigo);
         const novo = await tx.material.create({
           data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) },
         });
         it.materialId = novo.id;
+        matPorDesc.set(chave, novo.id); // dedup de itens repetidos na mesma NF
       }
 
       // Título(s) a pagar (opcional) — uma conta por parcela; sem parcelas, 1 título.
@@ -330,18 +336,22 @@ export class NotasEntradaService {
       // 1c) remove os itens antigos (serão recriados)
       await tx.notaEntradaItem.deleteMany({ where: { notaEntradaId: id } });
 
-      // 2) Auto-cadastro de materiais dos novos itens (acha por descrição ou cria)
-      const codigosMP = (await tx.material.findMany({ where: { empresaId }, select: { codigo: true } })).map((m) => m.codigo);
+      // 2) Auto-cadastro de materiais dos novos itens (mapa por descrição — 1 consulta só)
+      const matsExistU = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true } });
+      const codigosMP = matsExistU.map((m) => m.codigo);
+      const matPorDesc = new Map(matsExistU.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
       for (const it of dto.itens) {
         if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
-        const existente = await tx.material.findFirst({ where: { empresaId, descricao: { equals: desc, mode: 'insensitive' } } });
-        if (existente) { it.materialId = existente.id; continue; }
+        const chave = desc.toLowerCase();
+        const existenteId = matPorDesc.get(chave);
+        if (existenteId) { it.materialId = existenteId; continue; }
         const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
         codigosMP.push(codigo);
         const novo = await tx.material.create({ data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) } });
         it.materialId = novo.id;
+        matPorDesc.set(chave, novo.id);
       }
 
       // 3) Atualiza cabeçalho + recria itens
