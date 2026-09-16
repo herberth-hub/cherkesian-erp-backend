@@ -87,36 +87,12 @@ export class NotasEntradaService {
 
     const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
 
-    try {
-    return await this.prisma.$transaction(async (tx) => {
-      // Auto-cadastro/vínculo de materiais (1 consulta só; casa por CÓDIGO DO FORNECEDOR e por descrição).
-      const matsExist = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, codigoArtigo: true, fornecedorId: true } });
-      const codigosMP = matsExist.map((m) => m.codigo);
-      const matPorDesc = new Map(matsExist.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
-      const idxCod = this.indiceCodigoFornecedor(matsExist);
-      for (const it of dto.itens) {
-        if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
-        // 1) casa pelo CÓDIGO DO FORNECEDOR (artigo) quando o material já existir → não recria.
-        const idPorCod = this.acharPorCodigoForn(idxCod, fornecedorId, it.codigoFornecedor);
-        if (idPorCod) { it.materialId = idPorCod; continue; }
-        // 2) casa por DESCRIÇÃO.
-        const desc = (it.descricao || '').trim();
-        if (!desc) continue;
-        const chave = desc.toLowerCase();
-        const existenteId = matPorDesc.get(chave);
-        if (existenteId) { it.materialId = existenteId; continue; }
-        // 3) cria — guardando o código do fornecedor no artigo p/ casar automático na próxima NF.
-        const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
-        codigosMP.push(codigo);
-        const codf = it.codigoFornecedor?.trim();
-        const novo = await tx.material.create({
-          data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)), ...(codf ? { codigoArtigo: codf, ...(fornecedorId ? { fornecedorId } : {}) } : {}) },
-        });
-        it.materialId = novo.id;
-        matPorDesc.set(chave, novo.id); // dedup de itens repetidos na mesma NF
-        this.registrarCodigoForn(idxCod, fornecedorId, codf, novo.id);
-      }
+    // Resolve/cadastra os materiais dos itens ANTES da transação (encurta a transação
+    // e evita cair a conexão do Neon no meio dela — P2028).
+    await this.resolverMateriaisItens(dto.itens, empresaId, fornecedorId);
 
+    try {
+    return await this.comRetryTx(() => this.prisma.$transaction(async (tx) => {
       // Título(s) a pagar (opcional) — uma conta por parcela; sem parcelas, 1 título.
       let contaPagarId: number | undefined;
       if (dto.gerarContaPagar) {
@@ -289,7 +265,7 @@ export class NotasEntradaService {
       }
 
       return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas, pedidosLiberados };
-    }, { timeout: 30000, maxWait: 15000 }); // NF com muitos itens: evita timeout de 5s (Neon) → erro 500
+    }, { timeout: 30000, maxWait: 15000 })); // NF com muitos itens: timeout maior + retry se a conexão cair (P2028)
     } catch (e) {
       if (e instanceof HttpException) throw e; // validações (400/404) passam direto
       const err = e as { code?: string; message?: string };
@@ -335,7 +311,10 @@ export class NotasEntradaService {
     const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
     const lancar = dto.lancarEstoque ?? nota.lancadaEstoque;
 
-    return this.prisma.$transaction(async (tx) => {
+    // Resolve/cadastra os materiais FORA da transação (encurta a tx; evita P2028 no Neon).
+    await this.resolverMateriaisItens(dto.itens, empresaId, fornecedorId);
+
+    return this.comRetryTx(() => this.prisma.$transaction(async (tx) => {
       // 1) REVERTE efeitos antigos ------------------------------------------
       // 1a) estorna o estoque dos itens anteriores (se havia sido lançado)
       if (nota.lancadaEstoque) {
@@ -348,29 +327,6 @@ export class NotasEntradaService {
       await tx.ordemCompra.updateMany({ where: { notaEntradaId: id }, data: { status: 'aguardando', notaEntradaId: null, recebidaEm: null } });
       // 1c) remove os itens antigos (serão recriados)
       await tx.notaEntradaItem.deleteMany({ where: { notaEntradaId: id } });
-
-      // 2) Auto-cadastro/vínculo de materiais (casa por código do fornecedor e por descrição).
-      const matsExistU = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, codigoArtigo: true, fornecedorId: true } });
-      const codigosMP = matsExistU.map((m) => m.codigo);
-      const matPorDesc = new Map(matsExistU.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
-      const idxCod = this.indiceCodigoFornecedor(matsExistU);
-      for (const it of dto.itens) {
-        if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
-        const idPorCod = this.acharPorCodigoForn(idxCod, fornecedorId, it.codigoFornecedor);
-        if (idPorCod) { it.materialId = idPorCod; continue; }
-        const desc = (it.descricao || '').trim();
-        if (!desc) continue;
-        const chave = desc.toLowerCase();
-        const existenteId = matPorDesc.get(chave);
-        if (existenteId) { it.materialId = existenteId; continue; }
-        const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
-        codigosMP.push(codigo);
-        const codf = it.codigoFornecedor?.trim();
-        const novo = await tx.material.create({ data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)), ...(codf ? { codigoArtigo: codf, ...(fornecedorId ? { fornecedorId } : {}) } : {}) } });
-        it.materialId = novo.id;
-        matPorDesc.set(chave, novo.id);
-        this.registrarCodigoForn(idxCod, fornecedorId, codf, novo.id);
-      }
 
       // 3) Atualiza cabeçalho + recria itens
       const atualizada = await tx.notaEntrada.update({
@@ -438,7 +394,7 @@ export class NotasEntradaService {
       }
 
       return { ...atualizada, ocsBaixadas, tituloAjustado, tituloPago };
-    }, { timeout: 30000, maxWait: 15000 });
+    }, { timeout: 30000, maxWait: 15000 }));
   }
 
   async remove(id: number, empresaId: number) {
@@ -491,6 +447,58 @@ export class NotasEntradaService {
     if (!c) return;
     if (fornecedorId) idx.set(`${fornecedorId}|${c}`, id);
     if (!idx.has(c)) idx.set(c, id);
+  }
+
+  /** Resolve/cadastra os materiais dos itens FORA da transação (casa por código do
+   *  fornecedor → descrição → cria). Encurta a transação e evita P2028 no Neon. */
+  private async resolverMateriaisItens(
+    itens: Array<{ materialId?: number | null; produtoId?: number | null; descricao?: string; codigoFornecedor?: string; unidade?: string; valorUnit: number }>,
+    empresaId: number,
+    fornecedorId?: number,
+  ): Promise<void> {
+    const semVinculo = itens.some((it) => !it.materialId && !it.produtoId && (it.descricao || '').trim());
+    if (!semVinculo) return;
+    const mats = await this.prisma.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, codigoArtigo: true, fornecedorId: true } });
+    const codigosMP = mats.map((m) => m.codigo);
+    const matPorDesc = new Map(mats.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
+    const idxCod = this.indiceCodigoFornecedor(mats);
+    for (const it of itens) {
+      if (it.materialId || it.produtoId) continue;
+      const idPorCod = this.acharPorCodigoForn(idxCod, fornecedorId, it.codigoFornecedor);
+      if (idPorCod) { it.materialId = idPorCod; continue; }
+      const desc = (it.descricao || '').trim();
+      if (!desc) continue;
+      const chave = desc.toLowerCase();
+      const existenteId = matPorDesc.get(chave);
+      if (existenteId) { it.materialId = existenteId; continue; }
+      const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
+      codigosMP.push(codigo);
+      const codf = it.codigoFornecedor?.trim();
+      const novo = await this.prisma.material.create({
+        data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)), ...(codf ? { codigoArtigo: codf, ...(fornecedorId ? { fornecedorId } : {}) } : {}) },
+      });
+      it.materialId = novo.id;
+      matPorDesc.set(chave, novo.id);
+      this.registrarCodigoForn(idxCod, fornecedorId, codf, novo.id);
+    }
+  }
+
+  /** Re-tenta a transação quando a conexão do banco cai no meio (P2028 do Neon/pooler). */
+  private async comRetryTx<T>(fn: () => Promise<T>, tentativas = 3): Promise<T> {
+    let ultimo: unknown;
+    for (let i = 0; i < tentativas; i++) {
+      try { return await fn(); }
+      catch (e) {
+        ultimo = e;
+        const code = (e as { code?: string })?.code;
+        const msg = (e as Error)?.message || '';
+        const transiente = code === 'P2028' || /transaction (not found|already closed)|closed transaction|before disconnecting|Server has closed the connection|Can't reach database/i.test(msg);
+        if (!transiente || i === tentativas - 1) throw e;
+        this.logger.warn(`Transação instável (${code || 'conexão'}), tentativa ${i + 1}/${tentativas}…`);
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+    throw ultimo;
   }
 
   // ===== Rastreador SEFAZ (Focus — distribuição de NF-e) =====
