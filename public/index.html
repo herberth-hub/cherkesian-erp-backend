@@ -6765,6 +6765,7 @@ async function viewEstoque(c){
   const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque'||u.status==='reservado').length;
   const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
   const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
+  const desp=(unidades||[]).filter(u=>u.status==='despachado').length;
   const cont={produto:0,materia:0,aviamento:0}; (unidades||[]).forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
       `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.verRetalhos()">🧵 Retalhos</button> <button class="btn-sm" onclick="APP.verMovimentos()">📊 Movimentações</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
@@ -6785,6 +6786,7 @@ async function viewEstoque(c){
           <option value="estoque">Em estoque (${emEstoque})</option>
           <option value="recebimento">📥 Recebimento (${aguard})</option>
           <option value="quarentena">⚠ Quarentena (${quar})</option>
+          <option value="despachado">🚚 Despachadas (${desp})</option>
         </select>
         <select id="und_tipo" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
           <option value="">Todos os tipos (${(unidades||[]).length})</option>

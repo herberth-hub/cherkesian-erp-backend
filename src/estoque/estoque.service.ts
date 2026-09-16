@@ -172,6 +172,13 @@ export class EstoqueService {
   }
 
   /** Lista as unidades em estoque (com filtros simples). */
+  /**
+   * Lista as unidades (etiquetas) da empresa. A tela de Estoque filtra do lado do
+   * cliente (busca, coluna/andar/caixa, KPIs), então precisa receber o estoque
+   * INTEIRO — um limite baixo aqui faz etiquetas antigas sumirem da pesquisa e
+   * ainda falseia os contadores. Por isso: payload enxuto (só os campos que a
+   * lista usa) e teto alto, apenas como proteção contra runaway.
+   */
   async listarUnidades(empresaId: number, status?: string, q?: string) {
     const termo = (q ?? '').trim();
     return this.prisma.unidadeEstoque.findMany({
@@ -186,8 +193,12 @@ export class EstoqueService {
           { caixaMaster: { contains: termo, mode: 'insensitive' } },
         ] } : {}),
       },
+      select: {
+        codigo: true, descricao: true, cor: true, tamanho: true, tipo: true,
+        status: true, coluna: true, andar: true, caixaMaster: true, areaMotivo: true,
+      },
       orderBy: { id: 'desc' },
-      take: 5000,
+      take: 100_000,
     });
   }
 

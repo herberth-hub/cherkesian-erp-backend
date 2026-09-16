@@ -7,6 +7,7 @@ setDefaultResultOrder('ipv4first');
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { json, urlencoded, Request, Response, NextFunction } from 'express';
+import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -20,6 +21,13 @@ async function bootstrap(): Promise<void> {
   // (Audaces .adsx/.zip) da ficha técnica; ainda barra payloads abusivos (anti-DoS).
   app.use(json({ limit: '16mb' }));
   app.use(urlencoded({ extended: true, limit: '16mb' }));
+
+  // ===== Compressão (gzip) =====
+  // O frontend é um HTML único grande e algumas listas são pesadas (o estoque
+  // devolve TODAS as etiquetas p/ a busca cobrir 100% do acervo: ~1,8 MB que
+  // viram ~40 KB comprimidos). Precisa vir ANTES do ServeStatic (registrado no
+  // app.init/listen) para também comprimir o index.html.
+  app.use(compression());
 
   // ===== Portal do Cliente por subdomínio =====
   // Quando o site é acessado por um host de portal (ex.: portal.hcqualitycorp.com.br),
