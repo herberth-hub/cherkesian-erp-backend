@@ -7450,32 +7450,76 @@ async function enderecarBip(){
 }
 // Consulta de etiqueta (SÓ leitura — não endereça). Enter/câmera fazem a busca.
 function formConsultaEtiqueta(){
+  window.__CONSUN=null; window.__CONS_DIRTY=false;
   openModal(`<h3>🔎 Consultar etiqueta</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe ou digite a etiqueta para ver <b>onde está endereçada</b> e o status. Isto <b>não</b> movimenta nada.</div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe ou digite a etiqueta para ver <b>onde está endereçada</b> e o status. A consulta busca no banco inteiro (acha qualquer etiqueta, de qualquer data) e as <b>ações</b> aparecem no resultado.</div>
     <div style="display:flex;gap:8px;align-items:end">
       <div style="flex:1"><label class="fl">Etiqueta da peça</label><input id="cons_bip" class="inp" placeholder="UN-... (leitor ou digite)" onkeydown="if(event.key==='Enter')APP.consultarEtiqueta()"></div>
       <button class="btn-primary" onclick="APP.consultarEtiqueta()">Consultar</button>
       <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('cons_bip').value=code;APP.consultarEtiqueta();})">📷</button></div>
     <div id="cons_out" style="margin-top:12px"></div>
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.consFechar()">Fechar</button></div>`);
   setTimeout(()=>{const i=$('cons_bip'); if(i)i.focus();},50);
 }
-async function consultarEtiqueta(){
-  const codigo=(val('cons_bip')||'').trim(); if(!codigo){ return; }
+// Fecha a consulta e só recarrega o estoque se alguma ação mudou algo.
+function consFechar(){ const d=window.__CONS_DIRTY; window.__CONS_DIRTY=false; window.__CONSUN=null; closeModal(); if(d) loadRoute(); }
+async function consultarEtiqueta(codigoDireto){
+  const codigo=String(codigoDireto!=null?codigoDireto:(val('cons_bip')||'')).trim(); if(!codigo){ return; }
   const out=$('cons_out');
   try{
     const u=await api('/estoque/unidade/'+encodeURIComponent(codigo));
-    beepOk();
+    window.__CONSUN=u;
+    if(codigoDireto==null) beepOk();
     const pill = u.status==='em_estoque'?'green':(u.status==='aguardando_endereco'?'red':(u.status==='reservado'?'blue':'gray'));
+    const admin = S.user.acesso==='total';
+    // Ações da própria etiqueta consultada (mesmas regras da lista de unidades).
+    let acoes=`<button class="btn-sm" title="Reimprimir a etiqueta desta peça" onclick="APP.consReimprimir()">🖨 Reimprimir</button>`;
+    if(u.status==='quarentena') acoes+=` <button class="btn-sm" style="color:#1e7a44" title="Devolver ao Recebimento p/ realocar" onclick="APP.consResolver()">✅ Resolver quarentena</button>`;
+    else if(u.status!=='despachado') acoes+=` <button class="btn-sm" style="color:#b5731a" title="Anomalia, estorno de cliente, avaria…" onclick="APP.consQuarentena()">⚠ Enviar p/ quarentena</button>`;
+    if(admin && u.status!=='despachado') acoes+=` <button class="btn-sm" style="color:#c14a34" title="Excluir esta etiqueta (admin)" onclick="APP.consExcluir()">🗑 Excluir</button>`;
+    const nota = u.status==='despachado' ? '<div class="muted" style="font-size:11px;margin-top:6px">Etiqueta já despachada: não pode ser excluída nem enviada à quarentena.</div>'
+      : (!admin ? '<div class="muted" style="font-size:11px;margin-top:6px">Excluir etiqueta é permitido apenas ao administrador.</div>' : '');
     out.innerHTML=`<div style="border:1px solid #e7e3d8;border-radius:10px;padding:12px 14px;background:#fff">
       <div style="font-weight:800;font-size:14px">${esc(u.descricao)}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · TAM '+esc(u.tamanho):''}</div>
       <div class="mono gold" style="font-size:12px;margin:2px 0 8px">${esc(u.codigo)}</div>
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Status</span><span class="pill ${pill}">${esc(u.statusLabel)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Endereço</span><b>${u.enderecado?esc(u.endereco):'<span style="color:#c14a34">sem endereço</span>'}</b></div>
       ${u.loteFornecedor?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Lote fornecedor</span><b>${esc(u.loteFornecedor)}</b></div>`:''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #f0e7d0">${acoes}</div>
+      ${nota}
     </div>`;
-  }catch(e){ beepErro(); out.innerHTML=`<div style="color:#c14a34;font-size:13px;padding:6px 0">❌ ${esc(e.message||'Etiqueta não encontrada.')}</div>`; }
-  $('cons_bip').value=''; $('cons_bip').focus();
+  }catch(e){ window.__CONSUN=null; beepErro(); out.innerHTML=`<div style="color:#c14a34;font-size:13px;padding:6px 0">❌ ${esc(e.message||'Etiqueta não encontrada.')}</div>`; }
+  const i=$('cons_bip'); if(i){ i.value=''; i.focus(); }
+}
+// ===== Ações da etiqueta consultada (atualizam o cartão; não fecham a modal) =====
+function consReimprimir(){ const u=window.__CONSUN; if(!u){ toast('Consulte uma etiqueta primeiro.','err'); return; } reimprimirUnidade(u.codigo); }
+async function consQuarentena(){
+  const u=window.__CONSUN; if(!u) return;
+  const m=prompt('Motivo da quarentena (anomalia, estorno de cliente, avaria...):',''); if(m===null) return;
+  try{ await api('/estoque/quarentena',{method:'POST',body:{codigo:u.codigo, motivo:m}});
+    window.__CONS_DIRTY=true; toast('Etiqueta '+u.codigo+' enviada para quarentena.','ok'); consultarEtiqueta(u.codigo);
+  }catch(e){ toast(e.message,'err'); }
+}
+async function consResolver(){
+  const u=window.__CONSUN; if(!u) return;
+  const d=await uiConfirm({tipo:'info', titulo:'Resolver quarentena — '+u.codigo, ok:'Devolver ao Recebimento', cancel:'Cancelar',
+    msg:'A unidade volta para o Recebimento (sem endereço) para ser realocada. Se preferir descartar, use Excluir (admin).'});
+  if(!d) return;
+  try{ await api('/estoque/quarentena/resolver',{method:'POST',body:{codigo:u.codigo, destino:'recebimento'}});
+    window.__CONS_DIRTY=true; toast('Quarentena resolvida — '+u.codigo+' no Recebimento.','ok'); consultarEtiqueta(u.codigo);
+  }catch(e){ toast(e.message,'err'); }
+}
+async function consExcluir(){
+  const u=window.__CONSUN; if(!u) return;
+  const ok=await uiConfirm({tipo:'warn', titulo:'Excluir etiqueta', ok:'Excluir', cancel:'Cancelar',
+    msg:'Excluir a etiqueta '+u.codigo+'?\n\n'+(u.descricao||'')+(u.tamanho?' · TAM '+u.tamanho:'')+'\n\nA unidade sai do estoque. Ação apenas do administrador e não pode ser desfeita — depois gere a etiqueta nova pela Entrada.'});
+  if(!ok) return;
+  try{ await api('/estoque/unidade/'+encodeURIComponent(u.codigo),{method:'DELETE'});
+    window.__CONS_DIRTY=true; const cod=u.codigo; window.__CONSUN=null;
+    toast('Etiqueta '+cod+' excluída.','ok');
+    const out=$('cons_out'); if(out) out.innerHTML=`<div style="border:1px solid #cfe6d5;border-radius:10px;padding:10px 12px;background:#f2f9f4;color:#1e7a44;font-size:13px">🗑 Etiqueta <b class="mono">${esc(cod)}</b> excluída do estoque. Bipe a próxima ou feche para atualizar a lista.</div>`;
+    const i=$('cons_bip'); if(i) i.focus();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function formMov(){
   const [prods, mats] = await Promise.all([api('/produtos'), api('/materiais').catch(()=>[])]);
@@ -11291,7 +11335,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
