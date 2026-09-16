@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -86,7 +87,8 @@ export class NotasEntradaService {
 
     const valor = dto.itens.reduce((s, it) => s + it.quantidade * it.valorUnit, 0);
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+    return await this.prisma.$transaction(async (tx) => {
       // Auto-cadastro de materiais: cada item SEM vínculo acha (por descrição) ou CADASTRA
       // um material seguindo a regra de código MP-CAT-0000. Toda entrada fica no cadastro.
       // Pré-carrega os materiais UMA vez (mapa por descrição) — evita 1 consulta por item
@@ -283,6 +285,12 @@ export class NotasEntradaService {
 
       return { ...nota, contaPagarGerada: !!contaPagarId, materiaisAtualizados: lancados, ocsBaixadas, pedidosLiberados };
     }, { timeout: 30000, maxWait: 15000 }); // NF com muitos itens: evita timeout de 5s (Neon) → erro 500
+    } catch (e) {
+      if (e instanceof HttpException) throw e; // validações (400/404) passam direto
+      const err = e as { code?: string; message?: string };
+      this.logger.error(`Falha ao registrar NF de entrada ${dto.numero} (${dto.itens?.length ?? 0} itens): ${err?.code ?? ''} ${err?.message ?? ''}`);
+      throw new BadRequestException(`Não foi possível registrar a NF: ${err?.message || 'erro interno'}${err?.code ? ` [${err.code}]` : ''}`);
+    }
   }
 
   /**
