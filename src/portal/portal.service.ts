@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma, Produto } from '@prisma/client';
 import { NfeService } from '../nfe/nfe.service';
+import { PedidosService } from '../pedidos/pedidos.service';
 import { AuthUser } from '../auth/auth.types';
 
 /**
@@ -80,11 +82,7 @@ export class PortalService {
     const cliente = await this.clienteDoEscopo(user, override);
     const produtos = await this.produtosDoCliente(user.empresaId, cliente);
 
-    const ordemTam = ['PP', 'P', 'M', 'G', 'G1', 'G2', 'G3', 'G4', 'G5', 'GG', 'XG', 'EXG', 'U'];
-    const rankTam = (t: string) => {
-      const i = ordemTam.indexOf(String(t || '').toUpperCase());
-      return i < 0 ? 999 : i;
-    };
+    const rankTam = PortalService.rankTam;
 
     const itens = produtos
       .map((p) => {
@@ -278,5 +276,106 @@ export class PortalService {
     });
     if (!pedido) throw new ForbiddenException('Esta nota não pertence ao seu cadastro.');
     return this.nfe.baixarArquivo(notaId, user.empresaId, tipo);
+  }
+
+  private static readonly ORDEM_TAM = ['PP', 'P', 'M', 'G', 'G1', 'G2', 'G3', 'G4', 'G5', 'GG', 'XG', 'EXG', 'U'];
+  /** Ordem visual dos tamanhos (PP…G8, depois o resto em ordem alfabética). */
+  static rankTam(t: string): number {
+    const i = PortalService.ORDEM_TAM.indexOf(String(t || '').toUpperCase());
+    return i < 0 ? 999 : i;
+  }
+
+  /**
+   * Catálogo "Disponível para compra": produtos do cliente (mesmo critério do estoque) +
+   * produtos dos contratos ativos dele. O PREÇO é resolvido AQUI, no servidor: preço do
+   * contrato quando existir; senão o preço de venda do próprio ERP (precoBase/precoEspecial,
+   * o mesmo que vai nos pedidos e na NF). Nunca uma tabela genérica do front — evita
+   * divergência entre o portal e a nota fiscal. Disponibilidade = saldo por tamanho
+   * (inclui tamanhos com saldo zero, que podem ser encomendados); prazo = pronta entrega
+   * quando há saldo, senão o prazo de produção do contrato.
+   */
+  async catalogo(user: AuthUser, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const empresaId = user.empresaId;
+
+    const contratos = await this.prisma.contrato.findMany({
+      where: {
+        empresaId, clienteId: cliente.id, ativo: true,
+        OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }],
+      },
+      include: { itens: { select: { produtoId: true, preco: true, unidade: true } } },
+      orderBy: { id: 'desc' },
+    });
+    // Primeiro contrato (mais recente) que tabela o produto vence.
+    const precoContrato = new Map<number, { preco: Prisma.Decimal; unidade: string | null }>();
+    for (const c of contratos) {
+      for (const it of c.itens) {
+        if (it.produtoId != null && !precoContrato.has(it.produtoId)) {
+          precoContrato.set(it.produtoId, { preco: it.preco, unidade: it.unidade });
+        }
+      }
+    }
+    const contratoRef = contratos[0] ?? null;
+    const prazoContrato = (() => {
+      const p = (contratoRef?.prazoEntrega || '').trim();
+      if (!p) return null;
+      return /^\d+$/.test(p) ? `${p} dias` : p; // "30" -> "30 dias"; "10 dias úteis" fica como está
+    })();
+
+    const ors: Array<Record<string, unknown>> = [{ clienteId: cliente.id }];
+    if (cliente.grupo && cliente.grupo.trim()) ors.push({ clienteGrupo: cliente.grupo.trim() });
+    const idsContrato = [...precoContrato.keys()];
+    if (idsContrato.length) ors.push({ id: { in: idsContrato } });
+
+    const produtos = await this.prisma.produto.findMany({
+      where: { empresaId, OR: ors },
+      select: {
+        id: true, codigo: true, descricao: true, cor: true, setor: true,
+        precoBase: true, precoEspecial: true, tamsEspeciais: true,
+        estoque: { select: { tamanho: true, entradas: true, saidas: true } },
+      },
+      orderBy: { descricao: 'asc' },
+    });
+
+    const itens = produtos
+      .map((p) => {
+        const tamanhos = (p.estoque || [])
+          .map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }))
+          .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+        const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
+        const ctr = precoContrato.get(p.id);
+        // Preço de contrato é único p/ o item; sem contrato, vale a faixa especial dos tamanhos grandes.
+        const tamsEsp = ctr ? [] : PedidosService.tamsEspeciais(p as unknown as Produto);
+        return {
+          produtoId: p.id,
+          sku: p.codigo,
+          descricao: p.descricao,
+          cor: p.cor,
+          setor: p.setor,
+          unidade: ctr?.unidade || 'un',
+          preco: ctr ? ctr.preco : p.precoBase,
+          precoEspecial: !ctr && p.precoEspecial != null && tamsEsp.length ? p.precoEspecial : null,
+          tamsEspeciais: tamsEsp,
+          precoOrigem: ctr ? 'contrato' : p.precoBase != null ? 'tabela' : null,
+          tamanhos,
+          disponivel,
+          prazo: disponivel > 0 ? 'Pronta entrega' : prazoContrato || 'Sob encomenda',
+        };
+      })
+      .sort((a, b) => b.disponivel - a.disponivel || a.descricao.localeCompare(b.descricao));
+
+    return {
+      cliente: { nome: cliente.fantasia || cliente.nome },
+      contrato: contratoRef
+        ? {
+            numero: contratoRef.numero,
+            prazoEntrega: prazoContrato,
+            condicaoPagamento: contratoRef.condicaoPagamento,
+            formaPagamento: contratoRef.formaPagamento,
+          }
+        : null,
+      totalItens: itens.length,
+      itens,
+    };
   }
 }

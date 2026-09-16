@@ -38,6 +38,12 @@ export class PortalController {
     return this.portal.producao(user, clienteId ? Number(clienteId) : undefined);
   }
 
+  /** Catálogo "Disponível para compra": produtos + preço (contrato/tabela do ERP) + saldo + prazo. */
+  @Get('catalogo')
+  catalogo(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
+    return this.portal.catalogo(user, clienteId ? Number(clienteId) : undefined);
+  }
+
   @Get('notas')
   notas(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
     return this.portal.notas(user, clienteId ? Number(clienteId) : undefined);
