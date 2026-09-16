@@ -32,6 +32,10 @@ services:
         value: 7d
       - key: TIMEZONE
         value: America/Sao_Paulo
+      # Host(s) que devem abrir o Portal do Cliente (portal.html) na raiz.
+      # Aponte o subdomínio (CNAME na Wix) + Custom Domain no Render para cá.
+      - key: PORTAL_HOSTS
+        value: portal.hcqualitycorp.com.br
       # Opcional: restrinja o CORS ao domínio do frontend em produção
       # - key: CORS_ORIGIN
       #   value: https://seu-frontend.com
