@@ -330,8 +330,9 @@ function contratoAtual(){ var d=S.data.contratos; if(!d||!S.contratoId) return n
 function itemKey(it){ return it.contratoItemId?('ci'+it.contratoItemId):('p'+it.produtoId); }
 function tituloContrato(c){ return c.unidade?c.unidade.nome:(c.descricao||('Contrato '+(c.numero||c.id))); }
 function subtituloContrato(c){ var p=[]; if(c.numero) p.push('Contrato '+esc(c.numero)); if(c.unidade&&c.descricao) p.push(esc(c.descricao)); if(c.filial) p.push('Emissora: '+esc(c.filial.nome)); if(c.condicaoPagamento) p.push('Pagamento: '+esc(c.condicaoPagamento)); if(c.prazoEntrega) p.push('Prazo de produção: '+esc(c.prazoEntrega)); return p.join(' · '); }
-// Preço de um tamanho: contrato é único; tabela usa a faixa especial nos tamanhos grandes.
-function precoTam(it,tam){ if(it.preco==null) return 0; if(it.precoOrigem!=='contrato'&&it.precoEspecial!=null&&(it.tamsEspeciais||[]).indexOf(String(tam).toUpperCase())>=0) return Number(it.precoEspecial); return Number(it.preco); }
+// Preço de um tamanho: a faixa de tamanhos grandes (G1…G8) vale inclusive sobre o preço de
+// contrato — é o que o pedido cobra. O servidor só manda precoEspecial quando ela existe.
+function precoTam(it,tam){ if(it.preco==null) return 0; if(it.precoEspecial!=null&&(it.tamsEspeciais||[]).indexOf(String(tam).toUpperCase())>=0) return Number(it.precoEspecial); return Number(it.preco); }
 function cartLines(){ var c=contratoAtual(); if(!c) return []; var out=[]; (c.itens||[]).forEach(function(it){ var g=S.cart[itemKey(it)]; if(!g) return; var q=0,sub=0; Object.keys(g).forEach(function(t){ var n=Number(g[t])||0; if(n>0){ q+=n; sub+=n*precoTam(it,t); } }); if(q>0) out.push({it:it,qtd:q,sub:sub}); }); return out; }
 // Fotos dos produtos: endpoint autenticado -> blob (cache em S.fotos; 'none' = sem foto).
 async function carregarFotos(){

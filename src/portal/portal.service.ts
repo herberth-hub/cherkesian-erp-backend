@@ -374,8 +374,11 @@ export class PortalService {
           .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const ctr = precoContrato.get(p.id);
-        // Preço de contrato é único p/ o item; sem contrato, vale a faixa especial dos tamanhos grandes.
-        const tamsEsp = ctr ? [] : PedidosService.tamsEspeciais(p as unknown as Produto);
+        // A faixa de tamanhos grandes (G1…G8) é do PRODUTO e vale TAMBÉM quando o preço vem
+        // do contrato: é assim que o pedido é somado (PedidosService.precoTamanho). Se o
+        // portal escondesse a faixa, mostraria barato e faturaria caro.
+        const tamsEsp = PedidosService.tamsEspeciais(p as unknown as Produto);
+        const especial = p.precoEspecial != null && tamsEsp.length ? p.precoEspecial : null;
         return {
           produtoId: p.id,
           sku: p.codigo,
@@ -384,8 +387,8 @@ export class PortalService {
           setor: p.setor,
           unidade: ctr?.unidade || 'un',
           preco: ctr ? ctr.preco : p.precoBase,
-          precoEspecial: !ctr && p.precoEspecial != null && tamsEsp.length ? p.precoEspecial : null,
-          tamsEspeciais: tamsEsp,
+          precoEspecial: especial,
+          tamsEspeciais: especial ? tamsEsp : [],
           precoOrigem: ctr ? 'contrato' : p.precoBase != null ? 'tabela' : null,
           tamanhos,
           disponivel,
@@ -691,6 +694,10 @@ export class PortalService {
           if (p) emContrato.add(p.id);
           const tamanhos = tamanhosDe(p?.estoque);
           const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
+          // Mesma regra do catálogo: a faixa de tamanhos grandes vem do produto e continua
+          // valendo sobre o preço de contrato (é o que o pedido vai cobrar).
+          const tamsEsp = p ? PedidosService.tamsEspeciais(p as unknown as Produto) : [];
+          const especial = p?.precoEspecial != null && tamsEsp.length ? p.precoEspecial : null;
           return {
             contratoItemId: it.id,
             produtoId: p?.id ?? null,
@@ -699,8 +706,8 @@ export class PortalService {
             cor: p?.cor ?? null,
             unidade: it.unidade || 'un',
             preco: it.preco,
-            precoEspecial: null as Prisma.Decimal | null,
-            tamsEspeciais: [] as string[],
+            precoEspecial: especial,
+            tamsEspeciais: especial ? tamsEsp : [],
             precoOrigem: 'contrato' as const,
             temFoto: !!(p && comFoto.has(p.id)),
             tamanhos,
