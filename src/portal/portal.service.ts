@@ -281,7 +281,10 @@ export class PortalService {
       ? await this.prisma.notaFiscal.findMany({
           where: {
             empresaId: user.empresaId,
-            tipo: 'venda',
+            // 'faturamento' é a NF de venda para entrega futura (CFOP 6922) — é uma nota do
+            // cliente e costuma ser a de maior valor; ficava invisível para ele. 'remessa'
+            // continua fora: é para a facção, não para o cliente.
+            tipo: { in: ['venda', 'faturamento'] },
             status: { in: ['autorizada', 'cancelada'] },
             pedidoId: { in: pedidoIds },
           },
@@ -313,13 +316,68 @@ export class PortalService {
   }
 
   /**
+   * Financeiro do cliente: títulos a receber (o que foi faturado e o que está em aberto).
+   * Somente leitura — o portal não cobra nem dá baixa; é a mesma conta que a equipe vê no ERP.
+   */
+  async financeiro(user: AuthUser, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const titulos = await this.prisma.contaReceber.findMany({
+      where: { clienteId: cliente.id, empresaId: user.empresaId },
+      select: { id: true, documento: true, vencimento: true, valor: true, pago: true, notaFiscalId: true },
+      orderBy: [{ vencimento: 'asc' }, { id: 'asc' }],
+    });
+
+    const nfIds = [...new Set(titulos.map((t) => t.notaFiscalId).filter((x): x is number => x != null))];
+    const nfs = nfIds.length
+      ? await this.prisma.notaFiscal.findMany({ where: { id: { in: nfIds } }, select: { id: true, numero: true } })
+      : [];
+    const numeroNf = new Map(nfs.map((n) => [n.id, n.numero]));
+
+    const hoje0 = new Date();
+    hoje0.setHours(0, 0, 0, 0);
+    let aberto = 0;
+    let pagoTotal = 0;
+    let vencido = 0;
+    const lista = titulos.map((t) => {
+      const saldo = Number((Number(t.valor) - Number(t.pago)).toFixed(2));
+      pagoTotal += Number(t.pago);
+      const atrasado = saldo > 0.005 && new Date(t.vencimento) < hoje0;
+      if (saldo > 0.005) {
+        aberto += saldo;
+        if (atrasado) vencido += saldo;
+      }
+      return {
+        id: t.id,
+        nf: (t.notaFiscalId ? numeroNf.get(t.notaFiscalId) : null) ?? t.documento ?? null,
+        vencimento: t.vencimento,
+        valor: Number(t.valor),
+        pago: Number(t.pago),
+        saldo,
+        status: saldo <= 0.005 ? 'pago' : atrasado ? 'vencida' : 'a_vencer',
+      };
+    });
+
+    return {
+      cliente: { nome: cliente.fantasia || cliente.nome },
+      resumo: {
+        titulos: lista.length,
+        aberto: Number(aberto.toFixed(2)),
+        pago: Number(pagoTotal.toFixed(2)),
+        vencido: Number(vencido.toFixed(2)),
+      },
+      titulos: lista,
+    };
+  }
+
+  /**
    * Baixa DANFE/XML de UMA nota do cliente. TRAVA de escopo: a nota tem que ser de VENDA
    * e pertencer a um pedido do próprio cliente (impede baixar a NF de outro cliente pelo id).
    */
   async baixarNota(user: AuthUser, notaId: number, tipo: 'danfe' | 'xml', override?: number, ip?: string) {
     const cliente = await this.clienteDoEscopo(user, override);
     const nota = await this.prisma.notaFiscal.findFirst({
-      where: { id: notaId, empresaId: user.empresaId, tipo: 'venda' },
+      // Mesmos tipos que a listagem: senão o cliente vê a NF de entrega futura mas não baixa.
+      where: { id: notaId, empresaId: user.empresaId, tipo: { in: ['venda', 'faturamento'] } },
       select: { id: true, pedidoId: true, numero: true, chave: true },
     });
     if (!nota || !nota.pedidoId) throw new ForbiddenException('Nota não encontrada.');

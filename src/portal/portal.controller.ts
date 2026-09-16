@@ -87,6 +87,12 @@ export class PortalController {
     return this.portal.notas(user, clienteId ? Number(clienteId) : undefined);
   }
 
+  /** Títulos a receber do cliente (somente leitura): faturado, pago, em aberto e vencido. */
+  @Get('financeiro')
+  financeiro(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
+    return this.portal.financeiro(user, clienteId ? Number(clienteId) : undefined);
+  }
+
   /** Baixa DANFE (PDF) ou XML de uma nota do cliente. Escopo travado no service. */
   @Get('notas/:id/:tipo')
   async baixarNota(

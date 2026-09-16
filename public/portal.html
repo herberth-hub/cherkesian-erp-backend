@@ -276,7 +276,13 @@ function clearAuth(){ try{ [localStorage,sessionStorage].forEach(function(s){ s.
 // ---------- helpers ----------
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 function iniciais(n){ return String(n||'?').trim().split(/\s+/).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase(); }
-function dateBR(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}); }catch(e){ return '—'; } }
+// Vencimento/prazo são DATA pura: o banco grava meia-noite UTC. Formatar em horário local
+// (Brasil, UTC-3) jogava a data um dia para trás — 14/08 aparecia como 13/08. Quando a hora
+// é exatamente 00:00 UTC tratamos como data pura e formatamos em UTC; com hora de verdade
+// (emissão de NF, por exemplo) o horário local é o certo.
+function dataPura(dt){ return dt.getUTCHours()===0&&dt.getUTCMinutes()===0&&dt.getUTCSeconds()===0&&dt.getUTCMilliseconds()===0; }
+function dateBR(d){ if(!d) return '—'; try{ var dt=new Date(d); if(isNaN(dt)) return '—';
+  return dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:dataPura(dt)?'UTC':undefined}); }catch(e){ return '—'; } }
 function $(id){ return document.getElementById(id); }
 
 // ---------- API ----------
@@ -299,7 +305,7 @@ async function tryRefresh(){
 }
 function scopeQS(){ return (S.user && S.user.acesso==='total' && S.previewCli) ? ('?clienteId='+encodeURIComponent(S.previewCli)) : ''; }
 function money(v){ return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function anoDe(d){ try{ return new Date(d).getFullYear(); }catch(e){ return 0; } }
+function anoDe(d){ try{ var dt=new Date(d); return dataPura(dt)?dt.getUTCFullYear():dt.getFullYear(); }catch(e){ return 0; } }
 // fetch autenticado (com renovação no 401) — p/ downloads de arquivo (DANFE/XML) que não passam pelo api().
 async function fetchAuth(url, opts, _retry){
   opts=opts||{}; var headers=Object.assign({}, opts.headers||{});
@@ -390,6 +396,8 @@ async function loadView(){
       S.data.producao=await api('/portal/producao'+qs);
     } else if(v==='notas'){
       S.data.notas=await api('/portal/notas'+qs);
+    } else if(v==='financeiro'){
+      S.data.financeiro=await api('/portal/financeiro'+qs);
     } else if(v==='novo'){
       if(!S.data.contratos) await carregarContratos(qs);
     }
@@ -435,7 +443,7 @@ function renderLogin(){
 }
 
 // ---------- Render: Shell ----------
-var NAV=[['painel','Painel',false],['estoque','Estoque',false],['pedidos','Pedidos',false],['notas','Notas fiscais',false],['novo','Novo pedido',false]];
+var NAV=[['painel','Painel',false],['estoque','Estoque',false],['pedidos','Pedidos',false],['notas','Notas fiscais',false],['financeiro','Financeiro',false],['novo','Novo pedido',false]];
 function renderShell(inner){
   var cli=(S.data.resumo&&S.data.resumo.cliente)||(S.data.estoque&&S.data.estoque.cliente)||(S.data.producao&&S.data.producao.cliente)||null;
   var rz=cli?cli.nome:(S.user?S.user.nome:'');
@@ -670,6 +678,39 @@ function viewNotas(){
     : '<div class="empty">Nenhuma nota no período/busca selecionados.</div>';
   return head+filtros+tabela;
 }
+// Financeiro: o que foi faturado e o que está em aberto. Só leitura — o portal não cobra.
+function viewFinanceiro(){
+  var head='<h1 class="h1">Financeiro</h1><div class="screen-sub">O que já foi faturado, o que está pago e o que está em aberto.</div>';
+  if(S.dataErr==='__PREVIEW__') return head+previewPrompt();
+  if(S.dataErr) return head+'<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
+  var d=S.data.financeiro;
+  if(!d) return head+'<div class="loading">Carregando…</div>';
+  var r=d.resumo||{}, lista=d.titulos||[];
+  if(!lista.length) return head+'<div class="empty">Nenhum título em aberto ou pago no seu cadastro.</div>';
+
+  var kpis='<div class="kpis" style="margin-top:28px">'
+    +'<div class="kpi"><div class="k">Em aberto</div><div class="n">'+money(r.aberto||0)+'</div><div class="note">'+(r.titulos||0)+' título(s) no total</div></div>'
+    +'<div class="kpi"><div class="k">Já pago</div><div class="n">'+money(r.pago||0)+'</div><div class="note">baixado no nosso financeiro</div></div>'
+    +'<div class="kpi"><div class="k">Vencido</div><div class="n'+((r.vencido||0)>0?' danger':'')+'">'+money(r.vencido||0)+'</div><div class="note">'+((r.vencido||0)>0?'em atraso':'nada em atraso')+'</div></div>'
+    +'</div>';
+
+  var PILL={pago:['ok','pago'],vencida:['danger','vencido'],a_vencer:['','a vencer']};
+  var rows=lista.map(function(t){
+    var p=PILL[t.status]||['',t.status];
+    return '<div class="trow"><div class="code">'+esc(t.nf||'—')+'</div>'
+      +'<div>'+dateBR(t.vencimento)+'</div>'
+      +'<div class="num">'+money(t.valor)+'</div>'
+      +'<div class="num" style="color:var(--success)">'+money(t.pago)+'</div>'
+      +'<div class="num strong"'+(t.status==='vencida'?' style="color:var(--danger)"':'')+'>'+money(t.saldo)+'</div>'
+      +'<div><span class="pill '+p[0]+'">'+p[1]+'</span></div></div>';
+  }).join('');
+  var tabela='<div class="tbl-wrap" style="margin-top:20px"><div class="tbl" style="--minw:760px;--cols:150px 120px 1fr 1fr 1fr 120px">'
+    +'<div class="thead"><div>Nota/Doc.</div><div>Vencimento</div><div class="num">Valor</div><div class="num">Pago</div><div class="num">Saldo</div><div>Situação</div></div>'
+    +rows+'</div></div>';
+  var nota='<div class="screen-sub" style="margin-top:22px">Dúvida sobre algum título? Fale com o seu consultor comercial — o portal é apenas consulta.</div>';
+  return head+kpis+tabela+nota;
+}
+
 function viewNovo(){
   var head='<h1 class="h1">Novo pedido</h1><div class="screen-sub">Escolha o contrato e monte a reposição a partir dos produtos dele.</div>';
   if(S.feito){ var f=S.feito;
@@ -735,6 +776,7 @@ function render(){
     case 'estoque': inner=viewEstoque(); break;
     case 'pedidos': inner=viewPedidos(); break;
     case 'notas': inner=viewNotas(); break;
+    case 'financeiro': inner=viewFinanceiro(); break;
     case 'novo': inner=viewNovo(); break;
     default: inner=viewPainel();
   }

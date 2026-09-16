@@ -1312,16 +1312,19 @@ function apSugereLogin(){
   const comp=apSlug((val('ap_nome')||'').split(/\s+/)[0],10);
   const el=$('ap_user'); if(el && !el.dataset.tocado) el.value=comp?(comp+'.'+cli):('cliente'+cli);
 }
-function formAcessoPortal(clienteId, nome){
-  window.__AP_CLI_ID=clienteId; window.__AP_CLI_NOME=nome;
+function formAcessoPortal(clienteId, nome, voltarAoCadastro){
+  window.__AP_CLI_ID=clienteId; window.__AP_CLI_NOME=nome; window.__AP_VOLTAR=!!voltarAoCadastro;
   openModal(`<h3>🔑 Acesso do portal — ${esc(nome)}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 10px">Cria um login com perfil <b>cliente</b> vinculado a este cadastro. Ele acessa o <b>Portal do Cliente</b> e vê só o estoque pronta-entrega dele, os contratos, as notas e o andamento dos pedidos. A senha é definida por você.<br><b>Crie um login por comprador</b>: é o login que assina quem baixou a NF e quem mandou a reposição na tela de Logs.</div>
     ${field('ap_nome','Nome do comprador','placeholder="ex.: Maria Souza — compras MG" oninput="APP.apSugereLogin()"')}
     ${field('ap_user','Usuário (login)','value="cliente'+esc(apSlug(nome,14)||String(clienteId))+'" oninput="this.dataset.tocado=1"')}
     ${field('ap_pass','Senha (mín. 6 caracteres)','type="password" placeholder="defina a senha do comprador"')}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+    <div class="mactions"><button class="btn-sm" onclick="APP.apVoltar()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveAcessoPortal(${clienteId},'${esc(nome).replace(/'/g,'&#39;')}')">Criar acesso</button></div>`);
 }
+/** Fecha o form de acesso; se veio do cadastro do cliente, devolve o usuário para lá. */
+function apVoltar(){ const v=window.__AP_VOLTAR, id=window.__AP_CLI_ID; window.__AP_VOLTAR=false;
+  if(v&&id){ formCliente(id); } else { closeModal(); } }
 async function saveAcessoPortal(clienteId, nome){
   const usuario=(val('ap_user')||'').trim(); const senha=val('ap_pass')||''; const comprador=(val('ap_nome')||'').trim();
   if(!usuario){ toast('Informe o usuário (login).','err'); return; }
@@ -1329,7 +1332,7 @@ async function saveAcessoPortal(clienteId, nome){
   // O nome do comprador vem primeiro: é o que se lê na lista de usuários e nos Logs.
   const nomeUser=(comprador?('Portal · '+comprador+' · '+nome):('Portal · '+nome)).slice(0,150);
   try{ await api('/usuarios',{method:'POST',body:{ nome:nomeUser, usuario, senha, acesso:'cliente', clienteId }});
-    closeModal(); toast('Acesso do portal criado: "'+esc(usuario)+'".','ok');
+    toast('Acesso do portal criado: "'+esc(usuario)+'".','ok'); apVoltar();
   }catch(e){ toast(e.message||'Falha ao criar o acesso.','err'); }
 }
 // ===== Configuração da consulta de crédito (Serasa/parceiro) =====
@@ -2297,10 +2300,31 @@ async function formCliente(id){
       <b style="font-size:12px;color:var(--muted)">FILIAIS / UNIDADES <span class="muted" style="font-weight:400">(ex.: SACA — organiza a busca; com CNPJ próprio vira destinatário da NF)</span></b>
       <button type="button" class="btn-sm" onclick="APP.cliUniAdd()">+ Adicionar unidade</button></div>
     <div id="cli_unis"></div>
+    <div style="border-top:1px solid var(--line);margin:10px 0 0;padding-top:10px">
+      <b style="font-size:12px;color:var(--muted)">PORTAL DO CLIENTE</b>
+      <div id="cli_portal" class="muted" style="font-size:12px;margin-top:6px">—</div>
+    </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCliente(${id||0})">Salvar</button></div>`);
   CLIUNIS = (cl.unidades||[]).map(u=>({...u}));
   renderCliUnis();
+  renderCliPortal(id, cl);
+}
+// Sugestão de cadastro no Portal direto do cadastro do cliente: mostra quantos compradores
+// já têm login e abre o mesmo formulário da ficha (um login por comprador).
+async function renderCliPortal(id, cl){
+  const box=$('cli_portal'); if(!box) return;
+  const nome=(cl.fantasia||cl.nome||'').trim();
+  if(!id){ box.innerHTML='Salve o cliente primeiro — depois o botão de criar o acesso do portal aparece aqui.'; return; }
+  if(S.user.acesso!=='total'){ box.innerHTML='Só o administrador cria acessos do portal.'; return; }
+  let qtd=null;
+  try{ const us=await api('/usuarios'); qtd=(us||[]).filter(u=>u.acesso==='cliente'&&u.clienteId===id).length; }catch(e){}
+  const bt=`<button type="button" class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.formAcessoPortal(${id},'${esc(nome).replace(/'/g,'&#39;')}',true)">🔑 Criar acesso do portal</button>`;
+  box.innerHTML = qtd===null
+    ? bt+' <span style="margin-left:8px">Crie um login por comprador.</span>'
+    : (qtd>0
+        ? `<b style="color:var(--text)">${qtd} comprador(es)</b> com acesso. Crie mais um se outra pessoa também faz pedidos. ${bt}`
+        : `Este cliente <b style="color:var(--text)">ainda não tem acesso</b> ao portal. ${bt}`);
 }
 let CLIUNIS=[];
 function renderCliUnis(){
@@ -11367,7 +11391,7 @@ window.APP = {
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
-  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
