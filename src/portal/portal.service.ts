@@ -7,6 +7,7 @@ import { PedidosService } from '../pedidos/pedidos.service';
 import { CreatePedidoDto } from '../pedidos/dto/create-pedido.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { EmailService } from '../email/email.service';
+import { LogsService } from '../logs/logs.service';
 import { AuthUser } from '../auth/auth.types';
 import { CriarPedidoPortalDto } from './dto/criar-pedido-portal.dto';
 
@@ -26,7 +27,13 @@ export class PortalService {
     private readonly notificacoes: NotificacoesService,
     private readonly email: EmailService,
     private readonly config: ConfigService,
+    private readonly logs: LogsService,
   ) {}
+
+  /** Quem está assinando a ação no portal (aparece na trilha de auditoria do ERP). */
+  private quemAssina(user: AuthUser) {
+    return String(user.usuario || user.nome || 'portal').slice(0, 150);
+  }
 
   /**
    * Resolve o clienteId do escopo. Para o perfil `cliente` vem travado no token
@@ -284,26 +291,73 @@ export class PortalService {
    * Baixa DANFE/XML de UMA nota do cliente. TRAVA de escopo: a nota tem que ser de VENDA
    * e pertencer a um pedido do próprio cliente (impede baixar a NF de outro cliente pelo id).
    */
-  async baixarNota(user: AuthUser, notaId: number, tipo: 'danfe' | 'xml', override?: number) {
+  async baixarNota(user: AuthUser, notaId: number, tipo: 'danfe' | 'xml', override?: number, ip?: string) {
     const cliente = await this.clienteDoEscopo(user, override);
     const nota = await this.prisma.notaFiscal.findFirst({
       where: { id: notaId, empresaId: user.empresaId, tipo: 'venda' },
-      select: { id: true, pedidoId: true },
+      select: { id: true, pedidoId: true, numero: true, chave: true },
     });
     if (!nota || !nota.pedidoId) throw new ForbiddenException('Nota não encontrada.');
     const pedido = await this.prisma.pedido.findFirst({
       where: { id: nota.pedidoId, clienteId: cliente.id, empresaId: user.empresaId },
-      select: { id: true },
+      select: { id: true, numero: true },
     });
     if (!pedido) throw new ForbiddenException('Esta nota não pertence ao seu cadastro.');
-    return this.nfe.baixarArquivo(notaId, user.empresaId, tipo);
+    const arq = await this.nfe.baixarArquivo(notaId, user.empresaId, tipo);
+    // ASSINATURA do download: o AuditInterceptor só audita escrita, e baixar NF é GET.
+    // Registra só quando o arquivo saiu de fato (erro da Focus não vira "download").
+    void this.logs.registrar({
+      usuario: this.quemAssina(user),
+      acao: `portal: baixou ${tipo === 'danfe' ? 'PDF (DANFE)' : 'XML'} da NF`,
+      detalhe: `NF ${nota.numero} · pedido ${pedido.numero} · cliente ${cliente.fantasia || cliente.nome}${nota.chave ? ` · chave ${nota.chave}` : ''}`,
+      entidade: 'nota_fiscal', entidadeId: nota.id, ip,
+    });
+    return arq;
   }
 
-  private static readonly ORDEM_TAM = ['PP', 'P', 'M', 'G', 'G1', 'G2', 'G3', 'G4', 'G5', 'GG', 'XG', 'EXG', 'U'];
+  // Escala da casa (é a ordem usada no cadastro de produto): o GG fica entre o G e o G1.
+  private static readonly ORDEM_TAM = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'XG', 'EXG', 'U', 'UNICO'];
   /** Ordem visual dos tamanhos (PP…G8, depois o resto em ordem alfabética). */
   static rankTam(t: string): number {
     const i = PortalService.ORDEM_TAM.indexOf(String(t || '').toUpperCase());
     return i < 0 ? 999 : i;
+  }
+
+  /**
+   * Tamanhos declarados na GRADE do produto (texto livre do cadastro). Aceita faixa
+   * ("PP ao G8", "P a G4", "M-G2"), lista ("P, M, G" ou "P:10, M:20") e tamanho único.
+   */
+  static tamanhosDaGrade(grade?: string | null): string[] {
+    const t = String(grade ?? '').toUpperCase().trim();
+    if (!t) return [];
+    const faixa = /^([A-Z]{1,2}\d?)\s*(?:AO|ATÉ|ATE|A|-|–|—)\s*([A-Z]{1,2}\d?)$/.exec(t);
+    if (faixa) {
+      const i = PortalService.ORDEM_TAM.indexOf(faixa[1]);
+      const j = PortalService.ORDEM_TAM.indexOf(faixa[2]);
+      if (i >= 0 && j >= i) return PortalService.ORDEM_TAM.slice(i, j + 1);
+    }
+    const lista = t.split(/[,;/]+/).map((s) => s.split(':')[0].trim()).filter((s) => /^[A-Z0-9]{1,5}$/.test(s));
+    return [...new Set(lista)];
+  }
+
+  /**
+   * Tamanhos que o cliente pode pedir: os que têm linha de estoque (com o saldo) MAIS os
+   * da grade do produto (saldo 0 — produzidos sob encomenda). Sem isso, produto sem
+   * estoque cadastrado aparecia sem escolha de tamanho no Novo pedido.
+   */
+  static tamanhosDoProduto(
+    estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>,
+    grade?: string | null,
+  ): Array<{ tamanho: string; saldo: number }> {
+    const mapa = new Map<string, number>();
+    for (const t of PortalService.tamanhosDaGrade(grade)) mapa.set(t, 0);
+    for (const e of estoque ?? []) {
+      const t = String(e.tamanho || '').toUpperCase();
+      if (t) mapa.set(t, Math.max(0, (e.entradas || 0) - (e.saidas || 0)));
+    }
+    return [...mapa.entries()]
+      .map(([tamanho, saldo]) => ({ tamanho, saldo }))
+      .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho, 'pt', { numeric: true }));
   }
 
   /**
@@ -360,7 +414,7 @@ export class PortalService {
     const produtos = await this.prisma.produto.findMany({
       where: { empresaId, OR: ors },
       select: {
-        id: true, codigo: true, descricao: true, cor: true, setor: true,
+        id: true, codigo: true, descricao: true, cor: true, setor: true, grade: true,
         precoBase: true, precoEspecial: true, tamsEspeciais: true,
         estoque: { select: { tamanho: true, entradas: true, saidas: true } },
       },
@@ -369,9 +423,7 @@ export class PortalService {
 
     const itens = produtos
       .map((p) => {
-        const tamanhos = (p.estoque || [])
-          .map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }))
-          .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+        const tamanhos = PortalService.tamanhosDoProduto(p.estoque, p.grade);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const ctr = precoContrato.get(p.id);
         // A faixa de tamanhos grandes (G1…G8) é do PRODUTO e vale TAMBÉM quando o preço vem
@@ -423,7 +475,7 @@ export class PortalService {
    * produção), mas o excedente é registrado para a equipe. Gera alerta no ERP (vendas)
    * e e-mail de aviso ao contato da empresa.
    */
-  async criarPedido(user: AuthUser, dto: CriarPedidoPortalDto, override?: number) {
+  async criarPedido(user: AuthUser, dto: CriarPedidoPortalDto, override?: number, ip?: string) {
     const cliente = await this.clienteDoEscopo(user, override);
     const empresaId = user.empresaId;
     const chave = dto.chaveIdempotencia.trim();
@@ -441,9 +493,6 @@ export class PortalService {
     const unidade = contrato ? contrato.clienteUnidade : await this.unidadeDoCliente(cliente.id, dto.unidadeId);
     const cat = contrato ? null : await this.catalogo(user, override, unidade?.id);
     const porProduto = new Map((cat?.itens ?? []).map((i) => [i.produtoId, i]));
-    const tamanhosDe = (estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>) =>
-      (estoque ?? []).map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }));
-
     const itens: CreatePedidoDto['itens'] = [];
     const acimaDoSaldo: string[] = [];
     for (const it of dto.itens) {
@@ -453,7 +502,7 @@ export class PortalService {
           it.contratoItemId != null ? x.id === it.contratoItemId : it.produtoId != null && x.produtoId === it.produtoId,
         );
         if (!ci) throw new BadRequestException(`Item não faz parte do contrato ${contrato.numero || '#' + contrato.id}.`);
-        const tamanhos = tamanhosDe(ci.produto?.estoque);
+        const tamanhos = PortalService.tamanhosDoProduto(ci.produto?.estoque, ci.produto?.grade);
         c = {
           produtoId: ci.produtoId, sku: ci.produto?.codigo ?? ci.codigo, descricao: ci.descricao, cor: ci.produto?.cor ?? null,
           preco: ci.preco, tamanhos, disponivel: tamanhos.reduce((s, t) => s + t.saldo, 0),
@@ -546,6 +595,14 @@ export class PortalService {
     const totalPecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0);
     const valor = new Prisma.Decimal(pedido.valorTotal).toFixed(2);
 
+    // ASSINATURA do pedido: o interceptor já audita o POST, mas sem detalhe legível.
+    void this.logs.registrar({
+      usuario: this.quemAssina(user),
+      acao: 'portal: enviou pedido de reposição',
+      detalhe: `Pedido ${pedido.numero} · ${totalPecas} peça(s) · R$ ${valor} · cliente ${nomeCli}${rotuloContrato ? ` · contrato ${rotuloContrato}` : ''}${unidade ? ` · unidade ${unidade.nome}` : ''}`,
+      entidade: 'pedido', entidadeId: pedido.id, ip,
+    });
+
     await this.notificacoes.criar(empresaId, {
       tipo: 'pedido_novo',
       areas: ['vendas'],
@@ -629,7 +686,7 @@ export class PortalService {
         clienteUnidade: { select: { id: true, nome: true, cnpjCpf: true, municipio: true, uf: true } },
         itens: {
           orderBy: { id: 'asc' },
-          include: { produto: { select: { id: true, codigo: true, descricao: true, cor: true, estoque: { select: { tamanho: true, entradas: true, saidas: true } } } } },
+          include: { produto: { select: { id: true, codigo: true, descricao: true, cor: true, grade: true, estoque: { select: { tamanho: true, entradas: true, saidas: true } } } } },
         },
       },
     });
@@ -647,7 +704,7 @@ export class PortalService {
     const cliente = await this.clienteDoEscopo(user, override);
     const empresaId = user.empresaId;
     const selProduto = {
-      id: true, codigo: true, descricao: true, cor: true, setor: true, precoBase: true, precoEspecial: true, tamsEspeciais: true,
+      id: true, codigo: true, descricao: true, cor: true, setor: true, grade: true, precoBase: true, precoEspecial: true, tamsEspeciais: true,
       estoque: { select: { tamanho: true, entradas: true, saidas: true } },
     } as const;
 
@@ -671,10 +728,7 @@ export class PortalService {
         ? (await this.prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "Produto" WHERE id IN (${Prisma.join([...idsProd])}) AND "fotoModelo" IS NOT NULL AND length("fotoModelo") > 0`).map((r) => r.id)
         : [],
     );
-    const tamanhosDe = (estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>) =>
-      (estoque ?? [])
-        .map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }))
-        .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+    const tamanhosDe = PortalService.tamanhosDoProduto;
     const prazoDe = (p?: string | null) => { const s = (p || '').trim(); return s ? (/^\d+$/.test(s) ? `${s} dias` : s) : null; };
 
     const emContrato = new Set<number>();
@@ -692,7 +746,7 @@ export class PortalService {
         itens: c.itens.map((it) => {
           const p = it.produto;
           if (p) emContrato.add(p.id);
-          const tamanhos = tamanhosDe(p?.estoque);
+          const tamanhos = tamanhosDe(p?.estoque, p?.grade);
           const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
           // Mesma regra do catálogo: a faixa de tamanhos grandes vem do produto e continua
           // valendo sobre o preço de contrato (é o que o pedido vai cobrar).
@@ -720,7 +774,7 @@ export class PortalService {
     const outros = produtos
       .filter((p) => !emContrato.has(p.id))
       .map((p) => {
-        const tamanhos = tamanhosDe(p.estoque);
+        const tamanhos = tamanhosDe(p.estoque, p.grade);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const tamsEsp = PedidosService.tamsEspeciais(p as unknown as Produto);
         return {

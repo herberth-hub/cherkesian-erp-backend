@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Ip,
   Param,
   ParseIntPipe,
   Post,
@@ -77,8 +78,8 @@ export class PortalController {
    * (etapa orçamento), gera alerta no ERP + e-mail de aviso. Idempotente pela chave.
    */
   @Post('pedidos')
-  criarPedido(@Body() dto: CriarPedidoPortalDto, @CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
-    return this.portal.criarPedido(user, dto, clienteId ? Number(clienteId) : undefined);
+  criarPedido(@Body() dto: CriarPedidoPortalDto, @CurrentUser() user: AuthUser, @Ip() ip: string, @Query('clienteId') clienteId?: string) {
+    return this.portal.criarPedido(user, dto, clienteId ? Number(clienteId) : undefined, ip);
   }
 
   @Get('notas')
@@ -93,10 +94,11 @@ export class PortalController {
     @Param('tipo') tipo: string,
     @CurrentUser() user: AuthUser,
     @Res({ passthrough: true }) res: Response,
+    @Ip() ip: string,
     @Query('clienteId') clienteId?: string,
   ) {
     if (tipo !== 'danfe' && tipo !== 'xml') throw new BadRequestException('Tipo inválido (use danfe ou xml).');
-    const a = await this.portal.baixarNota(user, id, tipo, clienteId ? Number(clienteId) : undefined);
+    const a = await this.portal.baixarNota(user, id, tipo, clienteId ? Number(clienteId) : undefined, ip);
     res.set({
       'Content-Type': a.contentType,
       'Content-Disposition': `${tipo === 'danfe' ? 'inline' : 'attachment'}; filename="${a.filename}"`,

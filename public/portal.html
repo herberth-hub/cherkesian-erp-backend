@@ -153,20 +153,22 @@ button{font-family:inherit;cursor:pointer}
 .ctr-card .s,.ctr-head .s{font:400 12px/1.6 'IBM Plex Mono';color:var(--text-faint);margin-top:8px}
 .ctr-card .n{font:500 13px/1 'IBM Plex Sans';color:var(--text-muted);margin-top:16px}
 .ctr-head{margin-top:28px;background:#fff;border:1px solid var(--rule);border-left:2px solid var(--gold);padding:18px 22px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
-.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
 .pcard{background:#fff;display:flex;flex-direction:column}
 .pfoto-wrap{position:relative;width:100%;aspect-ratio:1/1;background:var(--surface-alt);border-bottom:1px solid var(--rule);overflow:hidden}
 .pfoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .pfoto.ph{display:flex;align-items:center;justify-content:center;font:600 22px/1 Archivo;color:rgba(16,18,21,.16);letter-spacing:.06em}
+.pnofoto{height:3px;background:var(--gold);opacity:.5}
 .pbody{padding:14px 16px 16px}
 .pn{font:500 14px/1.4 'IBM Plex Sans'}
 .ps{font:400 11px/1.5 'IBM Plex Mono';color:var(--text-faint);margin-top:5px}
 .ps b{font-weight:500;color:var(--success)}
 .pp{font:600 15px/1.2 Archivo;margin:10px 0}
 .cat{border:1px solid var(--rule);overflow-x:auto}
-.qty{display:flex;flex-wrap:wrap;gap:6px}
-.qty label{display:flex;align-items:center;gap:4px;font:500 11px/1 'IBM Plex Mono';color:var(--text-faint)}
-.qty input{width:58px;padding:7px 4px;border:1px solid rgba(16,18,21,.2);font:500 14px/1 'IBM Plex Mono';text-align:center;outline:none;background:#fff;color:var(--text)}
+.qty{display:flex;flex-wrap:wrap;gap:5px}
+.qty label{display:flex;flex-direction:column;align-items:center;gap:3px;font:500 10px/1 'IBM Plex Mono';color:var(--text-faint);text-transform:uppercase}
+.qty label b{font-weight:500;color:var(--success)}
+.qty input{width:44px;padding:6px 3px;border:1px solid rgba(16,18,21,.2);font:500 13px/1 'IBM Plex Mono';text-align:center;outline:none;background:#fff;color:var(--text)}
 .qty input:focus{border-color:var(--gold)}
 .qty input.has{border-color:var(--ink);background:#fffbef}
 .summary{background:var(--ink);color:#fff;padding:28px 26px;position:sticky;top:20px}
@@ -678,11 +680,14 @@ function viewNovo(){
     +((temContratos&&(temOutros||(d.contratos||[]).length>1))?'<button class="btn-sec" onclick="PORTAL.setContrato(\'\')">Trocar contrato</button>':'')+'</div>';
   var cards=(atual.itens||[]).map(function(it){ var key=itemKey(it), g=S.cart[key]||{}, inputs;
     if(it.preco==null) inputs='<span style="color:var(--text-faint);font:400 13px/1.5">sob consulta</span>';
-    else if((it.tamanhos||[]).length) inputs='<div class="qty">'+it.tamanhos.map(function(t){ var v=Number(g[t.tamanho])||0; return '<label>'+esc(t.tamanho)+'<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\''+esc(t.tamanho).replace(/'/g,'')+'\',this.value)"></label>'; }).join('')+'</div>';
+    else if((it.tamanhos||[]).length) inputs='<div class="qty">'+it.tamanhos.map(function(t){ var v=Number(g[t.tamanho])||0;
+      return '<label'+(t.saldo>0?' title="'+t.saldo+' em pronta entrega"':'')+'>'+esc(t.tamanho)+(t.saldo>0?' <b>'+t.saldo+'</b>':'')+'<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\''+esc(t.tamanho).replace(/'/g,'')+'\',this.value)"></label>'; }).join('')+'</div>';
     else { var v=Number(g.UN)||0; inputs='<div class="qty"><label>qtd<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\'UN\',this.value)"></label></div>'; }
     var cached=it.produtoId?S.fotos[it.produtoId]:null;
+    // Sem mockup cadastrado não faz sentido reservar um quadrado vazio em cada card:
+    // vira só uma faixa fina, o que encurta muito a lista de um catálogo grande.
     var foto = (it.produtoId&&it.temFoto&&cached!=='none') ? '<div class="pfoto-wrap"><div class="pfoto ph">'+esc((it.sku||'HC').split('-').slice(-1)[0])+'</div><img class="pfoto" data-foto="'+it.produtoId+'" alt=""'+(cached?' src="'+cached+'"':'')+'></div>'
-      : '<div class="pfoto-wrap"><div class="pfoto ph">'+esc((it.sku||'HC').split('-').slice(-1)[0])+'</div></div>';
+      : '<div class="pnofoto"></div>';
     var un = it.preco==null ? '—' : money(it.preco)+(it.precoEspecial!=null?'<div style="font:400 11px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:4px">'+esc((it.tamsEspeciais||[]).join(','))+': '+money(it.precoEspecial)+'</div>':'');
     return '<div class="pcard">'+foto+'<div class="pbody"><div class="pn">'+esc(it.descricao)+'</div><div class="ps">'+esc([it.cor,it.sku].filter(Boolean).join(' · '))+(it.disponivel>0?' · <b>'+it.disponivel+' em pronta entrega</b>':'')+'</div><div class="pp">'+un+'</div>'+inputs+'</div></div>';
   }).join('');
