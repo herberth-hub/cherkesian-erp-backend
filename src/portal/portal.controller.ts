@@ -41,10 +41,35 @@ export class PortalController {
     return this.portal.producao(user, clienteId ? Number(clienteId) : undefined);
   }
 
-  /** Catálogo "Disponível para compra": produtos + preço (contrato/tabela do ERP) + saldo + prazo. */
+  /** Contratos vigentes do cliente com seus itens (fluxo "contrato primeiro") + produtos fora de contrato. */
+  @Get('contratos')
+  contratos(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
+    return this.portal.contratos(user, clienteId ? Number(clienteId) : undefined);
+  }
+
+  /** Foto do produto (fotoModelo) — só de produtos do catálogo/contratos do cliente. */
+  @Get('produtos/:id/foto')
+  async fotoProduto(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
+    @Query('clienteId') clienteId?: string,
+  ) {
+    const f = await this.portal.fotoProduto(user, id, clienteId ? Number(clienteId) : undefined);
+    res.set({ 'Content-Type': f.contentType, 'Cache-Control': 'private, max-age=3600' });
+    return new StreamableFile(f.content);
+  }
+
+  /** Unidades do cliente (seletor do portal) + quantos contratos vigentes cada uma tem. */
+  @Get('unidades')
+  unidades(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
+    return this.portal.unidades(user, clienteId ? Number(clienteId) : undefined);
+  }
+
+  /** Catálogo "Disponível para compra": produtos + preço (contrato da unidade/geral/tabela) + saldo + prazo. */
   @Get('catalogo')
-  catalogo(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
-    return this.portal.catalogo(user, clienteId ? Number(clienteId) : undefined);
+  catalogo(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string, @Query('unidadeId') unidadeId?: string) {
+    return this.portal.catalogo(user, clienteId ? Number(clienteId) : undefined, unidadeId ? Number(unidadeId) : undefined);
   }
 
   /**

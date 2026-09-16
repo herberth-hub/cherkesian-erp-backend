@@ -38,6 +38,7 @@ export class ContratosService {
       orderBy: [{ ativo: 'desc' }, { id: 'desc' }],
       include: {
         cliente: { select: { id: true, nome: true, fantasia: true, cnpjCpf: true, cidadeUf: true } },
+        clienteUnidade: { select: { id: true, nome: true, cnpjCpf: true } },
         filial: { select: { id: true, nome: true, cnpj: true } },
         _count: { select: { itens: true } },
       },
@@ -50,6 +51,7 @@ export class ContratosService {
       where: { id },
       include: {
         cliente: { select: { id: true, nome: true, fantasia: true, cnpjCpf: true, cidadeUf: true, telefone: true, email: true, contato: true } },
+        clienteUnidade: { select: { id: true, nome: true, cnpjCpf: true } },
         filial: { select: { id: true, nome: true, cnpj: true } },
         itens: { orderBy: { id: 'asc' } },
       },
@@ -61,10 +63,12 @@ export class ContratosService {
   async create(dto: CreateContratoDto, empresaId: number) {
     const cliente = await this.prisma.cliente.findFirst({ where: { id: dto.clienteId, empresaId }, select: { id: true } });
     if (!cliente) throw new BadRequestException('Cliente não encontrado nesta empresa.');
+    await this.validarUnidade(dto.clienteId, dto.clienteUnidadeId);
     return this.prisma.contrato.create({
       data: {
         empresaId,
         clienteId: dto.clienteId,
+        clienteUnidadeId: dto.clienteUnidadeId ?? null,
         filialId: dto.filialId ?? null,
         vendedor: dto.vendedor?.trim() || null,
         numero: dto.numero?.trim() || null,
@@ -83,17 +87,26 @@ export class ContratosService {
     });
   }
 
+  /** A unidade (quando informada) tem que ser do próprio cliente do contrato. */
+  private async validarUnidade(clienteId: number, unidadeId?: number | null) {
+    if (!unidadeId) return;
+    const u = await this.prisma.clienteUnidade.findFirst({ where: { id: unidadeId, clienteId }, select: { id: true } });
+    if (!u) throw new BadRequestException('A unidade informada não pertence a este cliente.');
+  }
+
   async update(id: number, dto: UpdateContratoDto, empresaId: number) {
-    await this.findOne(id, empresaId);
+    const atual = await this.findOne(id, empresaId);
     if (dto.clienteId != null) {
       const cliente = await this.prisma.cliente.findFirst({ where: { id: dto.clienteId, empresaId }, select: { id: true } });
       if (!cliente) throw new BadRequestException('Cliente não encontrado nesta empresa.');
     }
+    if (dto.clienteUnidadeId) await this.validarUnidade(dto.clienteId ?? atual.clienteId, dto.clienteUnidadeId);
     return this.prisma.$transaction(async (tx) => {
       await tx.contrato.update({
         where: { id },
         data: {
           clienteId: dto.clienteId ?? undefined,
+          clienteUnidadeId: dto.clienteUnidadeId !== undefined ? (dto.clienteUnidadeId ?? null) : undefined,
           filialId: dto.filialId !== undefined ? (dto.filialId ?? null) : undefined,
           vendedor: dto.vendedor !== undefined ? dto.vendedor?.trim() || null : undefined,
           numero: dto.numero !== undefined ? dto.numero?.trim() || null : undefined,

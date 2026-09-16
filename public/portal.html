@@ -143,7 +143,26 @@ button{font-family:inherit;cursor:pointer}
 .btn-dark:hover{background:var(--gold);color:var(--ink)}
 
 /* ===== Novo pedido ===== */
-.novo{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(24px,3vw,40px);margin-top:32px;align-items:start}
+.novo{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:clamp(24px,3vw,40px);margin-top:24px;align-items:start}
+@media(max-width:900px){.novo{grid-template-columns:1fr}}
+.ctr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);margin-top:22px}
+.ctr-card{background:#fff;padding:24px 22px;text-align:left;border:0;cursor:pointer;font-family:'IBM Plex Sans';transition:background .14s}
+.ctr-card:hover{background:var(--surface-alt)}
+.ctr-card .eb,.ctr-head .eb{font:500 10px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.ctr-card .t,.ctr-head .t{font:600 17px/1.3 Archivo;letter-spacing:-.01em;margin-top:10px;color:var(--ink)}
+.ctr-card .s,.ctr-head .s{font:400 12px/1.6 'IBM Plex Mono';color:var(--text-faint);margin-top:8px}
+.ctr-card .n{font:500 13px/1 'IBM Plex Sans';color:var(--text-muted);margin-top:16px}
+.ctr-head{margin-top:28px;background:#fff;border:1px solid var(--rule);border-left:2px solid var(--gold);padding:18px 22px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.pcard{background:#fff;display:flex;flex-direction:column}
+.pfoto-wrap{position:relative;width:100%;aspect-ratio:1/1;background:var(--surface-alt);border-bottom:1px solid var(--rule);overflow:hidden}
+.pfoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.pfoto.ph{display:flex;align-items:center;justify-content:center;font:600 22px/1 Archivo;color:rgba(16,18,21,.16);letter-spacing:.06em}
+.pbody{padding:14px 16px 16px}
+.pn{font:500 14px/1.4 'IBM Plex Sans'}
+.ps{font:400 11px/1.5 'IBM Plex Mono';color:var(--text-faint);margin-top:5px}
+.ps b{font-weight:500;color:var(--success)}
+.pp{font:600 15px/1.2 Archivo;margin:10px 0}
 .cat{border:1px solid var(--rule);overflow-x:auto}
 .qty{display:flex;flex-wrap:wrap;gap:6px}
 .qty label{display:flex;align-items:center;gap:4px;font:500 11px/1 'IBM Plex Mono';color:var(--text-faint)}
@@ -172,6 +191,7 @@ button{font-family:inherit;cursor:pointer}
 .done p b{font-weight:600;color:var(--ink)}
 .cartbadge{display:flex;align-items:center;gap:8px;font:400 13px/1 'IBM Plex Sans';color:var(--text-muted);cursor:pointer}
 .cartbadge .n{background:var(--gold);color:var(--ink);font:600 12px/1 'IBM Plex Mono';padding:6px 9px}
+
 
 /* ===== Pills ===== */
 .pill{font:500 11px/1.4 'IBM Plex Mono';letter-spacing:.06em;text-transform:uppercase;padding:5px 9px;display:inline-block;white-space:nowrap;border:1px solid transparent}
@@ -233,7 +253,7 @@ button{font-family:inherit;cursor:pointer}
 'use strict';
 var API='/api/v1';
 var LS={access:'ckp_access',refresh:'ckp_refresh',user:'ckp_user'};
-var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoErr:'',enviando:false,feito:null};
+var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoErr:'',enviando:false,feito:null,contratoId:'',fotos:{}};
 
 // ---------- storage (localStorage se "manter conectado"; senão sessionStorage) ----------
 function store(){ return S._persist===false ? sessionStorage : localStorage; }
@@ -292,7 +312,7 @@ async function doLogin(usuario, senha, persist){
     if(S.user.acesso!=='cliente' && S.user.acesso!=='total'){
       S.access=S.refresh=S.user=null; S.loginErr='Este acesso não é do portal do cliente.'; render(); return;
     }
-    saveAuth(); S.view='painel'; S.previewCli=''; S.data={}; loadCart(); render(); loadView();
+    saveAuth(); S.view='painel'; S.previewCli=''; S.data={}; S.contratoId=''; render(); loadView();
   }catch(e){
     S.loginErr = e.status===401 ? 'E-mail ou senha incorretos.' : (e.message||'Falha no login.'); render();
   }
@@ -300,29 +320,43 @@ async function doLogin(usuario, senha, persist){
 function doLogout(silent){ clearAuth(); S.access=S.refresh=S.user=null; S.data={}; S.previewCli=''; S.cart={}; S.cartChave=''; S.feito=null; render(); }
 
 // ---------- Carrinho (persistido por cliente no localStorage — não se perde ao recarregar) ----------
-function cartKey(){ return 'ckp_cart_'+(S.user?(S.user.clienteId||('adm'+(S.previewCli||''))):'x'); }
+function cartKey(){ return 'ckp_cart_'+(S.user?(S.user.clienteId||('adm'+(S.previewCli||''))):'x')+'_c'+(S.contratoId||'0'); }
 function saveCart(){ try{ localStorage.setItem(cartKey(),JSON.stringify({cart:S.cart,chave:S.cartChave,obs:S.novoObs})); }catch(e){} }
 function loadCart(){ try{ var d=JSON.parse(localStorage.getItem(cartKey())||'null'); S.cart=(d&&d.cart)||{}; S.cartChave=(d&&d.chave)||''; S.novoObs=(d&&d.obs)||''; }catch(e){ S.cart={}; S.cartChave=''; S.novoObs=''; } }
 function novaChave(){ try{ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); }catch(e){} return 'p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10); }
 function cartCount(){ var n=0; Object.keys(S.cart).forEach(function(pid){ Object.keys(S.cart[pid]).forEach(function(t){ n+=Number(S.cart[pid][t])||0; }); }); return n; }
+// Contrato atual do Novo pedido ('outros' = produtos fora de contrato, preço de tabela).
+function contratoAtual(){ var d=S.data.contratos; if(!d||!S.contratoId) return null; if(S.contratoId==='outros') return {id:'outros',outros:true,itens:d.outros||[]}; return (d.contratos||[]).find(function(c){return String(c.id)===String(S.contratoId);})||null; }
+function itemKey(it){ return it.contratoItemId?('ci'+it.contratoItemId):('p'+it.produtoId); }
+function tituloContrato(c){ return c.unidade?c.unidade.nome:(c.descricao||('Contrato '+(c.numero||c.id))); }
+function subtituloContrato(c){ var p=[]; if(c.numero) p.push('Contrato '+esc(c.numero)); if(c.unidade&&c.descricao) p.push(esc(c.descricao)); if(c.filial) p.push('Emissora: '+esc(c.filial.nome)); if(c.condicaoPagamento) p.push('Pagamento: '+esc(c.condicaoPagamento)); if(c.prazoEntrega) p.push('Prazo de produção: '+esc(c.prazoEntrega)); return p.join(' · '); }
 // Preço de um tamanho: contrato é único; tabela usa a faixa especial nos tamanhos grandes.
 function precoTam(it,tam){ if(it.preco==null) return 0; if(it.precoOrigem!=='contrato'&&it.precoEspecial!=null&&(it.tamsEspeciais||[]).indexOf(String(tam).toUpperCase())>=0) return Number(it.precoEspecial); return Number(it.preco); }
-function cartLines(){ var c=S.data.catalogo; if(!c) return []; var out=[]; (c.itens||[]).forEach(function(it){ var g=S.cart[it.produtoId]; if(!g) return; var q=0,sub=0; Object.keys(g).forEach(function(t){ var n=Number(g[t])||0; if(n>0){ q+=n; sub+=n*precoTam(it,t); } }); if(q>0) out.push({it:it,qtd:q,sub:sub}); }); return out; }
+function cartLines(){ var c=contratoAtual(); if(!c) return []; var out=[]; (c.itens||[]).forEach(function(it){ var g=S.cart[itemKey(it)]; if(!g) return; var q=0,sub=0; Object.keys(g).forEach(function(t){ var n=Number(g[t])||0; if(n>0){ q+=n; sub+=n*precoTam(it,t); } }); if(q>0) out.push({it:it,qtd:q,sub:sub}); }); return out; }
+// Fotos dos produtos: endpoint autenticado -> blob (cache em S.fotos; 'none' = sem foto).
+async function carregarFotos(){
+  var imgs=document.querySelectorAll('img[data-foto]:not([src])'); if(!imgs.length) return;
+  Array.prototype.forEach.call(imgs,function(img){ (async function(){ var pid=img.getAttribute('data-foto'); if(S.fotos[pid]==='none'){ img.remove(); return; } if(S.fotos[pid]){ img.src=S.fotos[pid]; return; }
+    try{ var r=await fetchAuth(API+'/portal/produtos/'+pid+'/foto'+scopeQS()); if(!r.ok){ S.fotos[pid]='none'; img.remove(); return; } var b=await r.blob(); S.fotos[pid]=URL.createObjectURL(b); img.src=S.fotos[pid]; }catch(e){ S.fotos[pid]='none'; } })(); });
+}
 async function enviarPedido(){
   var lines=cartLines(); if(!lines.length||S.enviando) return;
   if(!S.cartChave){ S.cartChave=novaChave(); saveCart(); }
-  var itens=lines.map(function(l){ var g=S.cart[l.it.produtoId]||{}; var ks=Object.keys(g).filter(function(t){return Number(g[t])>0;});
-    if(ks.length===1&&ks[0]==='UN') return {produtoId:l.it.produtoId,quantidade:Number(g.UN)};
-    var grade={}; ks.forEach(function(t){ if(t!=='UN') grade[t]=Number(g[t]); }); return {produtoId:l.it.produtoId,grade:grade}; });
+  var itens=lines.map(function(l){ var g=S.cart[itemKey(l.it)]||{}; var ks=Object.keys(g).filter(function(t){return Number(g[t])>0;});
+    var base=l.it.contratoItemId?{contratoItemId:l.it.contratoItemId}:{produtoId:l.it.produtoId};
+    if(ks.length===1&&ks[0]==='UN') return Object.assign(base,{quantidade:Number(g.UN)});
+    var grade={}; ks.forEach(function(t){ if(t!=='UN') grade[t]=Number(g[t]); }); return Object.assign(base,{grade:grade}); });
   S.enviando=true; S.novoErr=''; render();
   try{
-    var r=await api('/portal/pedidos'+scopeQS(),{method:'POST',body:{itens:itens,observacao:(S.novoObs||'').trim()||undefined,chaveIdempotencia:S.cartChave}});
-    S.feito=r; S.cart={}; S.cartChave=''; S.novoObs=''; saveCart(); S.data.producao=null; S.data.resumo=null;
+    var r=await api('/portal/pedidos'+scopeQS(),{method:'POST',body:{itens:itens,contratoId:(S.contratoId&&S.contratoId!=='outros')?Number(S.contratoId):undefined,observacao:(S.novoObs||'').trim()||undefined,chaveIdempotencia:S.cartChave}});
+    S.feito=r; S.cart={}; S.cartChave=''; S.novoObs=''; saveCart(); S.data.producao=null; S.data.resumo=null; S.data.contratos=null;
   }catch(e){ S.novoErr=e.message||'Não foi possível enviar o pedido. Tente novamente.'; }
   S.enviando=false; render();
 }
 
 // ---------- Data ----------
+// Contratos do cliente p/ o Novo pedido e o catálogo; contratos sem itens não aparecem (nada a pedir).
+async function carregarContratos(qs){ var r=await api('/portal/contratos'+qs); r.contratos=(r.contratos||[]).filter(function(c){ return (c.itens||[]).length>0; }); S.data.contratos=r; }
 async function loadView(){
   var v=S.view;
   render(); // mostra loading
@@ -332,14 +366,14 @@ async function loadView(){
       var r=await Promise.all([api('/portal/resumo'+qs), api('/portal/producao'+qs)]);
       S.data.resumo=r[0]; S.data.producao=r[1];
     } else if(v==='estoque'){
-      if(S.tab==='disponivel') S.data.catalogo=await api('/portal/catalogo'+qs);
+      if(S.tab==='disponivel'){ if(!S.data.contratos) await carregarContratos(qs); }
       else S.data.estoque=await api('/portal/estoque'+qs);
     } else if(v==='pedidos'){
       S.data.producao=await api('/portal/producao'+qs);
     } else if(v==='notas'){
       S.data.notas=await api('/portal/notas'+qs);
     } else if(v==='novo'){
-      if(!S.data.catalogo) S.data.catalogo=await api('/portal/catalogo'+qs);
+      if(!S.data.contratos) await carregarContratos(qs);
     }
     S.dataErr=''; render();
   }catch(e){
@@ -364,7 +398,7 @@ function renderLogin(){
      +brandHTML(false)
      +'<div><div class="eyebrow"><span>Portal do cliente</span></div>'
        +'<h1>Seu estoque, seus pedidos e suas notas em um só lugar.</h1>'
-       +'<p class="lead">Acesso exclusivo para clientes com contrato de fornecimento. Consulte o saldo do seu estoque em nossa fábrica, acompanhe pedidos em produção, baixe notas fiscais e faça reposição sem passar por e-mail.</p></div>'
+       +'<p class="lead">Acesso exclusivo para clientes com contrato de fornecimento. Veja o que está em pronta entrega para você, acompanhe pedidos em produção, baixe notas fiscais e faça reposição sem passar por e-mail.</p></div>'
      +'<div class="contact"><div><a href="mailto:contato@hcqualitycorp.com.br">Dúvidas de acesso: contato@hcqualitycorp.com.br</a></div>'
        +'<div>Atendimento: seg a sex, 8h às 18h</div></div>'
    +'</div>'
@@ -442,7 +476,7 @@ function viewPainel(){
   var est=r.estoque||{}, pr=r.producao||{};
   var head='<h1 class="h1">Painel</h1><div class="screen-sub">Situação do seu contrato em '+dateBR(new Date())+'.</div>';
   var kpis='<div class="kpis">'
-    +kpi('Peças no seu estoque',(est.pecas||0).toLocaleString('pt-BR'),'guardadas em nossa fábrica')
+    +kpi('Peças em pronta entrega',(est.pecas||0).toLocaleString('pt-BR'),'em nosso estoque, para você')
     +kpi('Pedidos atrasados',(pr.atrasados||0),pr.atrasados?'exigem atenção':'tudo no prazo',pr.atrasados>0)
     +kpi('Pedidos em aberto',(pr.emAndamento||0),(pr.total||0)+' no histórico')
     +kpi('Próxima entrega',dateBR(pr.proximaEntrega),pr.proximaEntrega?'previsão':'sem previsão')
@@ -472,46 +506,44 @@ function viewPainel(){
 }
 function kpi(k,n,note,danger){ return '<div class="kpi"><div class="k">'+esc(k)+'</div><div class="n'+(danger?' danger':'')+'">'+esc(n)+'</div><div class="note">'+esc(note||'')+'</div></div>'; }
 
-// Aba "Disponível para compra": catálogo com preço resolvido no servidor (contrato/tabela do ERP).
+// Aba "Disponível para compra": catálogo AGRUPADO por contrato (+ produtos fora de contrato).
+function linhaCatalogo(it){
+  var tams=(it.tamanhos||[]).map(function(t){ return '<span style="white-space:nowrap;'+(t.saldo>0?'':'color:var(--text-faint)')+'">'+esc(t.tamanho)+'<b style="font-weight:500">:'+t.saldo+'</b></span>'; }).join(' ');
+  var preco = it.preco!=null ? money(it.preco) : '<span style="color:var(--text-faint)">sob consulta</span>';
+  var extra = it.precoEspecial!=null ? '<div style="font:400 11px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:4px">'+esc((it.tamsEspeciais||[]).join(','))+': '+money(it.precoEspecial)+'</div>' : '';
+  var origem = it.precoOrigem==='contrato' ? '<div style="font:500 9px/1 \'IBM Plex Mono\';letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-top:5px">contrato</div>' : '';
+  return '<div class="trow"><div class="code">'+esc(it.sku||'—')+'</div>'
+    +'<div>'+esc(it.descricao)+'</div>'
+    +'<div>'+esc(it.cor||'—')+'</div>'
+    +'<div style="font:400 12px/1.8 \'IBM Plex Mono\'">'+(tams||'<span style="color:var(--text-faint)">—</span>')+'</div>'
+    +'<div class="num strong">'+(it.disponivel||0).toLocaleString('pt-BR')+'</div>'
+    +'<div class="num" style="white-space:nowrap">'+preco+extra+origem+'</div>'
+    +'<div>'+(it.disponivel>0?'<span class="pill ok">Pronta entrega</span>':'<span style="font:400 13px/1.5;color:var(--text-dim)">'+esc(it.prazo)+'</span>')+'</div></div>';
+}
+function secaoCatalogo(titulo, sub, itens, cid, eb){
+  var rows=(itens||[]).map(linhaCatalogo).join('');
+  return '<div style="margin-top:32px"><div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between">'
+    +'<div><div class="eb" style="font:500 10px/1 \'IBM Plex Mono\';letter-spacing:.14em;text-transform:uppercase;color:var(--gold)">'+esc(eb)+'</div><h2 class="h1" style="font-size:20px;margin-top:8px">'+esc(titulo)+'</h2>'+(sub?'<div style="font:400 12px/1.6 \'IBM Plex Mono\';color:var(--text-faint);margin-top:6px">'+sub+'</div>':'')+'</div>'
+    +'<button class="btn-dark" onclick="PORTAL.pedirContrato(\''+cid+'\')">Montar pedido</button></div>'
+    +(rows?'<div class="tbl-wrap" style="margin-top:14px"><div class="tbl" style="--minw:980px;--cols:110px 1fr 120px 220px 90px 130px 140px"><div class="thead"><div>SKU</div><div>Produto</div><div>Cor</div><div>Tam. (saldo)</div><div class="num">Dispon.</div><div class="num">Unitário</div><div>Expedição</div></div>'+rows+'</div></div>':'<div class="empty">Sem itens neste contrato.</div>')
+    +'</div>';
+}
 function viewCatalogo(){
   if(S.dataErr==='__PREVIEW__') return previewPrompt();
   if(S.dataErr) return '<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
-  var c=S.data.catalogo;
-  if(!c) return '<div class="loading">Carregando…</div>';
-  var help='<p class="tab-help">Produtos do seu catálogo para reposição, com o preço da sua tabela'+(c.contrato?' de contrato':'')+' e o prazo de expedição. Itens com saldo saem em pronta entrega; sem saldo, entram em produção.</p>';
-  var ctr='';
-  if(c.contrato){
-    var partes=[];
-    if(c.contrato.numero) partes.push('Contrato '+esc(c.contrato.numero));
-    if(c.contrato.condicaoPagamento) partes.push('Pagamento: '+esc(c.contrato.condicaoPagamento));
-    if(c.contrato.prazoEntrega) partes.push('Prazo de produção: '+esc(c.contrato.prazoEntrega));
-    if(partes.length) ctr='<div style="margin-top:14px;font:400 13px/1.6 \'IBM Plex Mono\';color:var(--text-faint)">'+partes.join(' · ')+'</div>';
-  }
-  if(!(c.itens||[]).length) return help+ctr+'<div class="empty">Nenhum produto no seu catálogo ainda. Fale com seu consultor comercial.</div>';
-  var rows=c.itens.map(function(it){
-    var tams=(it.tamanhos||[]).map(function(t){ return '<span style="white-space:nowrap;'+(t.saldo>0?'':'color:var(--text-faint)')+'">'+esc(t.tamanho)+'<b style="font-weight:500">:'+t.saldo+'</b></span>'; }).join(' ');
-    var preco = it.preco!=null ? money(it.preco) : '<span style="color:var(--text-faint)">sob consulta</span>';
-    var extra = it.precoEspecial!=null ? '<div style="font:400 11px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:4px">'+esc((it.tamsEspeciais||[]).join(','))+': '+money(it.precoEspecial)+'</div>' : '';
-    var origem = it.precoOrigem==='contrato' ? '<div style="font:500 9px/1 \'IBM Plex Mono\';letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-top:5px">contrato</div>' : '';
-    return '<div class="trow"><div class="code">'+esc(it.sku)+'</div>'
-      +'<div>'+esc(it.descricao)+'</div>'
-      +'<div>'+esc(it.cor||'—')+'</div>'
-      +'<div style="font:400 12px/1.8 \'IBM Plex Mono\'">'+(tams||'<span style="color:var(--text-faint)">—</span>')+'</div>'
-      +'<div class="num strong">'+(it.disponivel||0).toLocaleString('pt-BR')+'</div>'
-      +'<div class="num" style="white-space:nowrap">'+preco+extra+origem+'</div>'
-      +'<div>'+(it.disponivel>0?'<span class="pill ok">Pronta entrega</span>':'<span style="font:400 13px/1.5;color:var(--text-dim)">'+esc(it.prazo)+'</span>')+'</div></div>';
-  }).join('');
-  var tabela='<div class="tbl-wrap" style="margin-top:20px"><div class="tbl" style="--minw:980px;--cols:110px 1fr 120px 220px 90px 130px 140px">'
-    +'<div class="thead"><div>SKU</div><div>Produto</div><div>Cor</div><div>Tam. (saldo)</div><div class="num">Dispon.</div><div class="num">Unitário</div><div>Expedição</div></div>'
-    +rows+'</div></div>'
-    +'<div class="actions"><button class="btn-dark" onclick="PORTAL.go(\'novo\')">Montar pedido com esses itens</button></div>';
-  return help+ctr+tabela;
+  var d=S.data.contratos;
+  if(!d) return '<div class="loading">Carregando…</div>';
+  var help='<p class="tab-help">Seu catálogo organizado por contrato/unidade, com o preço e o prazo de cada um. Itens com saldo saem em pronta entrega; sem saldo, entram em produção.</p>';
+  var secs=(d.contratos||[]).map(function(c){ return secaoCatalogo(tituloContrato(c), subtituloContrato(c), c.itens, c.id, c.unidade?'Unidade':'Contrato'); });
+  if((d.outros||[]).length) secs.push(secaoCatalogo('Outros produtos do seu cadastro','Preço de tabela (fora de contrato).', d.outros, 'outros', 'Fora de contrato'));
+  if(!secs.length) return help+'<div class="empty">Nenhum produto no seu catálogo ainda. Fale com seu consultor comercial.</div>';
+  return help+secs.join('');
 }
 
 function viewEstoque(){
-  var head='<h1 class="h1">Estoque</h1><div class="screen-sub">O que já é seu e está guardado conosco, e o que está disponível para compra.</div>';
+  var head='<h1 class="h1">Estoque</h1><div class="screen-sub">O que temos em pronta entrega para você e o seu catálogo com preços e prazos.</div>';
   var tabs='<div class="tabs">'
-    +'<button class="'+(S.tab==='consignado'?'active':'')+'" onclick="PORTAL.setTab(\'consignado\')">Meu estoque na fábrica</button>'
+    +'<button class="'+(S.tab==='consignado'?'active':'')+'" onclick="PORTAL.setTab(\'consignado\')">Pronta entrega</button>'
     +'<button class="'+(S.tab==='disponivel'?'active':'')+'" onclick="PORTAL.setTab(\'disponivel\')">Disponível para compra</button>'
     +'</div>';
   var body;
@@ -538,8 +570,8 @@ function viewEstoque(){
           +'<div class="thead"><div>SKU</div><div>Produto</div><div>Cor</div><div>Tam.</div><div class="num">Disponível</div></div>'
           +rows.join('')+'</div></div>'
           +'<div class="actions"><button class="btn-sec" onclick="PORTAL.exportEstoque()">Exportar em planilha</button></div>')
-          : '<div class="empty">Você não tem peças em estoque na fábrica no momento.</div>';
-        body='<p class="tab-help">Peças já pagas por você e guardadas em nossa fábrica, prontas para expedição.</p>'+tabela;
+          : '<div class="empty">No momento não há peças em pronta entrega para você. Veja o catálogo em "Disponível para compra" — itens sem saldo entram em produção.</div>';
+        body='<p class="tab-help">Peças que mantemos em estoque, por nossa conta, para você comprar com entrega imediata. Para pedir, use <a href="#novo" onclick="return PORTAL.go(\'novo\')">Novo pedido</a>.</p>'+tabela;
       }
     }
   }
@@ -563,7 +595,7 @@ function viewPedidos(){
     }
     return '<div class="order"><div class="head">'
       +'<div><div class="num">'+esc(p.numero)+'<span class="pill '+pi.c+'">'+esc(pi.t)+'</span>'+(p.atrasado?'<span class="pill danger" style="margin-left:8px">Atrasado</span>':'')+'</div>'
-        +'<div class="resumo">'+esc(resumoItens(p))+(p.ordemCompraCliente?(' · OC '+esc(p.ordemCompraCliente)):'')+'</div></div>'
+        +'<div class="resumo">'+esc(resumoItens(p))+(p.unidade?(' · '+esc(p.unidade)):'')+(p.ordemCompraCliente?(' · OC '+esc(p.ordemCompraCliente)):'')+'</div></div>'
       +'<div class="right"><div class="val">'+(p.totalPecas||0).toLocaleString('pt-BR')+' pç</div>'
         +'<div class="prev">'+(p.etapa==='concluido'?'entregue':'previsão '+dateBR(p.prazoEntrega))+'</div></div></div>'
       +'<div class="trail">'+trailHTML+'</div>'
@@ -621,7 +653,7 @@ function viewNotas(){
   return head+filtros+tabela;
 }
 function viewNovo(){
-  var head='<h1 class="h1">Novo pedido</h1><div class="screen-sub">Faça reposição a partir do seu catálogo, sem intermediação.</div>';
+  var head='<h1 class="h1">Novo pedido</h1><div class="screen-sub">Escolha o contrato e monte a reposição a partir dos produtos dele.</div>';
   if(S.feito){ var f=S.feito;
     return head+'<div class="done"><div class="mark" role="img" aria-label="Pedido registrado">✓</div>'
       +'<h2 class="h1" style="font-size:26px;margin-top:26px">Pedido registrado</h2>'
@@ -631,32 +663,40 @@ function viewNovo(){
   }
   if(S.dataErr==='__PREVIEW__') return head+previewPrompt();
   if(S.dataErr) return head+'<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
-  var c=S.data.catalogo; if(!c) return head+'<div class="loading">Carregando…</div>';
-  var itens=c.itens||[];
-  if(!itens.length) return head+'<div class="empty">Nenhum produto no seu catálogo ainda. Fale com seu consultor comercial.</div>';
-  var rows=itens.map(function(it){
-    var g=S.cart[it.produtoId]||{}, inputs;
+  var d=S.data.contratos; if(!d) return head+'<div class="loading">Carregando…</div>';
+  var temContratos=(d.contratos||[]).length>0, temOutros=(d.outros||[]).length>0;
+  if(!temContratos&&!temOutros) return head+'<div class="empty">Nenhum produto no seu catálogo ainda. Fale com seu consultor comercial.</div>';
+  if(!temContratos&&S.contratoId!=='outros'){ S.contratoId='outros'; loadCart(); }
+  var atual=contratoAtual();
+  if(!atual){
+    var cards=(d.contratos||[]).map(function(c){ return '<button class="ctr-card" onclick="PORTAL.setContrato('+c.id+')"><div class="eb">'+(c.unidade?'Unidade':'Contrato')+'</div><div class="t">'+esc(tituloContrato(c))+'</div><div class="s">'+subtituloContrato(c)+'</div><div class="n">'+(c.itens||[]).length+' produto(s) →</div></button>'; }).join('');
+    if(temOutros) cards+='<button class="ctr-card" onclick="PORTAL.setContrato(\'outros\')"><div class="eb">Fora de contrato</div><div class="t">Outros produtos do seu cadastro</div><div class="s">Preço de tabela</div><div class="n">'+d.outros.length+' produto(s) →</div></button>';
+    return head+'<p class="tab-help">Escolha o <b>contrato / unidade</b> para o qual vai comprar. Cada contrato tem seus próprios produtos, preços e a empresa que emite a nota — assim nada se mistura.</p><div class="ctr-grid">'+cards+'</div>';
+  }
+  var cab='<div class="ctr-head"><div><div class="eb">'+(atual.outros?'Fora de contrato':(atual.unidade?'Unidade':'Contrato'))+'</div><div class="t">'+(atual.outros?'Outros produtos do seu cadastro':esc(tituloContrato(atual)))+'</div><div class="s">'+(atual.outros?'Preço de tabela':subtituloContrato(atual))+'</div></div>'
+    +((temContratos&&(temOutros||(d.contratos||[]).length>1))?'<button class="btn-sec" onclick="PORTAL.setContrato(\'\')">Trocar contrato</button>':'')+'</div>';
+  var cards=(atual.itens||[]).map(function(it){ var key=itemKey(it), g=S.cart[key]||{}, inputs;
     if(it.preco==null) inputs='<span style="color:var(--text-faint);font:400 13px/1.5">sob consulta</span>';
-    else if((it.tamanhos||[]).length) inputs='<div class="qty">'+it.tamanhos.map(function(t){ var v=Number(g[t.tamanho])||0;
-      return '<label>'+esc(t.tamanho)+'<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty('+it.produtoId+',\''+esc(t.tamanho).replace(/'/g,'')+'\',this.value)"></label>'; }).join('')+'</div>';
-    else { var v=Number(g.UN)||0; inputs='<div class="qty"><label>qtd<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty('+it.produtoId+',\'UN\',this.value)"></label></div>'; }
+    else if((it.tamanhos||[]).length) inputs='<div class="qty">'+it.tamanhos.map(function(t){ var v=Number(g[t.tamanho])||0; return '<label>'+esc(t.tamanho)+'<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\''+esc(t.tamanho).replace(/'/g,'')+'\',this.value)"></label>'; }).join('')+'</div>';
+    else { var v=Number(g.UN)||0; inputs='<div class="qty"><label>qtd<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\'UN\',this.value)"></label></div>'; }
+    var cached=it.produtoId?S.fotos[it.produtoId]:null;
+    var foto = (it.produtoId&&it.temFoto&&cached!=='none') ? '<div class="pfoto-wrap"><div class="pfoto ph">'+esc((it.sku||'HC').split('-').slice(-1)[0])+'</div><img class="pfoto" data-foto="'+it.produtoId+'" alt=""'+(cached?' src="'+cached+'"':'')+'></div>'
+      : '<div class="pfoto-wrap"><div class="pfoto ph">'+esc((it.sku||'HC').split('-').slice(-1)[0])+'</div></div>';
     var un = it.preco==null ? '—' : money(it.preco)+(it.precoEspecial!=null?'<div style="font:400 11px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:4px">'+esc((it.tamsEspeciais||[]).join(','))+': '+money(it.precoEspecial)+'</div>':'');
-    return '<div class="trow" style="align-items:start"><div><div style="font:400 15px/1.4">'+esc(it.descricao)+'</div>'
-      +'<div style="font:400 12px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:5px">'+esc([it.cor,it.sku].filter(Boolean).join(' · '))+(it.disponivel>0?' · '+it.disponivel+' em pronta entrega':'')+'</div></div>'
-      +'<div class="num" style="white-space:nowrap">'+un+'</div><div>'+inputs+'</div></div>';
+    return '<div class="pcard">'+foto+'<div class="pbody"><div class="pn">'+esc(it.descricao)+'</div><div class="ps">'+esc([it.cor,it.sku].filter(Boolean).join(' · '))+(it.disponivel>0?' · <b>'+it.disponivel+' em pronta entrega</b>':'')+'</div><div class="pp">'+un+'</div>'+inputs+'</div></div>';
   }).join('');
-  var catalogo='<div class="cat"><div class="tbl" style="--minw:0;--cols:1fr 112px minmax(190px,1.2fr)"><div class="thead"><div>Produto</div><div class="num">Unitário</div><div>Quantidade por tamanho</div></div>'+rows+'</div></div>';
   var lines=cartLines(), count=0, total=0; lines.forEach(function(l){ count+=l.qtd; total+=l.sub; });
   var list = lines.length
     ? '<div class="items">'+lines.map(function(l){ return '<div><span>'+l.qtd+'× '+esc(l.it.descricao)+'</span><b>'+money(l.sub)+'</b></div>'; }).join('')+'</div>'
       +'<div class="k">Total de peças</div><div class="v">'+count.toLocaleString('pt-BR')+'</div><div class="k">Valor estimado</div><div class="total">'+money(total)+'</div>'
-    : '<div class="vazio">Nenhum item selecionado. Ajuste as quantidades na lista ao lado.</div>';
-  var resumo='<div class="summary"><div class="eb">Resumo</div>'+list
-    +'<textarea id="novo_obs" rows="3" placeholder="Centro de custo, filial de entrega, urgência" onchange="PORTAL.setObs(this.value)">'+esc(S.novoObs||'')+'</textarea>'
+    : '<div class="vazio">Nenhum item selecionado. Informe as quantidades nos produtos ao lado.</div>';
+  var ctx = atual.outros ? 'Fora de contrato · preço de tabela' : (esc(tituloContrato(atual))+(atual.numero?' · '+esc(atual.numero):''));
+  var resumo='<div class="summary"><div class="eb">Resumo</div><div style="font:400 12px/1.5 \'IBM Plex Mono\';color:var(--on-dark-4);margin-top:10px">'+ctx+'</div>'+list
+    +'<textarea id="novo_obs" rows="3" placeholder="Centro de custo, local de entrega, urgência" onchange="PORTAL.setObs(this.value)">'+esc(S.novoObs||'')+'</textarea>'
     +(S.novoErr?'<div class="err">'+esc(S.novoErr)+'</div>':'')
     +'<button class="btn-gold" '+(lines.length&&!S.enviando?'':'disabled')+' onclick="PORTAL.enviar()">'+(S.enviando?'Enviando…':'Enviar pedido')+'</button>'
     +'<div class="note">O envio não gera cobrança. A confirmação de preço e prazo vem por e-mail em até um dia útil.</div></div>';
-  return head+'<div class="novo">'+catalogo+resumo+'</div>';
+  return head+cab+'<div class="novo"><div class="pgrid">'+(cards||'<div class="empty" style="padding:20px">Sem itens neste contrato.</div>')+'</div>'+resumo+'</div>';
 }
 
 function previewPrompt(){ return '<div class="soon-box"><div class="eb">Admin</div><h3>Escolha um cliente para pré-visualizar</h3>'
@@ -675,6 +715,7 @@ function render(){
     default: inner=viewPainel();
   }
   root.innerHTML=renderShell(inner);
+  carregarFotos();
 }
 function wireLogin(){
   var f=$('loginform'); if(!f) return;
@@ -688,10 +729,12 @@ function wireLogin(){
 // ---------- API pública (onclick) ----------
 window.PORTAL={
   go:function(v){ if(S.view===v) return false; S.view=v; S.dataErr=''; S.feito=null; window.location.hash=v; loadView(); return false; },
-  setTab:function(t){ S.tab=t; S.dataErr=''; if((t==='consignado'&&!S.data.estoque)||(t==='disponivel'&&!S.data.catalogo)){ loadView(); } else render(); },
+  setTab:function(t){ S.tab=t; S.dataErr=''; if((t==='consignado'&&!S.data.estoque)||(t==='disponivel'&&!S.data.contratos)){ loadView(); } else render(); },
   toggle:function(num){ S.expand[num]=!S.expand[num]; render(); },
   logout:function(){ doLogout(); },
-  setPreview:function(){ var v=($('pv_cli')||{}).value||''; S.previewCli=v.trim(); S.data={}; S.dataErr=''; S.feito=null; loadCart(); loadView(); },
+  setPreview:function(){ var v=($('pv_cli')||{}).value||''; S.previewCli=v.trim(); S.data={}; S.dataErr=''; S.feito=null; S.contratoId=''; loadView(); },
+  setContrato:function(id){ S.contratoId=String(id||''); S.feito=null; S.novoErr=''; loadCart(); render(); },
+  pedirContrato:function(id){ S.contratoId=String(id||''); S.feito=null; S.novoErr=''; loadCart(); if(S.view==='novo') render(); else PORTAL.go('novo'); },
   exportEstoque:function(){ exportEstoque(); },
   notasPeriodo:function(v){ S.notasFiltro.periodo=v; render(); },
   notasBusca:function(v){ S.notasFiltro.busca=v; render(); var el=$('notas_busca'); if(el){ el.focus(); try{ el.selectionStart=el.selectionEnd=el.value.length; }catch(e){} } },
@@ -727,7 +770,7 @@ function exportEstoque(){
   var csv=linhas.map(function(r){ return r.map(function(c){ var s=String(c==null?'':c); return /[",;\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; }).join(';'); }).join('\r\n');
   var blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob); var a=document.createElement('a');
-  a.href=url; a.download='meu-estoque-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+  a.href=url; a.download='pronta-entrega-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
   setTimeout(function(){ URL.revokeObjectURL(url); },1500);
 }
 

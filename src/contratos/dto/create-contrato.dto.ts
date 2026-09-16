@@ -36,6 +36,9 @@ export class CreateContratoDto {
   /** Empresa/CNPJ do grupo que atende/fatura o contrato (filial emissora). */
   @IsOptional() @IsInt() filialId?: number;
 
+  /** Unidade do cliente a que o contrato se refere (null = vale para todas as unidades). */
+  @IsOptional() @IsInt() clienteUnidadeId?: number | null;
+
   /** Vendedor dono da carteira (controle de comissão / de quem o cliente pertence). */
   @IsOptional() @IsString() @MaxLength(120) vendedor?: string;
 

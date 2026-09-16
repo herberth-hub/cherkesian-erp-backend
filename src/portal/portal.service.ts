@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, Produto } from '@prisma/client';
@@ -143,6 +143,7 @@ export class PortalService {
         prazoEntrega: true,
         etapa: true,
         ordemCompraCliente: true,
+        clienteUnidadeId: true,
         itens: { select: { descricao: true, cor: true, quantidade: true, quantidadeExpedida: true } },
         ops: { select: { status: true, progresso: true, entregaPrev: true, quantidade: true } },
       },
@@ -163,6 +164,11 @@ export class PortalService {
     };
     const TOTAL_PASSOS = 7;
     const hoje = new Date();
+    // Nome da unidade destinatária de cada pedido (quando houver).
+    const uniIds = [...new Set(pedidos.map((p) => p.clienteUnidadeId).filter((x): x is number => x != null))];
+    const uniNome = new Map(
+      (uniIds.length ? await this.prisma.clienteUnidade.findMany({ where: { id: { in: uniIds } }, select: { id: true, nome: true } }) : []).map((u) => [u.id, u.nome]),
+    );
 
     const lista = pedidos.map((p) => {
       const meta = ETAPA[p.etapa] || { label: p.etapa, passo: 1 };
@@ -184,6 +190,7 @@ export class PortalService {
         numero: p.numero,
         data: p.data,
         ordemCompraCliente: p.ordemCompraCliente,
+        unidade: p.clienteUnidadeId != null ? uniNome.get(p.clienteUnidadeId) ?? null : null,
         etapa: p.etapa,
         etapaLabel: meta.label,
         progresso,
@@ -308,18 +315,27 @@ export class PortalService {
    * (inclui tamanhos com saldo zero, que podem ser encomendados); prazo = pronta entrega
    * quando há saldo, senão o prazo de produção do contrato.
    */
-  async catalogo(user: AuthUser, override?: number) {
+  async catalogo(user: AuthUser, override?: number, unidadeId?: number) {
     const cliente = await this.clienteDoEscopo(user, override);
     const empresaId = user.empresaId;
+    const unidade = await this.unidadeDoCliente(cliente.id, unidadeId);
 
-    const contratos = await this.prisma.contrato.findMany({
+    // Contratos vigentes do cliente. Com UNIDADE escolhida: só os dela + os gerais (sem
+    // unidade), e o específico da unidade tem prioridade sobre o geral no preço.
+    const contratosRaw = await this.prisma.contrato.findMany({
       where: {
         empresaId, clienteId: cliente.id, ativo: true,
-        OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }],
+        AND: [
+          { OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }] },
+          ...(unidade ? [{ OR: [{ clienteUnidadeId: null }, { clienteUnidadeId: unidade.id }] }] : []),
+        ],
       },
       include: { itens: { select: { produtoId: true, preco: true, unidade: true } } },
       orderBy: { id: 'desc' },
     });
+    const contratos = unidade
+      ? [...contratosRaw].sort((a, b) => (b.clienteUnidadeId ? 1 : 0) - (a.clienteUnidadeId ? 1 : 0) || b.id - a.id)
+      : contratosRaw;
     // Primeiro contrato (mais recente) que tabela o produto vence.
     const precoContrato = new Map<number, { preco: Prisma.Decimal; unidade: string | null }>();
     for (const c of contratos) {
@@ -380,6 +396,7 @@ export class PortalService {
 
     return {
       cliente: { nome: cliente.fantasia || cliente.nome },
+      unidade: unidade ? { id: unidade.id, nome: unidade.nome } : null,
       contrato: contratoRef
         ? {
             numero: contratoRef.numero,
@@ -414,14 +431,35 @@ export class PortalService {
     });
     if (existente) return this.respostaPedido(existente, true);
 
-    const cat = await this.catalogo(user, override);
-    const porProduto = new Map(cat.itens.map((i) => [i.produtoId, i]));
+    // "Contrato primeiro": o pedido nasce de UM contrato do cliente — a unidade, a empresa
+    // emissora e os PREÇOS vêm dele (inclusive itens sem produto vinculado). Sem contrato
+    // (produtos fora de contrato / tabela), usa o catálogo.
+    const contrato = dto.contratoId ? await this.contratoDoCliente(cliente.id, empresaId, dto.contratoId) : null;
+    const unidade = contrato ? contrato.clienteUnidade : await this.unidadeDoCliente(cliente.id, dto.unidadeId);
+    const cat = contrato ? null : await this.catalogo(user, override, unidade?.id);
+    const porProduto = new Map((cat?.itens ?? []).map((i) => [i.produtoId, i]));
+    const tamanhosDe = (estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>) =>
+      (estoque ?? []).map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }));
 
     const itens: CreatePedidoDto['itens'] = [];
     const acimaDoSaldo: string[] = [];
     for (const it of dto.itens) {
-      const c = porProduto.get(it.produtoId);
-      if (!c) throw new BadRequestException(`Produto ${it.produtoId} não está no seu catálogo.`);
+      let c: { produtoId: number | null; sku: string | null; descricao: string; cor: string | null; preco: Prisma.Decimal | null; tamanhos: Array<{ tamanho: string; saldo: number }>; disponivel: number };
+      if (contrato) {
+        const ci = contrato.itens.find((x) =>
+          it.contratoItemId != null ? x.id === it.contratoItemId : it.produtoId != null && x.produtoId === it.produtoId,
+        );
+        if (!ci) throw new BadRequestException(`Item não faz parte do contrato ${contrato.numero || '#' + contrato.id}.`);
+        const tamanhos = tamanhosDe(ci.produto?.estoque);
+        c = {
+          produtoId: ci.produtoId, sku: ci.produto?.codigo ?? ci.codigo, descricao: ci.descricao, cor: ci.produto?.cor ?? null,
+          preco: ci.preco, tamanhos, disponivel: tamanhos.reduce((s, t) => s + t.saldo, 0),
+        };
+      } else {
+        const k = it.produtoId != null ? porProduto.get(it.produtoId) : undefined;
+        if (!k) throw new BadRequestException(`Produto ${it.produtoId ?? '?'} não está no seu catálogo.`);
+        c = { produtoId: k.produtoId, sku: k.sku, descricao: k.descricao, cor: k.cor, preco: k.preco, tamanhos: k.tamanhos, disponivel: k.disponivel };
+      }
       if (c.preco == null) {
         throw new BadRequestException(`"${c.descricao}" está sob consulta — fale com seu consultor para incluir no pedido.`);
       }
@@ -442,10 +480,10 @@ export class PortalService {
         .filter(([t, q]) => q > (saldoTam.get(t) ?? 0))
         .map(([t, q]) => `${t}: ${q} (saldo ${saldoTam.get(t) ?? 0})`);
       if (Object.keys(grade).length ? excedentes.length > 0 : total > c.disponivel) {
-        acimaDoSaldo.push(`${c.sku} ${c.descricao}${excedentes.length ? ' — ' + excedentes.join(', ') : ` — ${total} (saldo ${c.disponivel})`}`);
+        acimaDoSaldo.push(`${c.sku ?? ''} ${c.descricao}${excedentes.length ? ' — ' + excedentes.join(', ') : ` — ${total} (saldo ${c.disponivel})`}`.trim());
       }
       itens.push({
-        produtoId: c.produtoId,
+        produtoId: c.produtoId ?? undefined,
         descricao: c.descricao,
         cor: c.cor ?? undefined,
         quantidade: total,
@@ -458,7 +496,8 @@ export class PortalService {
     const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
     const nomeCli = cliente.fantasia || cliente.nome;
     const obsCliente = dto.observacao?.trim() || '';
-    const obsPartes = [`Pedido enviado pelo PORTAL DO CLIENTE em ${quando} por ${quem}.`];
+    const rotuloContrato = contrato ? contrato.numero || contrato.descricao || `#${contrato.id}` : null;
+    const obsPartes = [`Pedido enviado pelo PORTAL DO CLIENTE em ${quando} por ${quem}${rotuloContrato ? ` — contrato ${rotuloContrato}` : ''}${unidade ? ` — unidade: ${unidade.nome}` : ''}.`];
     if (obsCliente) obsPartes.push(`Obs. do cliente: ${obsCliente}`);
     if (acimaDoSaldo.length) obsPartes.push(`Acima do saldo (vai p/ produção): ${acimaDoSaldo.join(' | ')}`);
 
@@ -467,9 +506,11 @@ export class PortalService {
       criado = await this.pedidos.create(
         {
           clienteId: cliente.id,
-          filialId: cat.contrato?.filialId ?? undefined,
+          clienteUnidadeId: unidade?.id ?? undefined,
+          filialId: (contrato ? contrato.filialId : cat?.contrato?.filialId) ?? undefined,
           itens,
-          formaPagamento: cat.contrato?.condicaoPagamento || cat.contrato?.formaPagamento || undefined,
+          formaPagamento:
+            (contrato ? contrato.condicaoPagamento || contrato.formaPagamento : cat?.contrato?.condicaoPagamento || cat?.contrato?.formaPagamento) || undefined,
           obsComercial: obsPartes.join('\n').slice(0, 5000),
         } as CreatePedidoDto,
         empresaId,
@@ -506,7 +547,7 @@ export class PortalService {
       tipo: 'pedido_novo',
       areas: ['vendas'],
       titulo: `Novo pedido do PORTAL ${pedido.numero} — ${nomeCli}`,
-      mensagem: `${totalPecas} peça(s) · R$ ${valor} · enviado por ${quem}. VALIDE o pedido (aprovar) para entrar no fluxo.${acimaDoSaldo.length ? ' Há itens acima do saldo (vão para produção).' : ''}`,
+      mensagem: `${totalPecas} peça(s) · R$ ${valor} · enviado por ${quem}${rotuloContrato ? ` · contrato ${rotuloContrato}` : ''}${unidade ? ` · unidade ${unidade.nome}` : ''}. VALIDE o pedido (aprovar) para entrar no fluxo.${acimaDoSaldo.length ? ' Há itens acima do saldo (vão para produção).' : ''}`,
       refTipo: 'pedido',
       refId: pedido.id,
     });
@@ -521,6 +562,8 @@ export class PortalService {
         'Novo pedido enviado pelo Portal do Cliente.',
         '',
         `Cliente: ${nomeCli}`,
+        unidade ? `Unidade: ${unidade.nome}${unidade.cnpjCpf ? ' (' + unidade.cnpjCpf + ')' : ''}` : null,
+        rotuloContrato ? `Contrato: ${rotuloContrato}` : null,
         `Pedido: ${pedido.numero}`,
         `Enviado por: ${quem} em ${quando}`,
         `Total: ${totalPecas} peça(s) · R$ ${valor}`,
@@ -535,6 +578,181 @@ export class PortalService {
     );
 
     return this.respostaPedido(pedido, false);
+  }
+
+  /** Valida que a unidade pertence ao cliente do escopo (sem unidade => null). */
+  private async unidadeDoCliente(clienteId: number, unidadeId?: number | null) {
+    if (!unidadeId) return null;
+    const u = await this.prisma.clienteUnidade.findFirst({
+      where: { id: unidadeId, clienteId },
+      select: { id: true, nome: true, cnpjCpf: true, municipio: true, uf: true },
+    });
+    if (!u) throw new BadRequestException('Unidade não encontrada para este cliente.');
+    return u;
+  }
+
+  /** Unidades do cliente (seletor do portal) + quantos contratos vigentes cada uma tem. */
+  async unidades(user: AuthUser, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const [unidades, contratos] = await Promise.all([
+      this.prisma.clienteUnidade.findMany({
+        where: { clienteId: cliente.id },
+        select: { id: true, nome: true, cnpjCpf: true, municipio: true, uf: true },
+        orderBy: { nome: 'asc' },
+      }),
+      this.prisma.contrato.findMany({
+        where: { empresaId: user.empresaId, clienteId: cliente.id, ativo: true, OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }] },
+        select: { clienteUnidadeId: true },
+      }),
+    ]);
+    const porUnidade = new Map<number, number>();
+    let gerais = 0;
+    for (const c of contratos) {
+      if (c.clienteUnidadeId) porUnidade.set(c.clienteUnidadeId, (porUnidade.get(c.clienteUnidadeId) ?? 0) + 1);
+      else gerais++;
+    }
+    return {
+      cliente: { nome: cliente.fantasia || cliente.nome },
+      contratosGerais: gerais,
+      unidades: unidades.map((u) => ({ ...u, contratos: porUnidade.get(u.id) ?? 0 })),
+    };
+  }
+
+  /** Contrato vigente do cliente com itens + produto (estoque) + unidade — base do pedido "contrato primeiro". */
+  private async contratoDoCliente(clienteId: number, empresaId: number, contratoId: number) {
+    const c = await this.prisma.contrato.findFirst({
+      where: { id: contratoId, empresaId, clienteId, ativo: true, OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }] },
+      include: {
+        clienteUnidade: { select: { id: true, nome: true, cnpjCpf: true, municipio: true, uf: true } },
+        itens: {
+          orderBy: { id: 'asc' },
+          include: { produto: { select: { id: true, codigo: true, descricao: true, cor: true, estoque: { select: { tamanho: true, entradas: true, saidas: true } } } } },
+        },
+      },
+    });
+    if (!c) throw new BadRequestException('Contrato não encontrado (ou fora de vigência) para este cliente.');
+    return c;
+  }
+
+  /**
+   * Contratos vigentes do cliente COM os itens (fluxo "contrato primeiro" do Novo pedido e o
+   * catálogo agrupado) + "outros": produtos do cadastro do cliente que não estão em nenhum
+   * contrato (preço de tabela do ERP). Item de contrato sem produto vinculado também aparece
+   * (é pedível: descrição + preço do contrato). `temFoto` evita mandar o base64 na lista.
+   */
+  async contratos(user: AuthUser, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const empresaId = user.empresaId;
+    const selProduto = {
+      id: true, codigo: true, descricao: true, cor: true, setor: true, precoBase: true, precoEspecial: true, tamsEspeciais: true,
+      estoque: { select: { tamanho: true, entradas: true, saidas: true } },
+    } as const;
+
+    const contratosRaw = await this.prisma.contrato.findMany({
+      where: { empresaId, clienteId: cliente.id, ativo: true, OR: [{ vigenciaFim: null }, { vigenciaFim: { gte: new Date() } }] },
+      include: {
+        clienteUnidade: { select: { id: true, nome: true, municipio: true, uf: true } },
+        filial: { select: { id: true, nome: true } },
+        itens: { orderBy: { id: 'asc' }, include: { produto: { select: selProduto } } },
+      },
+      orderBy: { id: 'asc' },
+    });
+    const ors: Array<Record<string, unknown>> = [{ clienteId: cliente.id }];
+    if (cliente.grupo && cliente.grupo.trim()) ors.push({ clienteGrupo: cliente.grupo.trim() });
+    const produtos = await this.prisma.produto.findMany({ where: { empresaId, OR: ors }, select: selProduto, orderBy: { descricao: 'asc' } });
+
+    const idsProd = new Set<number>(produtos.map((p) => p.id));
+    for (const c of contratosRaw) for (const it of c.itens) if (it.produtoId != null) idsProd.add(it.produtoId);
+    const comFoto = new Set(
+      idsProd.size
+        ? (await this.prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "Produto" WHERE id IN (${Prisma.join([...idsProd])}) AND "fotoModelo" IS NOT NULL AND length("fotoModelo") > 0`).map((r) => r.id)
+        : [],
+    );
+    const tamanhosDe = (estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>) =>
+      (estoque ?? [])
+        .map((e) => ({ tamanho: e.tamanho, saldo: Math.max(0, (e.entradas || 0) - (e.saidas || 0)) }))
+        .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+    const prazoDe = (p?: string | null) => { const s = (p || '').trim(); return s ? (/^\d+$/.test(s) ? `${s} dias` : s) : null; };
+
+    const emContrato = new Set<number>();
+    const contratos = contratosRaw.map((c) => {
+      const prazoC = prazoDe(c.prazoEntrega);
+      return {
+        id: c.id,
+        numero: c.numero,
+        descricao: c.descricao,
+        unidade: c.clienteUnidade ? { id: c.clienteUnidade.id, nome: c.clienteUnidade.nome, municipio: c.clienteUnidade.municipio, uf: c.clienteUnidade.uf } : null,
+        filial: c.filial ? { id: c.filial.id, nome: c.filial.nome } : null,
+        prazoEntrega: prazoC,
+        condicaoPagamento: c.condicaoPagamento,
+        formaPagamento: c.formaPagamento,
+        itens: c.itens.map((it) => {
+          const p = it.produto;
+          if (p) emContrato.add(p.id);
+          const tamanhos = tamanhosDe(p?.estoque);
+          const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
+          return {
+            contratoItemId: it.id,
+            produtoId: p?.id ?? null,
+            sku: p?.codigo ?? it.codigo ?? null,
+            descricao: it.descricao,
+            cor: p?.cor ?? null,
+            unidade: it.unidade || 'un',
+            preco: it.preco,
+            precoEspecial: null as Prisma.Decimal | null,
+            tamsEspeciais: [] as string[],
+            precoOrigem: 'contrato' as const,
+            temFoto: !!(p && comFoto.has(p.id)),
+            tamanhos,
+            disponivel,
+            prazo: disponivel > 0 ? 'Pronta entrega' : prazoC || 'Sob encomenda',
+          };
+        }),
+      };
+    });
+    const outros = produtos
+      .filter((p) => !emContrato.has(p.id))
+      .map((p) => {
+        const tamanhos = tamanhosDe(p.estoque);
+        const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
+        const tamsEsp = PedidosService.tamsEspeciais(p as unknown as Produto);
+        return {
+          contratoItemId: null as number | null,
+          produtoId: p.id,
+          sku: p.codigo,
+          descricao: p.descricao,
+          cor: p.cor,
+          unidade: 'un',
+          preco: p.precoBase,
+          precoEspecial: p.precoEspecial != null && tamsEsp.length ? p.precoEspecial : null,
+          tamsEspeciais: tamsEsp,
+          precoOrigem: (p.precoBase != null ? 'tabela' : null) as 'tabela' | null,
+          temFoto: comFoto.has(p.id),
+          tamanhos,
+          disponivel,
+          prazo: disponivel > 0 ? 'Pronta entrega' : 'Sob encomenda',
+        };
+      });
+
+    return { cliente: { nome: cliente.fantasia || cliente.nome }, contratos, outros };
+  }
+
+  /** Foto do produto (data URI em Produto.fotoModelo) — só se o produto é do catálogo/contratos do cliente. */
+  async fotoProduto(user: AuthUser, produtoId: number, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const p = await this.prisma.produto.findFirst({
+      where: { id: produtoId, empresaId: user.empresaId },
+      select: { id: true, clienteId: true, clienteGrupo: true, fotoModelo: true },
+    });
+    if (!p) throw new NotFoundException('Produto não encontrado.');
+    const meu =
+      p.clienteId === cliente.id ||
+      (!!cliente.grupo && !!cliente.grupo.trim() && p.clienteGrupo === cliente.grupo.trim()) ||
+      !!(await this.prisma.contratoItem.findFirst({ where: { produtoId, contrato: { clienteId: cliente.id, empresaId: user.empresaId } }, select: { id: true } }));
+    if (!meu) throw new ForbiddenException('Produto fora do seu catálogo.');
+    const m = /^data:([^;,]+);base64,(.+)$/s.exec(p.fotoModelo || '');
+    if (!m) throw new NotFoundException('Produto sem foto.');
+    return { contentType: m[1], content: Buffer.from(m[2], 'base64') };
   }
 
   private respostaPedido(

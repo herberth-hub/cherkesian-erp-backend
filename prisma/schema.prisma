@@ -283,6 +283,7 @@ model ClienteUnidade {
   cep               String?
   email             String?
   criadoEm          DateTime @default(now())
+  contratos         Contrato[]
 
   @@index([clienteId])
 }
@@ -1210,6 +1211,8 @@ model Contrato {
   empresa           Empresa  @relation(fields: [empresaId], references: [id])
   clienteId         Int
   cliente           Cliente  @relation(fields: [clienteId], references: [id])
+  clienteUnidadeId  Int?     // unidade do cliente a que o contrato se refere (null = vale p/ todas)
+  clienteUnidade    ClienteUnidade? @relation(fields: [clienteUnidadeId], references: [id], onDelete: SetNull)
   filialId          Int?     // empresa/CNPJ do grupo que atende/fatura o contrato (emissora)
   filial            Filial?  @relation(fields: [filialId], references: [id])
   vendedor          String?  // vendedor dono da carteira (controle de comissão / a quem o cliente pertence)

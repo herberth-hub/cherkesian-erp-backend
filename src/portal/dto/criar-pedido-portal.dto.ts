@@ -13,7 +13,11 @@ import {
 } from 'class-validator';
 
 export class PedidoPortalItemDto {
-  @IsInt() @IsPositive() produtoId!: number;
+  /** Produto do catálogo (obrigatório quando o pedido NÃO nasce de um contrato). */
+  @IsOptional() @IsInt() @IsPositive() produtoId?: number;
+
+  /** Item do contrato (fluxo "contrato primeiro"): vale inclusive para item sem produto vinculado. */
+  @IsOptional() @IsInt() @IsPositive() contratoItemId?: number;
 
   /** Quantidade por tamanho, ex.: { "M": 10, "G": 5 }. Só tamanhos com qtd > 0 contam. */
   @IsOptional() @IsObject() grade?: Record<string, number>;
@@ -28,6 +32,12 @@ export class CriarPedidoPortalDto {
   @ValidateNested({ each: true })
   @Type(() => PedidoPortalItemDto)
   itens!: PedidoPortalItemDto[];
+
+  /** Contrato escolhido ("contrato primeiro"): define unidade, empresa emissora e preços. */
+  @IsOptional() @IsInt() @IsPositive() contratoId?: number;
+
+  /** Unidade do cliente (usado só quando o pedido não nasce de um contrato). */
+  @IsOptional() @IsInt() @IsPositive() unidadeId?: number;
 
   /** Observação do cliente (centro de custo, filial de entrega, urgência). */
   @IsOptional() @IsString() @MaxLength(1000) observacao?: string;

@@ -3083,7 +3083,8 @@ function ctrRender(){
     ['Cliente','Empresa emissora','Vendedor','Nº / descrição','Cond. pagamento','Itens','Vigência','Situação','Ações'],
     list.map(k=>{
       const cliNome=(k.cliente&&k.cliente.nome)?esc(k.cliente.nome):('#'+k.clienteId);
-      const cnpj=(k.cliente&&k.cliente.cnpjCpf)?('<br><span class="muted" style="font-size:11px">'+esc(k.cliente.cnpjCpf)+'</span>'):'';
+      const cnpj=((k.cliente&&k.cliente.cnpjCpf)?('<br><span class="muted" style="font-size:11px">'+esc(k.cliente.cnpjCpf)+'</span>'):'')
+        +((k.clienteUnidade&&k.clienteUnidade.nome)?('<br><span style="font-size:11px;color:#7a5b12" title="Contrato específico desta unidade">📍 '+esc(k.clienteUnidade.nome)+'</span>'):'');
       const emp=(k.filial&&k.filial.nome)?('<b style="font-size:12px">'+esc(k.filial.nome)+'</b>'+(k.filial.cnpj?'<br><span class="muted" style="font-size:11px">'+esc(k.filial.cnpj)+'</span>':'')):'<span class="muted">—</span>';
       const nItens=k._count?k._count.itens:(k.itens?k.itens.length:0);
       const vig=(k.vigenciaInicio?ctrFmtD(k.vigenciaInicio):'')+(k.vigenciaFim?(' → '+ctrFmtD(k.vigenciaFim)):'');
@@ -3133,9 +3134,11 @@ async function formContrato(id){
         <input type="hidden" id="ctr_cli_id" value="${k?k.clienteId:''}"></div>
       ${field('ctr_vend','👤 Vendedor da carteira','value="'+esc((k&&k.vendedor)||'')+'" placeholder="responsável / comissão · de quem o cliente é"')}
     </div>
-    <div class="grid2">
+    <div class="grid3">
       <div class="mrow"><label class="fl">🏢 Empresa emissora (CNPJ que fatura)</label>
         <select id="ctr_filial" class="inp"><option value="">— definir depois —</option>${filAtivas.map(f=>`<option value="${f.id}" ${(k&&k.filialId===f.id)?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('')}</select></div>
+      <div class="mrow"><label class="fl">📍 Unidade do cliente (opcional)</label>
+        <select id="ctr_unid" class="inp" title="Contrato específico de uma unidade: define o preço no portal e o destinatário da NF"><option value="">— todas as unidades —</option></select></div>
       ${field('ctr_num','Nº do contrato','value="'+esc((k&&k.numero)||'')+'"')}
     </div>
     <div class="grid2">${field('ctr_desc','Descrição','value="'+esc((k&&k.descricao)||'')+'"')}${field('ctr_prazo','Prazo de entrega','value="'+esc((k&&k.prazoEntrega)||'')+'"')}</div>
@@ -3150,6 +3153,16 @@ async function formContrato(id){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveContrato(${id||0})">Salvar</button></div>`, {wide:true});
   ctrRenderItens();
+  if(k&&k.clienteId) ctrLoadUnidades(k.clienteId, k.clienteUnidadeId);
+}
+// Preenche o seletor de unidade com as unidades do cliente escolhido (vazio = vale p/ todas).
+async function ctrLoadUnidades(clienteId, selecionada){
+  const sel=$('ctr_unid'); if(!sel) return;
+  sel.innerHTML='<option value="">— todas as unidades —</option>';
+  try{
+    const c=await api('/clientes/'+clienteId);
+    (c.unidades||[]).forEach(u=>{ const o=document.createElement('option'); o.value=u.id; o.textContent=u.nome+(u.cnpjCpf?' · '+u.cnpjCpf:''); if(selecionada&&Number(selecionada)===u.id) o.selected=true; sel.appendChild(o); });
+  }catch(e){}
 }
 function ctrRenderItens(){
   const wrap=$('ctr_itens'); if(!wrap) return;
@@ -3191,6 +3204,7 @@ function ctrCliPick(id){
   const inp=$('ctr_cli_txt'); if(inp) inp.value=c.nome+(c.cnpjCpf?' · '+c.cnpjCpf:'');
   const h=$('ctr_cli_id'); if(h) h.value=c.id;
   const dd=$('ctr_cli_dd'); if(dd) dd.style.display='none';
+  ctrLoadUnidades(c.id);
 }
 function ctrProdDD(i){
   const inp=$('ctr_pd_txt_'+i), dd=$('ctr_pd_dd_'+i); if(!inp||!dd) return;
@@ -3222,7 +3236,7 @@ async function saveContrato(id){
   for(const it of itens){ if(isNaN(it.preco)||it.preco<0){ toast('Preço inválido no item: '+it.descricao,'err'); return; } }
   const ativo = $('ctr_ativo') ? $('ctr_ativo').checked : true;
   const filialId = val('ctr_filial') ? Number(val('ctr_filial')) : null;
-  const body={ clienteId, filialId, vendedor:val('ctr_vend'), numero:val('ctr_num'), descricao:val('ctr_desc'), formaPagamento:val('ctr_fpag'), condicaoPagamento:val('ctr_cpag'), prazoEntrega:val('ctr_prazo'), transportadora:val('ctr_transp'), vigenciaInicio:val('ctr_vini'), vigenciaFim:val('ctr_vfim'), observacoes:val('ctr_obs'), ativo, itens };
+  const body={ clienteId, filialId, clienteUnidadeId:(val('ctr_unid')?Number(val('ctr_unid')):null), vendedor:val('ctr_vend'), numero:val('ctr_num'), descricao:val('ctr_desc'), formaPagamento:val('ctr_fpag'), condicaoPagamento:val('ctr_cpag'), prazoEntrega:val('ctr_prazo'), transportadora:val('ctr_transp'), vigenciaInicio:val('ctr_vini'), vigenciaFim:val('ctr_vfim'), observacoes:val('ctr_obs'), ativo, itens };
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
   try{ await api(id?('/contratos/'+id):'/contratos',{method:id?'PATCH':'POST',body}); closeModal(); toast('Contrato salvo.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
