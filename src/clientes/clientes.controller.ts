@@ -40,7 +40,7 @@ export class ClientesController {
   /** Ficha do cliente: orçamentos, pedidos e NFs (quantidades + valores). */
   @Get(':id/resumo')
   resumo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.clientesService.resumo(id, user.empresaId);
+    return this.clientesService.resumo(id, user.empresaId, user.acesso);
   }
 
   @Post()

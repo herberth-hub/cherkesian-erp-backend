@@ -83,7 +83,7 @@ export class ClientesService {
   }
 
   /** Ficha/extrato do cliente: orçamentos, pedidos e NFs (quantidades + valores). */
-  async resumo(id: number, empresaId: number) {
+  async resumo(id: number, empresaId: number, acesso?: string) {
     const cliente = await this.findOne(id, empresaId);
     const pedidos = await this.prisma.pedido.findMany({
       where: { empresaId, clienteId: id },
@@ -189,8 +189,40 @@ export class ClientesService {
       };
     });
 
+    // Logins do Portal do Cliente — um por comprador. Cada login é a assinatura nos Logs
+    // (quem baixou a NF, quem mandou reposição), então mostramos o último uso de cada um.
+    // Dado de acesso: só o admin enxerga.
+    let acessosPortal: {
+      id: number; nome: string; usuario: string; ativo: boolean; bloqueado: boolean;
+      criadoEm: Date; ultimoUso: Date | null; ultimaAcao: string | null;
+    }[] | null = null;
+    if (acesso === 'total') {
+      const logins = await this.prisma.usuario.findMany({
+        where: { empresaId, acesso: 'cliente', clienteId: id },
+        select: { id: true, nome: true, usuario: true, ativo: true, bloqueado: true, criadoEm: true },
+        orderBy: { id: 'asc' },
+      });
+      const nomes = logins.map((u) => u.usuario);
+      const ultimos = nomes.length
+        ? await this.prisma.log.findMany({
+            where: { usuario: { in: nomes } },
+            select: { usuario: true, acao: true, timestamp: true },
+            orderBy: { id: 'desc' },
+            take: 500,
+          })
+        : [];
+      const porLogin = new Map<string, { acao: string; timestamp: Date }>();
+      for (const l of ultimos) if (!porLogin.has(l.usuario)) porLogin.set(l.usuario, { acao: l.acao, timestamp: l.timestamp });
+      acessosPortal = logins.map((u) => ({
+        ...u,
+        ultimoUso: porLogin.get(u.usuario)?.timestamp ?? null,
+        ultimaAcao: porLogin.get(u.usuario)?.acao ?? null,
+      }));
+    }
+
     return {
       cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
+      acessosPortal,
       orcamentos: { qtd: orc.length, valor: somaP(orc) },
       pedidos: { qtd: ped.length, valor: somaP(ped) },
       estoque: { totalPecas: estoqueTotal, itens: estoqueItens },
