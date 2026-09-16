@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Portal do Cliente — HC Quality Corporate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Cinzel:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#101215; --ink-deep:#0a0b0d; --gold:#C0982C; --paper:#f7f6f3;
+  --surface:#fff; --surface-alt:#fbfaf8; --blue-pale:#9FB4CC;
+  --text:#101215; --text-body:#26292e; --text-muted:#4f545c; --text-dim:#6b7078; --text-faint:#8a8f97;
+  --on-dark:#fff; --on-dark-2:#c8ccd2; --on-dark-3:#b9bdc4; --on-dark-4:#8a8f97; --on-dark-5:#5c6169;
+  --rule:rgba(16,18,21,.12); --rule-soft:rgba(16,18,21,.08); --rule-input:rgba(16,18,21,.22); --rule-btn:rgba(16,18,21,.25);
+  --rule-dark:rgba(255,255,255,.12); --rule-dark-2:rgba(255,255,255,.14); --rule-dark-input:rgba(255,255,255,.22);
+  --danger:#A33A2B; --success:#2E6B4F; --warning:#8A6A14; --info:#1F4E79;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--text);font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--gold);text-decoration:none}
+a:hover{color:var(--ink)}
+button{font-family:inherit;cursor:pointer}
+::selection{background:var(--gold);color:var(--ink)}
+
+/* ===== Marca ===== */
+.brand{display:flex;align-items:center;gap:15px}
+.brand .hc{font:700 42px/1 Cinzel;letter-spacing:-.07em}
+.brand .sep{width:1px;align-self:stretch;background:var(--rule-dark);min-height:44px}
+.brand .col{display:flex;flex-direction:column}
+.brand .q{font:400 19px/1.06 Cinzel;letter-spacing:.05em}
+.brand .d1{font:400 8px/1.4 Cinzel;letter-spacing:.13em;color:var(--gold);margin-top:4px}
+.brand .d2{font:400 8px/1.3 Cinzel;letter-spacing:.13em;color:var(--blue-pale)}
+.brand.sm .hc{font-size:32px}.brand.sm .q{font-size:15px}.brand.sm .sep{min-height:34px}
+
+/* ===== Login ===== */
+.login{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;min-height:100vh}
+@media(max-width:680px){.login{grid-template-columns:1fr}}
+.login .left{background:var(--ink);color:#fff;padding:clamp(36px,5vw,72px);display:flex;flex-direction:column;justify-content:space-between;gap:48px}
+.login .eyebrow{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.login .eyebrow::before{content:"";width:34px;height:1px;background:var(--gold)}
+.login .eyebrow span{font:500 12px/1 'IBM Plex Mono';letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}
+.login h1{font:600 clamp(30px,3.6vw,46px)/1.08 Archivo;letter-spacing:-.03em;max-width:440px;text-wrap:balance;margin:0}
+.login .lead{font:400 16px/1.7 'IBM Plex Sans';color:var(--on-dark-3);max-width:420px;margin-top:22px;text-wrap:pretty}
+.login .contact{font:400 14px/1.6 'IBM Plex Sans';color:var(--on-dark-4);border-top:1px solid var(--rule-dark-2);padding-top:26px;display:grid;gap:12px}
+.login .contact a{color:var(--on-dark-4)}.login .contact a:hover{color:var(--gold)}
+.login .right{background:var(--paper);padding:clamp(36px,5vw,72px);display:flex;align-items:center;justify-content:center}
+.login form{width:100%;max-width:380px}
+.login h2{font:600 26px/1.2 Archivo;letter-spacing:-.02em;margin:0}
+.login .sub{font:400 15px/1.65 'IBM Plex Sans';color:var(--text-dim);margin:12px 0 32px}
+.lbl{display:block;font:500 11px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-bottom:9px}
+.inp{width:100%;background:#fff;border:1px solid var(--rule-input);padding:15px 16px;font:400 15px/1 'IBM Plex Sans';outline:none;color:var(--text)}
+.inp:focus{border-color:var(--gold)}
+.optrow{margin-top:18px;display:flex;justify-content:space-between;align-items:center}
+.optrow label{display:flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans';color:var(--text-muted)}
+.optrow input[type=checkbox]{accent-color:var(--gold);width:15px;height:15px}
+.btn{border:0;font-family:'IBM Plex Sans'}
+.btn-primary{width:100%;margin-top:28px;background:var(--ink);color:#fff;padding:17px;font:600 14px/1;letter-spacing:.02em;transition:background .14s ease-out,color .14s ease-out}
+.btn-primary:hover{background:var(--gold);color:var(--ink)}
+.login .foot{margin-top:26px;padding-top:22px;border-top:1px solid var(--rule);font:400 14px/1.6;color:var(--text-dim)}
+.err{background:rgba(163,58,43,.08);border:1px solid rgba(163,58,43,.35);color:var(--danger);font:400 13px/1.5;padding:11px 13px;margin-top:16px}
+
+/* ===== Shell ===== */
+.shell{display:grid;grid-template-columns:auto 1fr;align-items:stretch;min-height:100vh}
+.side{background:var(--ink);color:#fff;width:clamp(220px,18vw,264px);padding:26px 0;display:flex;flex-direction:column;justify-content:space-between}
+.side .top{padding:0 24px 26px;border-bottom:1px solid var(--rule-dark)}
+.side .descr{font:500 7px/1.3 'IBM Plex Mono';letter-spacing:.1em;color:var(--gold);margin-top:14px}
+.nav{display:flex;flex-direction:column;margin-top:22px}
+.nav a{display:flex;align-items:center;gap:14px;padding:14px 24px;font:500 15px/1 'IBM Plex Sans';color:var(--on-dark-2);border-left:2px solid transparent;transition:background .14s,color .14s}
+.nav a:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav a.active{color:#fff;border-left-color:var(--gold)}
+.nav a.soon{color:var(--on-dark-5)}
+.nav a .tag{margin-left:auto;font:500 8px/1 'IBM Plex Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--on-dark-5);border:1px solid var(--rule-dark);padding:3px 5px}
+.side .base{padding:22px 24px 0;border-top:1px solid var(--rule-dark);margin-top:32px}
+.side .base .k{font:500 10px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--on-dark-5)}
+.side .base .nm{font:500 15px/1.4 'IBM Plex Sans';color:#fff;margin-top:10px}
+.side .base .em{font:400 13px/1.5;color:var(--on-dark-4)}.side .base .em:hover{color:var(--gold)}
+.side .base .sair{display:inline-block;background:none;border:0;padding:0;font:500 13px/1 'IBM Plex Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--on-dark-4);margin-top:20px}
+.side .base .sair:hover{color:var(--gold)}
+
+.main{display:flex;flex-direction:column;min-width:0}
+.topbar{background:#fff;border-bottom:1px solid var(--rule);padding:20px clamp(20px,3vw,44px);display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.topbar .k{font:500 10px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint)}
+.topbar .rz{font:600 17px/1.3 Archivo;letter-spacing:-.01em;margin-top:7px}
+.topbar .doc{font:400 13px/1.4 'IBM Plex Mono';color:var(--text-faint);margin-top:5px}
+.topbar .right{display:flex;align-items:center;gap:16px}
+.avatar{display:flex;align-items:center;gap:11px}
+.avatar .sq{width:34px;height:34px;background:var(--ink);color:#fff;font:600 13px/1 Archivo;display:flex;align-items:center;justify-content:center}
+.avatar .nm{font:500 14px/1.2}.avatar .cg{font:400 12px/1.3;color:var(--text-faint)}
+.previewbar{background:var(--surface-alt);border-bottom:1px solid var(--rule);padding:12px clamp(20px,3vw,44px);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font:400 13px/1 'IBM Plex Sans';color:var(--text-muted)}
+.previewbar .inp{width:auto;max-width:140px;padding:9px 11px;font-size:13px}
+.previewbar .btn-sec{padding:9px 16px}
+.content{flex:1;padding:clamp(26px,3vw,44px);min-width:0}
+
+/* ===== Cabeçalhos de tela ===== */
+.h1{font:600 clamp(24px,2.6vw,34px)/1.15 Archivo;letter-spacing:-.025em;margin:0}
+.screen-sub{font:400 16px/1.7 'IBM Plex Sans';color:var(--text-dim);margin-top:12px}
+
+/* ===== KPIs ===== */
+.kpis{margin-top:32px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.kpi{background:#fff;padding:26px 24px}
+.kpi .k{font:500 11px/1.4 'IBM Plex Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.kpi .n{font:600 clamp(26px,3vw,38px)/1 Archivo;letter-spacing:-.03em;margin-top:14px}
+.kpi .n.danger{color:var(--danger)}
+.kpi .note{font:400 13px/1.5 'IBM Plex Sans';color:var(--text-dim);margin-top:8px}
+
+/* ===== Alerta ===== */
+.alert{margin-top:28px;background:#fff;border:1px solid var(--rule);border-left:2px solid var(--danger);padding:24px 26px}
+.alert .eb{font:500 11px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--danger)}
+.alert h3{font:600 17px/1.35 Archivo;letter-spacing:-.01em;margin:12px 0 0}
+.alert p{font:400 16px/1.7 'IBM Plex Sans';color:var(--text-muted);max-width:640px;margin:10px 0 0}
+.alert .cta{margin-top:16px;background:var(--ink);color:#fff;padding:13px 22px;font:600 13px/1;transition:background .14s,color .14s}
+.alert .cta:hover{background:var(--gold);color:var(--ink)}
+
+/* ===== Tabela (grid) ===== */
+.tbl-wrap{border:1px solid var(--rule);overflow-x:auto}
+.tbl{min-width:var(--minw,880px)}
+.tbl .thead,.tbl .trow{display:grid;grid-template-columns:var(--cols)}
+.tbl .thead{background:var(--surface-alt);border-bottom:1px solid var(--rule)}
+.tbl .thead > div{padding:14px 16px;font:500 10px/1 'IBM Plex Mono';letter-spacing:.12em;text-transform:uppercase;color:var(--text-faint)}
+.tbl .trow{border-bottom:1px solid var(--rule-soft);background:#fff;font:400 14px/1.5 'IBM Plex Sans';align-items:center}
+.tbl .trow:last-child{border-bottom:0}
+.tbl .trow > div{padding:15px 16px}
+.tbl .num{text-align:right}
+.tbl .code{font:500 13px/1.5 'IBM Plex Mono'}
+.tbl .strong{font-weight:500}
+.linkline{margin-top:22px}
+.sectlink{font:500 14px/1 'IBM Plex Sans'}
+
+/* ===== Abas ===== */
+.tabs{display:flex;margin-top:30px;border-bottom:1px solid rgba(16,18,21,.16)}
+.tabs button{background:none;border:0;padding:14px 24px;font:600 14px/1 'IBM Plex Sans';color:var(--text-dim);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .14s}
+.tabs button:hover{color:var(--gold)}
+.tabs button.active{color:var(--ink);border-bottom-color:var(--gold)}
+.tab-help{font:400 15px/1.7 'IBM Plex Sans';color:var(--text-dim);max-width:680px;margin-top:24px}
+.actions{margin-top:22px;display:flex;flex-wrap:wrap;gap:14px}
+.btn-sec{background:#fff;border:1px solid var(--rule-btn);padding:13px 22px;font:600 13px/1;color:var(--ink);transition:border-color .14s}
+.btn-sec:hover{border-color:var(--ink)}
+
+/* ===== Pills ===== */
+.pill{font:500 11px/1.4 'IBM Plex Mono';letter-spacing:.06em;text-transform:uppercase;padding:5px 9px;display:inline-block;white-space:nowrap;border:1px solid transparent}
+.pill.ok{color:var(--success);border-color:rgba(46,107,79,.35)}
+.pill.warn{color:var(--warning);border-color:rgba(192,152,44,.5)}
+.pill.info{color:var(--info);border-color:rgba(31,78,121,.35)}
+.pill.danger{color:var(--danger);border-color:rgba(163,58,43,.35);padding:5px 8px}
+
+/* ===== Pedidos ===== */
+.orders{display:grid;gap:18px;margin-top:32px}
+.order{background:#fff;border:1px solid var(--rule)}
+.order .head{padding:22px 26px;border-bottom:1px solid rgba(16,18,21,.1);display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;justify-content:space-between}
+.order .num{display:flex;align-items:baseline;gap:14px;font:600 17px/1.3 Archivo;letter-spacing:-.01em}
+.order .resumo{font:400 14px/1.6 'IBM Plex Sans';color:var(--text-dim);margin-top:9px}
+.order .right{text-align:right}
+.order .val{font:600 19px/1.2 Archivo;letter-spacing:-.01em}
+.order .prev{font:400 13px/1.5;color:var(--text-dim);margin-top:6px}
+.trail{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(16,18,21,.1)}
+.trail .cell{background:#fff;padding:18px 20px}
+.trail .bar{height:2px;margin-bottom:14px;background:var(--rule)}
+.trail .cell.done .bar{background:var(--gold)}
+.trail .nm{font:500 11px/1.3 'IBM Plex Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)}
+.trail .wh{font:400 14px/1.5 'IBM Plex Sans';color:var(--text-body);margin-top:8px}
+.order .foot{padding:18px 26px;border-top:1px solid rgba(16,18,21,.1);background:var(--surface-alt);display:flex;flex-wrap:wrap;gap:22px;align-items:center}
+.order .foot a,.order .foot button{background:none;border:0;padding:0;font:500 14px/1 'IBM Plex Sans';color:var(--gold)}
+.order .foot button:hover{color:var(--ink)}
+.itemlist{border-top:1px solid var(--rule-soft);background:var(--surface-alt)}
+.itemlist .it{display:grid;grid-template-columns:1fr 90px 90px;padding:11px 26px;border-bottom:1px solid var(--rule-soft);font:400 13px/1.5 'IBM Plex Sans'}
+.itemlist .it:last-child{border-bottom:0}
+.itemlist .it .num{text-align:right}
+.itemlist .hd{font:500 10px/1 'IBM Plex Mono';letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);background:#fff}
+
+/* ===== Placeholder Em breve ===== */
+.soon-box{margin-top:32px;background:#fff;border:1px solid var(--rule);padding:44px 40px;max-width:620px}
+.soon-box .eb{font:500 11px/1 'IBM Plex Mono';letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.soon-box h3{font:600 22px/1.25 Archivo;letter-spacing:-.02em;margin:14px 0 0}
+.soon-box p{font:400 16px/1.75 'IBM Plex Sans';color:var(--text-muted);margin:12px 0 0}
+
+.empty{margin-top:24px;font:400 15px/1.7 'IBM Plex Sans';color:var(--text-dim)}
+.loading{margin-top:40px;font:400 14px/1 'IBM Plex Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint)}
+
+@media(max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .side{width:auto;flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;padding:16px 20px}
+  .side .top{border-bottom:0;padding:0}
+  .nav{flex-direction:row;flex-wrap:wrap;margin-top:0}
+  .nav a{padding:10px 14px;border-left:0;border-bottom:2px solid transparent}
+  .nav a.active{border-left:0;border-bottom-color:var(--gold)}
+  .nav a .tag{display:none}
+  .side .base{border-top:0;margin-top:0;padding:0;display:flex;align-items:center;gap:16px}
+  .side .base .k,.side .base .em{display:none}
+}
+</style>
+</head>
+<body>
+<div id="root"><div class="loading" style="padding:44px">Carregando…</div></div>
+<script>
+(function(){
+'use strict';
+var API='/api/v1';
+var LS={access:'ckp_access',refresh:'ckp_refresh',user:'ckp_user'};
+var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{}};
+
+// ---------- storage (localStorage se "manter conectado"; senão sessionStorage) ----------
+function store(){ return S._persist===false ? sessionStorage : localStorage; }
+function saveAuth(){ try{ var s=store(); s.setItem(LS.access,S.access); s.setItem(LS.refresh,S.refresh); s.setItem(LS.user,JSON.stringify(S.user)); }catch(e){} }
+function loadAuth(){ try{
+  var s=localStorage.getItem(LS.access)?localStorage:sessionStorage;
+  S.access=s.getItem(LS.access); S.refresh=s.getItem(LS.refresh);
+  S.user=JSON.parse(s.getItem(LS.user)||'null');
+  S._persist = s===localStorage;
+}catch(e){ S.user=null; } }
+function clearAuth(){ try{ [localStorage,sessionStorage].forEach(function(s){ s.removeItem(LS.access);s.removeItem(LS.refresh);s.removeItem(LS.user); }); }catch(e){} }
+
+// ---------- helpers ----------
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function iniciais(n){ return String(n||'?').trim().split(/\s+/).map(function(w){return w[0];}).slice(0,2).join('').toUpperCase(); }
+function dateBR(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}); }catch(e){ return '—'; } }
+function $(id){ return document.getElementById(id); }
+
+// ---------- API ----------
+async function api(path, opts){
+  opts=opts||{};
+  var headers=Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if(S.access && !opts.noauth) headers['Authorization']='Bearer '+S.access;
+  var res=await fetch(API+path,{method:opts.method||'GET',headers:headers,body:opts.body?JSON.stringify(opts.body):undefined});
+  if(res.status===401 && !opts.noauth && !opts._retry && S.refresh){
+    var ok=await tryRefresh();
+    if(ok) return api(path, Object.assign({},opts,{_retry:true}));
+  }
+  var text=await res.text(); var data=null; try{ data=text?JSON.parse(text):null; }catch(e){ data=text; }
+  if(!res.ok){ var msg=(data&&(data.message||data.error))||('Erro '+res.status); var e=new Error(Array.isArray(msg)?msg.join(' · '):msg); e.status=res.status; throw e; }
+  return data;
+}
+async function tryRefresh(){
+  try{ var d=await api('/auth/refresh',{method:'POST',noauth:true,body:{refreshToken:S.refresh}}); S.access=d.accessToken; S.refresh=d.refreshToken; saveAuth(); return true; }
+  catch(e){ doLogout(true); return false; }
+}
+function scopeQS(){ return (S.user && S.user.acesso==='total' && S.previewCli) ? ('?clienteId='+encodeURIComponent(S.previewCli)) : ''; }
+
+// ---------- Auth ----------
+async function doLogin(usuario, senha, persist){
+  S.loginErr=''; render();
+  try{
+    S._persist = !!persist;
+    var d=await api('/auth/login',{method:'POST',noauth:true,body:{usuario:usuario,senha:senha}});
+    S.access=d.accessToken; S.refresh=d.refreshToken; S.user=d.usuario;
+    if(S.user.acesso!=='cliente' && S.user.acesso!=='total'){
+      S.access=S.refresh=S.user=null; S.loginErr='Este acesso não é do portal do cliente.'; render(); return;
+    }
+    saveAuth(); S.view='painel'; S.previewCli=''; S.data={}; render(); loadView();
+  }catch(e){
+    S.loginErr = e.status===401 ? 'E-mail ou senha incorretos.' : (e.message||'Falha no login.'); render();
+  }
+}
+function doLogout(silent){ clearAuth(); S.access=S.refresh=S.user=null; S.data={}; S.previewCli=''; render(); }
+
+// ---------- Data ----------
+async function loadView(){
+  var v=S.view;
+  if(v==='notas'||v==='novo'){ render(); return; }
+  render(); // mostra loading
+  try{
+    var qs=scopeQS();
+    if(v==='painel'){
+      var r=await Promise.all([api('/portal/resumo'+qs), api('/portal/producao'+qs)]);
+      S.data.resumo=r[0]; S.data.producao=r[1];
+    } else if(v==='estoque'){
+      S.data.estoque=await api('/portal/estoque'+qs);
+    } else if(v==='pedidos'){
+      S.data.producao=await api('/portal/producao'+qs);
+    }
+    S.dataErr=''; render();
+  }catch(e){
+    if(e.status===400 && S.user.acesso==='total'){ S.dataErr='__PREVIEW__'; }
+    else S.dataErr=e.message||'Erro ao carregar.';
+    render();
+  }
+}
+
+// ---------- Marca ----------
+function brandHTML(sm){
+  return '<div class="brand'+(sm?' sm':'')+'">'
+    +'<div class="hc">HC</div><div class="sep"></div>'
+    +'<div class="col"><div class="q">QUALITY</div><div class="q">CORPORATE</div>'
+    +'<div class="d1">PROFESSIONAL WORKWEAR</div><div class="d2">AND HEALTH</div></div></div>';
+}
+
+// ---------- Render: Login ----------
+function renderLogin(){
+  return '<div class="login">'
+   +'<div class="left">'
+     +brandHTML(false)
+     +'<div><div class="eyebrow"><span>Portal do cliente</span></div>'
+       +'<h1>Seu estoque, seus pedidos e suas notas em um só lugar.</h1>'
+       +'<p class="lead">Acesso exclusivo para clientes com contrato de fornecimento. Consulte o saldo do seu estoque em nossa fábrica, acompanhe pedidos em produção, baixe notas fiscais e faça reposição sem passar por e-mail.</p></div>'
+     +'<div class="contact"><div><a href="mailto:contato@hcqualitycorp.com.br">Dúvidas de acesso: contato@hcqualitycorp.com.br</a></div>'
+       +'<div>Atendimento: seg a sex, 8h às 18h</div></div>'
+   +'</div>'
+   +'<div class="right"><form id="loginform" autocomplete="on">'
+     +'<h2>Entrar</h2><div class="sub">Use o e-mail cadastrado no seu contrato.</div>'
+     +'<label class="lbl" for="lg_u">E-mail corporativo</label>'
+     +'<input class="inp" id="lg_u" type="text" autocomplete="username" autofocus>'
+     +'<label class="lbl" for="lg_p" style="margin:20px 0 9px">Senha</label>'
+     +'<input class="inp" id="lg_p" type="password" autocomplete="current-password">'
+     +'<div class="optrow"><label><input type="checkbox" id="lg_keep" checked> Manter conectado</label></div>'
+     +(S.loginErr?('<div class="err">'+esc(S.loginErr)+'</div>'):'')
+     +'<button class="btn btn-primary" type="submit">Acessar o portal</button>'
+     +'<div class="foot">Ainda não tem acesso? Solicite ao seu consultor comercial.</div>'
+   +'</form></div>'
+  +'</div>';
+}
+
+// ---------- Render: Shell ----------
+var NAV=[['painel','Painel',false],['estoque','Estoque',false],['pedidos','Pedidos',false],['notas','Notas fiscais',true],['novo','Novo pedido',true]];
+function renderShell(inner){
+  var cli=(S.data.resumo&&S.data.resumo.cliente)||(S.data.estoque&&S.data.estoque.cliente)||(S.data.producao&&S.data.producao.cliente)||null;
+  var rz=cli?cli.nome:(S.user?S.user.nome:'');
+  var nav=NAV.map(function(n){ return '<a href="#'+n[0]+'" class="'+(S.view===n[0]?'active':'')+(n[2]?' soon':'')+'" onclick="return PORTAL.go(\''+n[0]+'\')">'+esc(n[1])+(n[2]?'<span class="tag">Em breve</span>':'')+'</a>'; }).join('');
+  var preview = (S.user.acesso==='total') ? ('<div class="previewbar">🔎 Pré-visualização (admin) — Cliente ID: '
+      +'<input class="inp" id="pv_cli" value="'+esc(S.previewCli)+'" placeholder="ex.: 12"> '
+      +'<button class="btn-sec" onclick="PORTAL.setPreview()">Ver como o cliente</button></div>') : '';
+  return '<div class="shell">'
+    +'<aside class="side"><div><div class="top">'+brandHTML(true)+'<div class="descr">PORTAL DO CLIENTE</div></div>'
+      +'<nav class="nav">'+nav+'</nav></div>'
+      +'<div class="base"><div class="k">Suporte</div>'
+        +'<div class="nm">Consultor comercial</div>'
+        +'<a class="em" href="mailto:contato@hcqualitycorp.com.br">contato@hcqualitycorp.com.br</a>'
+        +'<button class="sair" onclick="PORTAL.logout()">Sair</button></div>'
+    +'</aside>'
+    +'<div class="main">'
+      +'<div class="topbar"><div><div class="k">Cliente</div><div class="rz">'+esc(rz||'—')+'</div></div>'
+        +'<div class="right"><div class="avatar"><div class="sq">'+esc(iniciais(rz))+'</div>'
+          +'<div><div class="nm">'+esc(S.user.nome||'')+'</div><div class="cg">'+(S.user.acesso==='total'?'Administrador':'Cliente')+'</div></div></div></div></div>'
+      +preview
+      +'<div class="content">'+inner+'</div>'
+    +'</div></div>';
+}
+
+// ---------- Render: telas ----------
+function pillPedido(p){
+  if(p.etapa==='concluido') return {t:'Entregue',c:'ok'};
+  if(p.etapa==='expedicao'||p.etapa==='parcial') return {t:'Em expedição',c:'info'};
+  if(p.etapa==='estoque') return {t:'Pronto p/ expedição',c:'info'};
+  if(p.etapa==='producao') return {t:'Em produção',c:'warn'};
+  return {t:(p.etapaLabel||'Em preparação'),c:'warn'};
+}
+function trilha(p){
+  var passoDe={aprovado:1,piloto:2,material:3,compra:3,producao:4,estoque:5,expedicao:6,parcial:6,concluido:7};
+  var passo=passoDe[p.etapa]||1;
+  return [
+    {nm:'Recebido',feito:passo>=1,wh:dateBR(p.data)},
+    {nm:'Em produção',feito:passo>=4,wh:passo>=4?'✓':'—'},
+    {nm:'Em expedição',feito:passo>=6,wh:passo>=6?'✓':'—'},
+    {nm:'Entregue',feito:p.etapa==='concluido',wh:p.etapa==='concluido'?'✓':'—'}
+  ];
+}
+function resumoItens(p){
+  var descs=(p.itens||[]).map(function(i){return i.descricao;}).filter(Boolean);
+  var uniq=[]; descs.forEach(function(d){ if(uniq.indexOf(d)<0) uniq.push(d); });
+  var s=uniq.slice(0,2).join(', ')+(uniq.length>2?' +'+(uniq.length-2):'');
+  return (p.totalPecas||0).toLocaleString('pt-BR')+' peças'+(s?' · '+s:'');
+}
+
+function viewPainel(){
+  if(S.dataErr==='__PREVIEW__') return previewPrompt();
+  if(S.dataErr) return '<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
+  var r=S.data.resumo, prod=S.data.producao;
+  if(!r||!prod) return '<div class="loading">Carregando…</div>';
+  var est=r.estoque||{}, pr=r.producao||{};
+  var head='<h1 class="h1">Painel</h1><div class="screen-sub">Situação do seu contrato em '+dateBR(new Date())+'.</div>';
+  var kpis='<div class="kpis">'
+    +kpi('Peças no seu estoque',(est.pecas||0).toLocaleString('pt-BR'),'guardadas em nossa fábrica')
+    +kpi('Pedidos atrasados',(pr.atrasados||0),pr.atrasados?'exigem atenção':'tudo no prazo',pr.atrasados>0)
+    +kpi('Pedidos em aberto',(pr.emAndamento||0),(pr.total||0)+' no histórico')
+    +kpi('Próxima entrega',dateBR(pr.proximaEntrega),pr.proximaEntrega?'previsão':'sem previsão')
+    +'</div>';
+  var alerta='';
+  if(pr.atrasados>0){
+    alerta='<div class="alert"><div class="eb">Atenção</div>'
+      +'<h3>'+pr.atrasados+' pedido(s) com prazo vencido</h3>'
+      +'<p>Há pedidos cuja data de entrega prevista já passou e ainda não foram concluídos. Acompanhe o andamento na tela de pedidos ou fale com seu consultor.</p>'
+      +'<button class="cta" onclick="PORTAL.go(\'pedidos\')">Ver pedidos</button></div>';
+  }
+  var ultimos=(prod.pedidos||[]).slice(0,3);
+  var rows=ultimos.map(function(p){ var pi=pillPedido(p);
+    return '<div class="trow"><div class="code">'+esc(p.numero)+'</div>'
+      +'<div>'+esc(resumoItens(p))+'</div>'
+      +'<div>'+dateBR(p.data)+'</div>'
+      +'<div class="num strong">'+(p.totalPecas||0).toLocaleString('pt-BR')+'</div>'
+      +'<div><span class="pill '+pi.c+'">'+esc(pi.t)+'</span></div></div>';
+  }).join('');
+  var tabela = ultimos.length ? ('<h2 class="h1" style="font-size:20px;margin-top:40px">Últimos pedidos</h2>'
+    +'<div class="tbl-wrap" style="margin-top:18px"><div class="tbl" style="--minw:720px;--cols:120px 1fr 110px 110px 150px">'
+    +'<div class="thead"><div>Pedido</div><div>Itens</div><div>Data</div><div class="num">Peças</div><div>Situação</div></div>'
+    +rows+'</div></div>'
+    +'<div class="linkline"><a class="sectlink" href="#pedidos" onclick="return PORTAL.go(\'pedidos\')">Ver todos os pedidos →</a></div>')
+    : '<div class="empty">Nenhum pedido em andamento no momento.</div>';
+  return head+kpis+alerta+tabela;
+}
+function kpi(k,n,note,danger){ return '<div class="kpi"><div class="k">'+esc(k)+'</div><div class="n'+(danger?' danger':'')+'">'+esc(n)+'</div><div class="note">'+esc(note||'')+'</div></div>'; }
+
+function viewEstoque(){
+  var head='<h1 class="h1">Estoque</h1><div class="screen-sub">O que já é seu e está guardado conosco, e o que está disponível para compra.</div>';
+  var tabs='<div class="tabs">'
+    +'<button class="'+(S.tab==='consignado'?'active':'')+'" onclick="PORTAL.setTab(\'consignado\')">Meu estoque na fábrica</button>'
+    +'<button class="'+(S.tab==='disponivel'?'active':'')+'" onclick="PORTAL.setTab(\'disponivel\')">Disponível para compra</button>'
+    +'</div>';
+  var body;
+  if(S.tab==='disponivel'){
+    body=soonBox('Disponível para compra','Em breve','Aqui você verá a nossa pronta-entrega disponível para reposição, com preço da sua tabela de contrato e prazo de expedição — e poderá montar um pedido direto pelo carrinho.');
+  } else {
+    if(S.dataErr==='__PREVIEW__') return head+tabs+previewPrompt();
+    if(S.dataErr) body='<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
+    else {
+      var e=S.data.estoque;
+      if(!e) body='<div class="loading">Carregando…</div>';
+      else {
+        var rows=[];
+        (e.itens||[]).forEach(function(it){
+          (it.tamanhos||[]).forEach(function(t){
+            rows.push('<div class="trow"><div class="code">'+esc(it.codigo)+'</div>'
+              +'<div>'+esc(it.descricao)+'</div>'
+              +'<div>'+esc(it.cor||'—')+'</div>'
+              +'<div>'+esc(t.tamanho||'Único')+'</div>'
+              +'<div class="num strong">'+(t.saldo||0).toLocaleString('pt-BR')+'</div></div>');
+          });
+        });
+        var tabela = rows.length ? ('<div class="tbl-wrap"><div class="tbl" style="--minw:760px;--cols:120px 1fr 140px 90px 120px">'
+          +'<div class="thead"><div>SKU</div><div>Produto</div><div>Cor</div><div>Tam.</div><div class="num">Disponível</div></div>'
+          +rows.join('')+'</div></div>'
+          +'<div class="actions"><button class="btn-sec" onclick="PORTAL.exportEstoque()">Exportar em planilha</button></div>')
+          : '<div class="empty">Você não tem peças em estoque na fábrica no momento.</div>';
+        body='<p class="tab-help">Peças já pagas por você e guardadas em nossa fábrica, prontas para expedição.</p>'+tabela;
+      }
+    }
+  }
+  return head+tabs+body;
+}
+
+function viewPedidos(){
+  if(S.dataErr==='__PREVIEW__') return '<h1 class="h1">Pedidos de compra</h1>'+previewPrompt();
+  if(S.dataErr) return '<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
+  var prod=S.data.producao;
+  var head='<h1 class="h1">Pedidos de compra</h1><div class="screen-sub">Onde está cada pedido, por etapa de produção.</div>';
+  if(!prod) return head+'<div class="loading">Carregando…</div>';
+  var peds=prod.pedidos||[];
+  if(!peds.length) return head+'<div class="empty">Nenhum pedido em andamento no momento.</div>';
+  var cards=peds.map(function(p){ var pi=pillPedido(p); var tr=trilha(p); var open=!!S.expand[p.numero];
+    var trailHTML=tr.map(function(c){ return '<div class="cell'+(c.feito?' done':'')+'"><div class="bar"></div><div class="nm">'+esc(c.nm)+'</div><div class="wh">'+esc(c.wh)+'</div></div>'; }).join('');
+    var itemsHTML='';
+    if(open){
+      var its=(p.itens||[]).map(function(i){ return '<div class="it"><div>'+esc(i.descricao||'—')+(i.cor?(' · '+esc(i.cor)):'')+'</div><div class="num">'+(i.quantidade||0).toLocaleString('pt-BR')+'</div><div class="num">'+(i.expedida||0).toLocaleString('pt-BR')+'</div></div>'; }).join('');
+      itemsHTML='<div class="itemlist"><div class="it hd"><div>Item</div><div class="num">Qtd.</div><div class="num">Expedido</div></div>'+(its||'<div class="it"><div>Sem itens.</div><div></div><div></div></div>')+'</div>';
+    }
+    return '<div class="order"><div class="head">'
+      +'<div><div class="num">'+esc(p.numero)+'<span class="pill '+pi.c+'">'+esc(pi.t)+'</span>'+(p.atrasado?'<span class="pill danger" style="margin-left:8px">Atrasado</span>':'')+'</div>'
+        +'<div class="resumo">'+esc(resumoItens(p))+(p.ordemCompraCliente?(' · OC '+esc(p.ordemCompraCliente)):'')+'</div></div>'
+      +'<div class="right"><div class="val">'+(p.totalPecas||0).toLocaleString('pt-BR')+' pç</div>'
+        +'<div class="prev">'+(p.etapa==='concluido'?'entregue':'previsão '+dateBR(p.prazoEntrega))+'</div></div></div>'
+      +'<div class="trail">'+trailHTML+'</div>'
+      +'<div class="foot"><button onclick="PORTAL.toggle(\''+esc(p.numero).replace(/'/g,'')+'\')">'+(open?'Ocultar itens':'Ver itens do pedido')+'</button></div>'
+      +itemsHTML
+    +'</div>';
+  }).join('');
+  return head+'<div class="orders">'+cards+'</div>';
+}
+
+function soonBox(title,eb,txt){ return '<div class="soon-box"><div class="eb">'+esc(eb)+'</div><h3>'+esc(title)+'</h3><p>'+esc(txt)+'</p></div>'; }
+function viewNotas(){ return '<h1 class="h1">Notas fiscais</h1><div class="screen-sub">Consulte e baixe suas notas fiscais (PDF e XML).</div>'
+  +soonBox('Notas fiscais','Em breve','Estamos ligando esta tela ao emissor fiscal. Em breve você poderá filtrar por período, buscar por número ou pedido e baixar o PDF e o XML de cada nota, sem pedir segunda via por e-mail.'); }
+function viewNovo(){ return '<h1 class="h1">Novo pedido</h1><div class="screen-sub">Faça reposição a partir do seu catálogo, sem intermediação.</div>'
+  +soonBox('Novo pedido','Em breve','Aqui você montará um pedido escolhendo itens e quantidades do seu catálogo, com o preço da sua tabela de contrato. O envio não gera cobrança — a confirmação de preço e prazo vem por e-mail.'); }
+
+function previewPrompt(){ return '<div class="soon-box"><div class="eb">Admin</div><h3>Escolha um cliente para pré-visualizar</h3>'
+  +'<p>Você entrou como administrador. Informe o <b>Cliente ID</b> na barra acima e clique em “Ver como o cliente” para abrir o portal como ele vê.</p></div>'; }
+
+// ---------- Render principal ----------
+function render(){
+  var root=$('root');
+  if(!S.user){ root.innerHTML=renderLogin(); wireLogin(); return; }
+  var inner;
+  switch(S.view){
+    case 'estoque': inner=viewEstoque(); break;
+    case 'pedidos': inner=viewPedidos(); break;
+    case 'notas': inner=viewNotas(); break;
+    case 'novo': inner=viewNovo(); break;
+    default: inner=viewPainel();
+  }
+  root.innerHTML=renderShell(inner);
+}
+function wireLogin(){
+  var f=$('loginform'); if(!f) return;
+  f.addEventListener('submit',function(ev){ ev.preventDefault();
+    var u=($('lg_u').value||'').trim(), p=$('lg_p').value||'', keep=$('lg_keep').checked;
+    if(!u||!p){ S.loginErr='Informe e-mail e senha.'; render(); return; }
+    doLogin(u,p,keep);
+  });
+}
+
+// ---------- API pública (onclick) ----------
+window.PORTAL={
+  go:function(v){ if(S.view===v) return false; S.view=v; S.dataErr=''; window.location.hash=v; loadView(); return false; },
+  setTab:function(t){ S.tab=t; if(t==='consignado'&&!S.data.estoque){ loadView(); } else render(); },
+  toggle:function(num){ S.expand[num]=!S.expand[num]; render(); },
+  logout:function(){ doLogout(); },
+  setPreview:function(){ var v=($('pv_cli')||{}).value||''; S.previewCli=v.trim(); S.data={}; S.dataErr=''; loadView(); },
+  exportEstoque:function(){ exportEstoque(); }
+};
+
+function exportEstoque(){
+  var e=S.data.estoque; if(!e||!e.itens) return;
+  var linhas=[['SKU','Produto','Cor','Tamanho','Disponivel']];
+  e.itens.forEach(function(it){ (it.tamanhos||[]).forEach(function(t){ linhas.push([it.codigo,it.descricao,it.cor||'',t.tamanho||'Unico',t.saldo||0]); }); });
+  var csv=linhas.map(function(r){ return r.map(function(c){ var s=String(c==null?'':c); return /[",;\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; }).join(';'); }).join('\r\n');
+  var blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob); var a=document.createElement('a');
+  a.href=url; a.download='meu-estoque-'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); },1500);
+}
+
+// ---------- Boot ----------
+loadAuth();
+if(S.user && S.access){
+  var h=(location.hash||'').replace(/^#/,'');
+  if(['painel','estoque','pedidos','notas','novo'].indexOf(h)>=0) S.view=h;
+  render(); loadView();
+} else {
+  render();
+}
+window.addEventListener('hashchange',function(){
+  if(!S.user) return;
+  var h=(location.hash||'').replace(/^#/,'');
+  if(['painel','estoque','pedidos','notas','novo'].indexOf(h)>=0 && h!==S.view){ S.view=h; S.dataErr=''; loadView(); }
+});
+})();
+</script>
+</body>
+</html>
