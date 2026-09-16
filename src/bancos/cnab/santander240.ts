@@ -84,13 +84,17 @@ const lerData = (s: string): Date | null => {
 const lerValor = (s: string) => Number(soDigitos(s) || '0') / 100;
 
 // ---------- dígitos verificadores ----------
-/** Módulo 11 (pesos 2..9) do nosso número Santander: resto 0→0, 1→1, senão 11-resto. */
+/**
+ * DV do nosso número Santander — módulo 11, pesos 2..9 da direita para a esquerda.
+ * Regra do manual H7815: resto 0 => DV 0, resto 1 => DV 0, demais => 11 - resto
+ * (resto 10 cai em 1 pela própria fórmula). Exemplo do manual: 4870184 => 48701840.
+ */
 export function dvNossoNumeroSantander(nn12: string): string {
   const d = num(nn12, 12);
   let peso = 2, soma = 0;
   for (let i = d.length - 1; i >= 0; i--) { soma += Number(d[i]) * peso; peso = peso === 9 ? 2 : peso + 1; }
   const r = soma % 11;
-  return String(r === 0 ? 0 : r === 1 ? 1 : 11 - r);
+  return String(r === 0 || r === 1 ? 0 : 11 - r);
 }
 /** Módulo 10 (pesos 2,1…) dos campos da linha digitável. */
 export function mod10(s: string): string {
@@ -138,11 +142,14 @@ export function codigoBarrasELinha(c: CedenteSantander, nossoNumero12: string, v
   return { codigoBarras: barras, linhaDigitavel: linha, nossoNumeroDv: dvNossoNumeroSantander(nossoNumero12) };
 }
 
-/** Código de transmissão do header: usa o configurado; senão agência(4)+cedente(8)+conta(8). */
+/**
+ * Código de transmissão (15 posições). O manual H7815 (Nota 3) é explícito:
+ * "Informação cedida pelo banco que identifica o arquivo remessa do cliente" —
+ * NÃO se monta a partir de agência/conta. Sem ele o arquivo é rejeitado, por isso
+ * a geração da remessa exige o valor configurado (ver BancosService.faltando()).
+ */
 export function codigoTransmissao(c: CedenteSantander): string {
-  const cfg = soDigitos(c.codigoTransmissao);
-  if (cfg) return num(cfg, 20);
-  return num(c.agencia, 4) + num(c.codigoCedente, 8) + num(c.conta, 8);
+  return num(soDigitos(c.codigoTransmissao), 15);
 }
 
 // ---------- REMESSA ----------
@@ -168,16 +175,18 @@ export function gerarRemessaSantander240(c: CedenteSantander, titulos: TituloRem
   const transm = codigoTransmissao(c);
   const linhas: string[] = [];
 
-  // Header de arquivo (registro 0)
+  // Header de arquivo (registro 0). H7815: código de transmissão em 033-047 (15) e
+  // 048-072 em BRANCO — preencher os 20 bytes do FEBRABAN "puro" aqui é rejeição clássica.
   linhas.push(linha240([
-    [1, 3, '033'], [4, 4, '0000'], [8, 1, '0'], [9, 8, ''], [17, 1, '2'], [18, 15, cnpj], [33, 20, transm], [53, 20, ''],
+    [1, 3, '033'], [4, 4, '0000'], [8, 1, '0'], [9, 8, ''], [17, 1, '2'], [18, 15, cnpj], [33, 15, transm], [48, 25, ''],
     [73, 30, alfa(c.nome, 30)], [103, 30, alfa('BANCO SANTANDER', 30)], [133, 10, ''], [143, 1, '1'], [144, 8, ddmmaaaa(dataGeracao)],
     [152, 6, ''], [158, 6, num(nsa, 6)], [164, 3, '040'], [167, 74, ''],
   ]));
-  // Header de lote (registro 1) — serviço 01 cobrança, operação R remessa
+  // Header de lote (registro 1) — serviço 01 cobrança, operação R remessa.
+  // H7815: 034-053 brancos, código de transmissão em 054-068 (15), 069-073 brancos.
   linhas.push(linha240([
     [1, 3, '033'], [4, 4, '0001'], [8, 1, '1'], [9, 1, 'R'], [10, 2, '01'], [12, 2, ''], [14, 3, '030'], [17, 1, ''], [18, 1, '2'], [19, 15, cnpj],
-    [34, 20, transm], [54, 20, ''], [74, 30, alfa(c.nome, 30)], [104, 40, ''], [144, 40, ''], [184, 8, num(nsa, 8)], [192, 8, ddmmaaaa(dataGeracao)], [200, 41, ''],
+    [34, 20, ''], [54, 15, transm], [69, 5, ''], [74, 30, alfa(c.nome, 30)], [104, 40, ''], [144, 40, ''], [184, 8, num(nsa, 8)], [192, 8, ddmmaaaa(dataGeracao)], [200, 41, ''],
   ]));
 
   let seq = 0;

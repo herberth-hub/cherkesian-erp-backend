@@ -3,9 +3,10 @@ import {
   gerarRemessaSantander240, lerRetornoSantander240, LIQUIDACOES, CedenteSantander, TituloRemessa,
 } from './santander240';
 
+const TRANSM = '123456789012345'; // 15 posições, cedido pelo banco (H7815, Nota 3)
 const ced: CedenteSantander = {
   cnpj: '45704956000102', nome: 'HC QUALITY CORPORATE', agencia: '4338', agenciaDv: '0', conta: '130019372', contaDv: '5',
-  codigoCedente: '1234567', codigoTransmissao: null, carteira: '101', jurosMensal: 1, multaPercent: 2, diasProtesto: 0,
+  codigoCedente: '1234567', codigoTransmissao: TRANSM, carteira: '101', jurosMensal: 1, multaPercent: 2, diasProtesto: 0,
 };
 const venc = new Date(2026, 9, 15);
 
@@ -14,6 +15,11 @@ describe('CNAB 240 Santander — utilitários FEBRABAN', () => {
     expect(fatorVencimento(new Date(2000, 6, 3))).toBe('1000');
     expect(fatorVencimento(new Date(2025, 1, 21))).toBe('9999');
     expect(fatorVencimento(new Date(2025, 1, 22))).toBe('1000');
+  });
+  it('DV do nosso número segue o manual (resto 1 => 0): exemplo oficial 4870184 -> 0', () => {
+    // Regressão: a implementação antiga devolvia 1 quando o resto era 1.
+    expect(dvNossoNumeroSantander('4870184')).toBe('0');
+    expect(dvNossoNumeroSantander('000000000000')).toBe('0'); // resto 0
   });
   it('mod10 e DV geral batem com um boleto público (Bradesco 23793.38128 60007.827136 95000.063305 9 …)', () => {
     expect(mod10('237933812')).toBe('8');
@@ -53,6 +59,13 @@ describe('CNAB 240 Santander — remessa e retorno', () => {
     expect(linhas[0].slice(157, 163)).toBe('000007');
     expect(linhas[0].slice(163, 166)).toBe('040');
     expect(linhas[0].slice(17, 32)).toBe('045704956000102');
+    // H7815: código de transmissão 033-047 (15) e 048-072 em branco (não os 20 do FEBRABAN puro).
+    expect(linhas[0].slice(32, 47)).toBe(TRANSM);
+    expect(linhas[0].slice(47, 72)).toBe(' '.repeat(25));
+    // Header de lote: 034-053 brancos, transmissão 054-068, 069-073 brancos.
+    expect(linhas[1].slice(33, 53)).toBe(' '.repeat(20));
+    expect(linhas[1].slice(53, 68)).toBe(TRANSM);
+    expect(linhas[1].slice(68, 73)).toBe(' '.repeat(5));
     const P = linhas[2];
     expect(P.slice(44, 57)).toBe('000000000123' + dvNossoNumeroSantander('000000000123'));
     expect(P.slice(79, 87)).toBe('15102026');

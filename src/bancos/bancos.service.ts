@@ -38,13 +38,15 @@ export class BancosService {
   }
 
   /** O que falta na conta para gerar remessa Santander 240. */
-  private faltando(c: { integracao: string; codigoBanco: string | null; agencia: string | null; conta: string | null; convenio: string | null; carteira: string | null; filial?: { cnpj: string | null } }) {
+  private faltando(c: { integracao: string; codigoBanco: string | null; agencia: string | null; conta: string | null; convenio: string | null; codigoTransmissao?: string | null; carteira: string | null; filial?: { cnpj: string | null } }) {
     const f: string[] = [];
     if (c.integracao !== 'cnab') f.push('integração = CNAB');
     if (dig(c.codigoBanco) !== '033') f.push('código do banco 033 (Santander)');
     if (!dig(c.agencia)) f.push('agência');
     if (!dig(c.conta)) f.push('conta');
     if (!dig(c.convenio)) f.push('código do cedente (convênio)');
+    // O código de transmissão é cedido pelo banco (H7815, Nota 3) — não dá para deduzir.
+    if (!dig(c.codigoTransmissao)) f.push('código de transmissão (fornecido pelo banco)');
     if (!dig(c.carteira)) f.push('carteira');
     if (c.filial && !dig(c.filial.cnpj)) f.push('CNPJ da empresa');
     return f;
