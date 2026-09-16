@@ -200,7 +200,7 @@ button{font-family:inherit;cursor:pointer}
 'use strict';
 var API='/api/v1';
 var LS={access:'ckp_access',refresh:'ckp_refresh',user:'ckp_user'};
-var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{}};
+var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''}};
 
 // ---------- storage (localStorage se "manter conectado"; senão sessionStorage) ----------
 function store(){ return S._persist===false ? sessionStorage : localStorage; }
@@ -238,6 +238,16 @@ async function tryRefresh(){
   catch(e){ doLogout(true); return false; }
 }
 function scopeQS(){ return (S.user && S.user.acesso==='total' && S.previewCli) ? ('?clienteId='+encodeURIComponent(S.previewCli)) : ''; }
+function money(v){ return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function anoDe(d){ try{ return new Date(d).getFullYear(); }catch(e){ return 0; } }
+// fetch autenticado (com renovação no 401) — p/ downloads de arquivo (DANFE/XML) que não passam pelo api().
+async function fetchAuth(url, opts, _retry){
+  opts=opts||{}; var headers=Object.assign({}, opts.headers||{});
+  if(S.access) headers['Authorization']='Bearer '+S.access;
+  var res=await fetch(url, Object.assign({},opts,{headers:headers}));
+  if(res.status===401 && !_retry && S.refresh){ var ok=await tryRefresh(); if(ok) return fetchAuth(url,opts,true); }
+  return res;
+}
 
 // ---------- Auth ----------
 async function doLogin(usuario, senha, persist){
@@ -259,7 +269,7 @@ function doLogout(silent){ clearAuth(); S.access=S.refresh=S.user=null; S.data={
 // ---------- Data ----------
 async function loadView(){
   var v=S.view;
-  if(v==='notas'||v==='novo'){ render(); return; }
+  if(v==='novo'){ render(); return; }
   render(); // mostra loading
   try{
     var qs=scopeQS();
@@ -270,6 +280,8 @@ async function loadView(){
       S.data.estoque=await api('/portal/estoque'+qs);
     } else if(v==='pedidos'){
       S.data.producao=await api('/portal/producao'+qs);
+    } else if(v==='notas'){
+      S.data.notas=await api('/portal/notas'+qs);
     }
     S.dataErr=''; render();
   }catch(e){
@@ -468,8 +480,51 @@ function viewPedidos(){
 }
 
 function soonBox(title,eb,txt){ return '<div class="soon-box"><div class="eb">'+esc(eb)+'</div><h3>'+esc(title)+'</h3><p>'+esc(txt)+'</p></div>'; }
-function viewNotas(){ return '<h1 class="h1">Notas fiscais</h1><div class="screen-sub">Consulte e baixe suas notas fiscais (PDF e XML).</div>'
-  +soonBox('Notas fiscais','Em breve','Estamos ligando esta tela ao emissor fiscal. Em breve você poderá filtrar por período, buscar por número ou pedido e baixar o PDF e o XML de cada nota, sem pedir segunda via por e-mail.'); }
+function viewNotas(){
+  var head='<h1 class="h1">Notas fiscais</h1><div class="screen-sub">Consulte e baixe suas notas fiscais (PDF e XML).</div>';
+  if(S.dataErr==='__PREVIEW__') return head+previewPrompt();
+  if(S.dataErr) return head+'<div class="empty" style="color:var(--danger)">'+esc(S.dataErr)+'</div>';
+  var d=S.data.notas;
+  if(!d) return head+'<div class="loading">Carregando…</div>';
+  var todas=d.notas||[];
+  var f=S.notasFiltro, anoAtual=new Date().getFullYear();
+  var anos=[]; todas.forEach(function(n){ var a=anoDe(n.emitidaEm); if(a && anos.indexOf(a)<0) anos.push(a); }); anos.sort(function(a,b){return b-a;});
+  var opts='<option value="12m"'+(f.periodo==='12m'?' selected':'')+'>Últimos 12 meses</option>'
+    +'<option value="ano"'+(f.periodo==='ano'?' selected':'')+'>Este ano ('+anoAtual+')</option>'
+    +anos.filter(function(a){return a!==anoAtual;}).map(function(a){return '<option value="'+a+'"'+(f.periodo===String(a)?' selected':'')+'>'+a+'</option>';}).join('');
+  var filtros='<div style="margin-top:28px;display:flex;flex-wrap:wrap;gap:12px">'
+    +'<select onchange="PORTAL.notasPeriodo(this.value)" style="background:#fff;border:1px solid var(--rule-input);padding:12px 14px;font:400 14px/1 \'IBM Plex Sans\';color:var(--text)">'+opts+'</select>'
+    +'<input id="notas_busca" class="inp" style="flex:1;min-width:200px" value="'+esc(f.busca)+'" oninput="PORTAL.notasBusca(this.value)" placeholder="Buscar por número ou pedido">'
+    +'</div>';
+  if(!todas.length) return head+filtros+'<div class="empty">Você ainda não tem notas fiscais emitidas.</div>';
+  var agora=Date.now(), umAno=365*24*3600*1000, busca=(f.busca||'').toLowerCase().trim();
+  var lista=todas.filter(function(n){
+    if(f.periodo==='12m'){ if(agora-new Date(n.emitidaEm).getTime()>umAno) return false; }
+    else if(f.periodo==='ano'){ if(anoDe(n.emitidaEm)!==anoAtual) return false; }
+    else if(String(anoDe(n.emitidaEm))!==String(f.periodo)) return false;
+    if(busca){ var hay=((n.numero||'')+' '+(n.pedido||'')+' '+(n.ordemCompraCliente||'')).toLowerCase(); if(hay.indexOf(busca)<0) return false; }
+    return true;
+  });
+  var rows=lista.map(function(n){
+    var arq;
+    if(n.status==='cancelada') arq='<span class="pill danger">Cancelada</span>';
+    else if(n.arquivos) arq='<div style="display:flex;gap:14px">'
+      +'<a href="#" onclick="return PORTAL.baixarNota(event,'+n.id+',\'danfe\')">PDF</a>'
+      +'<a href="#" onclick="return PORTAL.baixarNota(event,'+n.id+',\'xml\')">XML</a></div>';
+    else arq='<span style="color:var(--text-faint)">indisponível</span>';
+    return '<div class="trow"><div class="code">'+esc(n.numero)+'</div>'
+      +'<div>'+dateBR(n.emitidaEm)+'</div>'
+      +'<div>'+esc(n.pedido||'—')+'</div>'
+      +'<div class="num strong">'+money(n.valor)+'</div>'
+      +'<div class="code" style="color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(n.chave||'')+'">'+esc(n.chave||'—')+'</div>'
+      +'<div>'+arq+'</div></div>';
+  }).join('');
+  var tabela = lista.length ? ('<div class="tbl-wrap" style="margin-top:20px"><div class="tbl" style="--minw:900px;--cols:120px 110px 120px 130px 1fr 150px">'
+    +'<div class="thead"><div>Nota</div><div>Emissão</div><div>Pedido</div><div class="num">Valor</div><div>Chave de acesso</div><div>Arquivos</div></div>'
+    +rows+'</div></div>')
+    : '<div class="empty">Nenhuma nota no período/busca selecionados.</div>';
+  return head+filtros+tabela;
+}
 function viewNovo(){ return '<h1 class="h1">Novo pedido</h1><div class="screen-sub">Faça reposição a partir do seu catálogo, sem intermediação.</div>'
   +soonBox('Novo pedido','Em breve','Aqui você montará um pedido escolhendo itens e quantidades do seu catálogo, com o preço da sua tabela de contrato. O envio não gera cobrança — a confirmação de preço e prazo vem por e-mail.'); }
 
@@ -506,8 +561,28 @@ window.PORTAL={
   toggle:function(num){ S.expand[num]=!S.expand[num]; render(); },
   logout:function(){ doLogout(); },
   setPreview:function(){ var v=($('pv_cli')||{}).value||''; S.previewCli=v.trim(); S.data={}; S.dataErr=''; loadView(); },
-  exportEstoque:function(){ exportEstoque(); }
+  exportEstoque:function(){ exportEstoque(); },
+  notasPeriodo:function(v){ S.notasFiltro.periodo=v; render(); },
+  notasBusca:function(v){ S.notasFiltro.busca=v; render(); var el=$('notas_busca'); if(el){ el.focus(); try{ el.selectionStart=el.selectionEnd=el.value.length; }catch(e){} } },
+  baixarNota:function(ev,id,tipo){ return baixarNota(ev,id,tipo); }
 };
+
+// Baixa DANFE (abre no navegador) ou XML (download). Escopo travado no backend.
+async function baixarNota(ev, id, tipo){
+  if(ev){ ev.preventDefault(); }
+  var link=ev&&ev.currentTarget, orig=link?link.textContent:'';
+  if(link){ link.textContent='…'; link.style.pointerEvents='none'; }
+  try{
+    var res=await fetchAuth(API+'/portal/notas/'+id+'/'+tipo+scopeQS());
+    if(!res.ok){ var t=await res.text(); var msg; try{ msg=JSON.parse(t).message; }catch(e){ msg=t; } throw new Error(msg||('Erro '+res.status)); }
+    var blob=await res.blob(), url=URL.createObjectURL(blob);
+    if(tipo==='danfe'){ window.open(url,'_blank'); }
+    else { var a=document.createElement('a'); a.href=url; a.download='NFe-'+id+'.xml'; document.body.appendChild(a); a.click(); a.remove(); }
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  }catch(e){ alert('Não foi possível baixar o arquivo: '+(e.message||'erro')); }
+  finally{ if(link){ link.textContent=orig; link.style.pointerEvents=''; } }
+  return false;
+}
 
 function exportEstoque(){
   var e=S.data.estoque; if(!e||!e.itens) return;

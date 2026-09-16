@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NfeService } from '../nfe/nfe.service';
 import { AuthUser } from '../auth/auth.types';
 
 /**
@@ -9,7 +10,10 @@ import { AuthUser } from '../auth/auth.types';
  */
 @Injectable()
 export class PortalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly nfe: NfeService,
+  ) {}
 
   /**
    * Resolve o clienteId do escopo. Para o perfil `cliente` vem travado no token
@@ -210,5 +214,69 @@ export class PortalService {
       estoque: { itens: est.totalItens, pecas: est.totalPecas },
       producao: prod.resumo,
     };
+  }
+
+  /** Notas fiscais de VENDA (faturamento) emitidas para o cliente — PDF/XML quando reais (Focus). */
+  async notas(user: AuthUser, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const pedidos = await this.prisma.pedido.findMany({
+      where: { clienteId: cliente.id, empresaId: user.empresaId },
+      select: { id: true, numero: true },
+    });
+    const numById = new Map(pedidos.map((p) => [p.id, p.numero]));
+    const pedidoIds = pedidos.map((p) => p.id);
+
+    const notas = pedidoIds.length
+      ? await this.prisma.notaFiscal.findMany({
+          where: {
+            empresaId: user.empresaId,
+            tipo: 'venda',
+            status: { in: ['autorizada', 'cancelada'] },
+            pedidoId: { in: pedidoIds },
+          },
+          select: {
+            id: true, numero: true, serie: true, chave: true, valor: true,
+            emitidaEm: true, status: true, provedor: true, pedidoId: true,
+            ordemCompraCliente: true,
+          },
+          orderBy: { emitidaEm: 'desc' },
+        })
+      : [];
+
+    return {
+      cliente: { nome: cliente.fantasia || cliente.nome },
+      notas: notas.map((n) => ({
+        id: n.id,
+        numero: n.numero,
+        serie: n.serie,
+        chave: n.chave,
+        valor: n.valor,
+        emitidaEm: n.emitidaEm,
+        status: n.status,
+        pedido: n.pedidoId ? numById.get(n.pedidoId) ?? null : null,
+        ordemCompraCliente: n.ordemCompraCliente,
+        // PDF/XML só existem para nota REAL (Focus) e autorizada.
+        arquivos: n.provedor === 'focusnfe' && n.status === 'autorizada',
+      })),
+    };
+  }
+
+  /**
+   * Baixa DANFE/XML de UMA nota do cliente. TRAVA de escopo: a nota tem que ser de VENDA
+   * e pertencer a um pedido do próprio cliente (impede baixar a NF de outro cliente pelo id).
+   */
+  async baixarNota(user: AuthUser, notaId: number, tipo: 'danfe' | 'xml', override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const nota = await this.prisma.notaFiscal.findFirst({
+      where: { id: notaId, empresaId: user.empresaId, tipo: 'venda' },
+      select: { id: true, pedidoId: true },
+    });
+    if (!nota || !nota.pedidoId) throw new ForbiddenException('Nota não encontrada.');
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { id: nota.pedidoId, clienteId: cliente.id, empresaId: user.empresaId },
+      select: { id: true },
+    });
+    if (!pedido) throw new ForbiddenException('Esta nota não pertence ao seu cadastro.');
+    return this.nfe.baixarArquivo(notaId, user.empresaId, tipo);
   }
 }
