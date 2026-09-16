@@ -310,6 +310,7 @@ model Usuario {
   setor         String?
   acesso        Acesso   @default(comercial)
   clienteId     Int?     // quando acesso=cliente: vincula o login ao Cliente (escopo do Portal)
+  email         String?  // e-mail do comprador (Portal): recebe cópia dos pedidos que ele envia
   horarioInicio String?  // "08:00"
   horarioFim    String?  // "18:00"
   ativo         Boolean  @default(true)

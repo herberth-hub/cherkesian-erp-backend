@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsEmail,
   IsInt,
   IsObject,
   IsOptional,
@@ -41,6 +42,14 @@ export class CriarPedidoPortalDto {
 
   /** Observação do cliente (centro de custo, filial de entrega, urgência). */
   @IsOptional() @IsString() @MaxLength(1000) observacao?: string;
+
+  /**
+   * E-mail do comprador. Obrigatório: fica gravado no login dele e recebe cópia
+   * deste e dos próximos pedidos, para o comprador ter o mesmo registro que nós.
+   */
+  @IsEmail({}, { message: 'Informe um e-mail válido para receber a cópia do pedido.' })
+  @MaxLength(180)
+  email!: string;
 
   /** Chave de idempotência gerada pelo portal (UUID): duplo clique / retry não duplica o pedido. */
   @IsString() @MinLength(8) @MaxLength(80) chaveIdempotencia!: string;

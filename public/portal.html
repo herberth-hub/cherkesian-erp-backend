@@ -183,6 +183,11 @@ button{font-family:inherit;cursor:pointer}
 .summary textarea{width:100%;margin-top:22px;background:transparent;border:1px solid var(--rule-dark-input);color:#fff;padding:13px 14px;font:400 14px/1.6 'IBM Plex Sans';resize:vertical;outline:none}
 .summary textarea:focus{border-color:var(--gold)}
 .summary .err{background:rgba(163,58,43,.18);border-color:rgba(163,58,43,.5);color:#f1c2b8}
+.summary .fmail{display:block;margin-top:16px;font:400 12px/1.5 'IBM Plex Mono';letter-spacing:.06em;text-transform:uppercase;color:var(--on-dark-4)}
+.summary .fmail span{color:var(--gold);margin-left:6px}
+.summary .fmail input{width:100%;margin-top:7px;background:transparent;border:1px solid var(--rule-dark-input);color:#fff;padding:13px 14px;font:400 14px/1.6 'IBM Plex Sans';text-transform:none;letter-spacing:0;outline:none}
+.summary .fmail input:focus{border-color:var(--gold)}
+.summary .fmail .hint{display:block;margin-top:7px;color:var(--on-dark-4);text-transform:none;letter-spacing:0;font:400 12px/1.5 'IBM Plex Sans'}
 .btn-gold{width:100%;margin-top:18px;background:var(--gold);color:var(--ink);border:0;padding:16px;font:600 14px/1 'IBM Plex Sans';transition:background .14s}
 .btn-gold:hover{background:#fff}
 .btn-gold:disabled{opacity:.45;cursor:default;background:var(--gold)}
@@ -255,7 +260,7 @@ button{font-family:inherit;cursor:pointer}
 'use strict';
 var API='/api/v1';
 var LS={access:'ckp_access',refresh:'ckp_refresh',user:'ckp_user'};
-var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoErr:'',enviando:false,feito:null,contratoId:'',fotos:{}};
+var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoEmail:'',novoErr:'',enviando:false,feito:null,contratoId:'',fotos:{}};
 
 // ---------- storage (localStorage se "manter conectado"; senão sessionStorage) ----------
 function store(){ return S._persist===false ? sessionStorage : localStorage; }
@@ -314,6 +319,8 @@ async function doLogin(usuario, senha, persist){
     if(S.user.acesso!=='cliente' && S.user.acesso!=='total'){
       S.access=S.refresh=S.user=null; S.loginErr='Este acesso não é do portal do cliente.'; render(); return;
     }
+    // E-mail já cadastrado do comprador: o campo de cópia do pedido vem preenchido.
+    if(!S.novoEmail && S.user.email) S.novoEmail=S.user.email;
     saveAuth(); S.view='painel'; S.previewCli=''; S.data={}; S.contratoId=''; render(); loadView();
   }catch(e){
     S.loginErr = e.status===401 ? 'E-mail ou senha incorretos.' : (e.message||'Falha no login.'); render();
@@ -323,8 +330,9 @@ function doLogout(silent){ clearAuth(); S.access=S.refresh=S.user=null; S.data={
 
 // ---------- Carrinho (persistido por cliente no localStorage — não se perde ao recarregar) ----------
 function cartKey(){ return 'ckp_cart_'+(S.user?(S.user.clienteId||('adm'+(S.previewCli||''))):'x')+'_c'+(S.contratoId||'0'); }
-function saveCart(){ try{ localStorage.setItem(cartKey(),JSON.stringify({cart:S.cart,chave:S.cartChave,obs:S.novoObs})); }catch(e){} }
-function loadCart(){ try{ var d=JSON.parse(localStorage.getItem(cartKey())||'null'); S.cart=(d&&d.cart)||{}; S.cartChave=(d&&d.chave)||''; S.novoObs=(d&&d.obs)||''; }catch(e){ S.cart={}; S.cartChave=''; S.novoObs=''; } }
+function saveCart(){ try{ localStorage.setItem(cartKey(),JSON.stringify({cart:S.cart,chave:S.cartChave,obs:S.novoObs,email:S.novoEmail})); }catch(e){} }
+function loadCart(){ try{ var d=JSON.parse(localStorage.getItem(cartKey())||'null'); S.cart=(d&&d.cart)||{}; S.cartChave=(d&&d.chave)||''; S.novoObs=(d&&d.obs)||'';
+  S.novoEmail=(d&&d.email)||(S.user&&S.user.email)||''; }catch(e){ S.cart={}; S.cartChave=''; S.novoObs=''; S.novoEmail=(S.user&&S.user.email)||''; } }
 function novaChave(){ try{ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); }catch(e){} return 'p-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10); }
 function cartCount(){ var n=0; Object.keys(S.cart).forEach(function(pid){ Object.keys(S.cart[pid]).forEach(function(t){ n+=Number(S.cart[pid][t])||0; }); }); return n; }
 // Contrato atual do Novo pedido ('outros' = produtos fora de contrato, preço de tabela).
@@ -342,8 +350,15 @@ async function carregarFotos(){
   Array.prototype.forEach.call(imgs,function(img){ (async function(){ var pid=img.getAttribute('data-foto'); if(S.fotos[pid]==='none'){ img.remove(); return; } if(S.fotos[pid]){ img.src=S.fotos[pid]; return; }
     try{ var r=await fetchAuth(API+'/portal/produtos/'+pid+'/foto'+scopeQS()); if(!r.ok){ S.fotos[pid]='none'; img.remove(); return; } var b=await r.blob(); S.fotos[pid]=URL.createObjectURL(b); img.src=S.fotos[pid]; }catch(e){ S.fotos[pid]='none'; } })(); });
 }
+function emailValido(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e||'').trim()); }
 async function enviarPedido(){
   var lines=cartLines(); if(!lines.length||S.enviando) return;
+  // O comprador recebe cópia do pedido — sem e-mail não dá para mandar.
+  if(!emailValido(S.novoEmail)){
+    S.novoErr='Informe o seu e-mail para receber a cópia do pedido.';
+    render(); var c=document.getElementById('novo_email'); if(c){ c.focus(); }
+    return;
+  }
   if(!S.cartChave){ S.cartChave=novaChave(); saveCart(); }
   var itens=lines.map(function(l){ var g=S.cart[itemKey(l.it)]||{}; var ks=Object.keys(g).filter(function(t){return Number(g[t])>0;});
     var base=l.it.contratoItemId?{contratoItemId:l.it.contratoItemId}:{produtoId:l.it.produtoId};
@@ -351,7 +366,7 @@ async function enviarPedido(){
     var grade={}; ks.forEach(function(t){ if(t!=='UN') grade[t]=Number(g[t]); }); return Object.assign(base,{grade:grade}); });
   S.enviando=true; S.novoErr=''; render();
   try{
-    var r=await api('/portal/pedidos'+scopeQS(),{method:'POST',body:{itens:itens,contratoId:(S.contratoId&&S.contratoId!=='outros')?Number(S.contratoId):undefined,observacao:(S.novoObs||'').trim()||undefined,chaveIdempotencia:S.cartChave}});
+    var r=await api('/portal/pedidos'+scopeQS(),{method:'POST',body:{itens:itens,contratoId:(S.contratoId&&S.contratoId!=='outros')?Number(S.contratoId):undefined,observacao:(S.novoObs||'').trim()||undefined,email:String(S.novoEmail||'').trim().toLowerCase(),chaveIdempotencia:S.cartChave}});
     S.feito=r; S.cart={}; S.cartChave=''; S.novoObs=''; saveCart(); S.data.producao=null; S.data.resumo=null; S.data.contratos=null;
   }catch(e){ S.novoErr=e.message||'Não foi possível enviar o pedido. Tente novamente.'; }
   S.enviando=false; render();
@@ -699,6 +714,9 @@ function viewNovo(){
   var ctx = atual.outros ? 'Fora de contrato · preço de tabela' : (esc(tituloContrato(atual))+(atual.numero?' · '+esc(atual.numero):''));
   var resumo='<div class="summary"><div class="eb">Resumo</div><div style="font:400 12px/1.5 \'IBM Plex Mono\';color:var(--on-dark-4);margin-top:10px">'+ctx+'</div>'+list
     +'<textarea id="novo_obs" rows="3" placeholder="Centro de custo, local de entrega, urgência" onchange="PORTAL.setObs(this.value)">'+esc(S.novoObs||'')+'</textarea>'
+    +'<label class="fmail">Seu e-mail <span>obrigatório</span>'
+      +'<input id="novo_email" type="email" inputmode="email" autocomplete="email" placeholder="voce@empresa.com.br" value="'+esc(S.novoEmail||'')+'" oninput="PORTAL.setEmail(this.value)">'
+      +'<span class="hint">Você recebe uma cópia deste pedido neste e-mail.</span></label>'
     +(S.novoErr?'<div class="err">'+esc(S.novoErr)+'</div>':'')
     +'<button class="btn-gold" '+(lines.length&&!S.enviando?'':'disabled')+' onclick="PORTAL.enviar()">'+(S.enviando?'Enviando…':'Enviar pedido')+'</button>'
     +'<div class="note">O envio não gera cobrança. A confirmação de preço e prazo vem por e-mail em até um dia útil.</div></div>';
@@ -748,6 +766,7 @@ window.PORTAL={
   qty:function(pid,tam,v){ var n=Math.max(0,Math.round(Number(v)||0)); if(!S.cart[pid]) S.cart[pid]={}; if(n>0) S.cart[pid][tam]=n; else { delete S.cart[pid][tam]; if(!Object.keys(S.cart[pid]).length) delete S.cart[pid]; }
     if(Object.keys(S.cart).length&&!S.cartChave) S.cartChave=novaChave(); S.novoErr=''; saveCart(); render(); },
   setObs:function(v){ S.novoObs=v; saveCart(); },
+  setEmail:function(v){ S.novoEmail=v; if(S.novoErr&&emailValido(v)){ S.novoErr=''; } saveCart(); },
   enviar:function(){ enviarPedido(); },
   novoOutro:function(){ S.feito=null; S.cart={}; S.cartChave=''; S.novoObs=''; S.novoErr=''; saveCart(); render(); }
 };

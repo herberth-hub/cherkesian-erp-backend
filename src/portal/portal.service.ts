@@ -89,23 +89,48 @@ export class PortalService {
         cor: true,
         setor: true,
         grade: true,
-        estoque: { select: { tamanho: true, entradas: true, saidas: true } },
       },
       orderBy: { descricao: 'asc' },
     });
   }
 
-  /** Estoque pronta-entrega do cliente: saldo (entradas−saídas) por produto/tamanho. */
+  /**
+   * Saldo pronta-entrega por produto/tamanho, contado peça a peça em UnidadeEstoque
+   * (a etiqueta é a unidade física). É a MESMA fonte da ficha do cliente no ERP —
+   * a tabela `Estoque` agregada está vazia e não reflete o estoque real.
+   * `reservado` entra junto com `em_estoque`: a peça já está pronta e separada para
+   * este cliente. `despachado` e `aguardando_endereco` ficam de fora.
+   */
+  private async saldoPronta(empresaId: number, produtoIds: number[]) {
+    const saldos = new Map<number, Map<string, number>>();
+    if (!produtoIds.length) return saldos;
+    const unidades = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, produtoId: { in: produtoIds }, status: { in: ['em_estoque', 'reservado'] } },
+      select: { produtoId: true, tamanho: true },
+      take: 200_000,
+    });
+    for (const u of unidades) {
+      if (u.produtoId == null) continue;
+      const porTam = saldos.get(u.produtoId) ?? new Map<string, number>();
+      const t = String(u.tamanho || '—').toUpperCase().trim() || '—';
+      porTam.set(t, (porTam.get(t) ?? 0) + 1);
+      saldos.set(u.produtoId, porTam);
+    }
+    return saldos;
+  }
+
+  /** Estoque pronta-entrega do cliente: peças prontas, por produto/tamanho. */
   async estoque(user: AuthUser, override?: number) {
     const cliente = await this.clienteDoEscopo(user, override);
     const produtos = await this.produtosDoCliente(user.empresaId, cliente);
+    const saldos = await this.saldoPronta(user.empresaId, produtos.map((p) => p.id));
 
     const rankTam = PortalService.rankTam;
 
     const itens = produtos
       .map((p) => {
-        const tamanhos = (p.estoque || [])
-          .map((e) => ({ tamanho: e.tamanho, saldo: (e.entradas || 0) - (e.saidas || 0) }))
+        const tamanhos = [...(saldos.get(p.id) ?? new Map<string, number>()).entries()]
+          .map(([tamanho, saldo]) => ({ tamanho, saldo }))
           .filter((t) => t.saldo > 0)
           .sort((a, b) => rankTam(a.tamanho) - rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
         const total = tamanhos.reduce((s, t) => s + t.saldo, 0);
@@ -346,14 +371,14 @@ export class PortalService {
    * estoque cadastrado aparecia sem escolha de tamanho no Novo pedido.
    */
   static tamanhosDoProduto(
-    estoque?: Array<{ tamanho: string; entradas: number; saidas: number }>,
+    saldos?: Map<string, number> | null,
     grade?: string | null,
   ): Array<{ tamanho: string; saldo: number }> {
     const mapa = new Map<string, number>();
     for (const t of PortalService.tamanhosDaGrade(grade)) mapa.set(t, 0);
-    for (const e of estoque ?? []) {
-      const t = String(e.tamanho || '').toUpperCase();
-      if (t) mapa.set(t, Math.max(0, (e.entradas || 0) - (e.saidas || 0)));
+    for (const [tam, qtd] of saldos ?? []) {
+      const t = String(tam || '').toUpperCase();
+      if (t && t !== '—') mapa.set(t, Math.max(0, qtd || 0));
     }
     return [...mapa.entries()]
       .map(([tamanho, saldo]) => ({ tamanho, saldo }))
@@ -416,14 +441,14 @@ export class PortalService {
       select: {
         id: true, codigo: true, descricao: true, cor: true, setor: true, grade: true,
         precoBase: true, precoEspecial: true, tamsEspeciais: true,
-        estoque: { select: { tamanho: true, entradas: true, saidas: true } },
       },
       orderBy: { descricao: 'asc' },
     });
+    const saldos = await this.saldoPronta(empresaId, produtos.map((p) => p.id));
 
     const itens = produtos
       .map((p) => {
-        const tamanhos = PortalService.tamanhosDoProduto(p.estoque, p.grade);
+        const tamanhos = PortalService.tamanhosDoProduto(saldos.get(p.id), p.grade);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const ctr = precoContrato.get(p.id);
         // A faixa de tamanhos grandes (G1…G8) é do PRODUTO e vale TAMBÉM quando o preço vem
@@ -502,7 +527,10 @@ export class PortalService {
           it.contratoItemId != null ? x.id === it.contratoItemId : it.produtoId != null && x.produtoId === it.produtoId,
         );
         if (!ci) throw new BadRequestException(`Item não faz parte do contrato ${contrato.numero || '#' + contrato.id}.`);
-        const tamanhos = PortalService.tamanhosDoProduto(ci.produto?.estoque, ci.produto?.grade);
+        const tamanhos = PortalService.tamanhosDoProduto(
+          ci.produtoId != null ? contrato.saldos.get(ci.produtoId) : null,
+          ci.produto?.grade,
+        );
         c = {
           produtoId: ci.produtoId, sku: ci.produto?.codigo ?? ci.codigo, descricao: ci.descricao, cor: ci.produto?.cor ?? null,
           preco: ci.preco, tamanhos, disponivel: tamanhos.reduce((s, t) => s + t.saldo, 0),
@@ -616,6 +644,15 @@ export class PortalService {
       const g = i.grade && typeof i.grade === 'object' ? Object.entries(i.grade as Record<string, number>).map(([t, q]) => `${t}:${q}`).join(' ') : '';
       return `- ${i.descricao}${i.cor ? ' · ' + i.cor : ''}: ${i.quantidade} un${g ? ` (${g})` : ''} × R$ ${new Prisma.Decimal(i.valorUnit).toFixed(2)}`;
     });
+    // O comprador recebe cópia do próprio pedido: ele fica com o mesmo registro que nós.
+    // O e-mail é gravado no login dele, então das próximas vezes já vem preenchido.
+    const emailComprador = String(dto.email || '').trim().toLowerCase();
+    if (emailComprador && user.sub) {
+      await this.prisma.usuario
+        .update({ where: { id: user.sub }, data: { email: emailComprador } })
+        .catch((e) => this.logger.warn(`Não consegui gravar o e-mail do comprador: ${(e as Error).message}`));
+    }
+
     void this.avisarEmail(
       `[Portal] Novo pedido ${pedido.numero} — ${nomeCli}`,
       [
@@ -635,6 +672,7 @@ export class PortalService {
         '',
         'O pedido está no ERP como "Portal — aguardando validação". Aprove-o para entrar no fluxo.',
       ].filter((l) => l !== null).join('\n'),
+      emailComprador || undefined,
     );
 
     return this.respostaPedido(pedido, false);
@@ -686,12 +724,14 @@ export class PortalService {
         clienteUnidade: { select: { id: true, nome: true, cnpjCpf: true, municipio: true, uf: true } },
         itens: {
           orderBy: { id: 'asc' },
-          include: { produto: { select: { id: true, codigo: true, descricao: true, cor: true, grade: true, estoque: { select: { tamanho: true, entradas: true, saidas: true } } } } },
+          include: { produto: { select: { id: true, codigo: true, descricao: true, cor: true, grade: true, precoEspecial: true, tamsEspeciais: true } } },
         },
       },
     });
     if (!c) throw new BadRequestException('Contrato não encontrado (ou fora de vigência) para este cliente.');
-    return c;
+    // Saldo pronta-entrega dos produtos do contrato — mesma fonte do resto do portal.
+    const saldos = await this.saldoPronta(empresaId, c.itens.map((i) => i.produtoId).filter((x): x is number => x != null));
+    return { ...c, saldos };
   }
 
   /**
@@ -728,7 +768,10 @@ export class PortalService {
         ? (await this.prisma.$queryRaw<{ id: number }[]>`SELECT id FROM "Produto" WHERE id IN (${Prisma.join([...idsProd])}) AND "fotoModelo" IS NOT NULL AND length("fotoModelo") > 0`).map((r) => r.id)
         : [],
     );
-    const tamanhosDe = PortalService.tamanhosDoProduto;
+    // Saldo pronta-entrega de tudo que aparece nesta tela (itens de contrato + produtos soltos).
+    const saldos = await this.saldoPronta(empresaId, [...new Set([...idsProd, ...produtos.map((p) => p.id)])]);
+    const tamanhosDe = (produtoId?: number | null, grade?: string | null) =>
+      PortalService.tamanhosDoProduto(produtoId != null ? saldos.get(produtoId) : null, grade);
     const prazoDe = (p?: string | null) => { const s = (p || '').trim(); return s ? (/^\d+$/.test(s) ? `${s} dias` : s) : null; };
 
     const emContrato = new Set<number>();
@@ -746,7 +789,7 @@ export class PortalService {
         itens: c.itens.map((it) => {
           const p = it.produto;
           if (p) emContrato.add(p.id);
-          const tamanhos = tamanhosDe(p?.estoque, p?.grade);
+          const tamanhos = tamanhosDe(p?.id, p?.grade);
           const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
           // Mesma regra do catálogo: a faixa de tamanhos grandes vem do produto e continua
           // valendo sobre o preço de contrato (é o que o pedido vai cobrar).
@@ -774,7 +817,7 @@ export class PortalService {
     const outros = produtos
       .filter((p) => !emContrato.has(p.id))
       .map((p) => {
-        const tamanhos = tamanhosDe(p.estoque, p.grade);
+        const tamanhos = tamanhosDe(p.id, p.grade);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const tamsEsp = PedidosService.tamsEspeciais(p as unknown as Produto);
         return {
@@ -831,11 +874,11 @@ export class PortalService {
   }
 
   /** E-mail de aviso ao contato da empresa (env PORTAL_AVISO_EMAIL). Nunca derruba o pedido. */
-  private async avisarEmail(assunto: string, texto: string) {
+  private async avisarEmail(assunto: string, texto: string, cc?: string) {
     const para = (this.config.get<string>('PORTAL_AVISO_EMAIL') || 'contato@hcqualitycorp.com.br').trim();
     try {
-      const r = await this.email.enviar({ para, assunto, texto, remetenteNome: 'Portal do Cliente — HC Quality' });
-      this.logger.log(`Aviso do portal "${assunto}" -> ${para}: ${r.enviado ? 'enviado' : r.simulado ? 'SIMULADO (SMTP não configurado)' : 'falhou'} ${r.detalhe}`);
+      const r = await this.email.enviar({ para, cc, assunto, texto, remetenteNome: 'Portal do Cliente — HC Quality' });
+      this.logger.log(`Aviso do portal "${assunto}" -> ${para}${cc ? ` (cc ${cc})` : ''}: ${r.enviado ? 'enviado' : r.simulado ? 'SIMULADO (SMTP não configurado)' : 'falhou'} ${r.detalhe}`);
     } catch (e) {
       this.logger.warn(`Falha ao enviar aviso do portal: ${(e as Error).message}`);
     }

@@ -13,6 +13,8 @@ export interface EnvioEmail {
   remetenteNome?: string;
   /** Responder-para (opcional): e-mail da empresa/vendedor p/ a resposta do cliente. */
   replyTo?: string;
+  /** Cópia (opcional). No Portal, o comprador recebe cópia do pedido que ele mesmo enviou. */
+  cc?: string;
 }
 
 export interface ResultadoEnvio {
@@ -60,7 +62,7 @@ export class EmailService {
   async enviar(envio: EnvioEmail): Promise<ResultadoEnvio> {
     if (!this.transporter) {
       this.logger.log(
-        `[SIMULADO] E-mail para ${envio.para} · assunto "${envio.assunto}" · ` +
+        `[SIMULADO] E-mail para ${envio.para}${envio.cc ? ` (cc ${envio.cc})` : ''} · assunto "${envio.assunto}" · ` +
           `${envio.anexos?.length ?? 0} anexo(s).`,
       );
       return {
@@ -87,6 +89,7 @@ export class EmailService {
     const info = await this.transporter.sendMail({
       from,
       to: envio.para,
+      cc: envio.cc || undefined,
       replyTo: envio.replyTo || undefined,
       subject: envio.assunto,
       text: envio.texto,

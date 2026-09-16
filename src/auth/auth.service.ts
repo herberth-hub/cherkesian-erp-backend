@@ -27,6 +27,8 @@ export interface TokensResposta {
     acesso: string;
     setor: string | null;
     cargo: string | null;
+    /** E-mail do comprador (Portal) — o campo de cópia do pedido já vem preenchido. */
+    email: string | null;
   };
 }
 
@@ -197,6 +199,7 @@ export class AuthService {
         acesso: user.acesso,
         setor: user.setor,
         cargo: user.cargo,
+        email: user.email ?? null,
       },
     };
   }
