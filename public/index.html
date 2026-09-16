@@ -4182,7 +4182,7 @@ async function viewReceber(c){
   window.__RECS = list; window.__RCEMP=F.emp||'';
   window.__RECNOME = {}; window.__RECCNPJ = {}; clientes.forEach(cl=>{ window.__RECNOME[cl.id]=cl.nome; window.__RECCNPJ[cl.id]=cl.cnpjCpf||''; });
   const sel=(v,o)=>v===o?' selected':'';
-  c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', `<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.viewCobranca()">🔔 Cobrança por e-mail</button> `+relBtn('receber'))
+  c.innerHTML = toolbar('Contas a receber', 'Novo título', 'APP.formReceber()', `<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.viewCobranca()">🔔 Cobrança por e-mail</button> <button class="btn-sm" title="Remessas CNAB geradas, arquivos de retorno e baixa automática" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button> `+relBtn('receber'))
     + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
         <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (cliente, CNPJ, doc., valor)</label><input id="rc_busca" class="inp" style="padding:6px" placeholder="ex.: Unimed, 12.345, 500,00" value="${esc(F.q||'')}" oninput="APP.receberFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.receberFiltrar()"></div>
@@ -4230,8 +4230,10 @@ function receberFiltrar(){
   window.__RECSEL = new Set(); // reseta seleção ao refiltar
   const bulkBar = `<div id="receber_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#eef6ee;border:1px solid #bfe0c4;border-radius:8px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
     <div><b id="receber_seln">0</b> selecionado(s) — <span id="receber_selv">R$ 0,00</span></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#3a8f4f;color:#fff;border-color:#3a8f4f" onclick="APP.receberReceberSel()">✓ Receber selecionados</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-sm" onclick="APP.receberToggleAll(false)">Limpar seleção</button><button class="btn-sm" style="background:#3a8f4f;color:#fff;border-color:#3a8f4f" onclick="APP.receberReceberSel()">✓ Receber selecionados</button><button class="btn-sm" style="background:#1F4E79;color:#fff;border-color:#1F4E79" title="Registra os títulos no banco (boleto) e gera o arquivo .REM para subir no internet banking" onclick="APP.bancosRemessaSel()">📤 Gerar remessa (boleto)</button><button class="btn-sm" style="background:#c14a34;color:#fff;border-color:#c14a34" onclick="APP.receberExcluirSel()">🗑 Excluir selecionados</button></div>
   </div>`;
+  window.__RCBOL = window.__RCBOL || {};
+  setTimeout(()=>bancosCarregarBoletos(fil.map(t=>t.id)), 0);
   body.innerHTML = bulkBar + panelTable(
     [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','NF / Doc.','Valor','Pago','Saldo','Status','Ações'],
     fil.map(t=>[
@@ -4240,8 +4242,92 @@ function receberFiltrar(){
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.receberEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(nome[t.clienteId]||('#'+t.clienteId)), (t.nfNumero?`<span class="mono" style="font-weight:700">${esc(t.nfNumero)}</span>`+(t.notaFiscalId?'':' <span class="muted" style="font-size:9px">(doc.)</span>'):'<span class="muted">—</span>'),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir cobrança deste cliente (todos os títulos em aberto)" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><span id="rcbol_${t.id}">${bancosBoletoBtn(t.id)}</span>${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir cobrança deste cliente (todos os títulos em aberto)" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
+}
+
+// ===== Integração bancária (CNAB) — boletos, remessa e retorno =====
+const BOLSTATUS={gerado:['gray','gerado'],remessa:['gold','em remessa'],registrado:['blue','registrado'],pago:['green','pago via banco'],baixado:['gray','baixado'],rejeitado:['red','rejeitado']};
+function bancosBoletoBtn(id){
+  const b=(window.__RCBOL||{})[id]; if(!b) return '';
+  const [cor,txt]=BOLSTATUS[b.status]||['gray',b.status];
+  return `<button class="btn-sm" title="Boleto nosso nº ${esc(b.nossoNumero)}-${esc(b.nossoNumeroDv||'')} · ${esc(txt)}${b.ocorrencia?' · '+esc(b.ocorrencia):''}" onclick="APP.bancosBoletoPdf(${id})">🧾 Boleto <span class="pill ${cor}" style="font-size:9px">${esc(txt)}</span></button>`;
+}
+async function bancosCarregarBoletos(ids){
+  if(!ids||!ids.length) return;
+  try{ const r=await api('/bancos/boletos?ids='+ids.join(',')); window.__RCBOL=r||{}; ids.forEach(id=>{ const el=$('rcbol_'+id); if(el) el.innerHTML=bancosBoletoBtn(id); }); }catch(e){}
+}
+async function bancosBoletoPdf(id){
+  try{ const r=await fetchAuth(API+'/bancos/boletos/'+id+'/pdf',{headers:{Authorization:'Bearer '+S.access}});
+    if(!r.ok){ let m='Falha ao gerar o boleto.'; try{ m=(await r.json()).message||m; }catch(_){} toast(m,'err'); return; }
+    const url=URL.createObjectURL(await r.blob()); window.open(url,'_blank'); setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(e){ toast(e.message||'Falha ao abrir o boleto.','err'); }
+}
+async function bancosContasSelect(id, soProntas){
+  const contas=await api('/bancos/contas').catch(()=>[]);
+  const list=soProntas?contas.filter(c=>c.pronta):contas;
+  return { contas, html:`<select id="${id}" class="inp">${list.map(c=>`<option value="${c.id}">${esc(c.filial?c.filial.nome:'')} · ${esc(c.banco)}${c.agencia?' ag '+esc(c.agencia):''}${c.conta?' cc '+esc(c.conta):''}${c.pronta?'':' (sem convênio: '+esc((c.faltando||[]).join(', '))+')'}</option>`).join('')}</select>` };
+}
+async function bancosRemessaSel(){
+  const chks=[...document.querySelectorAll('.rc_chk')].filter(c=>c.checked);
+  const ids=chks.map(c=>Number(c.value));
+  if(!ids.length){ toast('Selecione ao menos um título em aberto.','err'); return; }
+  const {contas,html}=await bancosContasSelect('rem_conta', true);
+  if(!contas.some(c=>c.pronta)){ toast('Nenhuma conta bancária com convênio CNAB configurado. Abra Empresas › Contas bancárias › Editar e preencha a integração.','err'); return; }
+  const val_=chks.reduce((s,c)=>s+Number(c.getAttribute('data-saldo')||0),0);
+  openModal(`<h3>📤 Gerar remessa de cobrança (CNAB 240)</h3>
+    <div class="muted" style="font-size:12.5px;margin:-4px 0 10px">${ids.length} título(s) · ${money(val_)}. Cada título vira um <b>boleto registrado</b> (nosso número reservado) e entra no arquivo .REM. Depois: baixe o arquivo, suba no internet banking e, quando o banco devolver o retorno, processe em <b>Remessas / Retornos</b> — os pagos são baixados automaticamente.</div>
+    <div class="mrow"><label class="fl">Conta bancária (convênio de cobrança)</label>${html}</div>
+    <div class="muted" style="font-size:11.5px">Requisitos: títulos em aberto, vencimento futuro e cliente com CPF/CNPJ, endereço, cidade, UF e CEP (o banco rejeita sacado incompleto).</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.bancosGerarRemessa()">Gerar remessa</button></div>`);
+  window.__REMIDS=ids;
+}
+async function bancosGerarRemessa(){
+  const contaBancariaId=Number(val('rem_conta')); const ids=window.__REMIDS||[];
+  try{ const r=await api('/bancos/remessas',{method:'POST',body:{contaBancariaId,ids},procLabel:'Gerando remessa…'});
+    closeModal(); toast('Remessa '+r.nomeArquivo+' gerada: '+r.qtdTitulos+' boleto(s).','ok'); bancosDownloadRemessa(r.id); loadRoute();
+  }catch(e){ await uiAlert({tipo:'err',titulo:'Remessa não gerada',msg:(e.message||'Falha.').replace(/\n/g,'<br>'),ok:'Entendi'}); }
+}
+async function bancosDownloadRemessa(id){
+  try{ const r=await fetchAuth(API+'/bancos/remessas/'+id+'/arquivo',{headers:{Authorization:'Bearer '+S.access}}); if(!r.ok) throw new Error('Falha ao baixar o arquivo.');
+    const cd=r.headers.get('content-disposition')||''; const nome=(cd.match(/filename="([^"]+)"/)||[])[1]||('REMESSA'+id+'.REM');
+    const url=URL.createObjectURL(await r.blob()); const a=document.createElement('a'); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),30000);
+  }catch(e){ toast(e.message,'err'); }
+}
+async function bancosPainel(){
+  const {contas,html}=await bancosContasSelect('bp_conta', false);
+  if(!contas.length){ toast('Cadastre uma conta bancária em Empresas › Contas bancárias.','err'); return; }
+  openModal(`<h3>🏦 Remessas / Retornos bancários</h3>
+    <div class="grid2"><div class="mrow"><label class="fl">Conta bancária</label>${html.replace('class="inp"','class="inp" onchange="APP.bancosPainelConta()"')}</div>
+      <div class="mrow"><label class="fl">Processar arquivo de retorno (.RET)</label><input type="file" id="bp_ret" class="inp" accept=".ret,.txt,.RET,.TXT" onchange="APP.bancosUploadRetorno(this)"></div></div>
+    <div id="bp_body"><div class="muted">Carregando…</div></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+  bancosPainelConta();
+}
+async function bancosPainelConta(){
+  const cid=Number(val('bp_conta')); const body=$('bp_body'); if(!body) return;
+  const [rems, rets]=await Promise.all([api('/bancos/remessas?contaBancariaId='+cid).catch(()=>[]), api('/bancos/retornos?contaBancariaId='+cid).catch(()=>[])]);
+  const remRows=rems.map(r=>[esc(r.nomeArquivo), String(r.sequencial), dfmt(r.geradaEm), String(r.qtdTitulos), money(r.valorTotal), r.status==='enviada'?`<span class="pill green">enviada ${dfmt(r.enviadaEm)}</span>`:'<span class="pill gold">gerada — subir no banco</span>',
+    `<div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn-sm" onclick="APP.bancosDownloadRemessa(${r.id})">⬇ .REM</button>${r.status!=='enviada'?`<button class="btn-sm" onclick="APP.bancosEnviada(${r.id})">✓ Marquei como enviada</button>`:''}</div>`]);
+  const retRows=rets.map(r=>[esc(r.nomeArquivo), dfmt(r.processadoEm), esc(r.processadoPor||''), String(r.qtdRegistros), `<b>${r.qtdBaixados}</b>`, `<button class="btn-sm" onclick="APP.bancosRetornoDetalhe(${r.id})">Ver ocorrências</button>`]);
+  window.__BPRETS=rets;
+  body.innerHTML = `<div class="sect"><h3>Remessas geradas</h3>${panelTable(['Arquivo','NSA','Gerada em','Títulos','Valor','Situação','Ações'], remRows, remRows.length?null:'Nenhuma remessa nesta conta. Selecione títulos em Contas a receber e clique “Gerar remessa (boleto)”.')}</div>
+    <div class="sect"><h3>Retornos processados</h3>${panelTable(['Arquivo','Processado em','Por','Ocorrências','Baixados',''], retRows, retRows.length?null:'Nenhum retorno processado ainda. Suba o .RET que o banco devolve (campo acima).')}</div>`;
+}
+async function bancosEnviada(id){ try{ await api('/bancos/remessas/'+id+'/enviada',{method:'POST'}); toast('Remessa marcada como enviada.','ok'); bancosPainelConta(); }catch(e){ toast(e.message,'err'); } }
+async function bancosUploadRetorno(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const cid=Number(val('bp_conta'));
+  const conteudo=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result||'')); fr.onerror=rej; fr.readAsText(f,'latin1'); });
+  try{ const r=await api('/bancos/retornos',{method:'POST',body:{contaBancariaId:cid,nomeArquivo:f.name,conteudo},procLabel:'Processando retorno…'});
+    toast('Retorno processado: '+r.qtdRegistros+' ocorrência(s), '+r.qtdBaixados+' título(s) baixado(s).','ok'); input.value=''; bancosPainelConta();
+    if(r.itens&&r.itens.length) bancosRetornoDetalheItens(r.itens, f.name);
+  }catch(e){ input.value=''; await uiAlert({tipo:'err',titulo:'Retorno não processado',msg:esc(e.message||'Falha.'),ok:'Entendi'}); }
+}
+function bancosRetornoDetalhe(id){ const r=(window.__BPRETS||[]).find(x=>x.id===id); if(!r) return; bancosRetornoDetalheItens(r.resumo||[], r.nomeArquivo); }
+function bancosRetornoDetalheItens(itens, nome){
+  const rows=(itens||[]).map(i=>[esc(i.nossoNumero||''), esc(i.seuNumero||''), esc((i.codigo||'')+' '+(i.descricao||'')), i.valorPago?money(i.valorPago):'—', i.data?dfmt(i.data):'—', `<span style="${/BAIXADO/.test(i.resultado||'')?'color:#3a8f4f;font-weight:700':/REJEIT|ERRO|não encontrado/.test(i.resultado||'')?'color:#c14a34':''}">${esc(i.resultado||'')}</span>`]);
+  openModal(`<h3>Ocorrências — ${esc(nome||'')}</h3>${panelTable(['Nosso nº','Seu nº','Ocorrência','Pago','Data','Resultado no ERP'], rows, rows.length?null:'Sem ocorrências.')}<div class="mactions"><button class="btn-sm" onclick="APP.bancosPainel()">Voltar</button></div>`, {wide:true});
 }
 // Imprime o demonstrativo de cobrança do cliente (todos os títulos em aberto, com o nº da NF).
 function imprimirCobranca(clienteId){ gerarDoc('cobranca', clienteId); }
@@ -9923,11 +10009,28 @@ function formContaEdit(id){
       <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ce_princ" ${c.principal?'checked':''}> Principal</label>
       <label class="fl" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ce_ativa" ${c.ativa!==false?'checked':''}> Ativa</label>
     </div>
+    <div style="border-top:1px solid var(--line);margin:10px 0 6px;padding-top:8px">
+      <div style="font-weight:800;margin-bottom:2px">🏦 Integração bancária (remessa / retorno de cobrança)</div>
+      <div class="muted" style="font-size:11.5px;margin-bottom:8px">Dados do <b>convênio de cobrança</b> que o banco fornece. Sem eles a remessa não é gerada. O arquivo passa por homologação no banco — ajustes finos são feitos aqui, sem mexer no sistema.</div>
+      <div class="grid3">
+        <div class="mrow"><label class="fl">Banco (código Febraban)</label><select id="ce_cod" class="inp"><option value="">— não integrado —</option>${[['033','033 · Santander'],['237','237 · Bradesco'],['403','403 · Cora']].map(([v,t])=>`<option value="${v}" ${c.codigoBanco===v?'selected':''}>${t}</option>`).join('')}</select></div>
+        <div class="mrow"><label class="fl">Integração</label><select id="ce_int" class="inp">${[['manual','Manual (sem arquivo)'],['cnab','CNAB (remessa/retorno)'],['api','API (Cora)']].map(([v,t])=>`<option value="${v}" ${(c.integracao||'manual')===v?'selected':''}>${t}</option>`).join('')}</select></div>
+        <div class="mrow"><label class="fl">Layout CNAB</label><select id="ce_cnab" class="inp"><option value="">—</option><option value="240" ${c.cnabVersao==='240'?'selected':''}>240</option><option value="400" ${c.cnabVersao==='400'?'selected':''}>400</option></select></div>
+      </div>
+      <div class="grid3">${field('ce_agdv','Dígito da agência','value="'+esc(c.agenciaDv||'')+'" placeholder="ex.: 0"')}${field('ce_ccdv','Dígito da conta','value="'+esc(c.contaDv||'')+'" placeholder="ex.: 5"')}${field('ce_cart','Carteira','value="'+esc(c.carteira||'')+'" placeholder="Santander: 101"')}</div>
+      <div class="grid2">${field('ce_conv','Código do cedente / convênio','value="'+esc(c.convenio||'')+'" placeholder="Santander: código do beneficiário (7 dígitos)"')}${field('ce_transm','Código de transmissão (Santander, 20 dígitos)','value="'+esc(c.codigoTransmissao||'')+'" placeholder="fornecido pelo banco; vazio = agência+cedente+conta"')}</div>
+      <div class="grid3">${field('ce_juros','Juros % ao mês','type="number" step="0.01" min="0" value="'+(c.jurosMensal!=null?c.jurosMensal:'')+'" placeholder="ex.: 1"')}${field('ce_multa','Multa % após vencimento','type="number" step="0.01" min="0" value="'+(c.multaPercent!=null?c.multaPercent:'')+'" placeholder="ex.: 2"')}${field('ce_prot','Dias p/ protesto (vazio = não protestar)','type="number" min="0" value="'+(c.diasBaixaProtesto!=null?c.diasBaixaProtesto:'')+'"')}</div>
+      <div class="mrow"><label class="fl">Instruções impressas no boleto</label><textarea id="ce_instr" class="inp" rows="2" style="resize:vertical">${esc(c.instrucaoCaixa||'')}</textarea></div>
+      <div class="muted mono" style="font-size:11px">Próximo nosso número: ${esc(String(c.proximoNossoNumero||1))} · Remessas geradas (NSA): ${esc(String(c.remessaSeq||0))}</div>
+    </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.renderContasModal()">Voltar</button>
       <button class="btn-primary" onclick="APP.saveContaEdit(${id})">Salvar</button></div>`, {wide:true});
 }
 async function saveContaEdit(id){
-  const body={ banco:val('ce_banco'), agencia:val('ce_ag'), conta:val('ce_conta'), tipo:val('ce_tipo'), apelido:val('ce_apel'), pixChave:val('ce_pix'), principal:$('ce_princ').checked, ativa:$('ce_ativa').checked };
+  const numOrNull=v=>v===''?null:Number(v);
+  const body={ banco:val('ce_banco'), agencia:val('ce_ag'), conta:val('ce_conta'), tipo:val('ce_tipo'), apelido:val('ce_apel'), pixChave:val('ce_pix'), principal:$('ce_princ').checked, ativa:$('ce_ativa').checked,
+    codigoBanco:val('ce_cod'), integracao:val('ce_int')||'manual', cnabVersao:val('ce_cnab'), agenciaDv:val('ce_agdv'), contaDv:val('ce_ccdv'), carteira:val('ce_cart'), convenio:val('ce_conv'), codigoTransmissao:val('ce_transm'),
+    jurosMensal:numOrNull(val('ce_juros')), multaPercent:numOrNull(val('ce_multa')), diasBaixaProtesto:numOrNull(val('ce_prot')), instrucaoCaixa:val('ce_instr') };
   if(!body.banco){ toast('Informe o banco.','err'); return; }
   try{ await api('/filiais/contas-bancarias/'+id,{method:'PATCH',body}); toast('Conta atualizada.','ok');
     window.__CONTASB=await api('/filiais/contas-bancarias').catch(()=>[]); renderContasModal();
@@ -11207,6 +11310,7 @@ window.APP = {
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
   relatorio, relGerar, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
+  bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf,
   drillAbrir, drillToggle, drillIr,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

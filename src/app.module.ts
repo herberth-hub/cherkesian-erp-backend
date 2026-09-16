@@ -2,6 +2,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { BancosModule } from './bancos/bancos.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
@@ -86,6 +87,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     MateriaisModule,
     ConsumoModule,
     PedidosModule,
+    BancosModule,
     PilotosModule,
     ComprasModule,
     OpsModule,

@@ -193,8 +193,110 @@ model ContaBancaria {
   ativa     Boolean  @default(true)
   criadoEm  DateTime @default(now())
 
+  // ===== Integração bancária (remessa/retorno de cobrança e pagamento) =====
+  codigoBanco   String?  // código Febraban: 237 Bradesco, 033 Santander, 403 Cora
+  integracao    String   @default("manual") // manual | cnab | api
+  cnabVersao    String?  // '240' | '400' (para Bradesco/Santander)
+  agenciaDv     String?  // dígito da agência
+  contaDv       String?  // dígito da conta
+  convenio      String?  // código do convênio/beneficiário (cobrança) — Santander: código do cedente (7)
+  codigoTransmissao String? // Santander: código de transmissão (20) do header da remessa
+  carteira      String?  // carteira de cobrança (ex.: 09, 101)
+  variacaoCarteira String?
+  cedenteNome      String? // nome do cedente/beneficiário na remessa
+  cedenteDocumento String? // CNPJ do cedente (se diferente da filial)
+  // Padrões de cobrança do boleto
+  jurosMensal   Decimal? @db.Decimal(6,4) // % ao mês
+  multaPercent  Decimal? @db.Decimal(6,2) // % após o vencimento
+  diasBaixaProtesto Int?  // dias p/ protesto/baixa após vencimento
+  instrucaoCaixa String? @db.Text // instruções padrão impressas no boleto
+  // Contadores (uso interno da remessa)
+  proximoNossoNumero Int @default(1) // sequencial do "nosso número" do boleto
+  remessaSeq         Int @default(0) // NSA — nº sequencial do arquivo de remessa
+  // API (Cora e afins) — segredos/certificado NÃO ficam aqui (via env/upload seguro)
+  apiClientId   String?
+  apiAmbiente   String?  @default("producao") // producao | homologacao
+  boletos       Boleto[]
+  remessas      RemessaBancaria[]
+  retornos      RetornoBancario[]
+
   @@index([empresaId])
   @@index([filialId])
+}
+
+/// Boleto/título de cobrança registrado no banco — um por conta a receber (o vigente).
+/// Nasce "gerado" (nosso número reservado), vai p/ "remessa" ao entrar no arquivo,
+/// "registrado" quando o retorno confirma a entrada, "pago" na liquidação (baixa
+/// automática do título), "baixado" (baixa/decurso) ou "rejeitado" (com o motivo).
+model Boleto {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  contaBancariaId Int
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id])
+  contaReceberId  Int
+  contaReceber    ContaReceber  @relation(fields: [contaReceberId], references: [id], onDelete: Cascade)
+  nossoNumero     String   // sequencial do beneficiário (sem DV)
+  nossoNumeroDv   String?
+  seuNumero       String?  // referência interna (nº do título/documento)
+  valor           Decimal  @db.Decimal(12,2)
+  vencimento      DateTime
+  status          String   @default("gerado") // gerado | remessa | registrado | pago | baixado | rejeitado
+  linhaDigitavel  String?
+  codigoBarras    String?
+  remessaId       Int?
+  remessa         RemessaBancaria? @relation(fields: [remessaId], references: [id], onDelete: SetNull)
+  retornoId       Int?
+  retorno         RetornoBancario? @relation(fields: [retornoId], references: [id], onDelete: SetNull)
+  valorPago       Decimal? @db.Decimal(12,2)
+  pagoEm          DateTime?
+  ocorrencia      String?  // último código/descrição do retorno (ex.: "06 Liquidação")
+  motivoRejeicao  String?
+  criadoEm        DateTime @default(now())
+  criadoPor       String?
+
+  @@unique([contaBancariaId, nossoNumero])
+  @@index([empresaId, status])
+  @@index([contaReceberId])
+}
+
+/// Arquivo de remessa (CNAB) gerado pelo ERP para o usuário subir no banco.
+model RemessaBancaria {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  contaBancariaId Int
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id])
+  tipo            String   @default("cobranca") // cobranca | pagamento
+  layout          String   @default("240")
+  sequencial      Int      // NSA — nº sequencial do arquivo
+  nomeArquivo     String
+  conteudo        String   @db.Text
+  qtdTitulos      Int      @default(0)
+  valorTotal      Decimal  @default(0) @db.Decimal(14,2)
+  status          String   @default("gerada") // gerada | enviada | cancelada
+  geradaEm        DateTime @default(now())
+  geradaPor       String?
+  enviadaEm       DateTime?
+  boletos         Boleto[]
+
+  @@index([empresaId, contaBancariaId])
+}
+
+/// Arquivo de retorno (CNAB) do banco processado pelo ERP — dá baixa automática nos pagos.
+model RetornoBancario {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  contaBancariaId Int
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id])
+  nomeArquivo     String
+  conteudo        String   @db.Text
+  processadoEm    DateTime @default(now())
+  processadoPor   String?
+  qtdRegistros    Int      @default(0)
+  qtdBaixados     Int      @default(0)
+  resumo          Json?    // ocorrências por título (nosso número, código, descrição, valor)
+  boletos         Boleto[]
+
+  @@index([empresaId, contaBancariaId])
 }
 
 model Usuario {
@@ -792,6 +894,7 @@ model ContaReceber {
   ultimaCobrancaEm  DateTime? // última cobrança por e-mail enviada (régua)
   cobrancasEnviadas Int      @default(0) // nº de cobranças já disparadas
   comissaoGerada    Boolean  @default(false) // regra de comissão automática já aplicada ao quitar
+  boletos           Boleto[]
 }
 
 /// Régua de cobrança por e-mail dos títulos em aberto (a receber).

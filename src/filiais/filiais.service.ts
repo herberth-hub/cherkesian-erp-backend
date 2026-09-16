@@ -94,8 +94,34 @@ export class FiliaisService {
         banco: dto.banco.trim(), agencia: dto.agencia?.trim() || null, conta: dto.conta?.trim() || null,
         tipo: dto.tipo || 'corrente', pixChave: dto.pixChave?.trim() || null, apelido: dto.apelido?.trim() || null,
         principal: !!dto.principal, ativa: dto.ativa ?? true,
+        ...this.dadosIntegracao(dto),
       },
     });
+  }
+
+  /** Campos de integração bancária (CNAB/API) — só os enviados; string vazia limpa (null). */
+  private dadosIntegracao(dto: Record<string, unknown>) {
+    const s = (k: string) => (dto[k] !== undefined ? (String(dto[k] ?? '').trim() || null) : undefined);
+    const n = (k: string) => (dto[k] !== undefined ? (dto[k] === null || dto[k] === '' ? null : Number(dto[k])) : undefined);
+    return {
+      codigoBanco: s('codigoBanco'),
+      integracao: dto.integracao !== undefined ? String(dto.integracao) : undefined,
+      cnabVersao: s('cnabVersao'),
+      agenciaDv: s('agenciaDv'),
+      contaDv: s('contaDv'),
+      convenio: s('convenio'),
+      codigoTransmissao: s('codigoTransmissao'),
+      carteira: s('carteira'),
+      variacaoCarteira: s('variacaoCarteira'),
+      cedenteNome: s('cedenteNome'),
+      cedenteDocumento: s('cedenteDocumento'),
+      jurosMensal: n('jurosMensal'),
+      multaPercent: n('multaPercent'),
+      diasBaixaProtesto: n('diasBaixaProtesto'),
+      instrucaoCaixa: s('instrucaoCaixa'),
+      apiClientId: s('apiClientId'),
+      apiAmbiente: s('apiAmbiente'),
+    };
   }
 
   async atualizarConta(id: number, dto: { banco?: string; agencia?: string; conta?: string; tipo?: string; pixChave?: string; apelido?: string; principal?: boolean; ativa?: boolean }, empresaId: number) {
@@ -113,6 +139,7 @@ export class FiliaisService {
         apelido: dto.apelido !== undefined ? (dto.apelido.trim() || null) : undefined,
         principal: dto.principal ?? undefined,
         ativa: dto.ativa ?? undefined,
+        ...this.dadosIntegracao(dto as Record<string, unknown>),
       },
     });
   }
