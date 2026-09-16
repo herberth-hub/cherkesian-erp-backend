@@ -89,27 +89,32 @@ export class NotasEntradaService {
 
     try {
     return await this.prisma.$transaction(async (tx) => {
-      // Auto-cadastro de materiais: cada item SEM vínculo acha (por descrição) ou CADASTRA
-      // um material seguindo a regra de código MP-CAT-0000. Toda entrada fica no cadastro.
-      // Pré-carrega os materiais UMA vez (mapa por descrição) — evita 1 consulta por item
-      // (NF grande com dezenas de itens sem vínculo estourava o tempo da transação).
-      const matsExist = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true } });
+      // Auto-cadastro/vínculo de materiais (1 consulta só; casa por CÓDIGO DO FORNECEDOR e por descrição).
+      const matsExist = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, codigoArtigo: true, fornecedorId: true } });
       const codigosMP = matsExist.map((m) => m.codigo);
       const matPorDesc = new Map(matsExist.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
+      const idxCod = this.indiceCodigoFornecedor(matsExist);
       for (const it of dto.itens) {
         if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
+        // 1) casa pelo CÓDIGO DO FORNECEDOR (artigo) quando o material já existir → não recria.
+        const idPorCod = this.acharPorCodigoForn(idxCod, fornecedorId, it.codigoFornecedor);
+        if (idPorCod) { it.materialId = idPorCod; continue; }
+        // 2) casa por DESCRIÇÃO.
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
         const chave = desc.toLowerCase();
         const existenteId = matPorDesc.get(chave);
         if (existenteId) { it.materialId = existenteId; continue; }
+        // 3) cria — guardando o código do fornecedor no artigo p/ casar automático na próxima NF.
         const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
         codigosMP.push(codigo);
+        const codf = it.codigoFornecedor?.trim();
         const novo = await tx.material.create({
-          data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) },
+          data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)), ...(codf ? { codigoArtigo: codf, ...(fornecedorId ? { fornecedorId } : {}) } : {}) },
         });
         it.materialId = novo.id;
         matPorDesc.set(chave, novo.id); // dedup de itens repetidos na mesma NF
+        this.registrarCodigoForn(idxCod, fornecedorId, codf, novo.id);
       }
 
       // Título(s) a pagar (opcional) — uma conta por parcela; sem parcelas, 1 título.
@@ -344,12 +349,15 @@ export class NotasEntradaService {
       // 1c) remove os itens antigos (serão recriados)
       await tx.notaEntradaItem.deleteMany({ where: { notaEntradaId: id } });
 
-      // 2) Auto-cadastro de materiais dos novos itens (mapa por descrição — 1 consulta só)
-      const matsExistU = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true } });
+      // 2) Auto-cadastro/vínculo de materiais (casa por código do fornecedor e por descrição).
+      const matsExistU = await tx.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, codigoArtigo: true, fornecedorId: true } });
       const codigosMP = matsExistU.map((m) => m.codigo);
       const matPorDesc = new Map(matsExistU.map((m) => [String(m.descricao || '').trim().toLowerCase(), m.id]));
+      const idxCod = this.indiceCodigoFornecedor(matsExistU);
       for (const it of dto.itens) {
         if (it.materialId || it.produtoId) continue; // já vinculado a material ou produto de revenda
+        const idPorCod = this.acharPorCodigoForn(idxCod, fornecedorId, it.codigoFornecedor);
+        if (idPorCod) { it.materialId = idPorCod; continue; }
         const desc = (it.descricao || '').trim();
         if (!desc) continue;
         const chave = desc.toLowerCase();
@@ -357,9 +365,11 @@ export class NotasEntradaService {
         if (existenteId) { it.materialId = existenteId; continue; }
         const codigo = proximoCodigo('MP', 'Matéria-prima', codigosMP);
         codigosMP.push(codigo);
-        const novo = await tx.material.create({ data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)) } });
+        const codf = it.codigoFornecedor?.trim();
+        const novo = await tx.material.create({ data: { empresaId, codigo, categoria: 'Matéria-prima', descricao: desc, unidade: it.unidade || 'un', custo: new Prisma.Decimal(Number(it.valorUnit || 0).toFixed(2)), ...(codf ? { codigoArtigo: codf, ...(fornecedorId ? { fornecedorId } : {}) } : {}) } });
         it.materialId = novo.id;
         matPorDesc.set(chave, novo.id);
+        this.registrarCodigoForn(idxCod, fornecedorId, codf, novo.id);
       }
 
       // 3) Atualiza cabeçalho + recria itens
@@ -457,6 +467,30 @@ export class NotasEntradaService {
       await tx.notaEntrada.delete({ where: { id } });
       return { removido: true, id };
     }, { timeout: 30000, maxWait: 15000 });
+  }
+
+  // ===== Vínculo automático de material pelo CÓDIGO DO FORNECEDOR (artigo) =====
+  /** Índice de materiais por código do fornecedor: "fornId|cod" e "cod" (fallback). */
+  private indiceCodigoFornecedor(mats: Array<{ id: number; codigoArtigo: string | null; fornecedorId: number | null }>): Map<string, number> {
+    const idx = new Map<string, number>();
+    for (const m of mats) {
+      const ca = String(m.codigoArtigo || '').trim().toLowerCase();
+      if (!ca) continue;
+      if (m.fornecedorId) idx.set(`${m.fornecedorId}|${ca}`, m.id);
+      if (!idx.has(ca)) idx.set(ca, m.id);
+    }
+    return idx;
+  }
+  private acharPorCodigoForn(idx: Map<string, number>, fornecedorId: number | undefined, codigoForn?: string | null): number | undefined {
+    const c = String(codigoForn || '').trim().toLowerCase();
+    if (!c) return undefined;
+    return (fornecedorId ? idx.get(`${fornecedorId}|${c}`) : undefined) ?? idx.get(c);
+  }
+  private registrarCodigoForn(idx: Map<string, number>, fornecedorId: number | undefined, codigoForn: string | undefined, id: number): void {
+    const c = String(codigoForn || '').trim().toLowerCase();
+    if (!c) return;
+    if (fornecedorId) idx.set(`${fornecedorId}|${c}`, id);
+    if (!idx.has(c)) idx.set(c, id);
   }
 
   // ===== Rastreador SEFAZ (Focus — distribuição de NF-e) =====
