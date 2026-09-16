@@ -91,6 +91,115 @@ export class NotasEntradaService {
     // e evita cair a conexão do Neon no meio dela — P2028).
     await this.resolverMateriaisItens(dto.itens, empresaId, fornecedorId);
 
+    // ===== Pré-processamento FORA da transação =====
+    // Todas as LEITURAS (materiais, produtos, OCs) e a lógica de baixa acontecem aqui,
+    // com this.prisma. A transação abaixo faz só ESCRITAS agrupadas (poucas idas ao
+    // banco). Antes eram ~150 idas sequenciais dentro da tx interativa; com NF de muitos
+    // itens e a latência até o Neon/pgbouncer, a conexão caía no meio (P2028). Agora são ~5.
+    const lancados: string[] = [];
+    const movimentosData: Prisma.MovimentoMaterialCreateManyInput[] = [];
+    const saldoInc = new Map<number, number>();          // materialId -> incremento total do saldo
+    const recebidoPorMat = new Map<number, number>();    // materialId -> qtd recebida
+    const recebidoPorProd = new Map<number, number>();   // produtoId  -> qtd recebida (revenda)
+    const prodById = new Map<number, { codigo: string }>();
+
+    if (dto.lancarEstoque) {
+      const matIds = [...new Set(dto.itens.filter((it) => it.materialId).map((it) => it.materialId as number))];
+      const prodIds = [...new Set(dto.itens.filter((it) => it.produtoId).map((it) => it.produtoId as number))];
+      const mats = matIds.length ? await this.prisma.material.findMany({ where: { id: { in: matIds } } }) : [];
+      const prods = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } } }) : [];
+      const matById = new Map(mats.filter((m) => m.empresaId === empresaId).map((m) => [m.id, m] as const));
+      for (const p of prods) if (p.empresaId === empresaId) prodById.set(p.id, p);
+
+      const saldoCorrente = new Map<number, number>();   // running saldo p/ o saldoApos de cada movimento
+      for (const it of dto.itens) {
+        if (!it.materialId) continue;
+        const mat = matById.get(it.materialId);
+        if (!mat) continue;
+        const qtd = Number(it.quantidade);
+        const base = saldoCorrente.has(it.materialId) ? (saldoCorrente.get(it.materialId) as number) : Number(mat.saldo);
+        const novo = base + qtd;
+        saldoCorrente.set(it.materialId, novo);
+        saldoInc.set(it.materialId, (saldoInc.get(it.materialId) ?? 0) + qtd);
+        recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + qtd);
+        movimentosData.push({
+          empresaId, materialId: it.materialId, tipo: 'entrada',
+          quantidade: new Prisma.Decimal(it.quantidade), unidade: mat.unidade,
+          saldoApos: new Prisma.Decimal(novo.toFixed(3)), origem: 'nf_entrada',
+          documento: `NF ${dto.numero}`, criadoPor,
+        });
+        lancados.push(mat.codigo);
+      }
+      for (const it of dto.itens) {
+        if (!it.produtoId || !prodById.has(it.produtoId)) continue;
+        const qtd = Math.round(Number(it.quantidade));
+        if (qtd < 1) continue;
+        recebidoPorProd.set(it.produtoId, (recebidoPorProd.get(it.produtoId) ?? 0) + qtd);
+      }
+    }
+
+    // Baixa automática das OCs (necessidade × compra): decide FORA da tx quais OCs quitar
+    // (mais antigas primeiro; recebimento parcial deixa a OC aberta).
+    const ocBaixaSet = new Set<number>();
+    const ocsBaixadas: string[] = [];
+    const pedidosAfetados = new Set<string>();
+
+    if (recebidoPorMat.size) {
+      const ocs = await this.prisma.ordemCompra.findMany({
+        where: { materialId: { in: [...recebidoPorMat.keys()] }, status: 'aguardando', fornecedor: { empresaId } },
+        orderBy: { id: 'asc' },
+      });
+      const porMat = new Map<number, typeof ocs>();
+      for (const oc of ocs) {
+        const k = oc.materialId as number;
+        const arr = porMat.get(k);
+        if (arr) arr.push(oc); else porMat.set(k, [oc]);
+      }
+      for (const [matId, qtdRecebida] of recebidoPorMat) {
+        let restante = qtdRecebida;
+        for (const oc of porMat.get(matId) ?? []) {
+          const qtdOc = Number(oc.quantidade);
+          if (restante < qtdOc * 0.99) break;
+          ocBaixaSet.add(oc.id); ocsBaixadas.push(oc.numero); restante -= qtdOc;
+        }
+      }
+    }
+    if (recebidoPorProd.size) {
+      const ocs = await this.prisma.ordemCompra.findMany({
+        where: { produtoId: { in: [...recebidoPorProd.keys()] }, status: 'aguardando', fornecedor: { empresaId } },
+        orderBy: { id: 'asc' },
+      });
+      const porProd = new Map<number, typeof ocs>();
+      for (const oc of ocs) {
+        const k = oc.produtoId as number;
+        const arr = porProd.get(k);
+        if (arr) arr.push(oc); else porProd.set(k, [oc]);
+      }
+      for (const [prodId, qtdRecebida] of recebidoPorProd) {
+        let restante = qtdRecebida;
+        for (const oc of porProd.get(prodId) ?? []) {
+          const qtdOc = Number(oc.quantidade);
+          if (restante < qtdOc * 0.99) break;
+          ocBaixaSet.add(oc.id); ocsBaixadas.push(oc.numero); restante -= qtdOc;
+          const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
+          if (m) pedidosAfetados.add(m[1]);
+        }
+      }
+    }
+    const codsNf = [...new Set((dto.itens ?? []).map((it) => (it.codigoFornecedor ?? '').trim()).filter(Boolean))];
+    if (codsNf.length) {
+      const ocs = await this.prisma.ordemCompra.findMany({
+        where: { codigoFornecedor: { in: codsNf }, status: 'aguardando', materialId: null, produtoId: null, fornecedor: { empresaId } },
+        orderBy: { id: 'asc' },
+      });
+      for (const oc of ocs) {
+        ocBaixaSet.add(oc.id); ocsBaixadas.push(oc.numero);
+        const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
+        if (m) pedidosAfetados.add(m[1]);
+      }
+    }
+    const ocBaixaIds = [...ocBaixaSet];
+
     try {
     return await this.comRetryTx(() => this.prisma.$transaction(async (tx) => {
       // Título(s) a pagar (opcional) — uma conta por parcela; sem parcelas, 1 título.
@@ -153,104 +262,41 @@ export class NotasEntradaService {
         include: { itens: true },
       });
 
-      // Entrada no estoque de matéria-prima (soma ao saldo dos materiais vinculados)
-      const lancados: string[] = [];
-      const recebidoPorMat = new Map<number, number>();
-      const recebidoPorProd = new Map<number, number>(); // revenda: produtoId -> qtd recebida
-      if (dto.lancarEstoque) {
-        for (const it of dto.itens) {
-          if (!it.materialId) continue;
-          const mat = await tx.material.findUnique({ where: { id: it.materialId } });
-          if (!mat || mat.empresaId !== empresaId) continue;
-          const upd = await tx.material.update({
-            where: { id: it.materialId },
-            data: { saldo: { increment: new Prisma.Decimal(it.quantidade) } },
-          });
-          await tx.movimentoMaterial.create({
-            data: {
-              empresaId, materialId: it.materialId, tipo: 'entrada',
-              quantidade: new Prisma.Decimal(it.quantidade), unidade: upd.unidade,
-              saldoApos: upd.saldo, origem: 'nf_entrada', documento: `NF ${dto.numero}`, criadoPor,
-            },
-          }).catch(() => undefined);
-          lancados.push(mat.codigo);
-          recebidoPorMat.set(it.materialId, (recebidoPorMat.get(it.materialId) ?? 0) + Number(it.quantidade));
-        }
-        // Produtos de REVENDA: entram no estoque do produto (Estoque agregado, tamanho único).
-        for (const it of dto.itens) {
-          if (!it.produtoId) continue;
-          const prod = await tx.produto.findUnique({ where: { id: it.produtoId } });
-          if (!prod || prod.empresaId !== empresaId) continue;
-          const qtd = Math.round(Number(it.quantidade));
-          if (qtd < 1) continue;
-          const est = await tx.estoque.upsert({
-            where: { produtoId_tamanho: { produtoId: it.produtoId, tamanho: 'UNICO' } },
-            update: { entradas: { increment: qtd } },
-            create: { produtoId: it.produtoId, tamanho: 'UNICO', entradas: qtd, saidas: 0, minimo: 0 },
-          });
-          await tx.lote.create({ data: { estoqueId: est.id, codigoLote: `NF-${dto.numero}`, quantidade: qtd } }).catch(() => undefined);
-          lancados.push(prod.codigo);
-          recebidoPorProd.set(it.produtoId, (recebidoPorProd.get(it.produtoId) ?? 0) + qtd);
-        }
+      // Entrada no estoque de matéria-prima: saldos em UMA query (raw) + movimentos em lote.
+      if (saldoInc.size) {
+        const values = Prisma.join([...saldoInc.entries()].map(([mid, inc]) => Prisma.sql`(${mid}::int, ${inc.toFixed(3)}::numeric)`));
+        await tx.$executeRaw`UPDATE "Material" AS m SET saldo = m.saldo + v.inc FROM (VALUES ${values}) AS v(id, inc) WHERE m.id = v.id`;
       }
-
-      // BAIXA AUTOMÁTICA das OCs/sugestão (necessidade × compra): para cada material
-      // recebido, quita as OCs abertas do mesmo material (mais antigas primeiro), sem
-      // somar estoque de novo (o estoque já entrou pela NF acima). Evita a duplicidade
-      // de "Receber a OC" + "dar entrada na NF". Recebimento parcial deixa a OC aberta.
-      const ocsBaixadas: string[] = [];
-      for (const [matId, qtdRecebida] of recebidoPorMat) {
-        let restante = qtdRecebida;
-        const ocs = await tx.ordemCompra.findMany({
-          where: { materialId: matId, status: 'aguardando', fornecedor: { empresaId } },
-          orderBy: { id: 'asc' },
+      if (movimentosData.length) await tx.movimentoMaterial.createMany({ data: movimentosData });
+      // Produtos de REVENDA: entram no estoque do produto (Estoque agregado, tamanho único).
+      for (const [prodId, qtd] of recebidoPorProd) {
+        const prod = prodById.get(prodId);
+        if (!prod || qtd < 1) continue;
+        const est = await tx.estoque.upsert({
+          where: { produtoId_tamanho: { produtoId: prodId, tamanho: 'UNICO' } },
+          update: { entradas: { increment: qtd } },
+          create: { produtoId: prodId, tamanho: 'UNICO', entradas: qtd, saidas: 0, minimo: 0 },
         });
-        for (const oc of ocs) {
-          const qtdOc = Number(oc.quantidade);
-          if (restante < qtdOc * 0.99) break; // não cobre esta OC → para (fica aberta)
-          await tx.ordemCompra.update({
-            where: { id: oc.id },
-            data: {
-              status: 'recebida',
-              situacao: 'recebido',
-              recebidaEm: new Date(),
-              notaEntradaId: nota.id,
-              // Vincula o fornecedor real da compra (a sugestão nasce como "A DEFINIR").
-              ...(fornecedorId ? { fornecedorId } : {}),
-            },
-          });
-          restante -= qtdOc;
-          ocsBaixadas.push(oc.numero);
-        }
+        await tx.lote.create({ data: { estoqueId: est.id, codigoLote: `NF-${dto.numero}`, quantidade: qtd } }).catch(() => undefined);
+        lancados.push(prod.codigo);
       }
 
-      // BAIXA das OCs de REVENDA (produtoId) — mesma lógica dos materiais.
-      const pedidosAfetados = new Set<string>(); // números de pedido cujas OCs de revenda foram recebidas
-      for (const [prodId, qtdRecebida] of recebidoPorProd) {
-        let restante = qtdRecebida;
-        const ocs = await tx.ordemCompra.findMany({ where: { produtoId: prodId, status: 'aguardando', fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
-        for (const oc of ocs) {
-          const qtdOc = Number(oc.quantidade);
-          if (restante < qtdOc * 0.99) break;
-          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
-          restante -= qtdOc;
-          ocsBaixadas.push(oc.numero);
-          const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
-          if (m) pedidosAfetados.add(m[1]);
-        }
-      }
-
-      // BAIXA por CÓDIGO DO FORNECEDOR (artigo): OCs que casam pelo código do item da NF,
-      // mesmo sem vínculo de material/produto. Só as OCs "puras de código" (sem materialId/produtoId).
-      const codsNf = [...new Set((dto.itens ?? []).map((it) => (it.codigoFornecedor ?? '').trim()).filter(Boolean))];
-      for (const cod of codsNf) {
-        const ocs = await tx.ordemCompra.findMany({ where: { codigoFornecedor: cod, status: 'aguardando', materialId: null, produtoId: null, fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
-        for (const oc of ocs) {
-          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date(), notaEntradaId: nota.id, ...(fornecedorId ? { fornecedorId } : {}) } });
-          ocsBaixadas.push(oc.numero);
-          const m = /^Pedido (\S+) \(revenda\)$/.exec(oc.motivo ?? '');
-          if (m) pedidosAfetados.add(m[1]);
-        }
+      // BAIXA AUTOMÁTICA das OCs recebidas (materiais, revenda e por código do fornecedor):
+      // as listas foram decididas FORA da transação; aqui é UMA única atualização em lote.
+      // O estoque já entrou pela NF acima; não soma de novo. Evita a duplicidade
+      // de "Receber a OC" + "dar entrada na NF".
+      if (ocBaixaIds.length) {
+        await tx.ordemCompra.updateMany({
+          where: { id: { in: ocBaixaIds } },
+          data: {
+            status: 'recebida',
+            situacao: 'recebido',
+            recebidaEm: new Date(),
+            notaEntradaId: nota.id,
+            // Vincula o fornecedor real da compra (a sugestão nasce como "A DEFINIR").
+            ...(fornecedorId ? { fornecedorId } : {}),
+          },
+        });
       }
       // Pedido aguardando material: se não há mais OC de revenda aberta dele, libera p/ expedição.
       const pedidosLiberados: string[] = [];
