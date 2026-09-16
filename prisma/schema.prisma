@@ -610,6 +610,8 @@ model Pedido {
   pilotos        Piloto[]
   criadoEm       DateTime     @default(now())
   criadoPor      String?
+  origem         String?      // 'portal' = enviado pelo Portal do Cliente (nasce aguardando validação da equipe)
+  portalChave    String?      @unique // chave de idempotência do envio pelo portal (duplo clique/retry não duplica)
 }
 
 model PedidoItem {

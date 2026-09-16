@@ -1,15 +1,18 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Param,
   ParseIntPipe,
+  Post,
   Query,
   Res,
   StreamableFile,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { PortalService } from './portal.service';
+import { CriarPedidoPortalDto } from './dto/criar-pedido-portal.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -42,6 +45,15 @@ export class PortalController {
   @Get('catalogo')
   catalogo(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
     return this.portal.catalogo(user, clienteId ? Number(clienteId) : undefined);
+  }
+
+  /**
+   * Pedido enviado pelo portal (carrinho). Nasce no ERP aguardando validação da equipe
+   * (etapa orçamento), gera alerta no ERP + e-mail de aviso. Idempotente pela chave.
+   */
+  @Post('pedidos')
+  criarPedido(@Body() dto: CriarPedidoPortalDto, @CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
+    return this.portal.criarPedido(user, dto, clienteId ? Number(clienteId) : undefined);
   }
 
   @Get('notas')

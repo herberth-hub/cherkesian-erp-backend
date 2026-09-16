@@ -1,9 +1,14 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, Produto } from '@prisma/client';
 import { NfeService } from '../nfe/nfe.service';
 import { PedidosService } from '../pedidos/pedidos.service';
+import { CreatePedidoDto } from '../pedidos/dto/create-pedido.dto';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { EmailService } from '../email/email.service';
 import { AuthUser } from '../auth/auth.types';
+import { CriarPedidoPortalDto } from './dto/criar-pedido-portal.dto';
 
 /**
  * Portal do Cliente — visão EXTERNA e somente-leitura para o próprio cliente.
@@ -12,9 +17,15 @@ import { AuthUser } from '../auth/auth.types';
  */
 @Injectable()
 export class PortalService {
+  private readonly logger = new Logger(PortalService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly nfe: NfeService,
+    private readonly pedidos: PedidosService,
+    private readonly notificacoes: NotificacoesService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -121,7 +132,9 @@ export class PortalService {
       where: {
         clienteId: cliente.id,
         empresaId: user.empresaId,
-        etapa: { notIn: ['orcamento', 'cancelado'] },
+        // Orçamentos internos ficam fora; os do PORTAL entram (o cliente precisa ver o
+        // pedido que acabou de enviar, como "Aguardando validação").
+        AND: [{ etapa: { not: 'cancelado' } }, { OR: [{ etapa: { not: 'orcamento' } }, { origem: 'portal' }] }],
       },
       select: {
         id: true,
@@ -137,6 +150,7 @@ export class PortalService {
     });
 
     const ETAPA: Record<string, { label: string; passo: number }> = {
+      orcamento: { label: 'Aguardando validação', passo: 0 }, // só pedidos do portal chegam aqui
       aprovado: { label: 'Pedido aprovado', passo: 1 },
       piloto: { label: 'Aprovação da peça-piloto', passo: 2 },
       material: { label: 'Separação de material', passo: 3 },
@@ -369,6 +383,7 @@ export class PortalService {
       contrato: contratoRef
         ? {
             numero: contratoRef.numero,
+            filialId: contratoRef.filialId, // CNPJ emissor do contrato (usado ao criar o pedido)
             prazoEntrega: prazoContrato,
             condicaoPagamento: contratoRef.condicaoPagamento,
             formaPagamento: contratoRef.formaPagamento,
@@ -377,5 +392,173 @@ export class PortalService {
       totalItens: itens.length,
       itens,
     };
+  }
+
+  /**
+   * Pedido enviado pelo PORTAL DO CLIENTE (carrinho). Nasce no ERP como pedido em
+   * `etapa=orcamento` — o portão de validação: a equipe APROVA (fluxo normal) e ele entra
+   * em produção/expedição — com status "Portal — aguardando validação", origem='portal'
+   * e chave de idempotência (duplo clique/retry devolve o mesmo pedido). O PREÇO vem do
+   * catálogo (servidor), nunca do front. Estoque NÃO bloqueia (o que faltar vai para
+   * produção), mas o excedente é registrado para a equipe. Gera alerta no ERP (vendas)
+   * e e-mail de aviso ao contato da empresa.
+   */
+  async criarPedido(user: AuthUser, dto: CriarPedidoPortalDto, override?: number) {
+    const cliente = await this.clienteDoEscopo(user, override);
+    const empresaId = user.empresaId;
+    const chave = dto.chaveIdempotencia.trim();
+
+    const existente = await this.prisma.pedido.findFirst({
+      where: { portalChave: chave, empresaId, clienteId: cliente.id },
+      include: { itens: true },
+    });
+    if (existente) return this.respostaPedido(existente, true);
+
+    const cat = await this.catalogo(user, override);
+    const porProduto = new Map(cat.itens.map((i) => [i.produtoId, i]));
+
+    const itens: CreatePedidoDto['itens'] = [];
+    const acimaDoSaldo: string[] = [];
+    for (const it of dto.itens) {
+      const c = porProduto.get(it.produtoId);
+      if (!c) throw new BadRequestException(`Produto ${it.produtoId} não está no seu catálogo.`);
+      if (c.preco == null) {
+        throw new BadRequestException(`"${c.descricao}" está sob consulta — fale com seu consultor para incluir no pedido.`);
+      }
+      const grade: Record<string, number> = {};
+      let total = 0;
+      for (const [t, q] of Object.entries(it.grade ?? {})) {
+        const n = Math.round(Number(q));
+        if (t && Number.isFinite(n) && n > 0) {
+          grade[String(t).toUpperCase()] = n;
+          total += n;
+        }
+      }
+      if (!total && it.quantidade && it.quantidade > 0) total = Math.round(it.quantidade);
+      if (!total) throw new BadRequestException(`Informe a quantidade de "${c.descricao}".`);
+
+      const saldoTam = new Map(c.tamanhos.map((t) => [t.tamanho.toUpperCase(), t.saldo]));
+      const excedentes = Object.entries(grade)
+        .filter(([t, q]) => q > (saldoTam.get(t) ?? 0))
+        .map(([t, q]) => `${t}: ${q} (saldo ${saldoTam.get(t) ?? 0})`);
+      if (Object.keys(grade).length ? excedentes.length > 0 : total > c.disponivel) {
+        acimaDoSaldo.push(`${c.sku} ${c.descricao}${excedentes.length ? ' — ' + excedentes.join(', ') : ` — ${total} (saldo ${c.disponivel})`}`);
+      }
+      itens.push({
+        produtoId: c.produtoId,
+        descricao: c.descricao,
+        cor: c.cor ?? undefined,
+        quantidade: total,
+        valorUnit: Number(c.preco), // faixa especial por tamanho é aplicada pelo PedidosService
+        grade: Object.keys(grade).length ? grade : undefined,
+      });
+    }
+
+    const quem = (user.nome || user.usuario || 'cliente').toString();
+    const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const nomeCli = cliente.fantasia || cliente.nome;
+    const obsCliente = dto.observacao?.trim() || '';
+    const obsPartes = [`Pedido enviado pelo PORTAL DO CLIENTE em ${quando} por ${quem}.`];
+    if (obsCliente) obsPartes.push(`Obs. do cliente: ${obsCliente}`);
+    if (acimaDoSaldo.length) obsPartes.push(`Acima do saldo (vai p/ produção): ${acimaDoSaldo.join(' | ')}`);
+
+    let criado: { id: number };
+    try {
+      criado = await this.pedidos.create(
+        {
+          clienteId: cliente.id,
+          filialId: cat.contrato?.filialId ?? undefined,
+          itens,
+          formaPagamento: cat.contrato?.condicaoPagamento || cat.contrato?.formaPagamento || undefined,
+          obsComercial: obsPartes.join('\n').slice(0, 5000),
+        } as CreatePedidoDto,
+        empresaId,
+        `portal:${quem}`.slice(0, 80),
+      );
+    } catch (e) {
+      if (e instanceof ConflictException) {
+        // Restrição de crédito: NÃO expõe o motivo ao cliente; avisa a equipe (alerta + e-mail).
+        const motivo = (e as Error).message;
+        await this.notificacoes.criar(empresaId, {
+          tipo: 'pedido_novo',
+          areas: ['vendas', 'receber'],
+          titulo: `Pedido do PORTAL bloqueado — ${nomeCli}`,
+          mensagem: `O cliente tentou enviar um pedido pelo portal e o ERP bloqueou: ${motivo}`,
+        });
+        void this.avisarEmail(
+          `[Portal] Pedido BLOQUEADO — ${nomeCli}`,
+          `O cliente ${nomeCli} tentou enviar um pedido pelo Portal do Cliente em ${quando} (por ${quem}) e o ERP bloqueou:\n${motivo}\n\nItens: ${itens.map((i) => `${i.descricao} × ${i.quantidade}`).join('; ')}`,
+        );
+        throw new BadRequestException('Seu pedido não pôde ser registrado automaticamente. Nossa equipe comercial foi avisada e entrará em contato.');
+      }
+      throw e;
+    }
+
+    const pedido = await this.prisma.pedido.update({
+      where: { id: criado.id },
+      data: { origem: 'portal', portalChave: chave, status: 'Portal — aguardando validação' },
+      include: { itens: true },
+    });
+    const totalPecas = pedido.itens.reduce((s, i) => s + i.quantidade, 0);
+    const valor = new Prisma.Decimal(pedido.valorTotal).toFixed(2);
+
+    await this.notificacoes.criar(empresaId, {
+      tipo: 'pedido_novo',
+      areas: ['vendas'],
+      titulo: `Novo pedido do PORTAL ${pedido.numero} — ${nomeCli}`,
+      mensagem: `${totalPecas} peça(s) · R$ ${valor} · enviado por ${quem}. VALIDE o pedido (aprovar) para entrar no fluxo.${acimaDoSaldo.length ? ' Há itens acima do saldo (vão para produção).' : ''}`,
+      refTipo: 'pedido',
+      refId: pedido.id,
+    });
+
+    const linhas = pedido.itens.map((i) => {
+      const g = i.grade && typeof i.grade === 'object' ? Object.entries(i.grade as Record<string, number>).map(([t, q]) => `${t}:${q}`).join(' ') : '';
+      return `- ${i.descricao}${i.cor ? ' · ' + i.cor : ''}: ${i.quantidade} un${g ? ` (${g})` : ''} × R$ ${new Prisma.Decimal(i.valorUnit).toFixed(2)}`;
+    });
+    void this.avisarEmail(
+      `[Portal] Novo pedido ${pedido.numero} — ${nomeCli}`,
+      [
+        'Novo pedido enviado pelo Portal do Cliente.',
+        '',
+        `Cliente: ${nomeCli}`,
+        `Pedido: ${pedido.numero}`,
+        `Enviado por: ${quem} em ${quando}`,
+        `Total: ${totalPecas} peça(s) · R$ ${valor}`,
+        '',
+        'Itens:',
+        ...linhas,
+        obsCliente ? `\nObservação do cliente: ${obsCliente}` : null,
+        acimaDoSaldo.length ? `\nAtenção — acima do saldo (vai p/ produção): ${acimaDoSaldo.join(' | ')}` : null,
+        '',
+        'O pedido está no ERP como "Portal — aguardando validação". Aprove-o para entrar no fluxo.',
+      ].filter((l) => l !== null).join('\n'),
+    );
+
+    return this.respostaPedido(pedido, false);
+  }
+
+  private respostaPedido(
+    p: { numero: string; status: string; valorTotal: Prisma.Decimal; itens: Array<{ descricao: string; cor: string | null; quantidade: number; valorUnit: Prisma.Decimal; grade: unknown }> },
+    repetido: boolean,
+  ) {
+    return {
+      numero: p.numero,
+      status: p.status,
+      valorTotal: p.valorTotal,
+      totalPecas: p.itens.reduce((s, i) => s + i.quantidade, 0),
+      itens: p.itens.map((i) => ({ descricao: i.descricao, cor: i.cor, quantidade: i.quantidade, valorUnit: i.valorUnit, grade: i.grade })),
+      repetido, // true = este envio já tinha sido registrado (duplicidade ignorada)
+    };
+  }
+
+  /** E-mail de aviso ao contato da empresa (env PORTAL_AVISO_EMAIL). Nunca derruba o pedido. */
+  private async avisarEmail(assunto: string, texto: string) {
+    const para = (this.config.get<string>('PORTAL_AVISO_EMAIL') || 'contato@hcqualitycorp.com.br').trim();
+    try {
+      const r = await this.email.enviar({ para, assunto, texto, remetenteNome: 'Portal do Cliente — HC Quality' });
+      this.logger.log(`Aviso do portal "${assunto}" -> ${para}: ${r.enviado ? 'enviado' : r.simulado ? 'SIMULADO (SMTP não configurado)' : 'falhou'} ${r.detalhe}`);
+    } catch (e) {
+      this.logger.warn(`Falha ao enviar aviso do portal: ${(e as Error).message}`);
+    }
   }
 }

@@ -36,6 +36,9 @@ services:
       # Aponte o subdomínio (CNAME na Wix) + Custom Domain no Render para cá.
       - key: PORTAL_HOSTS
         value: portal.hcqualitycorp.com.br
+      # E-mail que recebe o aviso de cada pedido enviado pelo Portal do Cliente.
+      - key: PORTAL_AVISO_EMAIL
+        value: contato@hcqualitycorp.com.br
       # Opcional: restrinja o CORS ao domínio do frontend em produção
       # - key: CORS_ORIGIN
       #   value: https://seu-frontend.com
