@@ -20,6 +20,12 @@ export class PedidoPortalItemDto {
   /** Item do contrato (fluxo "contrato primeiro"): vale inclusive para item sem produto vinculado. */
   @IsOptional() @IsInt() @IsPositive() contratoItemId?: number;
 
+  /**
+   * Cor escolhida, quando o produto tem mais de uma. Vai UMA linha por cor: o mesmo produto
+   * em azul e em branco são dois itens, como no pedido do ERP.
+   */
+  @IsOptional() @IsString() @MaxLength(120) cor?: string;
+
   /** Quantidade por tamanho, ex.: { "M": 10, "G": 5 }. Só tamanhos com qtd > 0 contam. */
   @IsOptional() @IsObject() grade?: Record<string, number>;
 

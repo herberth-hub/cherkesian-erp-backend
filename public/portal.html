@@ -159,6 +159,16 @@ button{font-family:inherit;cursor:pointer}
 .pfoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .pfoto.ph{display:flex;align-items:center;justify-content:center;font:600 22px/1 Archivo;color:rgba(16,18,21,.16);letter-spacing:.06em}
 .pnofoto{height:3px;background:var(--gold);opacity:.5}
+/* Seletor de cor: só aparece quando o produto tem mais de uma. */
+.cores{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 2px}
+.cores .cor{background:transparent;border:1px solid var(--rule-input);color:var(--text-muted);
+  font:500 11px/1.2 'IBM Plex Mono';letter-spacing:.04em;text-transform:uppercase;
+  padding:7px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.cores .cor:hover{border-color:var(--gold);color:var(--text)}
+.cores .cor.on{border-color:var(--ink);background:var(--ink);color:#fff}
+.cores .cor .b{font:500 10px/1 'IBM Plex Mono';background:var(--gold);color:#3a2f08;padding:3px 5px}
+.cores .cor.tem:not(.on){border-color:var(--gold)}
+.cores .cor:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .pbody{padding:14px 16px 16px}
 .pn{font:500 14px/1.4 'IBM Plex Sans'}
 .ps{font:400 11px/1.5 'IBM Plex Mono';color:var(--text-faint);margin-top:5px}
@@ -260,7 +270,7 @@ button{font-family:inherit;cursor:pointer}
 'use strict';
 var API='/api/v1';
 var LS={access:'ckp_access',refresh:'ckp_refresh',user:'ckp_user'};
-var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoEmail:'',novoErr:'',enviando:false,feito:null,contratoId:'',fotos:{}};
+var S={access:null,refresh:null,user:null,view:'painel',tab:'consignado',data:{},loginErr:'',previewCli:'',expand:{},notasFiltro:{periodo:'12m',busca:''},cart:{},cartChave:'',novoObs:'',novoEmail:'',novoErr:'',enviando:false,feito:null,contratoId:'',corSel:{},fotos:{}};
 
 // ---------- storage (localStorage se "manter conectado"; senão sessionStorage) ----------
 function store(){ return S._persist===false ? sessionStorage : localStorage; }
@@ -343,13 +353,40 @@ function novaChave(){ try{ if(window.crypto&&crypto.randomUUID) return crypto.ra
 function cartCount(){ var n=0; Object.keys(S.cart).forEach(function(pid){ Object.keys(S.cart[pid]).forEach(function(t){ n+=Number(S.cart[pid][t])||0; }); }); return n; }
 // Contrato atual do Novo pedido ('outros' = produtos fora de contrato, preço de tabela).
 function contratoAtual(){ var d=S.data.contratos; if(!d||!S.contratoId) return null; if(S.contratoId==='outros') return {id:'outros',outros:true,itens:d.outros||[]}; return (d.contratos||[]).find(function(c){return String(c.id)===String(S.contratoId);})||null; }
-function itemKey(it){ return it.contratoItemId?('ci'+it.contratoItemId):('p'+it.produtoId); }
+// Chave do carrinho: um produto em duas cores são DUAS linhas de pedido, então a cor
+// entra na chave. Produto de cor única mantém a chave antiga (carrinho salvo continua valendo).
+function itemKey(it,cor){ var b=it.contratoItemId?('ci'+it.contratoItemId):('p'+it.produtoId);
+  return cor?(b+'|'+String(cor).toUpperCase()):b; }
+function normCor(c){ return String(c==null?'':c).trim().toUpperCase(); }
+function mesmaCor(a,b){ return normCor(a)===normCor(b); }
+// O servidor manda `cores`; se faltar (versão antiga em cache), cai numa opção única.
+function opcoesCor(it){ var c=it.cores; if(c&&c.length) return c;
+  return [{cor:it.cor||null,tamanhos:it.tamanhos||[],disponivel:it.disponivel||0}]; }
+function opcaoDaCor(it,cor){ var ops=opcoesCor(it);
+  return ops.filter(function(o){return mesmaCor(o.cor,cor);})[0]||ops[0]; }
+function corSelecionada(it){ var ops=opcoesCor(it); if(ops.length<=1) return ops[0].cor;
+  var esc=S.corSel[itemKey(it)];
+  if(esc!=null&&ops.some(function(o){return mesmaCor(o.cor,esc);})) return esc;
+  // Sem escolha ainda: abre na cor que já tem peça pronta, senão na primeira.
+  var comSaldo=ops.filter(function(o){return (o.disponivel||0)>0;})[0];
+  return (comSaldo||ops[0]).cor; }
+// Só produto multi-cor leva a cor na chave; cor única segue com a chave de antes.
+function chaveCarrinho(it,cor){ return opcoesCor(it).length>1 ? itemKey(it,cor) : itemKey(it); }
+function qtdNaCor(it,cor){ var g=S.cart[chaveCarrinho(it,cor)]||{}; var n=0;
+  Object.keys(g).forEach(function(t){ n+=Number(g[t])||0; }); return n; }
 function tituloContrato(c){ return c.unidade?c.unidade.nome:(c.descricao||('Contrato '+(c.numero||c.id))); }
 function subtituloContrato(c){ var p=[]; if(c.numero) p.push('Contrato '+esc(c.numero)); if(c.unidade&&c.descricao) p.push(esc(c.descricao)); if(c.filial) p.push('Emissora: '+esc(c.filial.nome)); if(c.condicaoPagamento) p.push('Pagamento: '+esc(c.condicaoPagamento)); if(c.prazoEntrega) p.push('Prazo de produção: '+esc(c.prazoEntrega)); return p.join(' · '); }
 // Preço de um tamanho: a faixa de tamanhos grandes (G1…G8) vale inclusive sobre o preço de
 // contrato — é o que o pedido cobra. O servidor só manda precoEspecial quando ela existe.
 function precoTam(it,tam){ if(it.preco==null) return 0; if(it.precoEspecial!=null&&(it.tamsEspeciais||[]).indexOf(String(tam).toUpperCase())>=0) return Number(it.precoEspecial); return Number(it.preco); }
-function cartLines(){ var c=contratoAtual(); if(!c) return []; var out=[]; (c.itens||[]).forEach(function(it){ var g=S.cart[itemKey(it)]; if(!g) return; var q=0,sub=0; Object.keys(g).forEach(function(t){ var n=Number(g[t])||0; if(n>0){ q+=n; sub+=n*precoTam(it,t); } }); if(q>0) out.push({it:it,qtd:q,sub:sub}); }); return out; }
+// Uma linha por item E por cor — é assim que o pedido é gravado no ERP.
+function cartLines(){ var c=contratoAtual(); if(!c) return []; var out=[];
+  (c.itens||[]).forEach(function(it){ opcoesCor(it).forEach(function(o){
+    var g=S.cart[chaveCarrinho(it,o.cor)]; if(!g) return;
+    var q=0,sub=0; Object.keys(g).forEach(function(t){ var n=Number(g[t])||0; if(n>0){ q+=n; sub+=n*precoTam(it,t); } });
+    if(q>0) out.push({it:it,cor:o.cor,qtd:q,sub:sub,grade:g});
+  }); });
+  return out; }
 // Fotos dos produtos: endpoint autenticado -> blob (cache em S.fotos; 'none' = sem foto).
 async function carregarFotos(){
   var imgs=document.querySelectorAll('img[data-foto]:not([src])'); if(!imgs.length) return;
@@ -366,8 +403,9 @@ async function enviarPedido(){
     return;
   }
   if(!S.cartChave){ S.cartChave=novaChave(); saveCart(); }
-  var itens=lines.map(function(l){ var g=S.cart[itemKey(l.it)]||{}; var ks=Object.keys(g).filter(function(t){return Number(g[t])>0;});
+  var itens=lines.map(function(l){ var g=l.grade||{}; var ks=Object.keys(g).filter(function(t){return Number(g[t])>0;});
     var base=l.it.contratoItemId?{contratoItemId:l.it.contratoItemId}:{produtoId:l.it.produtoId};
+    if(l.cor) base.cor=l.cor;
     if(ks.length===1&&ks[0]==='UN') return Object.assign(base,{quantidade:Number(g.UN)});
     var grade={}; ks.forEach(function(t){ if(t!=='UN') grade[t]=Number(g[t]); }); return Object.assign(base,{grade:grade}); });
   S.enviando=true; S.novoErr=''; render();
@@ -734,22 +772,39 @@ function viewNovo(){
   }
   var cab='<div class="ctr-head"><div><div class="eb">'+(atual.outros?'Fora de contrato':(atual.unidade?'Unidade':'Contrato'))+'</div><div class="t">'+(atual.outros?'Outros produtos do seu cadastro':esc(tituloContrato(atual)))+'</div><div class="s">'+(atual.outros?'Preço de tabela':subtituloContrato(atual))+'</div></div>'
     +((temContratos&&(temOutros||(d.contratos||[]).length>1))?'<button class="btn-sec" onclick="PORTAL.setContrato(\'\')">Trocar contrato</button>':'')+'</div>';
-  var cards=(atual.itens||[]).map(function(it){ var key=itemKey(it), g=S.cart[key]||{}, inputs;
+  var cards=(atual.itens||[]).map(function(it){
+    // Cada cor é uma linha de pedido própria — as quantidades ficam no carrinho por cor.
+    var ops=opcoesCor(it), corAtual=corSelecionada(it), op=opcaoDaCor(it,corAtual);
+    var key=chaveCarrinho(it,corAtual), g=S.cart[key]||{}, inputs;
+    var seletor='';
+    if(ops.length>1){
+      seletor='<div class="cores" role="group" aria-label="Cor">'+ops.map(function(o){
+        var qtdCor=qtdNaCor(it,o.cor), sel=mesmaCor(o.cor,corAtual);
+        return '<button type="button" class="cor'+(sel?' on':'')+(qtdCor?' tem':'')+'"'+(sel?' aria-pressed="true"':'')
+          +' onclick="PORTAL.setCor(\''+esc(itemKey(it)).replace(/'/g,'')+'\',\''+esc(o.cor||'').replace(/'/g,'')+'\')">'
+          +esc(o.cor||'Única')+(qtdCor?'<span class="b">'+qtdCor+'</span>':'')+'</button>'; }).join('')+'</div>';
+    }
+    var tams=op.tamanhos||[];
     if(it.preco==null) inputs='<span style="color:var(--text-faint);font:400 13px/1.5">sob consulta</span>';
-    else if((it.tamanhos||[]).length) inputs='<div class="qty">'+it.tamanhos.map(function(t){ var v=Number(g[t.tamanho])||0;
+    else if(tams.length) inputs='<div class="qty">'+tams.map(function(t){ var v=Number(g[t.tamanho])||0;
       return '<label'+(t.saldo>0?' title="'+t.saldo+' em pronta entrega"':'')+'>'+esc(t.tamanho)+(t.saldo>0?' <b>'+t.saldo+'</b>':'')+'<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\''+esc(t.tamanho).replace(/'/g,'')+'\',this.value)"></label>'; }).join('')+'</div>';
     else { var v=Number(g.UN)||0; inputs='<div class="qty"><label>qtd<input type="number" min="0" step="1" inputmode="numeric" value="'+(v||'')+'" placeholder="0" class="'+(v?'has':'')+'" onchange="PORTAL.qty(\''+key+'\',\'UN\',this.value)"></label></div>'; }
+    inputs=seletor+inputs;
     var cached=it.produtoId?S.fotos[it.produtoId]:null;
     // Sem mockup cadastrado não faz sentido reservar um quadrado vazio em cada card:
     // vira só uma faixa fina, o que encurta muito a lista de um catálogo grande.
     var foto = (it.produtoId&&it.temFoto&&cached!=='none') ? '<div class="pfoto-wrap"><div class="pfoto ph">'+esc((it.sku||'HC').split('-').slice(-1)[0])+'</div><img class="pfoto" data-foto="'+it.produtoId+'" alt=""'+(cached?' src="'+cached+'"':'')+'></div>'
       : '<div class="pnofoto"></div>';
     var un = it.preco==null ? '—' : money(it.preco)+(it.precoEspecial!=null?'<div style="font:400 11px/1.4 \'IBM Plex Mono\';color:var(--text-faint);margin-top:4px">'+esc((it.tamsEspeciais||[]).join(','))+': '+money(it.precoEspecial)+'</div>':'');
-    return '<div class="pcard">'+foto+'<div class="pbody"><div class="pn">'+esc(it.descricao)+'</div><div class="ps">'+esc([it.cor,it.sku].filter(Boolean).join(' · '))+(it.disponivel>0?' · <b>'+it.disponivel+' em pronta entrega</b>':'')+'</div><div class="pp">'+un+'</div>'+inputs+'</div></div>';
+    // Com várias cores o "pronta entrega" é o da cor escolhida: dizer 256 num produto que
+    // só tem azul faria o comprador pedir branco achando que já está pronto.
+    var rot = ops.length>1 ? [op.cor,it.sku].filter(Boolean).join(' · ') : [it.cor,it.sku].filter(Boolean).join(' · ');
+    var disp = ops.length>1 ? (op.disponivel||0) : (it.disponivel||0);
+    return '<div class="pcard">'+foto+'<div class="pbody"><div class="pn">'+esc(it.descricao)+'</div><div class="ps">'+esc(rot)+(disp>0?' · <b>'+disp+' em pronta entrega</b>':'')+'</div><div class="pp">'+un+'</div>'+inputs+'</div></div>';
   }).join('');
   var lines=cartLines(), count=0, total=0; lines.forEach(function(l){ count+=l.qtd; total+=l.sub; });
   var list = lines.length
-    ? '<div class="items">'+lines.map(function(l){ return '<div><span>'+l.qtd+'× '+esc(l.it.descricao)+'</span><b>'+money(l.sub)+'</b></div>'; }).join('')+'</div>'
+    ? '<div class="items">'+lines.map(function(l){ return '<div><span>'+l.qtd+'× '+esc(l.it.descricao)+(l.cor&&opcoesCor(l.it).length>1?(' · '+esc(l.cor)):'')+'</span><b>'+money(l.sub)+'</b></div>'; }).join('')+'</div>'
       +'<div class="k">Total de peças</div><div class="v">'+count.toLocaleString('pt-BR')+'</div><div class="k">Valor estimado</div><div class="total">'+money(total)+'</div>'
     : '<div class="vazio">Nenhum item selecionado. Informe as quantidades nos produtos ao lado.</div>';
   var ctx = atual.outros ? 'Fora de contrato · preço de tabela' : (esc(tituloContrato(atual))+(atual.numero?' · '+esc(atual.numero):''));
@@ -807,10 +862,14 @@ window.PORTAL={
   baixarNota:function(ev,id,tipo){ return baixarNota(ev,id,tipo); },
   qty:function(pid,tam,v){ var n=Math.max(0,Math.round(Number(v)||0)); if(!S.cart[pid]) S.cart[pid]={}; if(n>0) S.cart[pid][tam]=n; else { delete S.cart[pid][tam]; if(!Object.keys(S.cart[pid]).length) delete S.cart[pid]; }
     if(Object.keys(S.cart).length&&!S.cartChave) S.cartChave=novaChave(); S.novoErr=''; saveCart(); render(); },
+  setCor:function(base,cor){ S.corSel[base]=cor; render(); },
   setObs:function(v){ S.novoObs=v; saveCart(); },
   setEmail:function(v){ S.novoEmail=v; if(S.novoErr&&emailValido(v)){ S.novoErr=''; } saveCart(); },
   enviar:function(){ enviarPedido(); },
-  novoOutro:function(){ S.feito=null; S.cart={}; S.cartChave=''; S.novoObs=''; S.novoErr=''; saveCart(); render(); }
+  // O envio zera o cache (o saldo mudou), então aqui é preciso recarregar — sem isso a
+  // tela ficava em "Carregando…" para sempre depois de "Fazer outro pedido".
+  novoOutro:function(){ S.feito=null; S.cart={}; S.cartChave=''; S.novoObs=''; S.novoErr=''; S.corSel={}; saveCart();
+    if(!S.data.contratos){ render(); loadView(); } else { render(); } }
 };
 
 // Baixa DANFE (abre no navegador) ou XML (download). Escopo travado no backend.
@@ -845,7 +904,7 @@ function exportEstoque(){
 loadAuth();
 if(S.user && S.access){ loadCart();
   var h=(location.hash||'').replace(/^#/,'');
-  if(['painel','estoque','pedidos','notas','novo'].indexOf(h)>=0) S.view=h;
+  if(['painel','estoque','pedidos','notas','financeiro','novo'].indexOf(h)>=0) S.view=h;
   render(); loadView();
 } else {
   render();
@@ -853,7 +912,7 @@ if(S.user && S.access){ loadCart();
 window.addEventListener('hashchange',function(){
   if(!S.user) return;
   var h=(location.hash||'').replace(/^#/,'');
-  if(['painel','estoque','pedidos','notas','novo'].indexOf(h)>=0 && h!==S.view){ S.view=h; S.dataErr=''; loadView(); }
+  if(['painel','estoque','pedidos','notas','financeiro','novo'].indexOf(h)>=0 && h!==S.view){ S.view=h; S.dataErr=''; loadView(); }
 });
 })();
 </script>

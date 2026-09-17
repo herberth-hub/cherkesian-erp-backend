@@ -102,21 +102,53 @@ export class PortalService {
    * este cliente. `despachado` e `aguardando_endereco` ficam de fora.
    */
   private async saldoPronta(empresaId: number, produtoIds: number[]) {
-    const saldos = new Map<number, Map<string, number>>();
+    const saldos = new Map<number, Map<string, Map<string, number>>>();
     if (!produtoIds.length) return saldos;
     const unidades = await this.prisma.unidadeEstoque.findMany({
       where: { empresaId, produtoId: { in: produtoIds }, status: { in: ['em_estoque', 'reservado'] } },
-      select: { produtoId: true, tamanho: true },
+      select: { produtoId: true, tamanho: true, cor: true },
       take: 200_000,
     });
     for (const u of unidades) {
       if (u.produtoId == null) continue;
-      const porTam = saldos.get(u.produtoId) ?? new Map<string, number>();
+      const porCor = saldos.get(u.produtoId) ?? new Map<string, Map<string, number>>();
+      const cor = PortalService.normCor(u.cor);
+      const porTam = porCor.get(cor) ?? new Map<string, number>();
       const t = String(u.tamanho || '—').toUpperCase().trim() || '—';
       porTam.set(t, (porTam.get(t) ?? 0) + 1);
-      saldos.set(u.produtoId, porTam);
+      porCor.set(cor, porTam);
+      saldos.set(u.produtoId, porCor);
     }
     return saldos;
+  }
+
+  /**
+   * Monta as opções de cor de um item pedível: cada cor com a sua própria grade de tamanhos
+   * e o seu saldo. Produto de cor única (ou sem cor) devolve uma opção só — a tela não muda.
+   */
+  private static opcoesDeCor(
+    porCor: Map<string, Map<string, number>> | undefined,
+    cor: string | null | undefined,
+    grade: string | null | undefined,
+  ) {
+    const cores = PortalService.coresDoProduto(cor);
+    const lista = cores.length ? cores : [null];
+    return lista.map((c) => {
+      const tamanhos = PortalService.tamanhosDoProduto(
+        PortalService.saldoDaCor(porCor, c, cores.length),
+        grade,
+      );
+      return { cor: c, tamanhos, disponivel: tamanhos.reduce((s, t) => s + t.saldo, 0) };
+    });
+  }
+
+  /** Visão somada das cores — usada onde a tela mostra o produto inteiro, sem escolher cor. */
+  private static mesclaTamanhos(opcoes: ReturnType<typeof PortalService.opcoesDeCor>) {
+    const mapa = new Map<string, number>();
+    for (const o of opcoes) for (const t of o.tamanhos) mapa.set(t.tamanho, (mapa.get(t.tamanho) ?? 0) + t.saldo);
+    return [...mapa.entries()]
+      .map(([tamanho, saldo]) => ({ tamanho, saldo }))
+      .sort((a, b) => PortalService.rankTam(a.tamanho) - PortalService.rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho, 'pt', { numeric: true }));
   }
 
   /** Estoque pronta-entrega do cliente: peças prontas, por produto/tamanho. */
@@ -127,22 +159,30 @@ export class PortalService {
 
     const rankTam = PortalService.rankTam;
 
+    // Uma linha POR COR: 256 peças "AZUL ROYAL" e nenhuma "BRANCO" é uma informação
+    // diferente de "256 peças" num produto que existe nas duas cores.
     const itens = produtos
-      .map((p) => {
-        const tamanhos = [...(saldos.get(p.id) ?? new Map<string, number>()).entries()]
-          .map(([tamanho, saldo]) => ({ tamanho, saldo }))
-          .filter((t) => t.saldo > 0)
-          .sort((a, b) => rankTam(a.tamanho) - rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
-        const total = tamanhos.reduce((s, t) => s + t.saldo, 0);
-        return {
-          produtoId: p.id,
-          codigo: p.codigo,
-          descricao: p.descricao,
-          cor: p.cor,
-          setor: p.setor,
-          tamanhos,
-          total,
-        };
+      .flatMap((p) => {
+        const porCor = saldos.get(p.id);
+        const cores = PortalService.coresDoProduto(p.cor);
+        const linhas = porCor ? [...porCor.keys()] : [];
+        // Casa a cor da etiqueta com a grafia do cadastro quando as duas existem.
+        const rotulo = (norm: string) => cores.find((c) => PortalService.normCor(c) === norm) ?? (norm || p.cor) ?? null;
+        return linhas.map((norm) => {
+          const tamanhos = [...(porCor!.get(norm) ?? new Map<string, number>()).entries()]
+            .map(([tamanho, saldo]) => ({ tamanho, saldo }))
+            .filter((t) => t.saldo > 0)
+            .sort((a, b) => rankTam(a.tamanho) - rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+          return {
+            produtoId: p.id,
+            codigo: p.codigo,
+            descricao: p.descricao,
+            cor: rotulo(norm),
+            setor: p.setor,
+            tamanhos,
+            total: tamanhos.reduce((s, t) => s + t.saldo, 0),
+          };
+        });
       })
       .filter((p) => p.total > 0)
       .sort((a, b) => b.total - a.total);
@@ -428,6 +468,41 @@ export class PortalService {
    * da grade do produto (saldo 0 — produzidos sob encomenda). Sem isso, produto sem
    * estoque cadastrado aparecia sem escolha de tamanho no Novo pedido.
    */
+  /** Cores cadastradas no produto — a casa separa por vírgula/ponto-e-vírgula. */
+  static coresDoProduto(cor?: string | null): string[] {
+    return String(cor ?? '')
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  /** Cor normalizada para comparar etiqueta com cadastro (a grafia varia: "CINZA" x "Cinza"). */
+  static normCor(cor?: string | null): string {
+    return String(cor ?? '').trim().toUpperCase();
+  }
+
+  /**
+   * Saldo pronta-entrega de UMA cor do produto. Com uma cor só (ou nenhuma), soma tudo que
+   * existe — a etiqueta pode estar grafada diferente do cadastro e a peça é daquele produto
+   * de qualquer jeito. Com VÁRIAS cores, só conta a etiqueta daquela cor: uma peça sem cor
+   * na etiqueta não pode ser prometida como azul nem como branca.
+   */
+  static saldoDaCor(
+    porCor: Map<string, Map<string, number>> | undefined,
+    cor: string | null,
+    totalDeCores: number,
+  ): Map<string, number> {
+    if (!porCor) return new Map();
+    if (totalDeCores <= 1) {
+      const soma = new Map<string, number>();
+      for (const tams of porCor.values()) {
+        for (const [t, q] of tams) soma.set(t, (soma.get(t) ?? 0) + q);
+      }
+      return soma;
+    }
+    return porCor.get(PortalService.normCor(cor)) ?? new Map();
+  }
+
   static tamanhosDoProduto(
     saldos?: Map<string, number> | null,
     grade?: string | null,
@@ -506,7 +581,8 @@ export class PortalService {
 
     const itens = produtos
       .map((p) => {
-        const tamanhos = PortalService.tamanhosDoProduto(saldos.get(p.id), p.grade);
+        const cores = PortalService.opcoesDeCor(saldos.get(p.id), p.cor, p.grade);
+        const tamanhos = PortalService.mesclaTamanhos(cores);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const ctr = precoContrato.get(p.id);
         // A faixa de tamanhos grandes (G1…G8) é do PRODUTO e vale TAMBÉM quando o preço vem
@@ -525,6 +601,7 @@ export class PortalService {
           precoEspecial: especial,
           tamsEspeciais: especial ? tamsEsp : [],
           precoOrigem: ctr ? 'contrato' : p.precoBase != null ? 'tabela' : null,
+          cores,
           tamanhos,
           disponivel,
           prazo: disponivel > 0 ? 'Pronta entrega' : prazoContrato || 'Sob encomenda',
@@ -578,6 +655,33 @@ export class PortalService {
     const porProduto = new Map((cat?.itens ?? []).map((i) => [i.produtoId, i]));
     const itens: CreatePedidoDto['itens'] = [];
     const acimaDoSaldo: string[] = [];
+
+    /**
+     * Resolve a cor do item. Com mais de uma cor cadastrada a escolha é obrigatória — sem ela
+     * o pedido nasceria com "AZUL ROYAL, BRANCO" no lugar de uma cor, e a produção não teria
+     * como saber o que cortar.
+     */
+    const escolheCor = (
+      opcoes: Array<{ cor: string | null; tamanhos: Array<{ tamanho: string; saldo: number }>; disponivel: number }>,
+      escolhida: string | undefined,
+      descricao: string,
+    ) => {
+      if (opcoes.length <= 1) return opcoes[0] ?? { cor: null, tamanhos: [], disponivel: 0 };
+      const alvo = PortalService.normCor(escolhida);
+      if (!alvo) {
+        throw new BadRequestException(
+          `Escolha a cor de "${descricao}" (${opcoes.map((o) => o.cor).filter(Boolean).join(', ')}).`,
+        );
+      }
+      const achou = opcoes.find((o) => PortalService.normCor(o.cor) === alvo);
+      if (!achou) {
+        throw new BadRequestException(
+          `"${escolhida}" não é uma cor de "${descricao}". Disponíveis: ${opcoes.map((o) => o.cor).filter(Boolean).join(', ')}.`,
+        );
+      }
+      return achou;
+    };
+
     for (const it of dto.itens) {
       let c: { produtoId: number | null; sku: string | null; descricao: string; cor: string | null; preco: Prisma.Decimal | null; tamanhos: Array<{ tamanho: string; saldo: number }>; disponivel: number };
       if (contrato) {
@@ -585,18 +689,21 @@ export class PortalService {
           it.contratoItemId != null ? x.id === it.contratoItemId : it.produtoId != null && x.produtoId === it.produtoId,
         );
         if (!ci) throw new BadRequestException(`Item não faz parte do contrato ${contrato.numero || '#' + contrato.id}.`);
-        const tamanhos = PortalService.tamanhosDoProduto(
-          ci.produtoId != null ? contrato.saldos.get(ci.produtoId) : null,
+        const opc = PortalService.opcoesDeCor(
+          ci.produtoId != null ? contrato.saldos.get(ci.produtoId) : undefined,
+          ci.produto?.cor,
           ci.produto?.grade,
         );
+        const esc = escolheCor(opc, it.cor, ci.descricao);
         c = {
-          produtoId: ci.produtoId, sku: ci.produto?.codigo ?? ci.codigo, descricao: ci.descricao, cor: ci.produto?.cor ?? null,
-          preco: ci.preco, tamanhos, disponivel: tamanhos.reduce((s, t) => s + t.saldo, 0),
+          produtoId: ci.produtoId, sku: ci.produto?.codigo ?? ci.codigo, descricao: ci.descricao, cor: esc.cor,
+          preco: ci.preco, tamanhos: esc.tamanhos, disponivel: esc.disponivel,
         };
       } else {
         const k = it.produtoId != null ? porProduto.get(it.produtoId) : undefined;
         if (!k) throw new BadRequestException(`Produto ${it.produtoId ?? '?'} não está no seu catálogo.`);
-        c = { produtoId: k.produtoId, sku: k.sku, descricao: k.descricao, cor: k.cor, preco: k.preco, tamanhos: k.tamanhos, disponivel: k.disponivel };
+        const esc = escolheCor(k.cores, it.cor, k.descricao);
+        c = { produtoId: k.produtoId, sku: k.sku, descricao: k.descricao, cor: esc.cor, preco: k.preco, tamanhos: esc.tamanhos, disponivel: esc.disponivel };
       }
       if (c.preco == null) {
         throw new BadRequestException(`"${c.descricao}" está sob consulta — fale com seu consultor para incluir no pedido.`);
@@ -618,7 +725,7 @@ export class PortalService {
         .filter(([t, q]) => q > (saldoTam.get(t) ?? 0))
         .map(([t, q]) => `${t}: ${q} (saldo ${saldoTam.get(t) ?? 0})`);
       if (Object.keys(grade).length ? excedentes.length > 0 : total > c.disponivel) {
-        acimaDoSaldo.push(`${c.sku ?? ''} ${c.descricao}${excedentes.length ? ' — ' + excedentes.join(', ') : ` — ${total} (saldo ${c.disponivel})`}`.trim());
+        acimaDoSaldo.push(`${c.sku ?? ''} ${c.descricao}${c.cor ? ' · ' + c.cor : ''}${excedentes.length ? ' — ' + excedentes.join(', ') : ` — ${total} (saldo ${c.disponivel})`}`.trim());
       }
       itens.push({
         produtoId: c.produtoId ?? undefined,
@@ -828,8 +935,8 @@ export class PortalService {
     );
     // Saldo pronta-entrega de tudo que aparece nesta tela (itens de contrato + produtos soltos).
     const saldos = await this.saldoPronta(empresaId, [...new Set([...idsProd, ...produtos.map((p) => p.id)])]);
-    const tamanhosDe = (produtoId?: number | null, grade?: string | null) =>
-      PortalService.tamanhosDoProduto(produtoId != null ? saldos.get(produtoId) : null, grade);
+    const coresDe = (produtoId: number | null | undefined, cor: string | null | undefined, grade: string | null | undefined) =>
+      PortalService.opcoesDeCor(produtoId != null ? saldos.get(produtoId) : undefined, cor, grade);
     const prazoDe = (p?: string | null) => { const s = (p || '').trim(); return s ? (/^\d+$/.test(s) ? `${s} dias` : s) : null; };
 
     const emContrato = new Set<number>();
@@ -847,7 +954,8 @@ export class PortalService {
         itens: c.itens.map((it) => {
           const p = it.produto;
           if (p) emContrato.add(p.id);
-          const tamanhos = tamanhosDe(p?.id, p?.grade);
+          const cores = coresDe(p?.id, p?.cor, p?.grade);
+          const tamanhos = PortalService.mesclaTamanhos(cores);
           const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
           // Mesma regra do catálogo: a faixa de tamanhos grandes vem do produto e continua
           // valendo sobre o preço de contrato (é o que o pedido vai cobrar).
@@ -865,6 +973,7 @@ export class PortalService {
             tamsEspeciais: especial ? tamsEsp : [],
             precoOrigem: 'contrato' as const,
             temFoto: !!(p && comFoto.has(p.id)),
+            cores,
             tamanhos,
             disponivel,
             prazo: disponivel > 0 ? 'Pronta entrega' : prazoC || 'Sob encomenda',
@@ -875,7 +984,8 @@ export class PortalService {
     const outros = produtos
       .filter((p) => !emContrato.has(p.id))
       .map((p) => {
-        const tamanhos = tamanhosDe(p.id, p.grade);
+        const cores = coresDe(p.id, p.cor, p.grade);
+        const tamanhos = PortalService.mesclaTamanhos(cores);
         const disponivel = tamanhos.reduce((s, t) => s + t.saldo, 0);
         const tamsEsp = PedidosService.tamsEspeciais(p as unknown as Produto);
         return {
@@ -890,6 +1000,7 @@ export class PortalService {
           tamsEspeciais: tamsEsp,
           precoOrigem: (p.precoBase != null ? 'tabela' : null) as 'tabela' | null,
           temFoto: comFoto.has(p.id),
+          cores,
           tamanhos,
           disponivel,
           prazo: disponivel > 0 ? 'Pronta entrega' : 'Sob encomenda',
