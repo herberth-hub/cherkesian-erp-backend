@@ -18,6 +18,7 @@ import { PilotosModule } from './pilotos/pilotos.module';
 import { ComprasModule } from './compras/compras.module';
 import { OpsModule } from './ops/ops.module';
 import { PortalModule } from './portal/portal.module';
+import { AnomaliasModule } from './anomalias/anomalias.module';
 import { KitsModule } from './kits/kits.module';
 import { BiModule } from './bi/bi.module';
 import { EstoqueModule } from './estoque/estoque.module';
@@ -92,6 +93,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
     ComprasModule,
     OpsModule,
     PortalModule,
+    AnomaliasModule,
     KitsModule,
     BiModule,
     EstoqueModule,

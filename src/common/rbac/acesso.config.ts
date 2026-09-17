@@ -26,6 +26,8 @@ export type Area =
   | 'expedicao'
   | 'cadastros'
   | 'rh'
+  // canal de anomalias de pedido — compartilhado por quem abre, decide e executa:
+  | 'anomalias'
   // portal externo — o próprio cliente enxerga só o estoque/prazos DELE:
   | 'portal'
   // áreas administrativas — só o perfil `total` possui:
@@ -51,6 +53,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'receber',
     'dashboard',
     'tv',
+    'anomalias',
   ],
   // Vendedor: carteira própria (CRM/funil, orçamentos, comissões e vendas dele).
   // O escopo "só o que é dele" é aplicado nos serviços (pedidos/comissões/leads).
@@ -62,6 +65,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'medidas',
     'dashboard',
     'tv',
+    'anomalias',
   ],
   producao: [
     'pcp',
@@ -73,10 +77,11 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'cadastros',
     'dashboard',
     'tv',
+    'anomalias',
   ],
-  chao: ['tv', 'producao', 'piloto', 'estoque'],
-  expedicao: ['dashboard', 'tv', 'estoque', 'expedicao'],
-  financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh'],
+  chao: ['tv', 'producao', 'piloto', 'estoque', 'anomalias'],
+  expedicao: ['dashboard', 'tv', 'estoque', 'expedicao', 'anomalias'],
+  financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh', 'anomalias'],
   // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e + RH.
   contabilidade: [
     'dashboard',
@@ -92,6 +97,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'estoque',
     'expedicao',
     'rh',
+    'anomalias',
   ],
   // Consultoria: leitura ampla p/ BI de produtividade da cadeia produtiva.
   consultoria: [
@@ -105,6 +111,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'vendas',
     'clientes',
     'comissoes',
+    'anomalias',
   ],
   // Cliente (portal externo): NÃO enxerga nada interno — só o portal dele.
   cliente: ['portal'],

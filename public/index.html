@@ -237,19 +237,19 @@ const S = {
 // ---------- RBAC (espelho do backend) ----------
 const ACCESS = {
   total:'*',
-  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente','sgq','engenharia'],
-  vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas','sgq'],
-  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq','engenharia'],
-  chao:['tv','producao','kits','piloto','estoque','sgq'],
-  expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq'],
-  financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente','sgq'],
-  contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq'],
-  consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes','sgq'],
+  comercial:['dashboard','tv','vendas','crm','contratos','clientes','representantes','medidas','comissoes','precificacao','receber','notas','agente','sgq','engenharia','anomalias'],
+  vendedor:['dashboard','tv','crm','vendas','clientes','comissoes','medidas','sgq','anomalias'],
+  producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq','engenharia','anomalias'],
+  chao:['tv','producao','kits','piloto','estoque','sgq','anomalias'],
+  expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq','anomalias'],
+  financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente','sgq','anomalias'],
+  contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq','anomalias'],
+  consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','comissoes','sgq','anomalias'],
   cliente:['portal'],
 };
 const NAVDEF = [
   ['Visão geral', [['dashboard','Dashboard','grid'],['diretoria','Painel do Diretor','trend'],['bi','BI Produção','trend'],['tv','Painel de TV','tv'],['agente','Assistente IA','spark']]],
-  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['contratos','Contratos','file'],['clientes','Clientes','users'],['representantes','Representantes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
+  ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['anomalias','Anomalias','shield'],['contratos','Contratos','file'],['clientes','Clientes','users'],['representantes','Representantes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
   ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
@@ -261,12 +261,13 @@ const NAVDEF = [
   ['Portal', [['portal','Meu Estoque & Prazos','box']]],
 ];
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia']);
+const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia','anomalias']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
   bi:['BI de Produção','Produtividade da cadeia: lead time, gargalos, facções, faturamento × produção'],
   vendas:['Vendas / Pedidos','Do orçamento à expedição · automação'],
+  anomalias:['Anomalias de Pedido','Problemas e trocas de clientes · quem trata, o que foi decidido e como terminou'],
   crm:['CRM · Funil de Vendas','Leads e prospects · funil, follow-up e orçamentos'],
   contratos:['Contratos','Clientes com tabela de preço fixa · base do robô de pedidos'],
   clientes:['Clientes','Cadastro central de clientes'],
@@ -585,6 +586,7 @@ async function loadRoute(){
     if(S.route==='vendas') return await viewPedidos(c);
     if(S.route==='contratos') return await viewContratos(c);
     if(S.route==='crm') return await viewCrm(c);
+    if(S.route==='anomalias') return await viewAnomalias(c);
     if(S.route==='rh') return await viewRh(c);
     if(S.route==='receber') return await viewReceber(c);
     if(S.route==='pagar') return await viewPagar(c);
@@ -1740,6 +1742,11 @@ function pedidoAcoes(p){
     b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Ver o residual — o que ainda falta expedir do pedido original" onclick="APP.pedResidual(${p.id})">📊 Residual</button> `;
   }
   b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button> `;
+  // Anomalia direto do pedido: é aqui que o comercial está quando o cliente reclama.
+  if(canAccess('anomalias') && p.etapa!=='orcamento'){
+    const cli=esc((p.cliente?(p.cliente.fantasia||p.cliente.nome):'')||'').replace(/'/g,'&#39;');
+    b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Registrar problema ou troca deste pedido" onclick="APP.anomAbrir(${p.id},'${esc(p.numero)}','${cli}')">⚠️</button> `;
+  }
   // Cancelar (mantém o registro) — disponível enquanto não estiver cancelado/concluído.
   if(!['cancelado','concluido'].includes(p.etapa)){
     b+=`<button class="btn-sm" style="color:#c14a34;border-color:#e0a99b" title="Cancelar o pedido (mantém o registro marcado como cancelado)" onclick="APP.cancelarPedido(${p.id},'${esc(p.numero)}')">🚫 Cancelar</button>`;
@@ -11379,9 +11386,213 @@ async function pctDiag(){
   }catch(e){ if(box) box.innerHTML=`<div style="color:#c14a34">Falha ao rodar diagnóstico: ${esc(e.message)}</div>`; }
 }
 
+// ===================== Canal de Anomalias de Pedido =====================
+// Problema ou troca de um pedido de cliente. A área é compartilhada: quem abre (comercial),
+// quem decide e quem executa (produção/expedição/financeiro) leem a MESMA linha do tempo.
+const ANOM_TIPOS={defeito:'Defeito de qualidade',tamanho:'Tamanho errado',cor:'Cor errada',falta:'Falta de peça',troca:'Troca solicitada',atraso:'Atraso',entrega:'Problema na entrega',nota:'Nota fiscal',outro:'Outro'};
+const ANOM_SETORES={comercial:'Comercial',producao:'Produção',expedicao:'Expedição',qualidade:'Qualidade',financeiro:'Financeiro'};
+const ANOM_ORIGENS={cliente:'Reclamação do cliente',interna:'Detectado internamente',portal:'Portal do cliente'};
+// Fluxo na ordem em que a coisa anda; cada passo é um botão na tela de detalhe.
+const ANOM_FLUXO=[['aberta','Aberta','gold'],['analise','Em análise','blue'],['acao','Ação definida','blue'],['execucao','Em execução','blue'],['resolvida','Resolvida','green'],['cancelada','Cancelada','gray']];
+const anomLabel=s=>{const x=ANOM_FLUXO.find(f=>f[0]===s);return x?x[1]:s;};
+const anomCor=s=>{const x=ANOM_FLUXO.find(f=>f[0]===s);return x?x[2]:'gray';};
+const anomGrav=g=>g==='alta'?'<span class="pill red">alta</span>':g==='baixa'?'<span class="pill gray">baixa</span>':'<span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a">média</span>';
+let ANOMFILTRO={status:'',tipo:'',setor:'',todas:false};
+
+async function viewAnomalias(c){
+  const qs=[]; if(ANOMFILTRO.status)qs.push('status='+ANOMFILTRO.status); if(ANOMFILTRO.tipo)qs.push('tipo='+ANOMFILTRO.tipo);
+  if(ANOMFILTRO.setor)qs.push('setor='+ANOMFILTRO.setor); if(ANOMFILTRO.todas)qs.push('todas=1');
+  let r,res;
+  try{ [r,res]=await Promise.all([api('/anomalias'+(qs.length?'?'+qs.join('&'):'')), api('/anomalias/resumo')]); }
+  catch(e){ c.innerHTML=`<div class="empty" style="color:#c14a34">${esc(e.message||'Falha ao carregar.')}</div>`; return; }
+
+  const kpi=(t,v,sub,cor)=>`<div class="card" style="padding:12px 16px;border-left:4px solid ${cor}"><div class="k" style="font-size:11px;color:var(--muted)">${t}</div><div style="font-size:24px;font-weight:800;color:${cor}">${v}</div><div class="s" style="font-size:11px">${esc(sub)}</div></div>`;
+  const kpis=`<div class="cards" style="margin-bottom:14px">
+    ${kpi('Em aberto', res.abertas, 'aguardando tratativa', '#C9A227')}
+    ${kpi('Prioridade alta', res.altas, 'tratar primeiro', '#c14a34')}
+    ${kpi('Fora do prazo', res.atrasadas, 'passaram da data combinada', '#c14a34')}
+    ${kpi('Resolvidas', res.contagem.resolvida||0, 'histórico', '#1e7a44')}</div>`;
+
+  const opt=(v,l,sel)=>`<option value="${v}"${sel===v?' selected':''}>${esc(l)}</option>`;
+  const filtros=`<div class="toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+    <button class="btn-primary" onclick="APP.anomAbrir()">+ Registrar anomalia</button>
+    <select class="inp" style="max-width:190px" onchange="APP.anomFiltro('status',this.value)">
+      ${opt('','Situação: todas em aberto',ANOMFILTRO.status)}${ANOM_FLUXO.map(f=>opt(f[0],f[1],ANOMFILTRO.status)).join('')}</select>
+    <select class="inp" style="max-width:190px" onchange="APP.anomFiltro('tipo',this.value)">
+      ${opt('','Tipo: todos',ANOMFILTRO.tipo)}${Object.entries(ANOM_TIPOS).map(([k,v])=>opt(k,v,ANOMFILTRO.tipo)).join('')}</select>
+    <select class="inp" style="max-width:170px" onchange="APP.anomFiltro('setor',this.value)">
+      ${opt('','Setor: todos',ANOMFILTRO.setor)}${Object.entries(ANOM_SETORES).map(([k,v])=>opt(k,v,ANOMFILTRO.setor)).join('')}</select>
+    <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="checkbox"${ANOMFILTRO.todas?' checked':''} onchange="APP.anomFiltro('todas',this.checked)"> incluir encerradas</label>
+    <span class="muted" style="font-size:12px;margin-left:auto">${r.total} registro(s)</span></div>`;
+
+  const linhas=(r.anomalias||[]).map(a=>`<tr style="cursor:pointer" onclick="APP.anomDetalhe(${a.id})">
+    <td style="padding:7px 8px"><b class="mono gold">${esc(a.numero)}</b>${a.atrasada?' <span class="pill red" style="font-size:9px">fora do prazo</span>':''}</td>
+    <td style="padding:7px 8px"><b>${esc(a.titulo)}</b><div class="muted" style="font-size:11px">${esc(ANOM_TIPOS[a.tipo]||a.tipo)}${a.itemDescricao?' · '+esc(a.itemDescricao):''}${a.quantidade?' · '+a.quantidade+' pç':''}</div></td>
+    <td style="padding:7px 8px">${esc(a.cliente||'—')}${a.pedido?`<div class="muted" style="font-size:11px">pedido <b class="mono">${esc(a.pedido)}</b></div>`:''}</td>
+    <td style="padding:7px 8px;text-align:center">${anomGrav(a.gravidade)}</td>
+    <td style="padding:7px 8px">${esc(ANOM_SETORES[a.setor]||a.setor||'—')}${a.responsavel?`<div class="muted" style="font-size:11px">${esc(a.responsavel)}</div>`:''}</td>
+    <td style="padding:7px 8px">${a.prazo?dfmt(a.prazo):'<span class="muted">—</span>'}</td>
+    <td style="padding:7px 8px;text-align:center"><span class="pill ${anomCor(a.status)}">${esc(a.statusLabel)}</span><div class="muted" style="font-size:10.5px;margin-top:2px">${a.interacoes} interação(ões)</div></td></tr>`).join('');
+
+  c.innerHTML=kpis+filtros+`<div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:7px 8px;text-align:left">Nº</th><th style="padding:7px 8px;text-align:left">Anomalia</th><th style="padding:7px 8px;text-align:left">Cliente / pedido</th><th style="padding:7px 8px;text-align:center">Gravidade</th><th style="padding:7px 8px;text-align:left">Responsável</th><th style="padding:7px 8px;text-align:left">Prazo</th><th style="padding:7px 8px;text-align:center">Situação</th></tr></thead>
+    <tbody>${linhas||'<tr><td colspan=7 class="muted" style="padding:14px">Nenhuma anomalia com esses filtros. Use <b>+ Registrar anomalia</b> quando um cliente reportar um problema ou pedir troca.</td></tr>'}</tbody></table></div>`;
+}
+function anomFiltro(campo,valor){ ANOMFILTRO[campo]=valor; loadRoute(); }
+
+/** Formulário de abertura. `pedidoId` vem preenchido quando aberto de dentro do pedido. */
+async function anomAbrir(pedidoId, pedidoNum, clienteNome){
+  const tipoOpts=Object.entries(ANOM_TIPOS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
+  const setorOpts=`<option value="">— sugerir pelo tipo —</option>`+Object.entries(ANOM_SETORES).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
+  const origemOpts=Object.entries(ANOM_ORIGENS).map(([k,v])=>`<option value="${k}"${k==='cliente'?' selected':''}>${esc(v)}</option>`).join('');
+  openModal(`<h3>⚠️ Registrar anomalia${pedidoNum?' — pedido '+esc(pedidoNum):''}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Todo mundo envolvido (comercial, produção, expedição, financeiro) recebe o aviso e acompanha pela mesma linha do tempo.</div>
+    <input type="hidden" id="an_ped" value="${pedidoId||''}">
+    ${pedidoId?`<div class="mrow"><label class="fl">Pedido</label><div class="inp" style="background:#faf6ea"><b class="mono">${esc(pedidoNum||('#'+pedidoId))}</b>${clienteNome?' · '+esc(clienteNome):''}</div></div>`
+      :`<div class="mrow"><label class="fl">Pedido (nº)</label><input id="an_pednum" class="inp" placeholder="ex.: PV141 — opcional, mas ajuda muito" oninput="APP.anomBuscaPedido(this.value)"><div id="an_pedinfo" class="muted" style="font-size:11px;margin-top:3px"></div></div>`}
+    <div class="grid2">
+      <div class="mrow"><label class="fl">O que aconteceu *</label><select id="an_tipo" class="inp">${tipoOpts}</select></div>
+      <div class="mrow"><label class="fl">Gravidade</label><select id="an_grav" class="inp"><option value="baixa">Baixa</option><option value="media" selected>Média</option><option value="alta">Alta — trava a entrega</option></select></div>
+    </div>
+    ${field('an_titulo','Resumo em uma linha *','placeholder="ex.: 4 camisas M no lugar de G" maxlength="200"')}
+    <div class="mrow"><label class="fl">Descrição *</label><textarea id="an_desc" class="inp" rows="4" placeholder="O que o cliente relatou, com o detalhe que a produção/expedição precisa para agir."></textarea></div>
+    <div class="grid2">
+      ${field('an_item','Produto afetado','placeholder="descrição ou SKU"')}
+      ${field('an_qtd','Quantidade de peças','type="number" min="1" step="1" placeholder="ex.: 4"')}
+    </div>
+    <div class="grid2">${field('an_cor','Cor','placeholder="opcional"')}${field('an_tam','Tamanho','placeholder="opcional"')}</div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">Quem executa</label><select id="an_setor" class="inp">${setorOpts}</select></div>
+      <div class="mrow"><label class="fl">Como chegou</label><select id="an_origem" class="inp">${origemOpts}</select></div>
+    </div>
+    <div class="grid2">${field('an_resp','Responsável (pessoa)','placeholder="opcional"')}${field('an_prazo','Prazo para resolver','type="date"')}</div>
+    <div class="mrow"><label class="fl">Foto do problema</label><input id="an_foto" class="inp" type="file" accept="image/*,application/pdf"><div class="muted" style="font-size:11px;margin-top:3px">Uma foto do defeito evita muita ida e volta.</div></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.anomSalvar()">Registrar e avisar</button></div>`, {wide:true});
+}
+/** Resolve o nº do pedido digitado em id, para vincular a anomalia. */
+async function anomBuscaPedido(num){
+  const box=$('an_pedinfo'); if(!box) return; const q=(num||'').trim();
+  window.__ANOM_PED=null;
+  if(q.length<2){ box.textContent=''; return; }
+  try{ const r=await api('/pedidos?busca='+encodeURIComponent(q));
+    const lista=(r&&r.pedidos)||r||[];
+    const p=(Array.isArray(lista)?lista:[]).find(x=>String(x.numero).toUpperCase()===q.toUpperCase())||lista[0];
+    if(p){ window.__ANOM_PED=p.id; box.innerHTML=`✓ <b class="mono">${esc(p.numero)}</b>${p.cliente?' · '+esc(p.cliente.nome||p.cliente):''}`; }
+    else box.textContent='Pedido não encontrado — você pode registrar sem vincular.';
+  }catch(e){ box.textContent=''; }
+}
+async function anomSalvar(){
+  const titulo=val('an_titulo'), desc=val('an_desc');
+  if(titulo.length<4){ toast('Escreva um resumo da anomalia.','err'); return; }
+  if(desc.length<4){ toast('Descreva o que aconteceu.','err'); return; }
+  const pedidoId=Number(val('an_ped'))||window.__ANOM_PED||undefined;
+  const body={ pedidoId, tipo:val('an_tipo'), gravidade:val('an_grav'), origem:val('an_origem'),
+    titulo, descricao:desc, itemDescricao:val('an_item')||undefined, cor:val('an_cor')||undefined,
+    tamanho:val('an_tam')||undefined, quantidade:Number(val('an_qtd'))||undefined,
+    setor:val('an_setor')||undefined, responsavel:val('an_resp')||undefined,
+    prazo:val('an_prazo')?new Date(val('an_prazo')+'T12:00:00').toISOString():undefined };
+  const f=$('an_foto'); const arq=f&&f.files&&f.files[0];
+  if(arq){
+    if(arq.size>4*1024*1024){ toast('A foto passa de 4 MB. Reduza antes de anexar.','err'); return; }
+    body.anexo=await lerArquivoDataUri(arq); body.anexoNome=arq.name;
+  }
+  try{ const a=await api('/anomalias',{method:'POST',body}); closeModal();
+    toast('Anomalia '+a.numero+' registrada. As áreas foram avisadas.','ok');
+    if(S.route==='anomalias') loadRoute(); else anomDetalhe(a.id);
+  }catch(e){ toast(e.message||'Falha ao registrar.','err'); }
+}
+function lerArquivoDataUri(arq){ return new Promise((ok,err)=>{ const r=new FileReader(); r.onload=()=>ok(r.result); r.onerror=err; r.readAsDataURL(arq); }); }
+
+/** Detalhe + linha do tempo + ações. É a tela onde o time trabalha a anomalia. */
+async function anomDetalhe(id){
+  let a; try{ a=await api('/anomalias/'+id); }catch(e){ toast(e.message||'Falha ao abrir.','err'); return; }
+  window.__ANOM=a;
+  const encerrada=a.status==='resolvida'||a.status==='cancelada';
+  const botoes=ANOM_FLUXO.filter(f=>f[0]!==a.status).map(f=>
+    `<button class="btn-sm"${f[0]==='resolvida'?' style="background:#e8f5ed;color:#1e7a44;border-color:#a8d5ba"':''} onclick="APP.anomMover(${a.id},'${f[0]}')">${esc(f[1])}</button>`).join(' ');
+  const ev=(a.eventos||[]).map(e=>{
+    const ic={abertura:'⚠️',status:'→',comentario:'💬',responsavel:'👤',alteracao:'✎',acao:'🛠',anexo:'📎'}[e.tipo]||'·';
+    const dePara=(e.de||e.para)?` <span class="muted">${esc(e.de||'—')} → ${esc(e.para||'—')}</span>`:'';
+    const cab=e.tipo==='status'?`<b>${esc(anomLabel(e.de))} → ${esc(anomLabel(e.para))}</b>`
+      :(e.tipo==='responsavel'||e.tipo==='alteracao')?`<b>${esc(e.texto||'Alterado')}</b>${dePara}`
+      :e.tipo==='acao'?'<b>Ação definida</b>':e.tipo==='abertura'?'<b>Anomalia registrada</b>':'';
+    const corpo=(e.tipo==='status'&&!e.texto)||e.tipo==='responsavel'||e.tipo==='alteracao'?'':`<div style="margin-top:2px;white-space:pre-wrap">${esc(e.texto||'')}</div>`;
+    const anexo=e.temAnexo?`<div style="margin-top:4px"><a href="#" onclick="APP.anomAnexo(event,${a.id},${e.id})" style="color:#8a6d1e">📎 ${esc(e.anexoNome||'anexo')}</a></div>`:'';
+    return `<div style="display:grid;grid-template-columns:22px 1fr;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)">
+      <div style="font-size:14px">${ic}</div>
+      <div><div class="muted" style="font-size:11px">${esc(e.usuario)} · ${dfmtL(e.criadoEm)} ${esc(new Date(e.criadoEm).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}))}</div>
+        ${cab}${corpo}${anexo}</div></div>`;
+  }).join('');
+
+  const setorOpts=Object.entries(ANOM_SETORES).map(([k,v])=>`<option value="${k}"${a.setor===k?' selected':''}>${esc(v)}</option>`).join('');
+  openModal(`<h3>⚠️ ${esc(a.numero)} — ${esc(a.titulo)}</h3>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:-4px 0 12px">
+      <span class="pill ${anomCor(a.status)}">${esc(a.statusLabel)}</span>${anomGrav(a.gravidade)}
+      <span class="pill gray">${esc(ANOM_TIPOS[a.tipo]||a.tipo)}</span>
+      <span class="pill gray">${esc(ANOM_ORIGENS[a.origem]||a.origem)}</span>
+      ${a.atrasada?'<span class="pill red">fora do prazo</span>':''}
+      <span class="muted" style="font-size:11.5px">aberta por ${esc(a.abertoPor)} em ${dfmtL(a.criadoEm)}</span></div>
+    <div class="panel" style="padding:11px 13px;margin-bottom:12px;font-size:13px">
+      <div><b>Cliente:</b> ${esc(a.cliente||'—')}${a.pedido?` · <b>Pedido:</b> <b class="mono gold">${esc(a.pedido)}</b>${a.pedidoEtapa?` <span class="pill blue" style="font-size:9px">${esc(a.pedidoEtapa)}</span>`:''}`:''}</div>
+      ${(a.itemDescricao||a.cor||a.tamanho||a.quantidade)?`<div style="margin-top:3px"><b>Peça:</b> ${esc(a.itemDescricao||'—')}${a.cor?' · '+esc(a.cor):''}${a.tamanho?' · tam '+esc(a.tamanho):''}${a.quantidade?' · <b>'+a.quantidade+' pç</b>':''}</div>`:''}
+      ${a.resolucao?`<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)"><b>Desfecho:</b> ${esc(a.resolucao)}</div>`:''}
+    </div>
+    ${encerrada?'':`<div class="grid2">
+      <div class="mrow"><label class="fl">Quem executa</label><select id="an_d_setor" class="inp">${setorOpts}</select></div>
+      ${field('an_d_resp','Responsável','value="'+esc(a.responsavel||'')+'"')}
+    </div>
+    <div class="grid2">${field('an_d_prazo','Prazo','type="date" value="'+(a.prazo?String(a.prazo).slice(0,10):'')+'"')}<div></div></div>
+    <div class="mrow"><label class="fl">Ação definida</label><textarea id="an_d_acao" class="inp" rows="2" placeholder="O que vamos fazer para resolver">${esc(a.acao||'')}</textarea></div>
+    <div style="margin:-2px 0 14px"><button class="btn-sm" onclick="APP.anomSalvarAcao(${a.id})">Salvar ação e responsável</button></div>`}
+    <div style="font-weight:700;margin:6px 0 2px">Linha do tempo (${(a.eventos||[]).length})</div>
+    <div class="panel" style="padding:4px 13px;max-height:320px;overflow:auto">${ev||'<div class="muted" style="padding:10px">Sem eventos.</div>'}</div>
+    ${encerrada?'':`<div class="mrow" style="margin-top:12px"><label class="fl">Nova mensagem</label><textarea id="an_d_msg" class="inp" rows="2" placeholder="Informe o andamento — todo mundo envolvido vê aqui."></textarea></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="an_d_anexo" type="file" accept="image/*,application/pdf" class="inp" style="max-width:260px">
+      <button class="btn-sm" onclick="APP.anomComentar(${a.id})">Enviar</button></div>`}
+    <div class="mactions" style="margin-top:14px;flex-wrap:wrap;gap:6px">${botoes}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+async function anomSalvarAcao(id){
+  const body={ setor:val('an_d_setor')||undefined, responsavel:val('an_d_resp'), acao:val('an_d_acao'),
+    prazo:val('an_d_prazo')?new Date(val('an_d_prazo')+'T12:00:00').toISOString():undefined };
+  try{ await api('/anomalias/'+id,{method:'PATCH',body}); toast('Ação registrada.','ok'); anomDetalhe(id); if(S.route==='anomalias') loadRoute(); }
+  catch(e){ toast(e.message||'Falha ao salvar.','err'); }
+}
+async function anomComentar(id){
+  const texto=val('an_d_msg'); const f=$('an_d_anexo'); const arq=f&&f.files&&f.files[0];
+  if(!texto&&!arq){ toast('Escreva algo ou anexe um arquivo.','err'); return; }
+  const body={texto:texto||undefined};
+  if(arq){
+    if(arq.size>4*1024*1024){ toast('O arquivo passa de 4 MB.','err'); return; }
+    body.anexo=await lerArquivoDataUri(arq); body.anexoNome=arq.name;
+  }
+  try{ await api('/anomalias/'+id+'/comentarios',{method:'POST',body}); anomDetalhe(id); }
+  catch(e){ toast(e.message||'Falha ao enviar.','err'); }
+}
+async function anomMover(id,status){
+  let resolucao;
+  if(status==='resolvida'||status==='cancelada'){
+    resolucao=prompt(status==='resolvida'?'Como foi resolvido? (fica no histórico)':'Motivo do cancelamento:');
+    if(resolucao==null) return;
+    if(String(resolucao).trim().length<4){ toast('Escreva ao menos uma frase.','err'); return; }
+  }
+  try{ await api('/anomalias/'+id+'/status',{method:'PATCH',body:{status,resolucao}});
+    toast('Anomalia movida para "'+anomLabel(status)+'".','ok');
+    anomDetalhe(id); if(S.route==='anomalias') loadRoute();
+  }catch(e){ toast(e.message||'Falha ao mover.','err'); }
+}
+async function anomAnexo(ev,id,eventoId){
+  if(ev) ev.preventDefault();
+  try{ const r=await fetchAuth(API+'/anomalias/'+id+'/anexos/'+eventoId);
+    if(!r.ok) throw new Error('Anexo indisponível.');
+    const b=await r.blob(); const u=URL.createObjectURL(b); window.open(u,'_blank');
+  }catch(e){ toast(e.message||'Falha ao abrir o anexo.','err'); }
+}
+
 // ---------- API pública p/ onclick ----------
 window.APP = {
   login(){ doLogin(val('l_user'), $('l_pass').value); },
+  anomFiltro, anomAbrir, anomBuscaPedido, anomSalvar, anomDetalhe, anomSalvarAcao, anomComentar, anomMover, anomAnexo,
   gate(){ doGate(val('g_admin'), $('g_pass').value); },
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },

@@ -1488,3 +1488,60 @@ model NotificacaoCiencia {
   @@unique([notificacaoId, usuarioId])
   @@index([usuarioId])
 }
+
+/// Canal de anomalias de pedido: problema ou troca reportado sobre um pedido do cliente.
+/// Fica visível para todas as áreas envolvidas (comercial, produção, expedição, financeiro)
+/// para que a ação seja definida e executada com histórico de quem fez o quê.
+model Anomalia {
+  id            Int      @id @default(autoincrement())
+  empresaId     Int
+  numero        String   @unique // AN-0001
+  // Origem do problema — sem relação Prisma (mesmo padrão de NotaFiscal.pedidoId).
+  pedidoId      Int?
+  clienteId     Int?
+  notaFiscalId  Int?
+  produtoId     Int?
+  // O que exatamente falhou (produto/cor/tamanho afetado e quantas peças).
+  itemDescricao String?
+  cor           String?
+  tamanho       String?
+  quantidade    Int?
+  tipo          String   // defeito | tamanho | cor | falta | troca | atraso | entrega | nota | outro
+  gravidade     String   @default("media") // baixa | media | alta
+  origem        String   @default("interna") // cliente | interna | portal
+  titulo        String
+  descricao     String   @db.Text
+  status        String   @default("aberta") // aberta | analise | acao | execucao | resolvida | cancelada
+  setor         String?  // comercial | producao | expedicao | qualidade | financeiro
+  responsavel   String?  // usuário encarregado da execução
+  acao          String?  @db.Text // o que foi decidido fazer
+  prazo         DateTime?
+  resolucao     String?  @db.Text // como terminou
+  abertoPor     String
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+  fechadoEm     DateTime?
+  eventos       AnomaliaEvento[]
+
+  @@index([empresaId, status])
+  @@index([pedidoId])
+  @@index([clienteId])
+}
+
+/// Linha do tempo da anomalia: comentários, mudanças de status/responsável e anexos.
+/// É o que mantém todos a par — nada é editado por cima, tudo vira evento.
+model AnomaliaEvento {
+  id         Int      @id @default(autoincrement())
+  anomaliaId Int
+  anomalia   Anomalia @relation(fields: [anomaliaId], references: [id], onDelete: Cascade)
+  tipo       String   // comentario | status | responsavel | acao | anexo | abertura
+  de         String?  // valor anterior (status/responsável)
+  para       String?  // valor novo
+  texto      String?  @db.Text
+  anexo      String?  @db.Text // foto/documento (data URI base64), mesmo padrão do boleto
+  anexoNome  String?
+  usuario    String
+  criadoEm   DateTime @default(now())
+
+  @@index([anomaliaId, id])
+}
