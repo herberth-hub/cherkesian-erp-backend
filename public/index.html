@@ -4211,12 +4211,17 @@ async function gerarOp(id, parcial){
         loadRoute(); return;
       }
       // 1ª vez: oferece PRODUÇÃO PARCIAL (produz o que cobre e mantém a compra do resto).
+      // A OP já nasceu em AGUARDANDO MATERIAL nos dois caminhos — a escolha aqui é só
+      // se a parte coberta pelo estoque entra na linha agora ou espera tudo chegar.
       const falt=(r.faltantes||[]).map(f=>'• '+String(f.descricao).split(' - ')[0]+': falta '+f.faltam+' '+f.unidade).join('\n');
+      const ops=(r.ops||[]).map(o=>o.numero).join(', ');
       const ok = await uiConfirm({tipo:'warn', titulo:'Faltou material p/ o pedido todo',
-        ok:'⚙️ Produzir o que tenho (parcial)', cancel:'Só comprar (aguardar material)',
-        msg:'Ordem(ns) de compra criada(s): '+oc+'\n\n'+falt+'\n\nQuer PRODUZIR AGORA a parte que o estoque cobre, sem parar a linha? A OP complementar do restante sai quando o material chegar.'});
+        ok:'⚙️ Produzir o que tenho (parcial)', cancel:'Aguardar o material chegar',
+        msg:'Ordem(ns) de compra: '+oc+'\n'+(ops?'OP(s) na fila aguardando material: '+ops+'\n':'')+'\n'+falt
+          +'\n\nA OP já está lançada em Produção com o status AGUARDANDO MATERIAL — a fábrica enxerga o que vem pela frente, mas não corta nada.'
+          +'\n\nQuer PRODUZIR AGORA a parte que o estoque cobre, sem parar a linha? O restante continua na fila até o material chegar.'});
       if(ok) return gerarOp(id, true);
-      toast('OC(s) '+oc+' criada(s). Pedido aguardando material.','ok');
+      toast(ops?('OP(s) '+ops+' na fila aguardando material. OC(s): '+oc+'.'):('OC(s) '+oc+' criada(s). Pedido aguardando material.'),'ok');
     }
     else if(r.status==='itens_livres'){
       const itens=(r.itens||[]);
