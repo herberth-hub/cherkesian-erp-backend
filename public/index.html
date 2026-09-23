@@ -11087,7 +11087,13 @@ async function montarMockup(){
           <select id="mkc_tipo" class="inp" style="font-size:11px;padding:5px" onchange="APP.mkPalette()"><option value="">Tipo…</option>${MK_TIPOS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join('')}</select>
           <select id="mkc_vista" class="inp" style="font-size:11px;padding:5px;max-width:90px" onchange="APP.mkPalette()"><option value="">Vista</option><option value="frente">frente</option><option value="costas">costas</option><option value="lateral">lateral</option></select>
         </div>
-        <div id="mkc_palette" style="max-height:560px;overflow:auto"></div>
+        <label class="btn-sm" style="display:block;text-align:center;cursor:pointer;margin-bottom:6px">⬆ Subir mockup
+          <input type="file" accept="image/*" style="display:none" onchange="APP.mkBaseUpload(this)"></label>
+        <div id="mkc_palette" style="max-height:330px;overflow:auto"></div>
+        <div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+          <div style="font-weight:700;font-size:11px;color:#8a5a00;margin-bottom:5px">🎨 Cores da peça</div>
+          <div id="mk_partes" style="max-height:300px;overflow:auto"></div>
+        </div>
       </div>
       <div style="flex:1;display:flex;justify-content:center">
         <div id="mkcanvas" style="position:relative;width:${MK_CW}px;height:${MK_CH}px;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none"></div>
@@ -11112,18 +11118,214 @@ function mkPalette(){
       ? '<div class="muted" style="font-size:11px">Nenhuma peça-base <b>neste filtro</b> ('+((mkTipoLabel(tipo)||'todos')+' · '+(vista||'todas'))+'). Mude o <b>Tipo</b>/<b>Vista</b> acima ou deixe em <b>Tipo…</b> para ver todas ('+totBases+').</div>'
       : '<div class="muted" style="font-size:11px">Sem peça-base. Cadastre no acervo.</div>';
   box.innerHTML = (grp('Peça base (fundo)',bases,'mkPickBase')||vazioMsg) + grp('Opcionais (clique p/ adicionar)',opc,'mkAddCamada');
+  mkPartesUI();
 }
-function mkPickBase(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; window.__MKC.base={assetId:a.id,img:a.imagem}; if(a.vista&&$('mkc_vista'))$('mkc_vista').value=a.vista; mkRenderCanvas(); }
+function mkPickBase(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return;
+  if(a.vista&&$('mkc_vista'))$('mkc_vista').value=a.vista;
+  // Traz as partes já marcadas nesta peça — é o que permite recolorir sem remarcar tudo.
+  mkBaseCarregar(a.imagem, a.nome, a.id, a.partes||[]); }
 function mkAddCamada(id){ const a=(window.__MKASSETS||[]).find(x=>x.id===id); if(!a) return; const c={id:window.__MKC.seq++, assetId:a.id, img:a.imagem, x:MK_CW/2-60, y:MK_CH/2-60, w:120, cor:''}; window.__MKC.camadas.push(c); window.__MKC.sel='c'+c.id; mkRenderCanvas(); mkCtrl(); }
 function mkImgHtml(img,w,cor){ return `<img src="${esc(img)}" style="width:${w}px;display:block;pointer-events:none">`+(cor?`<div style="position:absolute;inset:0;background:${cor};-webkit-mask:url('${esc(img)}') center/contain no-repeat;mask:url('${esc(img)}') center/contain no-repeat;mix-blend-mode:multiply;pointer-events:none"></div>`:''); }
+
+// ===================== Cores da peça-base, por parte =====================
+// O desenho é carregado num canvas. Clicar com o conta-gotas captura a cor daquele
+// ponto e cria uma PARTE (corpo, manga, gola…). Trocar a cor da parte repinta só os
+// pixels daquela faixa de cor, SEMPRE a partir do original — assim dá para trocar
+// quantas vezes quiser sem a imagem degradar, e sombra e dobra continuam aparecendo.
+function hexRgb(h){ h=String(h||'').replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join('');
+  return {r:parseInt(h.slice(0,2),16)||0,g:parseInt(h.slice(2,4),16)||0,b:parseInt(h.slice(4,6),16)||0}; }
+function rgbHex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function rgb2hsl(r,g,b){ r/=255;g/=255;b/=255; const mx=Math.max(r,g,b),mn=Math.min(r,g,b); let h=0,s=0; const l=(mx+mn)/2;
+  if(mx!==mn){ const d=mx-mn; s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+    h = mx===r?((g-b)/d+(g<b?6:0)) : mx===g?((b-r)/d+2) : ((r-g)/d+4); h/=6; }
+  return [h,s,l]; }
+function hsl2rgb(h,s,l){ let r,g,b;
+  if(s===0){ r=g=b=l; }
+  else{ const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+    const f=(t)=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+    r=f(h+1/3); g=f(h); b=f(h-1/3); }
+  return [r*255,g*255,b*255]; }
+
+/** Carrega o desenho no canvas e guarda o ORIGINAL, que nunca é alterado. */
+function mkBaseCarregar(img,nome,assetId,partes){
+  const C=window.__MKC;
+  const im=new Image();
+  im.onload=function(){
+    const cv=$('mkbase'); if(!cv) return;
+    cv.width=MK_CW; cv.height=MK_CH;
+    const ctx=cv.getContext('2d',{willReadFrequently:true});
+    ctx.clearRect(0,0,MK_CW,MK_CH);
+    const r=Math.min(MK_CW/im.width,MK_CH/im.height);
+    const w=im.width*r, hh=im.height*r;
+    ctx.drawImage(im,(MK_CW-w)/2,(MK_CH-hh)/2,w,hh);
+    C.baseOriginal=ctx.getImageData(0,0,MK_CW,MK_CH);
+    mkPintarBase();
+  };
+  im.onerror=function(){ toast('Não consegui ler essa imagem.','err'); };
+  im.src=img;
+  C.base={img:img,nome:nome||'Peça',assetId:assetId||null};
+  C.partes=(partes||[]).map(p=>({nome:p.nome||'parte',r:p.r,g:p.g,b:p.b,tol:p.tol||40,cor:p.cor||null}));
+  C.conta=false;
+  mkRenderCanvas(); mkPartesUI();
+}
+
+/** Repinta a base: começa do original e aplica cada parte que tem cor escolhida. */
+function mkPintarBase(){
+  const C=window.__MKC, cv=$('mkbase'); if(!cv||!C.baseOriginal) return;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  const src=C.baseOriginal.data;
+  const out=ctx.createImageData(C.baseOriginal.width,C.baseOriginal.height);
+  out.data.set(src);
+  const d=out.data;
+  const ativas=(C.partes||[]).filter(p=>p.cor);
+  if(!ativas.length){ ctx.putImageData(out,0,0); return; }
+  // A comparação é por MATIZ e SATURAÇÃO, não por RGB: numa peça com dobra, o mesmo
+  // azul aparece claro e escuro, e comparar RGB deixaria as sombras de fora.
+  // Cor neutra (cinza, branco, preto) não tem matiz confiável — essa compara por RGB.
+  const alvos=ativas.map(p=>{
+    const a=rgb2hsl(p.r,p.g,p.b);
+    const t=hexRgb(p.cor), th=rgb2hsl(t.r,t.g,t.b);
+    const f=p.tol/160;
+    return {p:p, ha:a[0], sa:a[1], lumAmostra:a[2], h:th[0], s:th[1], lumAlvo:th[2],
+      // O MATIZ manda: é ele que separa o azul do amarelo. A saturação entra só como
+      // guarda larga — num gradiente ela despenca no claro (0,47 na amostra virou 0,20
+      // no brilho) e, se pesasse, metade da peça ficaria sem pintar.
+      neutra:a[1]<0.12, tolH:f*0.25, tolS:Math.max(0.35,f*1.2), tol2:p.tol*p.tol*3};
+  });
+  for(let i=0;i<d.length;i+=4){
+    if(d[i+3]<8) continue;                 // transparente fica como está
+    for(const a of alvos){
+      let casa;
+      if(a.neutra){
+        const dr=d[i]-a.p.r, dg=d[i+1]-a.p.g, db=d[i+2]-a.p.b;
+        casa = dr*dr+dg*dg+db*db<=a.tol2;
+      } else {
+        const px=rgb2hsl(d[i],d[i+1],d[i+2]);
+        if(px[1]<0.08) casa=false;         // pixel sem cor não é a peça colorida
+        else {
+          let dh=Math.abs(px[0]-a.ha); if(dh>0.5) dh=1-dh;   // matiz é circular
+          casa = dh<=a.tolH && Math.abs(px[1]-a.sa)<=a.tolS;
+        }
+      }
+      if(!casa) continue;
+      // preserva o relevo: a diferença de luz do pixel para a amostra é mantida
+      const l=rgb2hsl(d[i],d[i+1],d[i+2])[2];
+      let nl=a.lumAlvo+(l-a.lumAmostra);
+      nl=nl<0?0:nl>1?1:nl;
+      const c=hsl2rgb(a.h,a.s,nl);
+      d[i]=c[0]; d[i+1]=c[1]; d[i+2]=c[2];
+      break;                                // primeira parte que casa vence
+    }
+  }
+  C.basePintada=out;   // cache: o arrasto de camadas redesenha a tela muitas vezes
+  ctx.putImageData(out,0,0);
+}
+/** Redesenha a base a partir do cache — sem refazer a conta de cor. */
+function mkBaseDesenhar(){
+  const C=window.__MKC, cv=$('mkbase'); if(!cv) return;
+  const src=C.basePintada||C.baseOriginal; if(!src) return;
+  cv.getContext('2d',{willReadFrequently:true}).putImageData(src,0,0);
+}
+
+function mkConta(){ const C=window.__MKC; C.conta=!C.conta; mkPartesUI(); mkRenderCanvas();
+  toast(C.conta?'Clique na peça para capturar a cor da parte.':'Conta-gotas desligado.','ok'); }
+
+/** Clique no canvas com o conta-gotas: vira uma parte nova. */
+function mkCanvasPick(ev){
+  const C=window.__MKC; if(!C.conta||!C.baseOriginal) return;
+  const cv=$('mkbase'); const b=cv.getBoundingClientRect();
+  const x=Math.round((ev.clientX-b.left)*(cv.width/b.width));
+  const y=Math.round((ev.clientY-b.top)*(cv.height/b.height));
+  if(x<0||y<0||x>=cv.width||y>=cv.height) return;
+  const o=C.baseOriginal.data, i=(y*C.baseOriginal.width+x)*4;
+  if(o[i+3]<8){ toast('Esse ponto está transparente — clique sobre a peça.','err'); return; }
+  const r=o[i],g=o[i+1],b2=o[i+2];
+  C.partes=C.partes||[];
+  if(C.partes.some(p=>Math.abs(p.r-r)<8&&Math.abs(p.g-g)<8&&Math.abs(p.b-b2)<8)){ toast('Essa cor já é uma parte.','err'); return; }
+  C.partes.push({nome:'parte '+(C.partes.length+1),r:r,g:g,b:b2,tol:40,cor:null});
+  C.conta=false;
+  mkPartesUI(); mkRenderCanvas();
+}
+function mkParteSet(i,campo,v){
+  const C=window.__MKC, p=(C.partes||[])[i]; if(!p) return;
+  if(campo==='tol') p.tol=Math.max(1,Math.min(160,Number(v)||40));
+  else if(campo==='cor') p.cor=v||null;
+  else if(campo==='nome') p.nome=String(v||'').slice(0,40);
+  if(campo!=='nome') mkPintarBase();
+  if(campo==='tol'||campo==='cor') mkPartesUI();
+}
+function mkParteDel(i){ const C=window.__MKC; (C.partes||[]).splice(i,1); mkPintarBase(); mkPartesUI(); }
+function mkParteReset(i){ mkParteSet(i,'cor',''); }
+
+function mkPartesUI(){
+  const box=$('mk_partes'); if(!box) return;
+  const C=window.__MKC;
+  if(!C.base){ box.innerHTML='<div class="muted" style="font-size:11.5px">Escolha ou suba uma peça para poder trocar as cores.</div>'; return; }
+  const ps=C.partes||[];
+  let h='<div style="display:flex;gap:6px;align-items:center;margin-bottom:7px">'
+    +`<button class="btn-sm" style="${C.conta?'background:var(--gold);color:#3a2f08;':''}flex:1" onclick="APP.mkConta()">${C.conta?'● clique na peça':'💧 Capturar cor de uma parte'}</button></div>`;
+  if(!ps.length) h+='<div class="muted" style="font-size:11.5px;margin-bottom:8px">Clique no botão acima e depois na peça: o ponto clicado vira uma parte (corpo, manga, gola…) que você pode recolorir.</div>';
+  h+=ps.map((p,i)=>`<div style="border:1px solid var(--line);padding:7px 8px;margin-bottom:6px">
+      <div style="display:flex;gap:5px;align-items:center">
+        <span title="cor original" style="width:15px;height:15px;flex:none;border:1px solid var(--line);background:${rgbHex(p.r,p.g,p.b)}"></span>
+        <input class="inp" style="flex:1;font-size:11px;padding:3px 5px" value="${esc(p.nome)}" onchange="APP.mkParteSet(${i},'nome',this.value)">
+        <button class="btn-sm" style="padding:1px 5px;color:#c14a34" title="remover parte" onclick="APP.mkParteDel(${i})">✕</button>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;margin-top:5px">
+        <input type="color" value="${p.cor||rgbHex(p.r,p.g,p.b)}" style="width:32px;height:24px;padding:0;border:1px solid var(--line);background:none" onchange="APP.mkParteSet(${i},'cor',this.value)">
+        <select class="inp" style="flex:1;font-size:10.5px;padding:3px" onchange="APP.mkParteSet(${i},'cor',this.value)">
+          <option value="">cor do catálogo…</option>${MK_CORES.map(([c,n])=>`<option value="${c}"${p.cor===c?' selected':''}>${esc(n)}</option>`).join('')}
+        </select>
+        ${p.cor?`<button class="btn-sm" style="padding:1px 5px" title="voltar à cor original" onclick="APP.mkParteReset(${i})">↺</button>`:''}
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;margin-top:5px">
+        <span class="muted" style="font-size:10px">alcance</span>
+        <input type="range" min="5" max="120" value="${p.tol}" style="flex:1" onchange="APP.mkParteSet(${i},'tol',this.value)" oninput="APP.mkParteSet(${i},'tol',this.value)">
+        <span class="mono" style="font-size:10px">${p.tol}</span>
+      </div></div>`).join('');
+  if(ps.length) h+='<div class="muted" style="font-size:10.5px;margin-top:-2px">O <b>alcance</b> diz quanto de tom vizinho entra junto. Aumente se sobrar borda da cor antiga; diminua se pintar onde não devia.</div>';
+  h+=`<button class="btn-sm" style="width:100%;margin-top:8px" onclick="APP.mkSalvarBase()">📌 Salvar esta peça no acervo</button>`;
+  box.innerHTML=h;
+}
+
+/** Sobe um desenho e usa como peça-base sem passar pelo acervo. */
+async function mkBaseUpload(input){
+  const arq=input&&input.files&&input.files[0]; if(!arq) return;
+  if(arq.size>6*1024*1024){ toast('Imagem acima de 6 MB — reduza antes de subir.','err'); input.value=''; return; }
+  const dataUri=await lerArquivoDataUri(arq);
+  mkBaseCarregar(dataUri, arq.name.replace(/\.[^.]+$/,''), null, []);
+  input.value='';
+  toast('Mockup carregado. Use o conta-gotas para marcar as partes.','ok');
+}
+
+/** Guarda a peça (com as partes já marcadas) no acervo, para reusar em outros mockups. */
+async function mkSalvarBase(){
+  const C=window.__MKC; if(!C.base){ toast('Nenhuma peça carregada.','err'); return; }
+  const nome=prompt('Nome da peça no acervo:', C.base.nome||'Peça base');
+  if(nome==null) return;
+  if(!String(nome).trim()){ toast('Dê um nome à peça.','err'); return; }
+  const body={ categoria:'base', nome:String(nome).trim(), imagem:C.base.img,
+    tipoProduto:val('mkc_tipo')||undefined, vista:val('mkc_vista')||undefined,
+    partes:(C.partes||[]).map(p=>({nome:p.nome,r:p.r,g:p.g,b:p.b,tol:p.tol})) };
+  if(C.base.assetId) body.id=C.base.assetId;
+  try{ const a=await api('/engenharia/mockups',{method:'POST',body});
+    C.base.assetId=a.id; C.base.nome=a.nome;
+    window.__MKASSETS=await api('/engenharia/mockups');
+    mkPalette();
+    toast('Peça "'+esc(a.nome)+'" no acervo — já aparece na lista à esquerda.','ok');
+  }catch(e){ toast(e.message||'Falha ao salvar a peça.','err'); }
+}
 function mkRenderCanvas(){
   const cv=$('mkcanvas'); if(!cv) return; const C=window.__MKC;
   let h='';
-  if(C.base) h+=`<img src="${esc(C.base.img)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none">`;
-  else h+=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:13px">escolha uma peça-base à esquerda</div>`;
+  // A base vive num <canvas> (e não num <img>) porque é ele que permite ler o pixel
+  // no conta-gotas e repintar parte por parte.
+  h+=`<canvas id="mkbase" width="${MK_CW}" height="${MK_CH}" style="position:absolute;inset:0;width:100%;height:100%;${C.conta?'cursor:crosshair':'pointer-events:none'}" ${C.conta?'onclick="APP.mkCanvasPick(event)"':''}></canvas>`;
+  if(!C.base) h+=`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:13px;pointer-events:none">escolha uma peça-base à esquerda ou suba um mockup</div>`;
   C.camadas.forEach(c=>{ const selc=C.sel==='c'+c.id; h+=`<div class="mklayer" data-key="c${c.id}" onmousedown="APP.mkDown(event,'c${c.id}')" style="position:absolute;left:${c.x}px;top:${c.y}px;width:${c.w}px;cursor:move;outline:${selc?'2px dashed #c99a2e':'none'}">${mkImgHtml(c.img,c.w,c.cor)}</div>`; });
   if(C.logo){ const sell=C.sel==='logo'; h+=`<div class="mklayer" data-key="logo" onmousedown="APP.mkDown(event,'logo')" style="position:absolute;left:${C.logo.x}px;top:${C.logo.y}px;width:${C.logo.w}px;cursor:move;outline:${sell?'2px dashed #2b6bd6':'1px dashed #2b6bd6'}"><img src="${esc(C.logo.img)}" style="width:100%;display:block;pointer-events:none"></div>`; }
   cv.innerHTML=h;
+  mkBaseDesenhar();   // o innerHTML recriou o <canvas>: repõe a base do cache
 }
 function mkDown(e,key){ e.preventDefault(); const C=window.__MKC; C.sel=key; mkCtrl(); mkRenderCanvas();
   const obj = key==='logo'?C.logo:C.camadas.find(c=>'c'+c.id===key); if(!obj) return;
@@ -11178,7 +11380,10 @@ async function mkSave(){
 async function mkGerarPreview(){
   const C=window.__MKC; const cv=document.createElement('canvas'); cv.width=MK_CW; cv.height=MK_CH; const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,MK_CW,MK_CH);
   const load=src=>new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; });
-  if(C.base){ const im=await load(C.base.img); if(im){ const r=Math.min(MK_CW/im.width,MK_CH/im.height); const w=im.width*r,hh=im.height*r; ctx.drawImage(im,(MK_CW-w)/2,(MK_CH-hh)/2,w,hh); } }
+  // Usa a base JÁ PINTADA (com as cores escolhidas por parte); só cai para a imagem
+  // original quando nada foi recolorido.
+  if(C.basePintada) ctx.putImageData(C.basePintada,0,0);
+  else if(C.base){ const im=await load(C.base.img); if(im){ const r=Math.min(MK_CW/im.width,MK_CH/im.height); const w=im.width*r,hh=im.height*r; ctx.drawImage(im,(MK_CW-w)/2,(MK_CH-hh)/2,w,hh); } }
   for(const c of C.camadas){ const im=await load(c.img); if(!im) continue; const w=c.w, hh=c.w*(im.height/im.width);
     if(c.cor){ const oc=document.createElement('canvas'); oc.width=Math.max(1,Math.round(w)); oc.height=Math.max(1,Math.round(hh)); const o2=oc.getContext('2d'); o2.drawImage(im,0,0,oc.width,oc.height); o2.globalCompositeOperation='source-in'; o2.fillStyle=c.cor; o2.fillRect(0,0,oc.width,oc.height); ctx.drawImage(oc,c.x,c.y); ctx.globalCompositeOperation='multiply'; ctx.drawImage(im,c.x,c.y,w,hh); ctx.globalCompositeOperation='source-over'; }
     else ctx.drawImage(im,c.x,c.y,w,hh);
@@ -11596,6 +11801,7 @@ async function anomAnexo(ev,id,eventoId){
 
 // ---------- API pública p/ onclick ----------
 window.APP = {
+  mkBaseUpload, mkBaseCarregar, mkPintarBase, mkBaseDesenhar, mkConta, mkCanvasPick, mkParteSet, mkParteDel, mkParteReset, mkPartesUI, mkSalvarBase,
   login(){ doLogin(val('l_user'), $('l_pass').value); },
   anomFiltro, anomAbrir, anomBuscaPedido, anomSalvar, anomDetalhe, anomSalvarAcao, anomComentar, anomMover, anomAnexo,
   gate(){ doGate(val('g_admin'), $('g_pass').value); },

@@ -1075,6 +1075,10 @@ model MockupAsset {
   vista       String?  // frente | costas | lateral | detalhe
   nome        String
   imagem      String   @db.Text // PNG/SVG em data URI base64 (linha do desenho)
+  /// Regiões coloríveis da peça: [{nome:'corpo', r,g,b, tol}]. A região é definida
+  /// por uma COR-AMOSTRA do desenho + tolerância — é assim que "trocar a cor da manga"
+  /// funciona sem precisar de máscara separada por parte.
+  partes      Json?
   larguraPct  Int?     // tamanho sugerido do opcional ao arrastar (% da peça)
   ordem       Int      @default(0)
   ativo       Boolean  @default(true)

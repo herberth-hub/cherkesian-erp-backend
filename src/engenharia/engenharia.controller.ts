@@ -16,7 +16,7 @@ export class EngenhariaController {
 
   @Post('mockups')
   @HttpCode(HttpStatus.OK)
-  salvarAsset(@Body() dto: { id?: number; categoria: string; tipoProduto?: string; vista?: string; nome: string; imagem: string; larguraPct?: number; ordem?: number }, @CurrentUser() user: AuthUser) {
+  salvarAsset(@Body() dto: { id?: number; categoria: string; tipoProduto?: string; vista?: string; nome: string; imagem: string; larguraPct?: number; ordem?: number; partes?: Array<{ nome?: string; r?: number; g?: number; b?: number; tol?: number }> }, @CurrentUser() user: AuthUser) {
     return this.eng.salvarAsset(user.empresaId, dto);
   }
 

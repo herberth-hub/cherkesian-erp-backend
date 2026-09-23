@@ -11,6 +11,8 @@ type MockupAssetDto = {
   imagem: string;
   larguraPct?: number;
   ordem?: number;
+  /** Regiões coloríveis da peça-base: cor-amostra + tolerância, uma por parte. */
+  partes?: Array<{ nome?: string; r?: number; g?: number; b?: number; tol?: number }>;
 };
 
 type ProdutoMockupDto = {
@@ -42,6 +44,20 @@ export class EngenhariaService {
       imagem: dto.imagem || '',
       larguraPct: dto.larguraPct != null ? Math.max(1, Math.min(100, Math.floor(dto.larguraPct))) : null,
       ordem: dto.ordem != null ? Math.floor(dto.ordem) : 0,
+      // Regiões coloríveis (corpo, manga, gola…). Cada uma guarda a cor-amostra do
+      // desenho e a tolerância — é o que permite repintar só aquela parte depois.
+      partes: Array.isArray(dto.partes)
+        ? (dto.partes
+            .filter((p) => p && typeof p === 'object')
+            .slice(0, 20)
+            .map((p) => ({
+              nome: String(p.nome ?? 'parte').slice(0, 40),
+              r: Math.max(0, Math.min(255, Math.round(Number(p.r) || 0))),
+              g: Math.max(0, Math.min(255, Math.round(Number(p.g) || 0))),
+              b: Math.max(0, Math.min(255, Math.round(Number(p.b) || 0))),
+              tol: Math.max(1, Math.min(160, Math.round(Number(p.tol) || 40))),
+            })) as unknown as Prisma.InputJsonValue)
+        : Prisma.DbNull,
     };
     if (!data.imagem) throw new NotFoundException('Imagem do desenho é obrigatória.');
     if (dto.id) {
