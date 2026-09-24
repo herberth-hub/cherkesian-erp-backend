@@ -6469,8 +6469,130 @@ function neListaRender(){
       n.lancadaEstoque?('<span class="pill green">lançado</span>'+((!n.etiquetasGeradas)?' <span class="pill red" title="Ainda não emitiu as etiquetas de volume">⚠ sem etiqueta</span>':'')):'<span class="muted">—</span>',
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
       `<span class="pill gray">${esc(n.origem)}</span>`,
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Emitir NF-e de devolução desta compra (total ou de parte dos itens)" onclick="APP.formDevolucao(${n.id})">↩️ Devolver</button><button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
     ]), list.length?null:(todas.length?'Nenhuma nota bate com a busca.':'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".'));
+}
+// ---------- Devolução de compra (NF-e de saída, finalidade 4) ----------
+async function formDevolucao(id){
+  let n; try{ n=await api('/notas-entrada/'+id); }catch(e){ toast(e.message,'err'); return; }
+  window.__DEV={ nota:n };
+  const chave=(n.chave||'').replace(/\D/g,'');
+  const semChave = chave.length!==44;
+  const linhas=(n.itens||[]).map((it,i)=>`<tr style="border-top:1px solid #f0e7d0">
+    <td style="padding:6px 8px"><input type="checkbox" id="dv_on_${i}" onchange="APP.devCalc()"></td>
+    <td style="padding:6px 8px;font-size:12px">${esc(it.descricao)}<div class="muted" style="font-size:10.5px">veio ${Number(it.quantidade).toLocaleString('pt-BR')} ${esc(it.unidade)} · R$ ${Number(it.valorUnit).toFixed(4)}/${esc(it.unidade)}</div></td>
+    <td style="padding:6px 8px"><input id="dv_q_${i}" class="inp" type="number" step="0.001" min="0" max="${Number(it.quantidade)}" value="${Number(it.quantidade)}" oninput="APP.devCalc()" style="width:92px;font-size:12px;padding:4px 6px"></td>
+    <td style="padding:6px 8px"><input id="dv_v_${i}" class="inp" type="number" step="0.0001" min="0" value="${Number(it.valorUnit)}" oninput="APP.devCalc()" style="width:96px;font-size:12px;padding:4px 6px"></td>
+    <td style="padding:6px 8px"><input id="dv_cst_${i}" class="inp" value="" placeholder="ex.: 100" title="CST do ICMS que veio na NF de compra" style="width:64px;font-size:12px;padding:4px 6px"></td>
+    <td style="padding:6px 8px"><input id="dv_al_${i}" class="inp" type="number" step="0.01" min="0" max="100" value="" placeholder="ex.: 4" oninput="APP.devCalc()" title="Mesma alíquota de ICMS da NF de compra — é ela que o fornecedor estorna" style="width:72px;font-size:12px;padding:4px 6px"></td>
+    <td style="padding:6px 8px;text-align:right;font-weight:700" id="dv_t_${i}">—</td></tr>`).join('');
+  openModal(`<h3>↩️ Devolução de compra — NF ${esc(n.numero)}${n.serie?'/'+esc(n.serie):''}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">
+      Fornecedor: <b>${esc(n.fornecedor?n.fornecedor.nome:(n.nomeEmitente||'—'))}</b> · chave ${chave?('<span class="mono" style="font-size:10.5px">'+esc(chave)+'</span>'):'<b style="color:#c14a34">ausente</b>'}
+    </div>
+    ${semChave?`<div class="panel" style="border-color:#e8bcae;background:#fdf3f0;padding:8px 10px;font-size:12px;margin-bottom:10px">⚠️ Esta entrada está <b>sem a chave de acesso</b>. A devolução precisa referenciar a NF original — edite a entrada e informe a chave de 44 dígitos antes de emitir.</div>`:''}
+    <div class="panel" style="overflow:auto;max-height:300px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#faf6ea;color:#8a6d1e">
+          <th style="padding:6px 8px"></th><th style="padding:6px 8px;text-align:left">Item</th>
+          <th style="padding:6px 8px;text-align:left">Devolver</th><th style="padding:6px 8px;text-align:left">R$ unit.</th>
+          <th style="padding:6px 8px;text-align:left">CST</th><th style="padding:6px 8px;text-align:left">ICMS %</th>
+          <th style="padding:6px 8px;text-align:right">Total</th></tr></thead>
+        <tbody>${linhas||'<tr><td colspan=7 class="muted" style="padding:10px">Esta nota não tem itens.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="grid2" style="margin-top:10px">
+      <div class="mrow"><label class="fl">CFOP <span class="muted" style="font-size:10px">(vazio = pela regra)</span></label>
+        <input id="dv_cfop" class="inp" placeholder="vazio: 5202 no estado / 6202 fora" title="Regra da casa: dentro do estado 5202, fora 6202. Com substituição tributária, 5411 / 6411.">
+        <div class="muted" style="font-size:10.5px;margin-top:3px">Dentro do estado <b>5202</b> · fora <b>6202</b> · com ST <b>5411 / 6411</b></div></div>
+      <div class="mrow"><label class="fl">Natureza da operação</label><input id="dv_nat" class="inp" value="Devolucao de compra"></div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:4px 0 8px">
+      <label style="font-size:12px"><input type="checkbox" id="dv_st" onchange="APP.devCalc()"> Produto com substituição tributária (usa 5411 / 6411)</label>
+      <label style="font-size:12px"><input type="checkbox" id="dv_baixa" checked> Baixar do estoque o que for devolvido</label>
+    </div>
+    <div class="mrow"><label class="fl">Observações (vão nos dados adicionais)</label><textarea id="dv_obs" class="inp" rows="2" placeholder="ex.: devolucao do rolo etiqueta 3016292435"></textarea></div>
+    <div class="panel" style="background:#faf8f0;border-color:#efe2b8;padding:10px 12px;margin-top:8px">
+      <div id="dv_resumo" style="font-size:13px">Marque os itens que vão voltar para o fornecedor.</div>
+    </div>
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" onclick="APP.devRascunho(${id})">👁 Ver rascunho</button>
+      <button class="btn-primary" onclick="APP.devEmitir(${id})"${semChave?' disabled title="Informe a chave da NF de entrada primeiro"':''}>Emitir NF-e de devolução</button>
+    </div>`, {wide:true});
+  devCalc();
+}
+// Lê a tela e devolve o corpo da requisição (mesma leitura p/ rascunho e emissão).
+function devLer(){
+  const n=(window.__DEV||{}).nota||{itens:[]};
+  const itens=[];
+  (n.itens||[]).forEach((it,i)=>{
+    if(!(document.getElementById('dv_on_'+i)||{}).checked) return;
+    const q=Number((document.getElementById('dv_q_'+i)||{}).value||0);
+    const v=Number((document.getElementById('dv_v_'+i)||{}).value||0);
+    const cst=((document.getElementById('dv_cst_'+i)||{}).value||'').trim();
+    const al=Number((document.getElementById('dv_al_'+i)||{}).value||0);
+    if(q>0) itens.push({itemId:it.id, quantidade:q, valorUnit:v, cst:cst||undefined, aliquotaIcms:al});
+  });
+  return {
+    notaEntradaId:n.id, itens,
+    cfop:((document.getElementById('dv_cfop')||{}).value||'').trim()||undefined,
+    substituicaoTributaria:!!(document.getElementById('dv_st')||{}).checked,
+    naturezaOperacao:((document.getElementById('dv_nat')||{}).value||'').trim()||undefined,
+    observacoes:((document.getElementById('dv_obs')||{}).value||'').trim()||undefined,
+    baixarEstoque:!!(document.getElementById('dv_baixa')||{}).checked,
+  };
+}
+function devCalc(){
+  const n=(window.__DEV||{}).nota||{itens:[]};
+  let tot=0, icms=0, marcados=0;
+  (n.itens||[]).forEach((it,i)=>{
+    const on=(document.getElementById('dv_on_'+i)||{}).checked;
+    const q=Number((document.getElementById('dv_q_'+i)||{}).value||0);
+    const v=Number((document.getElementById('dv_v_'+i)||{}).value||0);
+    const al=Number((document.getElementById('dv_al_'+i)||{}).value||0);
+    const t=on?q*v:0; if(on){ marcados++; tot+=t; icms+=t*al/100; }
+    const c=document.getElementById('dv_t_'+i); if(c) c.innerHTML= on?money(t):'<span class="muted">—</span>';
+  });
+  const st=!!(document.getElementById('dv_st')||{}).checked;
+  const box=document.getElementById('dv_resumo');
+  if(box) box.innerHTML = marcados
+    ? `${marcados} item(ns) · total da devolução <b style="font-size:16px">${money(tot)}</b>${icms?' · ICMS destacado <b>'+money(icms)+'</b>':''}`
+      + `<div class="muted" style="font-size:11px;margin-top:3px">CFOP: ${((document.getElementById('dv_cfop')||{}).value||'').trim()||(st?'5411 / 6411 (com ST)':'5202 / 6202')} — o sistema escolhe entre o 5 e o 6 pela UF do fornecedor.</div>`
+    : 'Marque os itens que vão voltar para o fornecedor.';
+}
+async function devRascunho(id){
+  const body=devLer();
+  if(!body.itens.length){ toast('Marque ao menos um item.','err'); return; }
+  body.simular=true;
+  const box=document.getElementById('dv_resumo');
+  try{
+    const r=await api('/nfe/devolucao',{method:'POST',body});
+    const lin=(r.itens||[]).map(i=>`<tr style="border-top:1px solid #f0e7d0"><td style="padding:5px 8px">${esc(i.descricao)}</td><td style="padding:5px 8px;text-align:right">${Number(i.quantidade).toLocaleString('pt-BR')} ${esc(i.unidade)}</td><td style="padding:5px 8px;text-align:right">${money(i.valorUnit)}</td><td style="padding:5px 8px;text-align:center">${esc(i.cst)}</td><td style="padding:5px 8px;text-align:right">${i.aliquotaIcms}%</td><td style="padding:5px 8px;text-align:right">${money(i.icms)}</td><td style="padding:5px 8px;text-align:right;font-weight:700">${money(i.valorTotal)}</td></tr>`).join('');
+    if(box) box.innerHTML=`
+      <div style="font-size:12.5px;margin-bottom:6px">👁 <b>Rascunho</b> — nota <b>${esc(r.numero)}</b> · CFOP <b style="color:#8a6d1e">${esc(r.cfop)}</b><div class="muted" style="font-size:10.5px">referencia a chave ${esc(r.chaveReferenciada)}</div></div>
+      <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f3ecd8;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Item</th><th style="padding:5px 8px;text-align:right">Qtd</th><th style="padding:5px 8px;text-align:right">Unit.</th><th style="padding:5px 8px">CST</th><th style="padding:5px 8px;text-align:right">ICMS%</th><th style="padding:5px 8px;text-align:right">ICMS</th><th style="padding:5px 8px;text-align:right">Total</th></tr></thead>
+        <tbody>${lin}</tbody></table></div>
+      <div style="margin-top:6px;font-size:14px">Total da nota: <b>${money(r.valorTotal)}</b></div>
+      <div class="muted" style="font-size:11px;margin-top:4px">Nada foi enviado à SEFAZ. Confira o CFOP com a contabilidade antes de emitir.</div>`;
+  }catch(e){ if(box) box.innerHTML='<span style="color:#c14a34">'+esc(e.message||String(e))+'</span>'; else toast(e.message,'err'); }
+}
+async function devEmitir(id){
+  const body=devLer();
+  if(!body.itens.length){ toast('Marque ao menos um item.','err'); return; }
+  const tot=body.itens.reduce((s,i)=>s+i.quantidade*i.valorUnit,0);
+  const ok=await uiConfirm({tipo:'warn', titulo:'Emitir NF-e de devolução?',
+    ok:'Emitir agora', cancel:'Voltar',
+    msg:`Vai para a SEFAZ e não dá para desfazer (só cancelar depois, dentro do prazo).\n\n`
+      +`${body.itens.length} item(ns) · total ${money(tot)}\nCFOP: ${body.cfop||'pela regra (5202/6202 · com ST 5411/6411)'}\n`
+      +(body.baixarEstoque?'O material devolvido sai do estoque.':'O estoque NÃO será alterado.')});
+  if(!ok) return;
+  try{
+    const r=await api('/nfe/devolucao',{method:'POST',body});
+    if(r.status==='rejeitada'){ await uiAlert({tipo:'err',titulo:'SEFAZ rejeitou',ok:'Entendi',msg:'Nota '+r.numero+': '+(r.motivo||'sem motivo informado.')}); return; }
+    closeModal(); toast('NF-e de devolução '+r.numero+' — '+r.status+'.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 // Reabre o pop-up de destino/etiquetas para uma NF que ainda não etiquetou.
 async function emitirEtiquetasNF(id){
@@ -11888,7 +12010,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
-  formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,

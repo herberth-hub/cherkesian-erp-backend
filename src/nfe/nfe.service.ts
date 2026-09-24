@@ -1656,6 +1656,227 @@ export class NfeService {
   }
 
   /** Payload da NF de remessa p/ industrialização (CFOP 5901/6901, ICMS suspenso). */
+  /**
+   * NF-e de DEVOLUÇÃO de compra: sai da nota de ENTRADA que está sendo devolvida.
+   * É uma nota de saída com finalidade 4, referenciando a chave da NF original —
+   * é a referência que permite ao fornecedor tomar o crédito de volta.
+   *
+   * O ICMS é ESPELHADO da entrada (mesma base e mesma alíquota, proporcional à
+   * quantidade devolvida); sem isso o fornecedor não consegue estornar.
+   *
+   * Nada aqui é emitido sozinho: `simular: true` devolve o rascunho completo com o
+   * payload, sem mandar nada para a SEFAZ.
+   */
+  async emitirDevolucao(
+    dto: {
+      notaEntradaId: number;
+      filialId?: number;
+      cfop?: string;
+      substituicaoTributaria?: boolean;
+      naturezaOperacao?: string;
+      observacoes?: string;
+      baixarEstoque?: boolean;
+      simular?: boolean;
+      itens: Array<{ itemId: number; quantidade: number; valorUnit?: number; cst?: string; aliquotaIcms?: number; ncm?: string; codigo?: string }>;
+    },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const entrada = await this.prisma.notaEntrada.findUnique({
+      where: { id: dto.notaEntradaId },
+      include: { itens: true, fornecedor: true, filial: true },
+    });
+    if (!entrada || entrada.empresaId !== empresaId) throw new NotFoundException('Nota de entrada não encontrada.');
+    if (!entrada.fornecedor) throw new BadRequestException('A nota de entrada não tem fornecedor vinculado — sem destinatário não há devolução.');
+    const chaveRef = digitos(entrada.chave || '');
+    if (chaveRef.length !== 44) {
+      throw new BadRequestException(
+        'A nota de entrada está sem a chave de acesso (44 dígitos). A devolução precisa referenciar a NF original — corrija a chave no cadastro da entrada antes de emitir.',
+      );
+    }
+
+    let filial = dto.filialId ? await this.prisma.filial.findUnique({ where: { id: dto.filialId } }) : entrada.filial;
+    if (filial && filial.empresaId !== empresaId) filial = null;
+    if (!filial) filial = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
+
+    if (!dto.itens?.length) throw new BadRequestException('Escolha ao menos um item para devolver.');
+    const porId = new Map(entrada.itens.map((i) => [i.id, i]));
+    const linhas: Array<{ item: (typeof entrada.itens)[number]; quantidade: number; valorUnit: number; cst: string; aliquota: number; ncm: string; codigo: string }> = [];
+    for (const esc of dto.itens) {
+      const it = porId.get(esc.itemId);
+      if (!it) throw new BadRequestException(`Item ${esc.itemId} não pertence a esta nota de entrada.`);
+      const q = Number(esc.quantidade);
+      if (!(q > 0)) throw new BadRequestException(`Quantidade inválida no item "${it.descricao}".`);
+      if (q > Number(it.quantidade) + 1e-6) {
+        throw new BadRequestException(`Não dá para devolver ${q} de "${it.descricao}": a nota trouxe ${Number(it.quantidade)} ${it.unidade}.`);
+      }
+      linhas.push({
+        item: it,
+        quantidade: q,
+        valorUnit: Number(esc.valorUnit != null ? esc.valorUnit : Number(it.valorUnit)),
+        cst: (esc.cst ?? '').trim() || (filial.icmsCstPadrao ?? '00'),
+        aliquota: Number(esc.aliquotaIcms ?? 0),
+        ncm: (esc.ncm ?? it.ncm ?? '').replace(/\D/g, ''),
+        codigo: (esc.codigo ?? it.codigoFornecedor ?? '').trim(),
+      });
+    }
+
+    // CFOP da devolução (regra da casa): dentro do estado 5202, fora 6202; com
+    // substituição tributária, 5411/6411. Continua editável — se vier preenchido,
+    // é o informado que vale.
+    const mesmaUf = (filial.uf ?? '').toUpperCase() === (entrada.fornecedor.uf ?? '').toUpperCase();
+    const cfop = (dto.cfop ?? '').replace(/\D/g, '').slice(0, 4) ||
+      (dto.substituicaoTributaria ? (mesmaUf ? '5411' : '6411') : (mesmaUf ? '5202' : '6202'));
+
+    const token = dto.simular ? undefined : this.tokenDaFilial(filial);
+    if (token) {
+      const f = entrada.fornecedor;
+      const faltas: string[] = [];
+      if (digitos(f.cnpjCpf || '').length !== 14) faltas.push('CNPJ');
+      if (!f.logradouro) faltas.push('logradouro');
+      if (!f.municipio) faltas.push('município');
+      if (!f.uf) faltas.push('UF');
+      if (!f.cep) faltas.push('CEP');
+      if (faltas.length) throw new BadRequestException(`Cadastro do fornecedor ${f.nome} incompleto para emitir: falta ${faltas.join(', ')}.`);
+    }
+
+    const valorTotal = Number(linhas.reduce((s, l) => s + l.valorUnit * l.quantidade, 0).toFixed(2));
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const payload = this.montarPayloadDevolucao(filial, entrada.fornecedor, linhas, serie, numeroSeq, valorTotal, cfop, chaveRef, entrada, dto.naturezaOperacao, dto.observacoes);
+
+    if (dto.simular) {
+      return {
+        status: 'rascunho' as const,
+        numero: numeroNota,
+        cfop,
+        chaveReferenciada: chaveRef,
+        valorTotal,
+        itens: linhas.map((l) => ({
+          descricao: l.item.descricao, quantidade: l.quantidade, unidade: l.item.unidade,
+          valorUnit: l.valorUnit, valorTotal: Number((l.valorUnit * l.quantidade).toFixed(2)),
+          cst: l.cst, aliquotaIcms: l.aliquota, icms: Number((l.valorUnit * l.quantidade * l.aliquota / 100).toFixed(2)),
+        })),
+        payloadPreview: payload,
+        message: 'Rascunho — nada foi enviado à SEFAZ. Confira o CFOP e os valores antes de emitir.',
+      };
+    }
+
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEDEV-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
+      : this.emitirSimulada();
+
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          ...this.resumoFiscalPayload(payload),
+          empresaId, filialId: filial!.id, tipo: 'devolucao', fornecedorId: entrada.fornecedor!.id,
+          notaEntradaId: entrada.id,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo, focusRef: emissao.ref ?? null,
+          motivo: emissao.motivo, valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial!.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      // A mercadoria devolvida SAI do estoque — ela volta para o fornecedor.
+      if (dto.baixarEstoque !== false) {
+        for (const l of linhas) {
+          if (l.item.materialId) {
+            await tx.material.update({ where: { id: l.item.materialId }, data: { saldo: { decrement: new Prisma.Decimal(l.quantidade.toFixed(4)) } } });
+          }
+        }
+      }
+      return criada;
+    }, { maxWait: 15_000, timeout: 30_000 });
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  private montarPayloadDevolucao(
+    emitente: Filial,
+    destinatario: Fornecedor,
+    linhas: Array<{ item: { descricao: string; unidade: string }; quantidade: number; valorUnit: number; cst: string; aliquota: number; ncm: string; codigo: string }>,
+    serie: string,
+    numero: number,
+    valorTotal: number,
+    cfop: string,
+    chaveRef: string,
+    entrada: { numero: string; serie: string | null },
+    natureza?: string,
+    observacoes?: string,
+  ) {
+    const regime = (emitente.regimeTributario ?? (emitente.crt === 1 ? 'simples' : 'lucro_presumido')) as string;
+    const simples = regime === 'simples';
+    const pisCofinsCst = simples ? '49' : (emitente.pisCofinsCst ?? '01');
+    const docDest = digitos(destinatario.cnpjCpf || '');
+    const ieDig = digitos(destinatario.inscricaoEstadual || '');
+    const ieValida = ieDig.length >= 2 && ieDig.length <= 14;
+
+    const items = linhas.map((l, idx) => {
+      const bruto = Number((l.valorUnit * l.quantidade).toFixed(2));
+      const icms = Number((bruto * l.aliquota / 100).toFixed(2));
+      const item: Record<string, unknown> = {
+        numero_item: idx + 1,
+        codigo_produto: (l.codigo || `ITEM${idx + 1}`).slice(0, 60),
+        descricao: l.item.descricao.slice(0, 120),
+        cfop,
+        codigo_ncm: l.ncm || '00000000',
+        unidade_comercial: l.item.unidade,
+        quantidade_comercial: l.quantidade,
+        valor_unitario_comercial: l.valorUnit,
+        unidade_tributavel: l.item.unidade,
+        quantidade_tributavel: l.quantidade,
+        valor_unitario_tributavel: l.valorUnit,
+        valor_bruto: bruto,
+        icms_situacao_tributaria: l.cst,
+        pis_situacao_tributaria: pisCofinsCst,
+        cofins_situacao_tributaria: pisCofinsCst,
+      };
+      // Espelha o ICMS da entrada. Alíquota zero = item que entrou sem destaque.
+      if (l.aliquota > 0) {
+        item.icms_modalidade_base_calculo = 3;
+        item.icms_base_calculo = bruto;
+        item.icms_aliquota = l.aliquota;
+        item.icms_valor = icms;
+      }
+      return item;
+    });
+
+    return {
+      natureza_operacao: (natureza?.trim() || 'Devolucao de compra').slice(0, 60),
+      data_emissao: new Date().toISOString(),
+      tipo_documento: 1, // saída
+      finalidade_emissao: 4, // 4 = devolução de mercadoria
+      presenca_comprador: 9,
+      modalidade_frete: 9,
+      serie,
+      numero,
+      cnpj_emitente: digitos(emitente.cnpj),
+      // É a referência à NF original que fecha a devolução para o fornecedor.
+      notas_referenciadas: [{ chave_nfe: chaveRef }],
+      nome_destinatario: (destinatario.nome || '').trim().slice(0, 60),
+      cnpj_destinatario: docDest,
+      inscricao_estadual_destinatario: ieValida ? ieDig : null,
+      indicador_inscricao_estadual_destinatario: ieValida ? 1 : 9,
+      logradouro_destinatario: destinatario.logradouro,
+      numero_destinatario: destinatario.numeroEndereco,
+      bairro_destinatario: destinatario.bairro,
+      municipio_destinatario: destinatario.municipio,
+      uf_destinatario: destinatario.uf,
+      cep_destinatario: digitos(destinatario.cep),
+      valor_total: valorTotal,
+      informacoes_adicionais_contribuinte: [
+        `Devolucao de mercadoria referente a NF ${entrada.numero}${entrada.serie ? '/' + entrada.serie : ''}, chave ${chaveRef}.`,
+        observacoes?.trim() || '',
+      ].filter(Boolean).join(' ').slice(0, 5000),
+      items,
+    };
+  }
+
   private montarPayloadRemessa(
     emitente: Filial,
     faccao: Fornecedor,

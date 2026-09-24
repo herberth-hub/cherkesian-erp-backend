@@ -139,6 +139,30 @@ export class NfeController {
     return this.nfeService.emitirRemessaAvulsa(dto, user.empresaId, user.usuario);
   }
 
+  /**
+   * NF-e de DEVOLUÇÃO de compra (finalidade 4), gerada a partir da nota de entrada.
+   * Com `simular: true` devolve só o rascunho — não manda nada para a SEFAZ.
+   */
+  @Post('devolucao')
+  @Areas('compras', 'expedicao', 'receber')
+  @HttpCode(HttpStatus.CREATED)
+  devolucao(
+    @Body() dto: {
+      notaEntradaId: number;
+      filialId?: number;
+      cfop?: string;
+      substituicaoTributaria?: boolean;
+      naturezaOperacao?: string;
+      observacoes?: string;
+      baixarEstoque?: boolean;
+      simular?: boolean;
+      itens: Array<{ itemId: number; quantidade: number; valorUnit?: number; cst?: string; aliquotaIcms?: number; ncm?: string; codigo?: string }>;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.nfeService.emitirDevolucao(dto, user.empresaId, user.usuario);
+  }
+
   /** Cruza e corrige o CFOP das notas com o CFOP real do XML autorizado (contabilidade). */
   @Post('cfop/sincronizar')
   @Areas('expedicao', 'receber')

@@ -1013,12 +1013,13 @@ model NotaFiscal {
   motivo      String?   // retorno da SEFAZ/provedor (autorização ou rejeição)
   valor       Decimal   @db.Decimal(12,2)
   provedor    String    @default("simulado") // simulado | focusnfe
-  tipo        String    @default("venda")    // venda | remessa (remessa p/ industrialização)
+  tipo        String    @default("venda")    // venda | remessa (p/ industrialização) | devolucao (de compra)
   fornecedorId Int?      // facção destinatária (nas NFs de remessa)
   controleFaccao String? // OS/controle de facção vinculado à remessa
   retornoNf   String?    // nº da NF de retorno da industrialização (fecha a remessa)
   retornadaEm DateTime?  // quando a remessa foi baixada pelo retorno
   notaRefId   Int?       // referência a outra NF (remessa entrega futura -> NF de faturamento)
+  notaEntradaId Int?     // NF de compra que esta nota devolve (tipo = devolucao)
   ordemCompraCliente String? // nº do pedido de compra do cliente (sai nos dados adicionais)
   cfop        String?    // CFOP(s) da nota (p/ contabilidade) — ex.: "5101" ou "5101/6101"
   natureza    String?    // natureza da operação (ex.: "Venda de mercadoria")
