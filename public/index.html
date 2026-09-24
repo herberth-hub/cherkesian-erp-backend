@@ -1741,6 +1741,9 @@ function pedidoAcoes(p){
     if(p.filhos && p.filhos.length) b+=`<button class="btn-sm" style="color:#6b3fa0;border-color:#d6c8ee" title="Ver os pedidos parciais (filhos) gerados deste pedido" onclick="APP.pedParciais(${p.id})">🧩 Parciais (${p.filhos.length})</button> `;
     b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Ver o residual — o que ainda falta expedir do pedido original" onclick="APP.pedResidual(${p.id})">📊 Residual</button> `;
   }
+  // Observações: liberadas em qualquer etapa. Mexer no pedido inteiro depois da OP é
+  // arriscado (quantidade/preço já na linha); a observação não, e é a que muda sempre.
+  b+=`<button class="btn-sm" title="Editar as observações (fiscal e comercial) deste pedido" onclick="APP.pedObs(${p.id})">📝 Obs</button> `;
   b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button> `;
   // Anomalia direto do pedido: é aqui que o comercial está quando o cliente reclama.
   if(canAccess('anomalias') && p.etapa!=='orcamento'){
@@ -4182,6 +4185,22 @@ async function pedidoExpedir(id){
   try{ const e=await api('/expedicoes/do-pedido/'+id,{method:'POST'}); toast('Expedição '+e.numero+' gerada · '+e.pecas+' peças. Vá em Expedição para emitir a NF.','ok'); loadRoute(); }
   catch(err){ toast('Falha: '+(err.message||err),'err'); }
 }
+// Observações do pedido — edita em qualquer etapa, sem tocar em item/preço.
+async function pedObs(id){
+  let p; try{ p=await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; }
+  openModal(`<h3>📝 Observações — ${esc(p.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Só as observações mudam. Itens, quantidades e preços do pedido ficam como estão.</div>
+    <div class="mrow"><label class="fl">Observação comercial <span class="muted" style="font-size:10px">(sai na proposta e no pedido impresso — não vai na NF-e)</span></label>
+      <textarea id="po_com" class="inp" rows="4" placeholder="ex.: entregar no almoxarifado, falar com o Diogo">${esc(p.obsComercial||'')}</textarea></div>
+    <div class="mrow"><label class="fl">Observação fiscal <span class="muted" style="font-size:10px">(vai nas informações complementares da NF-e)</span></label>
+      <textarea id="po_fis" class="inp" rows="4" placeholder="ex.: pedido de compra 4500123456">${esc(p.obs||'')}</textarea></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.pedObsSalvar(${id})">Salvar observações</button></div>`, {wide:true});
+}
+async function pedObsSalvar(id){
+  const body={ obsComercial:(document.getElementById('po_com')||{}).value||'', obs:(document.getElementById('po_fis')||{}).value||'' };
+  try{ await api('/pedidos/'+id+'/obs',{method:'PATCH',body}); closeModal(); toast('Observações atualizadas.','ok'); loadRoute(); }
+  catch(e){ toast(e.message,'err'); }
+}
 async function aprovarPedido(id){
   try{ const p=await api('/pedidos/'+id+'/aprovar',{method:'POST'}); toast('Pedido aprovado → etapa '+p.etapa+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
@@ -6394,8 +6413,53 @@ let NEITENS = [];
 let NEPARC = [];
 async function viewNotasEntrada(c){
   const list = await api('/notas-entrada');
+  window.__NENTR = list;
   const extra = `<button class="btn-sm" onclick="APP.lerNfEntrada()">📷 Bipar NF (ler chave)</button> <button class="btn-sm" onclick="APP.buscarSefaz()">🔎 Buscar na SEFAZ</button> <button class="btn-sm" onclick="APP.viewCtes()">🚚 CT-es (fretes)</button>`;
-  c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra) + panelTable(
+  c.innerHTML = toolbar('Notas de entrada · '+list.length, 'Nova entrada', 'APP.formNotaEntrada()', extra)
+    + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px">
+        <input id="ne_q" class="inp" placeholder="🔎 Buscar: nº, fornecedor, empresa, chave, valor, data…" oninput="APP.neFiltrar()" style="flex:1;min-width:260px;max-width:560px">
+        <select id="ne_st" class="inp" onchange="APP.neFiltrar()" style="width:auto;font-size:12px;padding:6px 8px">
+          <option value="">Todas</option>
+          <option value="semetq">⚠ Sem etiqueta</option>
+          <option value="lancado">Lançadas no estoque</option>
+          <option value="naolancado">Não lançadas</option>
+          <option value="sempagar">Sem conta a pagar</option>
+        </select>
+        <button class="btn-sm" onclick="APP.neLimpar()">Limpar</button>
+        <span id="ne_tot" class="muted" style="font-size:12px;margin-left:auto"></span>
+      </div>`
+    + `<div id="ne_lista"></div>`;
+  neListaRender();
+  // Se atualizou a página e há entradas sem etiqueta, abre a 1ª para emitir.
+  const pend=(list||[]).filter(n=>n.lancadaEstoque&&!n.etiquetasGeradas);
+  if(pend.length && !window.__ETQAUTO){ window.__ETQAUTO=true; setTimeout(()=>APP.emitirEtiquetasNF(pend[0].id),400); }
+}
+function neFiltrar(){ neListaRender(); }
+function neLimpar(){ const q=document.getElementById('ne_q'); if(q) q.value=''; const s=document.getElementById('ne_st'); if(s) s.value=''; neListaRender(); }
+function neListaRender(){
+  const box=document.getElementById('ne_lista'); if(!box) return;
+  const todas=window.__NENTR||[];
+  const q=bnorm((document.getElementById('ne_q')||{}).value||'');
+  const st=((document.getElementById('ne_st')||{}).value)||'';
+  const list=todas.filter(n=>{
+    if(st==='semetq' && !(n.lancadaEstoque&&!n.etiquetasGeradas)) return false;
+    if(st==='lancado' && !n.lancadaEstoque) return false;
+    if(st==='naolancado' && n.lancadaEstoque) return false;
+    if(st==='sempagar' && n.contaPagarId) return false;
+    if(!q) return true;
+    // Tudo que aparece na linha entra na busca — mais a chave da NF, que o pessoal
+    // costuma colar inteira vinda do e-mail do fornecedor.
+    const alvo=bnorm([n.numero,n.serie,(n.fornecedor&&n.fornecedor.nome)||n.nomeEmitente,
+      n.filial&&n.filial.nome, n.filial&&n.filial.cnpj, n.chave, n.origem,
+      dfmt(n.emitidaEm), money(n.valor), String(n.valor)].filter(Boolean).join(' '));
+    return q.split(/\s+/).every(p=>alvo.includes(p)); // "textil 15/09" acha a combinação
+  });
+  const tot=list.reduce((s,n)=>s+Number(n.valor||0),0);
+  const tt=document.getElementById('ne_tot');
+  if(tt) tt.innerHTML = (list.length===todas.length)
+    ? `${todas.length} nota(s) · <b>${money(tot)}</b>`
+    : `<b style="color:#8a6d1e">${list.length}</b> de ${todas.length} nota(s) · <b>${money(tot)}</b>`;
+  box.innerHTML = panelTable(
     ['Número','Fornecedor / Emitente','Empresa destino','Emissão','Valor','Estoque','A Pagar','Origem','Ações'],
     list.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>${n.serie?'<span class="muted"> / '+esc(n.serie)+'</span>':''}`,
@@ -6406,10 +6470,7 @@ async function viewNotasEntrada(c){
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
       `<span class="pill gray">${esc(n.origem)}</span>`,
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
-    ]), list.length?null:'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".');
-  // Se atualizou a página e há entradas sem etiqueta, abre a 1ª para emitir.
-  const pend=(list||[]).filter(n=>n.lancadaEstoque&&!n.etiquetasGeradas);
-  if(pend.length && !window.__ETQAUTO){ window.__ETQAUTO=true; setTimeout(()=>APP.emitirEtiquetasNF(pend[0].id),400); }
+    ]), list.length?null:(todas.length?'Nenhuma nota bate com a busca.':'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".'));
 }
 // Reabre o pop-up de destino/etiquetas para uma NF que ainda não etiquetou.
 async function emitirEtiquetasNF(id){
@@ -11816,7 +11877,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
@@ -11827,7 +11888,7 @@ window.APP = {
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
-  formNotaEntrada, editNotaEntrada, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
+  formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,

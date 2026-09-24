@@ -62,6 +62,17 @@ export class PedidosController {
     return this.pedidosService.update(id, dto, user.empresaId);
   }
 
+  // Observações continuam editáveis depois da OP/NF — ver `atualizarObs` no service.
+  @Areas('vendas')
+  @Patch(':id/obs')
+  atualizarObs(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { obs?: string | null; obsComercial?: string | null },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pedidosService.atualizarObs(id, dto, user.empresaId);
+  }
+
   @Areas('vendas')
   @Delete(':id')
   @HttpCode(HttpStatus.OK)

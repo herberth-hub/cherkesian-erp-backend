@@ -944,6 +944,10 @@ model ContaRecorrente {
   valorDia      Decimal? @db.Decimal(12,2)    // usado no modo "dia_util"
   diaVencimento Int      // dia do mês (1-31); se o mês não tiver, usa o último dia
   ativa         Boolean  @default(true)
+  // Última competência ("AAAA-MM") já gerada por esta regra. Cada mês é gerado UMA
+  // vez só: sem isso, excluir um título gerado não adiantava — a tela de Contas a
+  // Pagar chama a geração a cada abertura e o título voltava no mesmo instante.
+  ultimaCompetencia String?
   criadoEm      DateTime @default(now())
 }
 

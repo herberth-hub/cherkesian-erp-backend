@@ -84,14 +84,22 @@ export class ContasRecorrentesService {
     const fim = new Date(Date.UTC(ano, mes + 1, 1));
     const ultimoDia = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
 
+    const competencia = `${ano}-${String(mes + 1).padStart(2, '0')}`;
+
     const recs = await this.prisma.contaRecorrente.findMany({ where: { empresaId, ativa: true } });
     let criados = 0;
     for (const r of recs) {
+      // Cada competência é gerada UMA vez. Se já passou por aqui e o título não está
+      // mais lá, foi o usuário que excluiu — não é para ressuscitar.
+      if (r.ultimaCompetencia && competencia <= r.ultimaCompetencia) continue;
       const jaTem = await this.prisma.contaPagar.findFirst({
         where: { recorrenteId: r.id, vencimento: { gte: ini, lt: fim } },
         select: { id: true },
       });
-      if (jaTem) continue;
+      if (jaTem) {
+        await this.marcarCompetencia(r.id, r.ultimaCompetencia, competencia);
+        continue;
+      }
       const dia = Math.min(r.diaVencimento, ultimoDia);
       const vencimento = new Date(Date.UTC(ano, mes, dia));
       // Modo "dia_util": valor = valor por dia × dias úteis (seg-sex) do mês.
@@ -116,9 +124,16 @@ export class ContasRecorrentesService {
           status: calcularStatusTitulo(valor, new Prisma.Decimal(0), vencimento),
         },
       });
+      await this.marcarCompetencia(r.id, r.ultimaCompetencia, competencia);
       criados++;
     }
     return { criados };
+  }
+
+  /** Avança a marca da regra, nunca para trás (a geração vai do mês atual p/ frente). */
+  private async marcarCompetencia(id: number, atual: string | null, competencia: string) {
+    if (atual && atual >= competencia) return;
+    await this.prisma.contaRecorrente.update({ where: { id }, data: { ultimaCompetencia: competencia } });
   }
 
   /**

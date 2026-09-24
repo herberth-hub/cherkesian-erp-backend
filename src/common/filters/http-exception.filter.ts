@@ -39,8 +39,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       // Erro não-HTTP (ex.: falha inesperada/Prisma): registra o detalhe real no
       // servidor, mas NUNCA devolve a mensagem interna ao cliente (evita vazar
-      // estrutura do banco/stack). O cliente recebe apenas o texto genérico.
-      this.logger.error(exception.stack ?? exception.message);
+      // estrutura do banco/stack). O cliente recebe o texto genérico + uma
+      // REFERÊNCIA curta que também vai para o log: é por ela que se acha o erro
+      // de verdade depois, em vez de só saber que "deu erro interno".
+      const ref = Date.now().toString(36).slice(-4).toUpperCase() + Math.floor(Math.random() * 1296).toString(36).padStart(2, '0').toUpperCase();
+      // O código do Prisma (P####) é uma classe de erro, não expõe estrutura do banco,
+      // e diz de cara se foi tempo de transação (P2028), duplicidade (P2002) etc.
+      const bruto = (exception as { code?: unknown }).code;
+      const codigo = typeof bruto === 'string' && /^P\d{4}$/.test(bruto) ? bruto : null;
+      message = `Erro interno no servidor. Referência ${ref}${codigo ? ` · ${codigo}` : ''} — informe este código para localizarmos a causa.`;
+      this.logger.error(
+        `[${ref}]${codigo ? ` ${codigo}` : ''} ${request.method} ${request.url}\n${exception.stack ?? exception.message}`,
+      );
     }
 
     response.status(status).json({

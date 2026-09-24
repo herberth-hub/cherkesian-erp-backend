@@ -491,6 +491,30 @@ export class PedidosService {
     }));
   }
 
+  /**
+   * Observações do pedido em QUALQUER etapa. Editar o pedido inteiro depois da OP
+   * mexeria em quantidade e preço de coisa que já está na linha; a observação não —
+   * e é justamente ela que muda o tempo todo (instrução de entrega, dado que falta
+   * na NF, combinado com o cliente).
+   */
+  async atualizarObs(
+    id: number,
+    dto: { obs?: string | null; obsComercial?: string | null },
+    empresaId: number,
+  ) {
+    const p = await this.prisma.pedido.findFirst({ where: { id, empresaId }, select: { id: true } });
+    if (!p) throw new NotFoundException(`Pedido ${id} não encontrado.`);
+    const limpa = (v: string | null | undefined) => (v ?? '').trim() || null;
+    const data: { obs?: string | null; obsComercial?: string | null } = {};
+    if (dto.obs !== undefined) data.obs = limpa(dto.obs);
+    if (dto.obsComercial !== undefined) data.obsComercial = limpa(dto.obsComercial);
+    return this.prisma.pedido.update({
+      where: { id },
+      data,
+      select: { id: true, numero: true, obs: true, obsComercial: true },
+    });
+  }
+
   /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);
@@ -683,7 +707,7 @@ export class PedidosService {
           await tx.pedido.update({ where: { id }, data: { etapa: 'estoque', status: 'Pronto para expedição' } });
         }
         return rev;
-      });
+      }, PedidosService.TX_PRODUCAO);
       if (res.faltas.length) {
         await this.notificacoes.criar(empresaId, {
           tipo: 'op_nova',
@@ -843,40 +867,58 @@ export class PedidosService {
           const ocsAbertas = await this.prisma.ordemCompra.findMany({ where: { status: 'aguardando', motivo: motivoPedido, materialId: { in: faltantes.map((f) => f.material.id) } } });
           const jaComOC = new Set(ocsAbertas.map((o) => o.materialId));
           const aCriar = faltantes.filter((f) => !jaComOC.has(f.material.id));
+          // Mesma regra do passo 4: a reserva que já existia vira a OP parcial. O
+          // pareamento é feito aqui fora — dentro da transação só sobra a escrita.
+          const reservaParcial = new Map<string, (typeof opsAguardando)[number][]>();
+          for (const o of opsAguardando) {
+            const k = `${o.produtoId ?? 'x'}|${(o.cor ?? '').toUpperCase()}`;
+            const fila = reservaParcial.get(k) ?? []; fila.push(o); reservaParcial.set(k, fila);
+          }
+          const planoParcial = parciais.map((u) => {
+            const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
+            const romaneio = bom.map((b) => { const m = materiais.find((x) => x.id === b.materialId)!; return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false }; });
+            const chave = `${u.produtoId ?? 'x'}|${(u.cor ?? '').toUpperCase()}`;
+            return {
+              reservaId: reservaParcial.get(chave)?.shift()?.id ?? null,
+              dados: { produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar' as const, pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' },
+            };
+          });
+          // A reserva não usada continua na fila: é o restante que espera o material.
+          const naFila = [...reservaParcial.values()].flat().map((o) => o.id);
+
           const res = await this.prisma.$transaction(async (tx) => {
             for (const [mid, nec] of necessarioParcial) await tx.material.update({ where: { id: mid }, data: { saldo: { decrement: nec } } });
-            const ops: { id: number; numero: string; quantidade: number }[] = [];
-            // Mesma regra do passo 4: a reserva que já existia vira a OP parcial.
-            const reservaParcial = new Map<string, (typeof opsAguardando)[number][]>();
-            for (const o of opsAguardando) {
-              const k = `${o.produtoId ?? 'x'}|${(o.cor ?? '').toUpperCase()}`;
-              const fila = reservaParcial.get(k) ?? []; fila.push(o); reservaParcial.set(k, fila);
+            type OpResumo = { id: number; numero: string; quantidade: number };
+            const porPosicao = new Array<OpResumo | undefined>(planoParcial.length);
+            for (let i = 0; i < planoParcial.length; i++) {
+              const p = planoParcial[i];
+              if (p.reservaId == null) continue;
+              const op = await tx.oP.update({ where: { id: p.reservaId }, data: p.dados });
+              porPosicao[i] = { id: op.id, numero: op.numero, quantidade: op.quantidade };
             }
-            for (const u of parciais) {
-              const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
-              const romaneio = bom.map((b) => { const m = materiais.find((x) => x.id === b.materialId)!; return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false }; });
-              const dados = { produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar' as const, pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' };
-              const chave = `${u.produtoId ?? 'x'}|${(u.cor ?? '').toUpperCase()}`;
-              const reserva = reservaParcial.get(chave)?.shift();
-              let op;
-              if (reserva) { op = await tx.oP.update({ where: { id: reserva.id }, data: dados }); }
-              else op = await tx.oP.create({ data: { numero: await this.gerarNumeroOP(tx), pedidoId: pedido.id, filialId: pedido.filialId, ...dados } });
-              ops.push({ id: op.id, numero: op.numero, quantidade: op.quantidade });
+            const semReserva = planoParcial.map((p, i) => ({ p, i })).filter((x) => x.p.reservaId == null);
+            if (semReserva.length) {
+              const numeros = await this.gerarNumerosOP(tx, semReserva.length);
+              const novasOps = await tx.oP.createManyAndReturn({
+                data: semReserva.map(({ p }, k) => ({ numero: numeros[k], pedidoId: pedido.id, filialId: pedido.filialId, ...p.dados })),
+                select: { id: true, numero: true, quantidade: true },
+              });
+              novasOps.forEach((op, k) => { porPosicao[semReserva[k].i] = op; });
             }
-            // A reserva não usada continua na fila: é o restante que espera o material.
-            for (const fila of reservaParcial.values()) {
-              for (const resta of fila) {
-                await tx.oP.update({ where: { id: resta.id }, data: { corteObs: 'AGUARDANDO MATERIAL — restante do pedido; a parte coberta pelo estoque saiu na OP parcial.' } });
-              }
+            const ops = porPosicao.filter((o): o is OpResumo => o != null);
+            if (naFila.length) {
+              await tx.oP.updateMany({ where: { id: { in: naFila } }, data: { corteObs: 'AGUARDANDO MATERIAL — restante do pedido; a parte coberta pelo estoque saiu na OP parcial.' } });
             }
             const criadas: { numero: string }[] = [];
             if (aCriar.length) {
               const forn = await this.fornecedorPlaceholder(tx, empresaId);
-              for (const f of aCriar) { const numero = await this.gerarNumeroOC(tx); await tx.ordemCompra.create({ data: { numero, fornecedorId: forn.id, filialId: pedido.filialId ?? null, materialId: f.material.id, descricao: f.material.descricao, quantidade: f.faltam, unidade: f.material.unidade, valor: f.faltam.mul(f.material.custo), status: 'aguardando', motivo: motivoPedido } }); criadas.push({ numero }); }
+              const numerosOC = await this.gerarNumerosOC(tx, aCriar.length);
+              await tx.ordemCompra.createMany({ data: aCriar.map((f, i) => ({ numero: numerosOC[i], fornecedorId: forn.id, filialId: pedido.filialId ?? null, materialId: f.material.id, descricao: f.material.descricao, quantidade: f.faltam, unidade: f.material.unidade, valor: f.faltam.mul(f.material.custo), status: 'aguardando', motivo: motivoPedido })) });
+              criadas.push(...numerosOC.map((numero) => ({ numero })));
             }
             await tx.pedido.update({ where: { id }, data: { etapa: 'producao', status: 'Em produção (parcial)', producaoParcial: true } });
             return { ops, ocs: criadas.length + ocsAbertas.length };
-          });
+          }, PedidosService.TX_PRODUCAO);
           await this.notificarOpsGeradas(empresaId, pedido, res.ops);
           return {
             status: 'op_parcial' as const,
@@ -905,34 +947,11 @@ export class PedidosService {
         ? { criadas: [] as { id: number; numero: string; status: string; quantidade: number; produtoId: number | null }[], reaproveitadas: opsAguardando.length }
         : { criadas: [], reaproveitadas: 0 };
 
-      const novas = await this.prisma.$transaction(async (tx) => {
-        const criadas: Awaited<ReturnType<typeof tx.ordemCompra.create>>[] = [];
-        if (aCriar.length > 0) {
-          const fornecedor = await this.fornecedorPlaceholder(tx, empresaId);
-          for (const f of aCriar) {
-            const numero = await this.gerarNumeroOC(tx);
-            const oc = await tx.ordemCompra.create({
-              data: {
-                numero,
-                fornecedorId: fornecedor.id,
-                filialId: pedido.filialId ?? null,
-                materialId: f.material.id,
-                descricao: f.material.descricao,
-                quantidade: f.faltam,
-                unidade: f.material.unidade,
-                valor: f.faltam.mul(f.material.custo),
-                status: 'aguardando',
-                motivo: motivoPedido,
-              },
-            });
-            criadas.push(oc);
-          }
-        }
-        // Idempotente: se a reserva já existe (reprocessar "Gerar OP" enquanto espera),
-        // não duplica.
-        if (!opsAguardando.length) {
-          for (const u of unidades) {
-            const numeroOp = await this.gerarNumeroOP(tx);
+      // Monta as linhas FORA da transação (é só cálculo em memória): dentro dela sobram
+      // poucas idas ao banco, em vez de duas por OP.
+      const linhasOp = opsAguardando.length
+        ? []
+        : unidades.map((u) => {
             const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
             const romaneio = bom.map((b) => {
               const m = materiais.find((x) => x.id === b.materialId)!;
@@ -941,26 +960,52 @@ export class PedidosService {
             const faltaDaUnidade = faltantes
               .filter((f) => bom.some((b) => b.materialId === f.material.id))
               .map((f) => `${f.material.descricao}: falta ${f.faltam.toFixed(3)} ${f.material.unidade}`);
-            const op = await tx.oP.create({
-              data: {
-                numero: numeroOp,
-                pedidoId: pedido.id,
-                filialId: pedido.filialId,
-                produtoId: u.produtoId ?? null,
-                cor: u.cor,
-                quantidade: u.quantidade,
-                status: 'aguardando_material',
-                pilotoLiberado: true,
-                progresso: 0,
-                gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined,
-                romaneioMateriais: romaneio as Prisma.InputJsonValue,
-                corteObs: faltaDaUnidade.length
-                  ? `AGUARDANDO MATERIAL — não inicie o corte. ${faltaDaUnidade.join(' · ')}. OC(s) em aberto; a OP libera quando o material entrar.`
-                  : 'AGUARDANDO MATERIAL — não inicie o corte até o insumo entrar.',
-              },
-            });
-            opsReserva.criadas.push({ id: op.id, numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId });
-          }
+            return {
+              pedidoId: pedido.id,
+              filialId: pedido.filialId,
+              produtoId: u.produtoId ?? null,
+              cor: u.cor,
+              quantidade: u.quantidade,
+              status: 'aguardando_material' as const,
+              pilotoLiberado: true,
+              progresso: 0,
+              gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+              romaneioMateriais: romaneio as Prisma.InputJsonValue,
+              corteObs: faltaDaUnidade.length
+                ? `AGUARDANDO MATERIAL — não inicie o corte. ${faltaDaUnidade.join(' · ')}. OC(s) em aberto; a OP libera quando o material entrar.`
+                : 'AGUARDANDO MATERIAL — não inicie o corte até o insumo entrar.',
+            };
+          });
+
+      const novas = await this.prisma.$transaction(async (tx) => {
+        let criadas: Awaited<ReturnType<typeof tx.ordemCompra.createManyAndReturn>> = [];
+        if (aCriar.length > 0) {
+          const fornecedor = await this.fornecedorPlaceholder(tx, empresaId);
+          const numerosOC = await this.gerarNumerosOC(tx, aCriar.length);
+          criadas = await tx.ordemCompra.createManyAndReturn({
+            data: aCriar.map((f, i) => ({
+              numero: numerosOC[i],
+              fornecedorId: fornecedor.id,
+              filialId: pedido.filialId ?? null,
+              materialId: f.material.id,
+              descricao: f.material.descricao,
+              quantidade: f.faltam,
+              unidade: f.material.unidade,
+              valor: f.faltam.mul(f.material.custo),
+              status: 'aguardando',
+              motivo: motivoPedido,
+            })),
+          });
+        }
+        // Idempotente: se a reserva já existe (reprocessar "Gerar OP" enquanto espera),
+        // não duplica.
+        if (linhasOp.length) {
+          const numerosOP = await this.gerarNumerosOP(tx, linhasOp.length);
+          const criadasOp = await tx.oP.createManyAndReturn({
+            data: linhasOp.map((l, i) => ({ ...l, numero: numerosOP[i] })),
+            select: { id: true, numero: true, status: true, quantidade: true, produtoId: true },
+          });
+          opsReserva.criadas.push(...criadasOp);
         }
         if (pedido.etapa !== 'compra') {
           await tx.pedido.update({
@@ -969,7 +1014,7 @@ export class PedidosService {
           });
         }
         return criadas;
-      });
+      }, PedidosService.TX_PRODUCAO);
 
       if (opsReserva.criadas.length) {
         await this.notificarOpsGeradas(empresaId, pedido, opsReserva.criadas, 'aguardando_material');
@@ -1010,6 +1055,45 @@ export class PedidosService {
     }
 
     // 4) Material disponível → baixa saldo, gera UMA OP POR ITEM de produção e avança o pedido
+
+    // Pareamento reserva↔unidade feito ANTES da transação (é só memória). Se o pedido já
+    // tinha OP em `aguardando_material`, ela é LIBERADA em vez de uma nova ser criada —
+    // senão o material chegaria e a fábrica veria a OP duplicada. FILA por produto+cor,
+    // não um só: o mesmo produto aparece mais de uma vez no pedido (grade normal e grade
+    // de tamanhos especiais), e cada ocorrência tem a sua OP.
+    const reservaPorChave = new Map<string, (typeof opsAguardando)[number][]>();
+    for (const o of opsAguardando) {
+      const k = `${o.produtoId ?? 'x'}|${(o.cor ?? '').toUpperCase()}`;
+      const fila = reservaPorChave.get(k) ?? [];
+      fila.push(o);
+      reservaPorChave.set(k, fila);
+    }
+    const plano = unidades.map((u) => {
+      // Romaneio da unidade = BOM do produto × quantidade (por tamanho quando houver).
+      const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
+      const romaneio = bom.map((b) => {
+        const m = materiais.find((x) => x.id === b.materialId)!;
+        return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false };
+      });
+      const chave = `${u.produtoId ?? 'x'}|${(u.cor ?? '').toUpperCase()}`;
+      const reserva = reservaPorChave.get(chave)?.shift();
+      return {
+        reservaId: reserva?.id ?? null,
+        dados: {
+          produtoId: u.produtoId ?? null,
+          cor: u.cor,
+          quantidade: u.quantidade,
+          status: 'a_iniciar' as const,
+          pilotoLiberado: true,
+          progresso: 0,
+          gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
+          romaneioMateriais: romaneio as Prisma.InputJsonValue,
+        },
+      };
+    });
+    // Reserva que sobrou (item saiu do pedido enquanto esperava) não fica órfã na fila.
+    const sobras = [...reservaPorChave.values()].flat().map((o) => o.id);
+
     const resultado = await this.prisma.$transaction(async (tx) => {
       for (const [materialId, necessario] of necessarioPorMaterial) {
         await tx.material.update({
@@ -1017,57 +1101,33 @@ export class PedidosService {
           data: { saldo: { decrement: necessario } },
         });
       }
-      const opsCriadas = [] as { id: number; numero: string; status: string; quantidade: number; produtoId: number | null }[];
-      // Se o pedido já tinha OP em `aguardando_material`, ela é LIBERADA aqui em vez de
-      // uma nova ser criada — senão o material chegaria e a fábrica veria a OP duplicada.
-      // FILA por produto+cor, não um só: o mesmo produto aparece mais de uma vez no pedido
-      // (grade normal e grade de tamanhos especiais), e cada ocorrência tem a sua OP.
-      const reservaPorChave = new Map<string, (typeof opsAguardando)[number][]>();
-      for (const o of opsAguardando) {
-        const k = `${o.produtoId ?? 'x'}|${(o.cor ?? '').toUpperCase()}`;
-        const fila = reservaPorChave.get(k) ?? [];
-        fila.push(o);
-        reservaPorChave.set(k, fila);
+      // Fica indexado pela posição do plano para a ordem das OPs continuar a do pedido.
+      type OpResumo = { id: number; numero: string; status: string; quantidade: number; produtoId: number | null };
+      const porPosicao = new Array<OpResumo | undefined>(plano.length);
+      for (let i = 0; i < plano.length; i++) {
+        const p = plano[i];
+        if (p.reservaId == null) continue;
+        const op = await tx.oP.update({ where: { id: p.reservaId }, data: { ...p.dados, corteObs: null } });
+        porPosicao[i] = { id: op.id, numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId };
       }
-      for (const u of unidades) {
-        // Romaneio da unidade = BOM do produto × quantidade (por tamanho quando houver).
-        const bom = u.produtoId ? bomPorItem.get(u.chave) ?? [] : [];
-        const romaneio = bom.map((b) => {
-          const m = materiais.find((x) => x.id === b.materialId)!;
-          return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, u).toFixed(4)), unidade: m.unidade, conferido: false };
+      const semReserva = plano.map((p, i) => ({ p, i })).filter((x) => x.p.reservaId == null);
+      if (semReserva.length) {
+        const numeros = await this.gerarNumerosOP(tx, semReserva.length);
+        const novasOps = await tx.oP.createManyAndReturn({
+          data: semReserva.map(({ p }, k) => ({ numero: numeros[k], pedidoId: pedido.id, filialId: pedido.filialId, ...p.dados })),
+          select: { id: true, numero: true, status: true, quantidade: true, produtoId: true },
         });
-        const chave = `${u.produtoId ?? 'x'}|${(u.cor ?? '').toUpperCase()}`;
-        const reserva = reservaPorChave.get(chave)?.shift();
-        const dados = {
-          produtoId: u.produtoId ?? null,
-          cor: u.cor,
-          quantidade: u.quantidade,
-          status: 'a_iniciar' as const,
-          pilotoLiberado: true,
-          progresso: 0,
-          gradeTamanhos: (u.grade as Prisma.InputJsonValue | undefined) ?? undefined,
-          romaneioMateriais: romaneio as Prisma.InputJsonValue,
-        };
-        let op;
-        if (reserva) {
-          op = await tx.oP.update({ where: { id: reserva.id }, data: { ...dados, corteObs: null } });
-        } else {
-          op = await tx.oP.create({
-            data: { numero: await this.gerarNumeroOP(tx), pedidoId: pedido.id, filialId: pedido.filialId, ...dados },
-          });
-        }
-        opsCriadas.push({ id: op.id, numero: op.numero, status: op.status, quantidade: op.quantidade, produtoId: op.produtoId });
+        // createManyAndReturn devolve na ordem em que foi enviado.
+        novasOps.forEach((op, k) => { porPosicao[semReserva[k].i] = op; });
       }
-      // Reserva que sobrou (item saiu do pedido enquanto esperava) não fica órfã na fila.
-      for (const fila of reservaPorChave.values()) {
-        for (const sobra of fila) await tx.oP.delete({ where: { id: sobra.id } });
-      }
+      const opsCriadas = porPosicao.filter((o): o is OpResumo => o != null);
+      if (sobras.length) await tx.oP.deleteMany({ where: { id: { in: sobras } } });
       await tx.pedido.update({
         where: { id },
         data: { etapa: 'producao', status: 'Em produção', producaoParcial: false },
       });
       return opsCriadas;
-    });
+    }, PedidosService.TX_PRODUCAO);
 
     await this.notificarOpsGeradas(empresaId, pedido, resultado);
 
@@ -1182,10 +1242,35 @@ export class PedidosService {
     return proximoSequencial('PV', existentes.map((p) => p.numero), { pad: 2 });
   }
 
-  private async gerarNumeroOP(tx: Prisma.TransactionClient): Promise<string> {
-    const existentes = await tx.oP.findMany({ select: { numero: true } });
-    return proximoSequencial('OP', existentes.map((o) => o.numero), { pad: 4, separador: '-' });
+  /**
+   * N números de OP numa ÚNICA leitura. Pedir um número por vez custava
+   * uma varredura da tabela inteira por OP — num pedido de 14 itens são 14 varreduras
+   * dentro da transação, e no Neon (pooled) isso estoura o tempo dela (P2028 → 500).
+   */
+  private async gerarNumerosOP(tx: Prisma.TransactionClient, quantos: number): Promise<string[]> {
+    const existentes = (await tx.oP.findMany({ select: { numero: true } })).map((o) => o.numero);
+    const numeros: string[] = [];
+    for (let i = 0; i < quantos; i++) {
+      numeros.push(proximoSequencial('OP', [...existentes, ...numeros], { pad: 4, separador: '-' }));
+    }
+    return numeros;
   }
+
+  /** Idem para ordens de compra. */
+  private async gerarNumerosOC(tx: Prisma.TransactionClient, quantos: number): Promise<string[]> {
+    const existentes = (await tx.ordemCompra.findMany({ select: { numero: true } })).map((o) => o.numero);
+    const numeros: string[] = [];
+    for (let i = 0; i < quantos; i++) {
+      numeros.push(proximoSequencial('OC', [...existentes, ...numeros], { pad: 4, separador: '-' }));
+    }
+    return numeros;
+  }
+
+  /**
+   * Folga para as transações de produção. O banco é o Neon via pgbouncer numa instância
+   * que hiberna: os 2 s / 5 s padrão do Prisma não cobrem uma conexão que precisa acordar.
+   */
+  private static readonly TX_PRODUCAO = { maxWait: 15_000, timeout: 30_000 } as const;
 
   private async gerarNumeroOC(tx: Prisma.TransactionClient): Promise<string> {
     const existentes = await tx.ordemCompra.findMany({ select: { numero: true } });
