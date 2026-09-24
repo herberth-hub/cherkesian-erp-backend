@@ -1677,7 +1677,7 @@ export class NfeService {
       observacoes?: string;
       baixarEstoque?: boolean;
       simular?: boolean;
-      itens: Array<{ itemId: number; quantidade: number; valorUnit?: number; cst?: string; aliquotaIcms?: number; ncm?: string; codigo?: string }>;
+      itens: Array<{ itemId: number; quantidade: number; valorUnit?: number; cst?: string; origem?: number; aliquotaIcms?: number; ncm?: string; codigo?: string }>;
     },
     empresaId: number,
     usuario: string,
@@ -1701,8 +1701,26 @@ export class NfeService {
     if (!filial) throw new NotFoundException('Nenhum CNPJ emissor configurado (matriz).');
 
     if (!dto.itens?.length) throw new BadRequestException('Escolha ao menos um item para devolver.');
+    const regimeEmit = (filial.regimeTributario ?? (filial.crt === 1 ? 'simples' : 'lucro_presumido')) as string;
+    const simplesEmit = regimeEmit === 'simples';
+    /**
+     * A DANFE imprime a tributação do ICMS num campo só ("100"), mas o XML quer os
+     * dois separados: ORIGEM (1 dígito) + CST (2 dígitos). Então "100" = origem 1
+     * (importação direta) + CST 00 (tributada integralmente) — foi assim que a
+     * Focus rejeitou "Situacao tributaria (ICMS) invalida: 100".
+     * No Simples o campo é CSOSN e tem 3 dígitos de verdade (101, 102, 500…),
+     * então lá NÃO se divide — a origem vem do campo próprio.
+     */
+    const separaCst = (bruto: string, origemInformada?: number) => {
+      const d = (bruto || '').replace(/\D/g, '');
+      if (!simplesEmit && d.length === 3) {
+        return { cst: d.slice(1), origem: origemInformada ?? Number(d[0]) };
+      }
+      return { cst: d, origem: origemInformada ?? 0 };
+    };
+
     const porId = new Map(entrada.itens.map((i) => [i.id, i]));
-    const linhas: Array<{ item: (typeof entrada.itens)[number]; quantidade: number; valorUnit: number; cst: string; aliquota: number; ncm: string; codigo: string }> = [];
+    const linhas: Array<{ item: (typeof entrada.itens)[number]; quantidade: number; valorUnit: number; cst: string; origem: number; aliquota: number; ncm: string; codigo: string }> = [];
     for (const esc of dto.itens) {
       const it = porId.get(esc.itemId);
       if (!it) throw new BadRequestException(`Item ${esc.itemId} não pertence a esta nota de entrada.`);
@@ -1711,11 +1729,13 @@ export class NfeService {
       if (q > Number(it.quantidade) + 1e-6) {
         throw new BadRequestException(`Não dá para devolver ${q} de "${it.descricao}": a nota trouxe ${Number(it.quantidade)} ${it.unidade}.`);
       }
+      const trib = separaCst((esc.cst ?? '').trim() || (filial.icmsCstPadrao ?? '00'), esc.origem);
       linhas.push({
         item: it,
         quantidade: q,
         valorUnit: Number(esc.valorUnit != null ? esc.valorUnit : Number(it.valorUnit)),
-        cst: (esc.cst ?? '').trim() || (filial.icmsCstPadrao ?? '00'),
+        cst: trib.cst,
+        origem: trib.origem,
         aliquota: Number(esc.aliquotaIcms ?? 0),
         ncm: (esc.ncm ?? it.ncm ?? '').replace(/\D/g, ''),
         codigo: (esc.codigo ?? it.codigoFornecedor ?? '').trim(),
@@ -1757,7 +1777,7 @@ export class NfeService {
         itens: linhas.map((l) => ({
           descricao: l.item.descricao, quantidade: l.quantidade, unidade: l.item.unidade,
           valorUnit: l.valorUnit, valorTotal: Number((l.valorUnit * l.quantidade).toFixed(2)),
-          cst: l.cst, aliquotaIcms: l.aliquota, icms: Number((l.valorUnit * l.quantidade * l.aliquota / 100).toFixed(2)),
+          cst: l.cst, origem: l.origem, aliquotaIcms: l.aliquota, icms: Number((l.valorUnit * l.quantidade * l.aliquota / 100).toFixed(2)),
         })),
         payloadPreview: payload,
         message: 'Rascunho — nada foi enviado à SEFAZ. Confira o CFOP e os valores antes de emitir.',
@@ -1799,7 +1819,7 @@ export class NfeService {
   private montarPayloadDevolucao(
     emitente: Filial,
     destinatario: Fornecedor,
-    linhas: Array<{ item: { descricao: string; unidade: string }; quantidade: number; valorUnit: number; cst: string; aliquota: number; ncm: string; codigo: string }>,
+    linhas: Array<{ item: { descricao: string; unidade: string }; quantidade: number; valorUnit: number; cst: string; origem: number; aliquota: number; ncm: string; codigo: string }>,
     serie: string,
     numero: number,
     valorTotal: number,
@@ -1832,6 +1852,8 @@ export class NfeService {
         quantidade_tributavel: l.quantidade,
         valor_unitario_tributavel: l.valorUnit,
         valor_bruto: bruto,
+        // Origem vai SEPARADA da CST — o "100" da DANFE é origem 1 + CST 00.
+        icms_origem: l.origem,
         icms_situacao_tributaria: l.cst,
         pis_situacao_tributaria: pisCofinsCst,
         cofins_situacao_tributaria: pisCofinsCst,
