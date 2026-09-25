@@ -18,6 +18,12 @@ export class UpdateMaterialDto {
   @IsString()
   @MaxLength(200)
   descricao?: string;
+  /** Artigo generico sem cor (MALHA PV, TWO WAY) — agrupa as cores do mesmo material. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  familia?: string;
+
 
   @IsOptional()
   @IsString()

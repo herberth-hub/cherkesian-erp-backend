@@ -1533,13 +1533,19 @@ function prodFiltrar(){
   const w=$('prodwrap'); if(w) w.innerHTML=prodTabela(list);
 }
 async function viewMateriais(c){
-  const list = (await api('/materiais')).filter(m=>!m.codigo.startsWith('AVI-'));
+  const todos = await api('/materiais');
+  // Famílias já usadas — alimenta o autocompletar do cadastro (evita "MALHA PV" e
+  // "Malha Pv" virarem duas famílias).
+  window.__FAMILIAS=[...new Set(todos.map(m=>m.familia).filter(Boolean))].sort();
+  const list = todos.filter(m=>!m.codigo.startsWith('AVI-'));
   c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais')) + panelTable(
-    ['Código','Descrição','Un.','Saldo','Mínimo','Custo','Ações'],
+    ['Código','Família','Descrição','Un.','Saldo','Mínimo','Custo','Ações'],
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
       return [
-        `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao)+(m.cor?` <span class="pill" style="background:#f0e7d0;color:#7a5b12;font-size:10px">${esc(m.cor)}</span>`:''), esc(m.unidade),
+        `<span class="mono gold">${esc(m.codigo)}</span>`,
+        m.familia?`<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px">${esc(m.familia)}</span>`:'<span class="muted" style="font-size:11px">—</span>',
+        esc(m.descricao)+(m.cor?` <span class="pill" style="background:#f0e7d0;color:#7a5b12;font-size:10px">${esc(m.cor)}</span>`:''), esc(m.unidade),
         `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
         `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formMaterial(${m.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
       ];
@@ -3139,6 +3145,10 @@ async function formMaterial(id){
   const fdl=`<datalist id="fabriclist">${forn.map(f=>`<option value="${esc(f.nomeFantasia||f.nome)}">`).join('')}</datalist>`;
   openModal(`<h3>${id?'Editar':'Novo'} material / tecido</h3>
     ${field('mt_cat','Categoria * (ex.: Tecido)','value="'+esc(m.categoria||'')+'"')}
+    <div class="mrow"><label class="fl">Família (artigo genérico, sem cor)</label>
+      <input id="mt_fam" class="inp" list="famlist" value="${esc(m.familia||'')}" placeholder="ex.: MALHA PV, TWO WAY, ZÍPER">
+      <datalist id="famlist">${(window.__FAMILIAS||[]).map(f=>`<option value="${esc(f)}">`).join('')}</datalist>
+      <div class="muted" style="font-size:10.5px;margin-top:3px">É por ela que a ficha técnica do produto puxa o consumo (uma vez, não por cor) e que se acha o material ao vincular o item da NF do fornecedor.</div></div>
     ${field('mt_desc','Descrição *','value="'+esc(m.descricao||'')+'"')}
     <div class="grid3">${field('mt_cor',id?'Cor':'Cor(es) — vírgula p/ criar várias','value="'+esc(m.cor||'')+'"'+(id?'':' placeholder="ex.: AZUL ROYAL, BRANCO, PRETO"'))}${field('mt_un','Unidade','value="'+esc(m.unidade||'un')+'"')}${field('mt_custo','Custo','type="number" step="0.01" value="'+(m.custo!=null?m.custo:'')+'"')}</div>
     ${id?'':'<div class="muted" style="font-size:10.5px;margin:-4px 0 6px">Digite várias cores separadas por vírgula para criar um material por cor (mesmo artigo). O saldo inicial vale só p/ 1 cor — para várias, use "Entrada de estoque" por cor depois.</div>'}
@@ -3202,7 +3212,8 @@ async function resolverFabricante(){
   return nf.id;
 }
 async function saveMaterial(id){
-  const base = { categoria:val('mt_cat'), descricao:val('mt_desc'), unidade:val('mt_un')||'un',
+  const base = { categoria:val('mt_cat'), familia:(val('mt_fam')||'').toUpperCase()||undefined,
+    descricao:val('mt_desc'), unidade:val('mt_un')||'un',
     custo:Number(val('mt_custo')||0), minimo:Number(val('mt_min')||0), localizacao:val('mt_local')||undefined,
     artigo:val('mt_artigo')||undefined, codigoArtigo:val('mt_ordem')||undefined, composicao:val('mt_comp')||undefined };
   const larg=val('mt_larg'); if(larg) base.largura=Number(larg);

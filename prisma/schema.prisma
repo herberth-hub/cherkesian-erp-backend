@@ -642,6 +642,10 @@ model Material {
   empresaId Int
   codigo    String   @unique  // MP-CAT-0000
   categoria String
+  // ARTIGO GENÉRICO, sem cor: "MALHA PV", "TWO WAY", "ZÍPER". É por ele que a ficha
+  // técnica do produto define o consumo uma vez só (em vez de repetir por cor) e é
+  // por ele que se acha o material certo ao vincular o item da NF do fornecedor.
+  familia   String?
   descricao String
   cor       String?
   unidade   String   @default("un")
