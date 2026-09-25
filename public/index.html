@@ -1973,27 +1973,74 @@ const REL_FILTROS = {
   comissoes:{status:{label:'Status', opts:['A pagar','Pago']}},
   produtos:{}, materiais:{},
 };
-function relatorio(tipo){
+async function relatorio(tipo){
   const cfg = REL_FILTROS[tipo]||{};
   const temFiltro = cfg.periodo||cfg.status;
-  const periodo = cfg.periodo ? `<div class="grid2">${field('rel_de','De','type="date"')}${field('rel_ate','Até','type="date"')}</div>` : '';
+  // Empresas (CNPJ emissor): sem escolher, o relatório sai com todas juntas — foi
+  // exatamente a queixa da contabilidade.
+  let emps=[]; try{ emps=await api('/relatorios/empresas'); }catch(_){ }
+  const empSel = emps.length?`<div class="mrow"><label class="fl">Empresa (CNPJ emissor)</label>
+      <select id="rel_filial" class="inp"><option value="">— todas as empresas —</option>${emps.map(e=>`<option value="${e.id}">${esc(e.nome)}${e.cnpj?' · '+esc(e.cnpj):''}</option>`).join('')}</select>
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Em branco, o relatório junta todas as empresas num arquivo só.</div></div>`:'';
+  const hoje=new Date(); const compAtual=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
+  const periodo = cfg.periodo ? `
+    <div class="mrow"><label class="fl">Competência (mês)</label>
+      <input id="rel_comp" class="inp" type="month" value="${compAtual}" style="max-width:200px" onchange="APP.relCompMuda()">
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Preenche o período com o mês inteiro. Limpe para usar datas soltas abaixo.</div></div>
+    <div class="grid2">${field('rel_de','De','type="date"')}${field('rel_ate','Até','type="date"')}</div>` : '';
   const status = cfg.status ? `<div class="mrow"><label class="fl">${esc(cfg.status.label)}</label><select id="rel_status" class="inp"><option value="">— todos —</option>${cfg.status.opts.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>` : '';
+  const xmlBtn = tipo==='nfs' ? `<div class="mrow"><label class="fl">Arquivos fiscais</label>
+      <button type="button" class="btn-primary" style="width:100%;background:#8a5a00" onclick="APP.relXml()">🗂 Baixar XMLs da competência (.zip)</button>
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Todos os XMLs autorizados do mês e da empresa escolhidos acima, num arquivo só. As canceladas vão numa pasta à parte.</div></div>` : '';
   openModal(`<h3>📄 Gerar relatório</h3>
-    <p class="muted" style="font-size:12px;margin:-4px 0 10px">${temFiltro?'Filtre por período/status (em branco = tudo) e escolha o formato.':'Escolha o formato do relatório.'}</p>
-    ${periodo}${status}
+    <p class="muted" style="font-size:12px;margin:-4px 0 10px">${temFiltro?'Escolha a empresa e a competência (em branco = tudo) e o formato.':'Escolha o formato do relatório.'}</p>
+    ${empSel}${periodo}${status}${xmlBtn}
     <div class="mrow"><label class="fl">Formato do arquivo</label>
       <div style="display:flex;gap:8px">
         <button type="button" class="btn-primary" style="flex:1" onclick="APP.relGerar('${tipo}','pdf')">📄 Gerar PDF</button>
         <button type="button" class="btn-primary" style="flex:1;background:#1e7a44" onclick="APP.relGerar('${tipo}','xlsx')">📊 Gerar Excel</button>
       </div></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  relCompMuda();
+}
+// Escolher a competência apaga as datas soltas (e vice-versa) — não faz sentido
+// mandar os dois e o servidor ter que decidir qual vale.
+function relCompMuda(){
+  const c=$('rel_comp'), de=$('rel_de'), ate=$('rel_ate');
+  if(!c||!de||!ate) return;
+  const usa=!!c.value;
+  de.disabled=usa; ate.disabled=usa;
+  de.style.opacity=usa?.5:1; ate.style.opacity=usa?.5:1;
+  if(usa){ de.value=''; ate.value=''; }
+}
+function relParams(){
+  const p = new URLSearchParams();
+  const comp=val('rel_comp'), de=val('rel_de'), ate=val('rel_ate'), se=$('rel_status'), fi=$('rel_filial');
+  if(comp) p.set('comp',comp);
+  else { if(de) p.set('de',de); if(ate) p.set('ate',ate); }
+  if(se && se.value) p.set('status',se.value);
+  if(fi && fi.value) p.set('filialId',fi.value);
+  return p;
 }
 function relGerar(tipo, fmt){
-  const p = new URLSearchParams();
-  const de=val('rel_de'), ate=val('rel_ate'), se=$('rel_status');
-  if(de) p.set('de',de); if(ate) p.set('ate',ate); if(se && se.value) p.set('status',se.value);
+  const qs=relParams().toString();
   closeModal();
-  baixarRel(tipo, p.toString(), fmt||'pdf');
+  baixarRel(tipo, qs, fmt||'pdf');
+}
+// Pacote de XMLs da competência — o arquivo que a contabilidade pede todo mês.
+async function relXml(){
+  const p=relParams(); p.delete('status');
+  if(!p.get('comp') && !p.get('de')){ toast('Escolha a competência (ou um período) para baixar os XMLs.','err'); return; }
+  toast('Montando o pacote de XMLs… pode levar alguns segundos.','ok');
+  try{
+    const r=await fetchAuth(API+'/relatorios/xml/competencia?'+p.toString(), { headers:{ Authorization:'Bearer '+S.access } });
+    if(!r.ok){ let m='Falha ao montar o pacote ('+r.status+').'; try{ const j=await r.json(); m=j.message||m; }catch(_){ } throw new Error(m); }
+    const total=r.headers.get('X-Total-Notas')||'?';
+    const blob=await r.blob();
+    const nome='xml-nfe-'+(p.get('comp')||p.get('de')||'periodo')+'.zip';
+    abrirArquivo(URL.createObjectURL(blob), nome);
+    closeModal(); toast(total+' XML(s) no pacote — verifique os downloads.','ok');
+  }catch(e){ toast(e.message,'err'); }
 }
 async function baixarRel(tipo, qs, fmt){
   fmt = fmt||'pdf';
@@ -12160,7 +12207,7 @@ window.APP = {
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
-  relatorio, relGerar, sugerirCompraTecido,
+  relatorio, relGerar, relCompMuda, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
   bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf,
   drillAbrir, drillToggle, drillIr,

@@ -629,7 +629,12 @@ export class NfeService {
       denegado: 'rejeitada',
       processando_autorizacao: 'pendente',
     };
-    const novoStatus = mapa[r.status] ?? nota.status;
+    const doProvedor = mapa[r.status] ?? nota.status;
+    // CANCELAMENTO É TERMINAL. A Focus leva um tempo para refletir o evento e
+    // segue respondendo "autorizado" logo depois do cancelamento — sem esta trava
+    // a consulta DESCANCELA a nota aqui dentro, e uma nota cancelada volta a
+    // aparecer como válida (alguém cobra o cliente por ela).
+    const novoStatus = nota.status === 'cancelada' && doProvedor !== 'cancelada' ? 'cancelada' : doProvedor;
 
     const atualizada = await this.prisma.notaFiscal.update({
       where: { id },

@@ -45,6 +45,7 @@
     "compression": "^1.8.2",
     "exceljs": "^4.4.0",
     "helmet": "^8.3.0",
+    "jszip": "^3.10.2",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
     "reflect-metadata": "^0.2.2",

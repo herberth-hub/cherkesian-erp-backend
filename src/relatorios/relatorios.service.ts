@@ -4,6 +4,8 @@ import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { novoDocumento, tabela, totalDestaque, money, dataBR, Pdf } from '../documentos/pdf.renderer';
 import { Workbook } from 'exceljs';
+import JSZip from 'jszip';
+import { NfeService } from '../nfe/nfe.service';
 
 type Coluna = { titulo: string; largura: number; alinhamento?: 'left' | 'right' };
 export interface Filtros {
@@ -60,7 +62,64 @@ export function periodoDaCompetencia(comp?: string): { de?: string; ate?: string
  */
 @Injectable()
 export class RelatoriosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly nfe: NfeService,
+  ) {}
+
+  /** CNPJs emissores da empresa — a contabilidade escolhe um para separar o relatório. */
+  async empresas(empresaId: number) {
+    return this.prisma.filial.findMany({
+      where: { empresaId },
+      select: { id: true, nome: true, cnpj: true, matriz: true },
+      orderBy: [{ matriz: 'desc' }, { nome: 'asc' }],
+    });
+  }
+
+  /**
+   * ZIP com os XMLs das NF-e do período/empresa. Cada XML vem da Focus (é o
+   * documento oficial, não o payload que enviamos). Notas simuladas e as que ainda
+   * não têm XML ficam de fora e saem listadas num `_notas-sem-xml.txt` dentro do
+   * pacote — a contadora precisa saber o que NÃO veio, não só o que veio.
+   */
+  async xmlZip(user: AuthUser, filtros: Filtros): Promise<{ buffer: Buffer; nome: string; total: number }> {
+    if (!perfilPodeAcessar(user.acesso, 'expedicao') && !perfilPodeAcessar(user.acesso, 'receber')) {
+      throw new ForbiddenException('Seu perfil não pode baixar os XMLs fiscais.');
+    }
+    const f = await this.normalizar(filtros, user.empresaId);
+    const notas = await this.prisma.notaFiscal.findMany({
+      where: {
+        empresaId: user.empresaId,
+        ...filialEq(f),
+        ...periodo('emitidaEm', f),
+        // Cancelada entra: a contabilidade precisa dela para justificar o número.
+        status: { in: ['autorizada', 'cancelada'] },
+        provedor: 'focusnfe',
+      },
+      select: { id: true, numero: true, status: true, emitidaEm: true },
+      orderBy: { emitidaEm: 'asc' },
+      take: 1000,
+    });
+    if (!notas.length) throw new NotFoundException('Nenhuma NF-e autorizada nesse período/empresa.');
+
+    const zip = new JSZip();
+    const falhas: string[] = [];
+    let ok = 0;
+    for (const n of notas) {
+      try {
+        const arq = await this.nfe.baixarArquivo(n.id, user.empresaId, 'xml');
+        zip.file(`${n.status === 'cancelada' ? 'canceladas/' : ''}${arq.filename}`, arq.content);
+        ok++;
+      } catch (e) {
+        falhas.push(`${n.numero} (${n.status}) — ${(e as Error).message}`);
+      }
+    }
+    if (falhas.length) {
+      zip.file('_notas-sem-xml.txt', `Estas notas do período não tiveram o XML baixado:\n\n${falhas.join('\n')}\n`);
+    }
+    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    return { buffer, nome: `xml-nfe${f.sufixo ? '-' + f.sufixo : ''}`, total: ok };
+  }
 
   /** Dados estruturados do relatório (reaproveitados por PDF e Excel). */
   private async dados(tipo: string, user: AuthUser, filtros: Filtros) {
@@ -171,7 +230,7 @@ export class RelatoriosService {
         area: 'vendas',
         titulo: 'Relatório de Pedidos',
         build: async (empresaId, f) => {
-          const regs = await this.prisma.pedido.findMany({ where: { empresaId, ...periodo('data', f), ...statusEq('etapa', f) }, include: { cliente: { select: { nome: true } } }, orderBy: { id: 'desc' }, take: 500 });
+          const regs = await this.prisma.pedido.findMany({ where: { empresaId, ...filialEq(f), ...periodo('data', f), ...statusEq('etapa', f) }, include: { cliente: { select: { nome: true } } }, orderBy: { id: 'desc' }, take: 500 });
           const total = regs.reduce((s, p) => s + n(p.valorTotal), 0);
           return {
             colunas: [
@@ -192,7 +251,7 @@ export class RelatoriosService {
         titulo: 'Relatório de Bonificações',
         build: async (empresaId, f) => {
           const regs = await this.prisma.pedido.findMany({
-            where: { empresaId, bonificacao: true, ...periodo('data', f) },
+            where: { empresaId, bonificacao: true, ...filialEq(f), ...periodo('data', f) },
             include: { cliente: { select: { nome: true } }, itens: { select: { quantidade: true } } },
             orderBy: { data: 'desc' }, take: 1000,
           });
@@ -219,7 +278,7 @@ export class RelatoriosService {
         area: 'producao',
         titulo: 'Relatório de Ordens de Produção',
         build: async (_e, f) => {
-          const regs = await this.prisma.oP.findMany({ where: { ...periodo('entregaPrev', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
+          const regs = await this.prisma.oP.findMany({ where: { ...filialEq(f), ...periodo('entregaPrev', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           return {
             colunas: [
               { titulo: 'Número', largura: 75 },
@@ -237,7 +296,7 @@ export class RelatoriosService {
         area: 'expedicao',
         titulo: 'Relatório de Notas Fiscais',
         build: async (empresaId, f) => {
-          const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId, ...periodo('emitidaEm', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
+          const regs = await this.prisma.notaFiscal.findMany({ where: { empresaId, ...filialEq(f), ...periodo('emitidaEm', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500 });
           const filialIds = [...new Set(regs.map((r) => r.filialId).filter((x): x is number => x != null))];
           const pedidoIds = [...new Set(regs.map((r) => r.pedidoId).filter((x): x is number => x != null))];
           const [filiais, pedidos] = await Promise.all([
@@ -329,7 +388,7 @@ export class RelatoriosService {
         area: 'compras',
         titulo: 'Relatório de Ordens de Compra',
         build: async (_e, f) => {
-          const regs = await this.prisma.ordemCompra.findMany({ where: { ...periodo('previsao', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500, include: { fornecedor: { select: { nome: true } } } });
+          const regs = await this.prisma.ordemCompra.findMany({ where: { ...filialEq(f), ...periodo('previsao', f), ...statusEq('status', f) }, orderBy: { id: 'desc' }, take: 500, include: { fornecedor: { select: { nome: true } } } });
           const total = regs.reduce((s, o) => s + n(o.valor), 0);
           return {
             colunas: [
@@ -367,7 +426,7 @@ export class RelatoriosService {
         area: 'receber',
         titulo: 'Relatório de Contas a Receber',
         build: async (empresaId, f) => {
-          const regs = await this.prisma.contaReceber.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
+          const regs = await this.prisma.contaReceber.findMany({ where: { empresaId, ...filialEq(f), ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
           const totJuros = regs.reduce((s, c) => s + n(c.juros), 0);
           return {
@@ -388,7 +447,7 @@ export class RelatoriosService {
         area: 'pagar',
         titulo: 'Relatório de Contas a Pagar',
         build: async (empresaId, f) => {
-          const regs = await this.prisma.contaPagar.findMany({ where: { empresaId, ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
+          const regs = await this.prisma.contaPagar.findMany({ where: { empresaId, ...filialEq(f), ...periodo('vencimento', f), ...statusEq('status', f) }, orderBy: { vencimento: 'asc' }, take: 500 });
           const aberto = regs.filter((c) => c.status !== 'pago').reduce((s, c) => s + (n(c.valor) - n(c.pago)), 0);
           const totJuros = regs.reduce((s, c) => s + n(c.juros), 0);
           return {
