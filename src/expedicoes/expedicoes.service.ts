@@ -7,6 +7,7 @@ import {
 import { Expedicao, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
+import { CreateExpedicaoAvulsaDto } from './dto/create-expedicao-avulsa.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
 // bwip-js gera QR Code e código de barras (Code128) como PNG.
@@ -1207,6 +1208,96 @@ export class ExpedicoesService {
       numero: exp.numero, nf: exp.nf, pedido: pedido?.numero ?? '—',
       destino: cliente?.nome ?? '—', total: out.length, pecas: out,
     };
+  }
+
+  /**
+   * Expedição AVULSA: saída sem pedido de venda e sem nota fiscal — amostra, peça
+   * piloto, reposição, envio para facção, transferência. Segue o mesmo caminho das
+   * outras (conferência por bipagem, canal de envio no despacho, romaneio), só que
+   * sem faturar e sem abater pedido nenhum.
+   *
+   * O MOTIVO é obrigatório: é ele que explica depois por que a mercadoria saiu sem
+   * nota. Sem isso, saída avulsa vira buraco no estoque que ninguém sabe justificar.
+   */
+  async criarAvulsa(dto: CreateExpedicaoAvulsaDto, empresaId: number, usuario?: string) {
+    const cliente = await this.prisma.cliente.findFirst({ where: { id: dto.clienteId, empresaId } });
+    if (!cliente) throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+
+    let uni: { nome: string; logradouro: string | null; numeroEndereco: string | null; municipio: string | null; uf: string | null; cep: string | null } | null = null;
+    if (dto.clienteUnidadeId) {
+      uni = await this.prisma.clienteUnidade.findFirst({
+        where: { id: dto.clienteUnidadeId, clienteId: cliente.id },
+        select: { nome: true, logradouro: true, numeroEndereco: true, municipio: true, uf: true, cep: true },
+      });
+      if (!uni) throw new NotFoundException('Unidade do cliente não encontrada.');
+    }
+
+    // Produtos do catálogo: puxa descrição e cor de quem não informou.
+    const pIds = [...new Set(dto.itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    const prods = pIds.length
+      ? await this.prisma.produto.findMany({ where: { id: { in: pIds }, empresaId }, select: { id: true, codigo: true, descricao: true, cor: true } })
+      : [];
+    const pMap = new Map(prods.map((p) => [p.id, p]));
+    for (const id of pIds) if (!pMap.has(id)) throw new NotFoundException(`Produto ${id} não encontrado.`);
+
+    const somaGrade = (g?: Record<string, number>) =>
+      Object.values(g ?? {}).reduce((s, v) => s + (Number(v) || 0), 0);
+
+    const itens = dto.itens.map((i) => {
+      const p = i.produtoId != null ? pMap.get(i.produtoId) : undefined;
+      const grade = i.grade && Object.keys(i.grade).length
+        ? Object.fromEntries(Object.entries(i.grade).map(([t, q]) => [t.toUpperCase(), Number(q) || 0]).filter(([, q]) => (q as number) > 0))
+        : null;
+      const qtd = grade ? somaGrade(grade as Record<string, number>) : Math.floor(Number(i.quantidade) || 0);
+      const descricao = (i.descricao ?? p?.descricao ?? '').trim();
+      if (!descricao) throw new BadRequestException('Cada item precisa de um produto do catálogo ou de uma descrição.');
+      if (!(qtd > 0)) throw new BadRequestException(`Quantidade inválida no item "${descricao}".`);
+      return {
+        produtoId: i.produtoId ?? null,
+        descricao,
+        cor: (i.cor ?? p?.cor ?? null) || null,
+        quantidade: qtd,
+        grade,
+        valorUnit: Number(i.valorUnit ?? 0),
+      };
+    });
+    const pecas = itens.reduce((s, i) => s + i.quantidade, 0);
+
+    const end = dto.endereco ?? (uni ? [uni.logradouro, uni.numeroEndereco].filter(Boolean).join(', ') : [cliente.logradouro, cliente.numeroEndereco].filter(Boolean).join(', '));
+    const cidUf = dto.cidadeUf ?? (uni ? `${uni.municipio ?? ''}/${uni.uf ?? ''}` : `${cliente.municipio ?? ''}/${cliente.uf ?? ''}`);
+
+    const exp = await this.prisma.$transaction(async (tx) => {
+      const numero = await this.gerarNumero(tx);
+      return tx.expedicao.create({
+        data: {
+          numero,
+          pedidoId: null, // avulsa: não abate pedido
+          clienteId: cliente.id,
+          pecas,
+          itens: itens as unknown as Prisma.InputJsonValue,
+          endereco: end || null,
+          cidadeUf: cidUf.replace(/^\/|\/$/g, '') || null,
+          cep: dto.cep ?? uni?.cep ?? cliente.cep ?? null,
+          volumes: dto.volumes ?? 1,
+          rastreio: this.gerarRastreio(),
+          status: 'Separado',
+          // Motivo + observação ficam no campo de controle, que já sai no romaneio.
+          motivoAvulsa: [dto.motivo, dto.observacao?.trim()].filter(Boolean).join(' · ').slice(0, 500),
+        },
+      });
+    }, { maxWait: 15_000, timeout: 30_000 });
+
+    await this.prisma.notificacao.create({
+      data: {
+        empresaId, tipo: 'expedicao_avulsa',
+        areas: ['expedicao', 'vendas'] as unknown as Prisma.InputJsonValue,
+        titulo: `Expedição AVULSA ${exp.numero} — ${dto.motivo}`.slice(0, 200),
+        mensagem: `${pecas} peça(s) para ${cliente.nome}, SEM pedido e SEM nota fiscal. Motivo: ${dto.motivo}.${dto.observacao ? ' ' + dto.observacao : ''}`.slice(0, 1000),
+        refTipo: 'expedicao', refId: exp.id,
+      },
+    }).catch(() => undefined);
+
+    return { ...exp, motivo: dto.motivo, itensResumo: itens.length, usuario };
   }
 
   private async montarDados(

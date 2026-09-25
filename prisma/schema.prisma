@@ -866,6 +866,9 @@ model Expedicao {
   cep            String?
   nf             String?
   transportadora String?
+  // Saída SEM pedido e SEM NF (amostra, piloto, reposição, facção): o motivo fica
+  // aqui e sai no romaneio — é o que justifica a mercadoria ter saído sem nota.
+  motivoAvulsa   String?
   rastreio       String?
   volumes        Int      @default(1)
   pecas          Int

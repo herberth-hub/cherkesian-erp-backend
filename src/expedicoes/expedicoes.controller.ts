@@ -1,6 +1,7 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ExpedicoesService } from './expedicoes.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
+import { CreateExpedicaoAvulsaDto, MOTIVOS_AVULSA } from './dto/create-expedicao-avulsa.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -163,6 +164,19 @@ export class ExpedicoesController {
   @Get('canais-envio')
   canaisEnvio() {
     return this.expedicoesService.canaisEnvio();
+  }
+
+  /** Motivos válidos de uma saída sem pedido e sem NF. */
+  @Get('motivos-avulsa')
+  motivosAvulsa() {
+    return MOTIVOS_AVULSA;
+  }
+
+  /** Expedição AVULSA: saída sem pedido de venda e sem nota fiscal. */
+  @Post('avulsa')
+  @HttpCode(HttpStatus.CREATED)
+  criarAvulsa(@Body() dto: CreateExpedicaoAvulsaDto, @CurrentUser() user: AuthUser) {
+    return this.expedicoesService.criarAvulsa(dto, user.empresaId, user.usuario);
   }
 
   /** Admin: conclui a conferência sem bipar (marca "conferida", NÃO despacha). */

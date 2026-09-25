@@ -182,7 +182,7 @@ export class EstoqueService {
    */
   async listarUnidades(empresaId: number, status?: string, q?: string) {
     const termo = (q ?? '').trim();
-    return this.prisma.unidadeEstoque.findMany({
+    const unidades = await this.prisma.unidadeEstoque.findMany({
       where: {
         empresaId,
         ...(status ? { status } : {}),
@@ -197,9 +197,35 @@ export class EstoqueService {
       select: {
         codigo: true, descricao: true, cor: true, tamanho: true, tipo: true,
         status: true, coluna: true, andar: true, caixaMaster: true, areaMotivo: true,
+        // Agrupar por ID, não por descrição: descrição muda e não é chave.
+        produtoId: true, materialId: true,
+        // Matéria-prima e aviamento são GRANEL: a etiqueta é um rolo/volume, então
+        // o que vale é somar a quantidade (m, kg), não contar etiquetas.
+        quantidade: true,
       },
       orderBy: { id: 'desc' },
       take: 100_000,
+    });
+
+    // Código do produto/material e unidade de medida, para a tela agrupar e exibir
+    // sem ter que buscar item a item.
+    const pIds = [...new Set(unidades.map((u) => u.produtoId).filter((x): x is number => x != null))];
+    const mIds = [...new Set(unidades.map((u) => u.materialId).filter((x): x is number => x != null))];
+    const [prods, mats] = await Promise.all([
+      pIds.length ? this.prisma.produto.findMany({ where: { id: { in: pIds } }, select: { id: true, codigo: true } }) : [],
+      mIds.length ? this.prisma.material.findMany({ where: { id: { in: mIds } }, select: { id: true, codigo: true, unidade: true } }) : [],
+    ]);
+    const pMap = new Map(prods.map((p) => [p.id, p.codigo]));
+    const mMap = new Map(mats.map((m) => [m.id, m]));
+
+    return unidades.map((u) => {
+      const mat = u.materialId != null ? mMap.get(u.materialId) : undefined;
+      return {
+        ...u,
+        quantidade: u.quantidade != null ? Number(u.quantidade) : null,
+        itemCodigo: (u.produtoId != null ? pMap.get(u.produtoId) : undefined) ?? mat?.codigo ?? null,
+        unidadeMedida: mat?.unidade ?? null,
+      };
     });
   }
 
