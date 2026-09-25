@@ -7987,7 +7987,7 @@ async function formMov(){
     <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
       <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
     <div class="mrow" style="position:relative"><label class="fl" id="f_itemlab">Produto *</label>
-      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar · ou bipe o código do produto (PRD-…) · ou a etiqueta da peça (UN-…)" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.movBip();}">
+      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar · ou bipe o código do produto (PRD-…) · ou a etiqueta da peça (UN-…)" oninput="APP.movItemDD();APP.movAutoBip()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.movBip();}">
       <div id="f_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div></div>
     <div id="f_movinfo" style="display:none;margin:-4px 0 8px;font-size:12px;padding:7px 10px;background:#eef6ff;border:1px solid #bcd8f5;border-radius:8px"></div>
     <div class="grid3">
@@ -8037,8 +8037,24 @@ function movItemDD(){
   dd.style.display='';
 }
 function movItemHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style.display='none'; }, 180); }
+/**
+ * Muitos leitores NÃO mandam Enter no fim da leitura — aí o código fica parado no
+ * campo e nada acontece (só a busca por texto dizendo "Nada encontrado"). Quando o
+ * que foi digitado tem cara de CÓDIGO, dispara a leitura sozinho, sem depender do
+ * Enter. A espera curta é para não disparar a cada tecla de quem digita à mão.
+ */
+function movAutoBip(){
+  const inp=$('f_item'); if(!inp) return;
+  const v=(inp.value||'').trim();
+  if(!/^(UN|PRD|MP|AVI)[-\s]?\w/i.test(v)) return;
+  clearTimeout(window.__MOVBIPT);
+  window.__MOVBIPT=setTimeout(()=>{
+    const atual=(($('f_item')||{}).value||'').trim();
+    if(atual===v && !window.__MOVITEMID && !window.__MOVUNID) movBip(true);
+  }, 300);
+}
 // Bipar a etiqueta (UN-…) no Movimentar: puxa material, quantidade e endereço e prepara a SAÍDA.
-async function movBip(){
+async function movBip(auto){
   const v=(val('f_item')||'').trim();
   if(!/^UN-/i.test(v)){
     // Código do PRODUTO (PRD-…) ou do material (MP-…/AVI-…) bipado: seleciona direto,
@@ -8061,9 +8077,10 @@ async function movBip(){
       toast('Produto lido: '+alvo.codigo+' · informe tamanho e quantidade.','ok');
       return;
     }
-    movItemDD(); return; // não é código conhecido → busca normal
+    if(!auto) movItemDD();
+    return; // não é código conhecido → busca normal
   }
-  let u; try{ u=await api('/estoque/unidade/'+encodeURIComponent(v)); }catch(e){ toast(e.message,'err'); return; }
+  let u; try{ u=await api('/estoque/unidade/'+encodeURIComponent(v)); }catch(e){ if(!auto) toast(e.message,'err'); return; }
   // Etiqueta de PRODUTO ACABADO: a peça bipada já diz produto, cor e tamanho, e é
   // 1 peça. A saída é dada NA ETIQUETA — é ela o estoque real.
   if(!u.materialId && u.produtoId){
@@ -12275,7 +12292,7 @@ window.APP = {
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
-  formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
+  formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
