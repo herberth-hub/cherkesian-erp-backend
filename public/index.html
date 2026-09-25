@@ -7999,6 +7999,10 @@ async function formMov(){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMov()">Confirmar</button></div>`);
   movAlvo();
+  // O leitor de código de barras digita em QUEM ESTÁ COM O FOCO. Sem isto o foco
+  // fica no primeiro campo (o select "O que movimentar") e a leitura se perde lá,
+  // deixando o campo do produto vazio — parece que "não identificou".
+  setTimeout(()=>{ const i=$('f_item'); if(i){ i.focus(); i.select&&i.select(); } }, 60);
 }
 function movAlvo(){
   // Trocar o alvo descarta a etiqueta bipada e libera os campos travados por ela.
@@ -8017,6 +8021,8 @@ function movAlvo(){
   const tw=$('f_tamwrap'); if(tw) tw.style.display=isMat?'none':'';
   const q=$('f_qtd'); if(q){ q.step=isMat?'0.001':'1'; q.min=isMat?'0.001':'1'; q.placeholder=isMat?'ex.: 5,90':'ex.: 10'; }
   const unl=$('f_unlbl'); if(unl) unl.style.display='none';
+  // Volta o foco para o campo de leitura — é nele que o leitor tem que digitar.
+  setTimeout(()=>{ const i=$('f_item'); if(i) i.focus(); }, 40);
 }
 function movLabel(x){ return x.codigo+' · '+x.descricao+(x.cor?' · 🎨 '+x.cor:''); }
 function movItemDD(){
@@ -8037,7 +8043,15 @@ async function movBip(){
   if(!/^UN-/i.test(v)){
     // Código do PRODUTO (PRD-…) ou do material (MP-…/AVI-…) bipado: seleciona direto,
     // sem obrigar a escolher na lista. É como a pessoa lê da etiqueta da caixa.
-    const alvo=(window.__MOVLIST||[]).find(x=>String(x.codigo||'').toUpperCase()===v.toUpperCase());
+    // Leitor costuma mandar lixo junto (espaço, quebra de linha, prefixo do
+    // aparelho), então compara só letras e números.
+    const so=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const alvoBip=so(v); const lista=window.__MOVLIST||[];
+    let alvo=lista.find(x=>so(x.codigo)===alvoBip);
+    if(!alvo && alvoBip.length>=6){
+      const contem=lista.filter(x=>so(x.codigo) && alvoBip.includes(so(x.codigo)));
+      if(contem.length===1) alvo=contem[0]; // código embutido numa etiqueta maior
+    }
     if(alvo){
       movItemPick(alvo.id);
       const tp=$('f_tipo'); if(tp) tp.value='saida';
