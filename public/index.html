@@ -7990,6 +7990,11 @@ async function formMov(){
   movAlvo();
 }
 function movAlvo(){
+  // Trocar o alvo descarta a etiqueta bipada e libera os campos travados por ela.
+  window.__MOVUNID=null;
+  const tp0=$('f_tipo'); if(tp0) tp0.disabled=false;
+  const tam0=$('f_tam'); if(tam0) tam0.readOnly=false;
+  const q0=$('f_qtd'); if(q0) q0.readOnly=false;
   const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
   window.__MOVLIST = isMat
     ? (window.__MOVMAT||[]).filter(m=> alvo==='aviamento' ? String(m.codigo).startsWith('AVI-') : !String(m.codigo).startsWith('AVI-'))
@@ -8020,7 +8025,27 @@ async function movBip(){
   const v=(val('f_item')||'').trim();
   if(!/^UN-/i.test(v)){ movItemDD(); return; } // não é etiqueta de unidade → busca normal
   let u; try{ u=await api('/estoque/unidade/'+encodeURIComponent(v)); }catch(e){ toast(e.message,'err'); return; }
-  if(!u.materialId){ toast('Esta etiqueta não é de matéria-prima/aviamento vinculado — use a busca por material.','err'); return; }
+  // Etiqueta de PRODUTO ACABADO: a peça bipada já diz produto, cor e tamanho, e é
+  // 1 peça. A saída é dada NA ETIQUETA — é ela o estoque real.
+  if(!u.materialId && u.produtoId){
+    window.__MOVUNID=u; window.__MOVITEMID=u.produtoId;
+    const alvo=$('f_alvo'); if(alvo) alvo.value='produto';
+    movAlvo(); window.__MOVITEMID=u.produtoId; window.__MOVUNID=u;
+    const inp=$('f_item'); if(inp) inp.value=(u.produtoCodigo||'')+' · '+(u.descricao||'')+(u.cor?' · 🎨 '+u.cor:'');
+    const tp=$('f_tipo'); if(tp){ tp.value='saida'; tp.disabled=true; }
+    const tam=$('f_tam'); if(tam){ tam.value=u.tamanho||''; tam.readOnly=true; }
+    const q=$('f_qtd'); if(q){ q.value=1; q.readOnly=true; }
+    const info=$('f_movinfo'); if(info){ info.style.display='';
+      info.innerHTML=`🏷 <b>${esc(v)}</b> → <b>${esc(u.produtoCodigo||'')}</b> ${esc(u.descricao||'')}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · tam <b>'+esc(u.tamanho)+'</b>':''}`
+        +`<div style="margin-top:2px">📍 <b>${esc(u.endereco||'sem endereço')}</b> · situação: <b>${esc(u.statusLabel||u.status)}</b></div>`
+        +`<div style="margin-top:2px;color:#1e7a44">A saída baixa <b>esta peça</b> (1 un) — é a etiqueta que sai do estoque.</div>`;
+    }
+    const dd=$('f_itemdd'); if(dd) dd.style.display='none';
+    beepOk&&beepOk();
+    toast('Etiqueta lida: '+(u.descricao||'').slice(0,30)+(u.tamanho?(' · '+u.tamanho):'')+' · pronta para dar saída.','ok');
+    return;
+  }
+  if(!u.materialId){ toast('Esta etiqueta não está vinculada a produto nem a material — verifique o cadastro dela.','err'); return; }
   const alvo=$('f_alvo'); if(alvo){ alvo.value=String(u.materialCodigo||'').startsWith('AVI-')?'aviamento':'materia'; }
   movAlvo(); // aplica modo material (limpa seleção) — depois fixamos a etiqueta
   window.__MOVITEMID=u.materialId;
@@ -8046,6 +8071,16 @@ function movItemPick(id){
   const unl=$('f_unlbl'); if(unl){ if(isMat){ unl.textContent=x.unidade||''; unl.style.display=''; } else unl.style.display='none'; }
 }
 async function saveMov(){
+  // Etiqueta bipada: a baixa é NA PEÇA, não no agregado por produto+tamanho.
+  const un=window.__MOVUNID;
+  if(un && un.codigo && val('f_tipo')==='saida'){
+    try{
+      const r=await api('/estoque/unidade/'+encodeURIComponent(un.codigo)+'/saida',{method:'POST',body:{motivo:'Saída manual pelo estoque'}});
+      window.__MOVUNID=null; closeModal();
+      toast(r.mensagem+' · '+(r.descricao||'').slice(0,28)+(r.tamanho?(' · '+r.tamanho):''),'ok');
+      loadRoute(); return;
+    }catch(e){ toast(e.message,'err'); return; }
+  }
   const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
   const id=Number(window.__MOVITEMID||0);
   const body={ tipo:val('f_tipo'), quantidade:Number((val('f_qtd')||'').replace(',','.')) };

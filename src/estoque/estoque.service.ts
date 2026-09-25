@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -243,6 +244,7 @@ export class EstoqueService {
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
     // Material vinculado (p/ movimentação/baixa manual da matéria-prima).
     const mat = un.materialId ? await this.prisma.material.findUnique({ where: { id: un.materialId }, select: { id: true, codigo: true, unidade: true, saldo: true } }) : null;
+    const prod = un.produtoId ? await this.prisma.produto.findUnique({ where: { id: un.produtoId }, select: { codigo: true } }) : null;
     const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
     const statusLabel: Record<string, string> = {
       aguardando_endereco: 'Recebimento (aguardando endereço)', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado', quarentena: 'Quarentena',
@@ -263,6 +265,7 @@ export class EstoqueService {
       // Vínculo p/ movimentação: material + quantidade da etiqueta + unidade de medida.
       materialId: un.materialId ?? mat?.id ?? null,
       produtoId: un.produtoId ?? null,
+      produtoCodigo: prod?.codigo ?? null,
       quantidade: un.quantidade != null ? Number(un.quantidade) : null,
       unidadeMedida: mat?.unidade ?? null,
       materialCodigo: mat?.codigo ?? null,
@@ -569,6 +572,57 @@ export class EstoqueService {
   }
 
   /** Registra uma movimentação de material (entrada/saída) no livro. Best-effort. */
+  /**
+   * SAÍDA pela ETIQUETA. O estoque real de produto acabado é a UnidadeEstoque
+   * (etiqueta = peça); a tabela `Estoque` agregada não é a fonte da verdade. Dar
+   * baixa pelo produto+tamanho mexia só no agregado e a peça continuava
+   * "em estoque" — some do saldo e continua na prateleira do sistema.
+   * Aqui a peça bipada é que sai, e é isso que tira ela da contagem.
+   */
+  async saidaUnidade(codigoRaw: string, empresaId: number, motivo?: string, usuario?: string) {
+    const codigo = (codigoRaw ?? '').trim();
+    if (!codigo) throw new BadRequestException('Informe ou bipe a etiqueta.');
+    const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
+    if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
+    if (un.status === 'despachado') {
+      throw new ConflictException(`Etiqueta ${codigo} já saiu do estoque${un.saidaEm ? ' em ' + un.saidaEm.toLocaleDateString('pt-BR') : ''}.`);
+    }
+    if (un.status === 'reservado' && un.expedicaoId) {
+      throw new ConflictException(`Etiqueta ${codigo} está reservada para uma expedição — dê a saída pela Expedição, não pelo estoque.`);
+    }
+    const atualizada = await this.prisma.unidadeEstoque.update({
+      where: { codigo },
+      data: {
+        status: 'despachado',
+        saidaEm: new Date(),
+        areaMotivo: (motivo ?? '').trim() || 'Saída manual pelo estoque',
+      },
+    });
+    // Matéria-prima também baixa o saldo do material — ali o saldo É a fonte.
+    let material: { codigo: string; saldo: number; unidade: string } | null = null;
+    if (un.materialId && un.quantidade != null) {
+      const m = await this.prisma.material.update({
+        where: { id: un.materialId },
+        data: { saldo: { decrement: un.quantidade } },
+      });
+      material = { codigo: m.codigo, saldo: Number(m.saldo), unidade: m.unidade };
+      await this.registrarMovMaterial({
+        empresaId, materialId: un.materialId, tipo: 'saida', quantidade: Number(un.quantidade),
+        unidade: m.unidade, saldoApos: Number(m.saldo), origem: 'saida_etiqueta', documento: codigo, usuario,
+      });
+    }
+    return {
+      ok: true as const,
+      codigo: atualizada.codigo,
+      descricao: atualizada.descricao,
+      cor: atualizada.cor,
+      tamanho: atualizada.tamanho,
+      tipo: atualizada.tipo,
+      material,
+      mensagem: `Etiqueta ${codigo} deu SAÍDA do estoque.`,
+    };
+  }
+
   async registrarMovMaterial(d: {
     empresaId: number; materialId: number; tipo: string; quantidade: number; unidade: string;
     saldoApos: number; origem?: string; documento?: string; usuario?: string; client?: Prisma.TransactionClient;

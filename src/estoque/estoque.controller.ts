@@ -70,6 +70,13 @@ export class EstoqueController {
   }
 
   @Areas('estoque', 'producao')
+  /** SAÍDA da peça bipada — baixa a própria etiqueta (o estoque real). */
+  @Post('unidade/:codigo/saida')
+  @HttpCode(HttpStatus.OK)
+  saidaUnidade(@Param('codigo') codigo: string, @Body('motivo') motivo: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.saidaUnidade(codigo, user.empresaId, motivo, user.usuario);
+  }
+
   @Delete('unidade/:codigo')
   excluirUnidade(@Param('codigo') codigo: string, @CurrentUser() user: AuthUser) {
     if (user.acesso !== 'total') {
