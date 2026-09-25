@@ -5580,14 +5580,38 @@ function aguardMaterialHtml(aguard){
 let OPAVITENS=[];
 // Interpreta o texto de grade. "P:10, M:20" -> {P:10,M:20}. Se vier só o TAMANHO
 // (ex.: "G2") sem quantidade, joga a quantidade informada toda nesse tamanho.
+/**
+ * Lê a grade digitada. Antes só entendia "P:10, M:20" — quem escrevia do jeito
+ * natural ("M 30 UNID, G 30, GG 30") perdia os tamanhos EM SILÊNCIO e a OP saía
+ * só com o total. Agora aceita o separador que vier (dois-pontos, igual, traço,
+ * x ou só espaço), ignora a unidade escrita junto e entende o número antes ou
+ * depois do tamanho. Devolve `ignorado` quando havia texto que não deu para ler,
+ * para quem chama poder avisar em vez de engolir.
+ */
 function parseGradeOP(gradeTxt, qtd){
+  const txt=String(gradeTxt||'').trim();
+  const naoLidos=[];
+  // "30 UNID" / "30 pçs" / "30 un" -> "30". Separadores viram espaço.
+  const limpo=txt.replace(/\b(unidades?|unid|un|pe[çc]as?|p[çc]s?|pcs?)\b/gi,' ').replace(/[,;\/|+:=]/g,' ');
+  // Um TAMANHO é letras com no máximo um dígito COLADO ("G2", "GG"); o dígito
+  // separado é quantidade. É isso que distingue "G2 6" (tam G2, qtd 6) de
+  // "M 30" (tam M, qtd 30). Varre em tokens para não depender de vírgula —
+  // "M 30 G 30 GG 30" funciona igual a "M:30, G:30, GG:30".
+  const tokens=[...limpo.matchAll(/([A-Za-z]+\d?)|(\d+)/g)].map(m=>m[1]
+    ? { tipo:'tam', v:m[1].toUpperCase() }
+    : { tipo:'num', v:Number(m[2]) });
   const g={}; let temPar=false;
-  (gradeTxt||'').split(/[,;]+/).forEach(par=>{ const s=par.trim(); if(!s) return; const m=s.split(':'); const t=(m[0]||'').trim().toUpperCase(); const q=Number((m[1]||'').trim()); if(t&&q>0){ g[t]=(g[t]||0)+q; temPar=true; } });
-  if(temPar) return { grade:g, total:Object.values(g).reduce((a,b)=>a+b,0) };
-  // Sem "tam:qtd": se for UM tamanho só + quantidade, monta {TAM: qtd}.
-  const bare=(gradeTxt||'').trim().toUpperCase();
-  if(bare && /^[A-Z0-9]{1,6}$/.test(bare) && Number(qtd)>0){ return { grade:{[bare]:Number(qtd)}, total:Number(qtd) }; }
-  return { grade:null, total:Number(qtd)>0?Number(qtd):0 };
+  for(let i=0;i<tokens.length;i++){
+    const t=tokens[i], prox=tokens[i+1];
+    if(t.tipo==='tam' && prox && prox.tipo==='num' && prox.v>0){ g[t.v]=(g[t.v]||0)+prox.v; temPar=true; i++; continue; }
+    if(t.tipo==='num' && prox && prox.tipo==='tam' && t.v>0){ g[prox.v]=(g[prox.v]||0)+t.v; temPar=true; i++; continue; } // "30 M"
+    naoLidos.push(String(t.v));
+  }
+  if(temPar) return { grade:g, total:Object.values(g).reduce((a,b)=>a+b,0), ignorado:naoLidos };
+  // Sem par tamanho+quantidade: se for UM tamanho só, usa a quantidade do campo ao lado.
+  const bare=txt.toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(bare && /^[A-Z0-9]{1,4}$/.test(bare) && Number(qtd)>0){ return { grade:{[bare]:Number(qtd)}, total:Number(qtd), ignorado:[] }; }
+  return { grade:null, total:Number(qtd)>0?Number(qtd):0, ignorado: txt?[txt]:[] };
 }
 async function formOpAvulsa(){
   const [produtos, filiais] = await Promise.all([api('/produtos'), api('/filiais').catch(()=>[])]);
@@ -5605,7 +5629,7 @@ async function formOpAvulsa(){
     <datalist id="opav_prodlist">${(produtos||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>
     <div id="opav_itens"></div>
     <button class="btn-sm" onclick="APP.opavAdd()" style="margin-top:6px">+ produto</button>
-    <div class="muted" style="font-size:10.5px;margin:6px 0">Grade: "P:10, M:20" ou só o tamanho (ex.: "G2") + a quantidade. Sem grade, produz a quantidade em tamanho único.</div>
+    <div class="muted" style="font-size:10.5px;margin:6px 0">Grade: <b>M:30, G:30, GG:30</b> — também aceita "M 30, G 30". Ou só o tamanho (ex.: "G2") + a quantidade ao lado. Sem grade, produz tudo em tamanho único. <b>Os tamanhos vão no campo "grade", não na observação.</b></div>
     ${field('opav_obs','Observação (vale p/ todas)','')}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveOpAvulsa()">Gerar OP(s)</button></div>`, {wide:true});
@@ -5634,6 +5658,13 @@ async function saveOpAvulsa(){
     if(!prod){ toast('Produto inválido: "'+txt+'". Selecione da lista.','err'); return; }
     const pg=parseGradeOP(it.grade, it.qtd);
     if(!(pg.total>0)){ toast('Informe a quantidade (ou a grade) do produto '+ (prod.codigo||'')+'.','err'); return; }
+    // Digitou grade mas não deu para ler: avisa em vez de gerar a OP sem tamanho.
+    if((it.grade||'').trim() && !pg.grade){
+      toast('Não consegui ler a grade "'+(it.grade||'').trim()+'" do produto '+(prod.codigo||'')+'. Use "M:30, G:30, GG:30" (ou "M 30, G 30").','err'); return;
+    }
+    if(pg.grade && pg.ignorado && pg.ignorado.length){
+      toast('Não entendi esta parte da grade: "'+pg.ignorado.join('", "')+'". Corrija antes de gerar.','err'); return;
+    }
     const item={ produtoId: prod.id };
     if(pg.grade) item.gradeTamanhos=pg.grade; else item.quantidade=Number(it.qtd);
     const cor=(it.cor||'').trim(); if(cor) item.cor=cor;
@@ -5971,6 +6002,13 @@ async function saveOp(id){
     // Aceita "P:10, M:20" e também só o tamanho ("G2") somando a qtd da OP nele.
     const opAtual=(window.__OPS||[]).find(x=>x.id===id);
     const pg=parseGradeOP(gradeTxt, opAtual?opAtual.quantidade:0);
+    // Digitou grade e não deu para ler: avisa em vez de apagar os tamanhos.
+    if((gradeTxt||'').trim() && !pg.grade){
+      toast('Não consegui ler a grade "'+gradeTxt.trim()+'". Use "M:30, G:30, GG:30" (ou "M 30, G 30").','err'); return;
+    }
+    if(pg.grade && pg.ignorado && pg.ignorado.length){
+      toast('Não entendi esta parte da grade: "'+pg.ignorado.join('", "')+'".','err'); return;
+    }
     await api('/ops/'+id+'/grade',{method:'PATCH',body:{grade: pg.grade||{}}});
     closeModal(); toast('OP atualizada.','ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
