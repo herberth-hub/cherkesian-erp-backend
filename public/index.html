@@ -206,6 +206,19 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
   #content{padding:14px}
   #login{grid-template-columns:1fr}#login .brandcol{display:none}
 }
+/* Camada de documento: substitui a janela nova no celular (que vira pop-up e é
+   bloqueada). Ocupa a tela inteira e imprime só o conteúdo do iframe. */
+.docov{position:fixed;inset:0;z-index:9999;background:#2b2b2b;display:flex;flex-direction:column}
+.docov-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#1d1d1d;color:#fff;font-size:13px;flex:0 0 auto}
+.docov-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.docov-b{background:#C9A227;color:#3a2f08;border:0;border-radius:6px;padding:7px 12px;font-size:13px;font-weight:700;cursor:pointer}
+.docov-b[data-a="close"]{background:#4a4a4a;color:#fff}
+.docov-f{flex:1;width:100%;border:0;background:#fff}
+@media print{
+  body.docov-on>*:not(.docov){display:none !important}
+  body.docov-on .docov{position:static;background:#fff}
+  body.docov-on .docov-bar{display:none !important}
+}
 </style>
 </head>
 <body>
@@ -570,6 +583,76 @@ function navGo(e, route){
 }
 // Abre a página ATUAL (ou uma rota) em uma nova aba do navegador.
 function novaAba(route){ try{ window.open(location.pathname+'#'+(route||S.route),'_blank'); }catch(_){} }
+
+// ===== Documentos (impressão/visualização) sem depender de pop-up =====
+// No celular o navegador trata janela nova como POP-UP e bloqueia — ainda mais
+// quando o `window.open` vem DEPOIS de um await (que é a maioria dos casos aqui:
+// busca o documento na API e só então abre). Resultado: "não permitiu".
+// A saída é não abrir janela nenhuma no celular e mostrar o documento numa camada
+// dentro da própria página.
+const ehCelular = () => { try{ return matchMedia('(max-width:820px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints>1 && !matchMedia('(min-width:1024px)').matches); }catch(_){ return false; } };
+
+/**
+ * Camada que imita uma janela: devolve um objeto com `document.write/close`,
+ * `document.body`, `location`, `print()` e `close()`, para os chamadores
+ * continuarem escrevendo o mesmo código que escreviam para `window.open`.
+ */
+function camadaDoc(titulo){
+  const ov=document.createElement('div');
+  ov.className='docov';
+  ov.innerHTML='<div class="docov-bar"><span class="docov-t"></span>'
+    +'<button class="docov-b" data-a="print">🖨 Imprimir</button>'
+    +'<button class="docov-b" data-a="close">✕ Fechar</button></div>'
+    +'<iframe class="docov-f"></iframe>';
+  const tit=ov.querySelector('.docov-t'); tit.textContent=titulo||'Documento';
+  document.body.appendChild(ov); document.body.classList.add('docov-on');
+  const ifr=ov.querySelector('.docov-f');
+  let buf='';
+  const fechar=()=>{ ov.remove(); document.body.classList.remove('docov-on'); jan.closed=true; };
+  const imprimir=()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(_){ try{ window.print(); }catch(__){} } };
+  ov.addEventListener('click',e=>{ const b=e.target.closest('[data-a]'); if(!b) return; if(b.dataset.a==='close') fechar(); else imprimir(); });
+  const desenhar=()=>{ try{ const d=ifr.contentDocument; d.open(); d.write(buf||'<html><body></body></html>'); d.close(); }catch(_){} };
+  const jan={
+    closed:false, focus(){}, close:fechar, print:imprimir,
+    document:{
+      write(h){ buf+=h; desenhar(); },
+      close(){ desenhar(); },
+      get body(){ try{ return ifr.contentDocument.body; }catch(_){ return null; } },
+      set title(v){ tit.textContent=v; }, get title(){ return tit.textContent; },
+    },
+    set location(u){ buf=''; ifr.removeAttribute('srcdoc'); ifr.src=String(u); },
+    get location(){ return ifr.src; },
+  };
+  return jan;
+}
+
+/** Janela de documento: de verdade no computador, camada no celular. Nunca devolve null. */
+function abrirJanelaDoc(titulo){
+  if(!ehCelular()){
+    let w=null; try{ w=window.open('','_blank'); }catch(_){}
+    if(w) return w;
+  }
+  return camadaDoc(titulo); // celular, ou pop-up bloqueado no computador
+}
+
+/**
+ * Abre um arquivo já baixado (blob/URL). Âncora em vez de `window.open`: no
+ * celular o clique numa âncora com `download` conta como ação do usuário e passa,
+ * enquanto a janela nova é barrada.
+ */
+function abrirArquivo(url, nome){
+  if(!ehCelular()){
+    let w=null; try{ w=window.open(url,'_blank'); }catch(_){}
+    if(w) return true;
+  }
+  try{
+    const a=document.createElement('a');
+    a.href=url; a.rel='noopener';
+    if(nome) a.download=nome; else a.target='_blank';
+    document.body.appendChild(a); a.click(); a.remove();
+    return true;
+  }catch(_){ try{ location.href=url; return true; }catch(__){ return false; } }
+}
 async function loadRoute(){
   const c = $('content'); if(!c) return;
   if(S._tv){ clearInterval(S._tv); S._tv=null; } // encerra auto-refresh do modo TV
@@ -3711,7 +3794,7 @@ function pedOcSel(inp){
   fr.readAsDataURL(f);
 }
 function pedOcDel(){ window.__PEDOC=null; const pv=$('ped_oc_pv'); if(pv) pv.innerHTML=pedOcRender(); const fi=$('f_oc_file'); if(fi) fi.value=''; }
-function pedOcAbrir(){ const oc=window.__PEDOC; if(!oc||!oc.data) return; const w=window.open('','_blank'); if(w){ w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+oc.data+'" style="width:100%;height:100vh;border:0"></iframe>'); } else { toast('Libere o pop-up para abrir.','err'); } }
+function pedOcAbrir(){ const oc=window.__PEDOC; if(!oc||!oc.data) return; const w=abrirJanelaDoc(oc.nome||'Ordem de compra'); w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+oc.data+'" style="width:100%;height:100vh;border:0"></iframe>'); w.document.close(); }
 // ===== Instruções de ENTREGA / ETIQUETAGEM (padrão por cliente) =====
 const PED_ENTREGA_INSTR_PADRAO =
 `Todos os volumes devem estar identificados com:
@@ -4361,7 +4444,7 @@ async function bancosCarregarBoletos(ids){
 async function bancosBoletoPdf(id){
   try{ const r=await fetchAuth(API+'/bancos/boletos/'+id+'/pdf',{headers:{Authorization:'Bearer '+S.access}});
     if(!r.ok){ let m='Falha ao gerar o boleto.'; try{ m=(await r.json()).message||m; }catch(_){} toast(m,'err'); return; }
-    const url=URL.createObjectURL(await r.blob()); window.open(url,'_blank'); setTimeout(()=>URL.revokeObjectURL(url),60000);
+    const url=URL.createObjectURL(await r.blob()); abrirArquivo(url,'boleto-'+id+'.pdf'); setTimeout(()=>URL.revokeObjectURL(url),60000);
   }catch(e){ toast(e.message||'Falha ao abrir o boleto.','err'); }
 }
 async function bancosContasSelect(id, soProntas){
@@ -5639,7 +5722,7 @@ async function conferirRomaneioBip(){
 function imprimirRomaneio(){
   const r=(window.__ROM||{}).dados; if(!r) return;
   const linhas=(r.itens||[]).map(m=>`<tr><td>☐</td><td>${esc(m.codigo)}</td><td>${esc(m.descricao.split(' · ')[0])}</td><td style="text-align:center;font-weight:700">${m.localizacao?'📍 '+esc(m.localizacao):'—'}</td><td style="text-align:right">${esc(String(m.quantidade))} ${esc(m.unidade)}</td></tr>`).join('');
-  const w=window.open('','_blank','width=800,height=900'); if(!w){ toast('Libere o pop-up.','err'); return; }
+  const w=abrirJanelaDoc('Documento');
   w.document.write(`<html><head><meta charset=utf-8><title>Romaneio OP ${esc(r.op)}</title>
     <style>*{font-family:Arial}h2{margin:0 0 2px}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{border:1px solid #999;padding:6px 8px;font-size:13px;text-align:left}th{background:#eee}</style></head><body>
     <h2>Romaneio de corte — OP ${esc(r.op)}</h2>
@@ -5663,8 +5746,7 @@ async function etiquetaOp(id){
   }catch(e){ toast(e.message,'err'); }
 }
 function imprimirEtiqueta(d, zpl){
-  const w = window.open('', '_blank', 'width=440,height=380');
-  if(!w){ toast('Libere o pop-up para imprimir a etiqueta.','err'); return; }
+  const w = abrirJanelaDoc('Documento');
   w.document.write(`<html><head><title>Etiqueta ${esc(d.op)}</title><style>
     @page{size:100mm 80mm;margin:0}
     body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
@@ -5860,7 +5942,7 @@ async function opFaccaoEnviar(opId){
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 function imprimirEtiquetaFaccao(d){
-  const w=window.open('','_blank','width=460,height=540'); if(!w){ toast('Libere o pop-up p/ imprimir a etiqueta.','err'); return; }
+  const w=abrirJanelaDoc('Etiqueta');
   const kitsTxt=(d.kits||[]).map(k=>`${esc(k.tamanho)}·${k.pecas}p`).join('  ');
   w.document.write(`<html><head><title>Controle ${esc(d.controle)}</title><meta charset=utf-8><style>
     @page{size:100mm 80mm;margin:0} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
@@ -6185,7 +6267,7 @@ async function ocWhats(id){
   const tel=(forn&&forn.telefone||'').replace(/\D/g,'');
   if(!tel){ toast('Fornecedor sem telefone cadastrado.','err'); return; }
   const num=tel.length<=11?('55'+tel):tel; // assume Brasil se vier sem DDI
-  window.open('https://wa.me/'+num+'?text='+encodeURIComponent(ocMsgTexto(o)),'_blank');
+  abrirArquivo('https://wa.me/'+num+'?text='+encodeURIComponent(ocMsgTexto(o)));
   // marca como enviada (não bloqueia se falhar)
   try{ await api('/ordens-compra/'+id+'/situacao',{method:'POST',body:{situacao:'enviada'},silent:true}); loadRoute(); }catch(_){}
 }
@@ -7285,7 +7367,7 @@ async function gerarCaixasMaster(){
       <div class="cxh">CAIXA MASTER · GRUPO CHERKESIAN</div>
       <div class="cxrow"><div class="cxn">${esc(e.numero)}</div><img class="cxqr" src="${e.qr}"></div>
       <img class="cxbc" src="${e.barcode}"><div class="cxc">${esc(e.codigo)}</div></div></div>`).join('');
-  const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
+  const w=abrirJanelaDoc('Impressão');
   w.document.write(`<html><head><title>Etiquetas de caixas master</title><meta charset="utf-8">
     <style id="cxsz">@page{size:100mm 50mm;margin:0}</style>
     <style>
@@ -7545,7 +7627,7 @@ function imprimirEtqRetalho(et){
       <div class="uld">${et.localizacao?('📍 '+esc(et.localizacao)+' · '):''}${esc((et.data||'').split('-').reverse().join('/'))}</div>
       <img src="${et.barcode}">
       <div class="ulc">${esc(et.codigo||'')}</div></div></div>`;
-  const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir a etiqueta.','err'); return; }
+  const w=abrirJanelaDoc('Etiqueta');
   w.document.write(`<html><head><title>Etiqueta ${esc(et.codigo||'')}</title><meta charset=utf-8>
     <style id="upsz">@page{size:100mm 50mm;margin:0}</style>
     <style>
@@ -7589,7 +7671,7 @@ function imprimirEtqUnidades(pecas, meta){
       ${p.endereco?`<div class="ulend">📍 ${esc(p.endereco)}</div>`:''}
       <img src="${p.barcode}">
       <div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
-  const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up p/ imprimir as etiquetas.','err'); return; }
+  const w=abrirJanelaDoc('Etiquetas');
   w.document.write(`<html><head><title>Etiquetas ${esc(meta.loteEntrada||'')}</title><meta charset=utf-8>
     <style id="upsz">@page{size:A4;margin:8mm}</style>
     <style>
@@ -7956,7 +8038,7 @@ function canhotoExp(id, tem){
 }
 async function verCanhoto(id){
   try{ const r=await api('/expedicoes/'+id+'/canhoto');
-    const w=window.open('','_blank','width=680,height=820'); if(!w){ toast('Libere o pop-up p/ ver o canhoto.','err'); return; }
+    const w=abrirJanelaDoc('Canhoto assinado');
     w.document.write('<html><head><meta charset=utf-8><title>Canhoto assinado</title></head><body style="margin:0;background:#222;text-align:center">'
       +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(r.canhotoEm?(' — '+new Date(r.canhotoEm).toLocaleString("pt-BR")):'')+' &nbsp; <button onclick="window.print()">Imprimir</button></div>'
       +'<img src="'+r.img+'" style="max-width:100%;height:auto"></body></html>'); w.document.close();
@@ -8091,7 +8173,7 @@ async function imprimirEtiquetasCaixas(expId){
       <img class="cxbc" src="${et.barcode}"><div class="cxcod">${esc(et.codigo)}</div></div>`;
   }).join('');
   const n=(d.etiquetas||[]).length;
-  const w=window.open('','_blank','width=520,height=760'); if(!w){ toast('Libere o pop-up p/ imprimir.','err'); return; }
+  const w=abrirJanelaDoc('Impressão');
   w.document.write(`<html><head><meta charset=utf-8><title>Etiquetas de caixa · ${esc(d.etiquetas&&d.etiquetas[0]?d.etiquetas[0].expedicao:'')}</title>
     <style id="psz">@page{size:100mm 150mm;margin:0}</style>
     <style>*{box-sizing:border-box;font-family:Arial}html,body{margin:0}body{color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -8275,7 +8357,7 @@ function logsPdf(){
     <tbody>${rows||'<tr><td colspan=5>Sem registros.</td></tr>'}</tbody></table>
     <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
     </body></html>`;
-  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o PDF.','err'); return; }
+  const w=abrirJanelaDoc('Documento');
   w.document.open(); w.document.write(html); w.document.close();
 }
 
@@ -8990,7 +9072,7 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
     const rows = (d.itens||[]).map(i=>`<tr><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td style="text-align:center">${esc(i.grade)}</td><td style="text-align:right;font-weight:700">${i.quantidade}</td></tr>`).join('');
     const dataBR = new Date(d.data).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
     let labels=''; for(let v=1; v<=total; v++){ labels += labExpHTML(d,rows,dataBR,v,total); }
-    const w = window.open('','_blank','width=520,height=780'); if(!w){ toast('Libere o pop-up para a etiqueta de expedição.','err'); return; }
+    const w = abrirJanelaDoc('Etiqueta de expedição');
     w.document.write(`<html><head><title>Etiqueta expedição ${esc(d.numero)}${d.nf?(' · NF '+esc(d.nf)):''}</title><meta charset="utf-8">
     <style id="psz">@page{size:100mm 150mm;margin:0}</style>
     <style>
@@ -9129,7 +9211,7 @@ async function etiquetasUnitariasExp(id){
       ${p.codCliente?`<div class="ulcli">COD. CLIENTE ${esc(p.codCliente)}</div>`:''}
       <div class="uld">${esc(p.descricao)}</div>
       <img src="${p.barcode}"><div class="ulc">${esc(p.codigo)}</div></div></div>`).join('');
-    const w=window.open('','_blank','width=860,height=840'); if(!w){ toast('Libere o pop-up.','err'); return; }
+    const w=abrirJanelaDoc('Documento');
     w.document.write(`<html><head><title>Etiquetas unitárias ${esc(d.numero)}</title><meta charset="utf-8">
       <style id="upsz">@page{size:100mm 50mm;margin:0}</style>
       <style>
@@ -9517,16 +9599,15 @@ async function cartaCorrecaoNfe(id){
     toast(r.mensagem||'Carta de correção enviada.','ok');
     // Abre a janela AGORA (gesto do usuário) e carrega a carta com retry (CC-e é assíncrona).
     if(await uiConfirm({tipo:'ok', titulo:'Carta de correção enviada', msg:'Gerar/imprimir a carta agora? A SEFAZ leva alguns segundos para processar.', ok:'Imprimir carta', cancel:'Agora não'})){
-      const w=window.open('','_blank');
-      if(w){ w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Gerando a carta de correção da NF… aguarde alguns segundos.</div>'); cartaPdfNaJanela(id,w,12); }
-      else toast('Libere o pop-up e use o botão "🖨 CC-e" para imprimir.','err');
+      const w=abrirJanelaDoc('Carta de correção');
+      w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Gerando a carta de correção da NF… aguarde alguns segundos.</div>');
+      cartaPdfNaJanela(id,w,12);
     }
   }catch(e){ toast('Falha na CC-e: '+(e.message||e),'err'); }
 }
 // Botão de reimpressão: abre a janela no clique e carrega a carta.
 function baixarCartaCorrecao(id){
-  const w=window.open('','_blank');
-  if(!w){ toast('Libere o pop-up para imprimir a carta.','err'); return; }
+  const w=abrirJanelaDoc('Documento');
   w.document.write('<div style="font-family:Arial;padding:24px;font-size:15px">Buscando a carta de correção…</div>');
   cartaPdfNaJanela(id,w,8);
 }
@@ -10830,7 +10911,7 @@ async function kitFicha(codigo){
 }
 function imprimirFichaTecnicaKit(f){
   const k=f.kit||{}, p=f.produto||{}, bom=f.bom||[], med=f.medidas||[];
-  const w=window.open('','_blank','width=840,height=1000'); if(!w){ toast('Libere o pop-up p/ imprimir o romaneio.','err'); return; }
+  const w=abrirJanelaDoc('Romaneio');
   const bomRows=bom.length?bom.map(b=>`<tr><td>${esc(b.codigo)}</td><td>${esc(b.descricao)}</td><td class="r">${b.consumoUnit} ${esc(b.unidade)}</td><td class="r"><b>${b.total} ${esc(b.unidade)}</b></td></tr>`).join(''):'<tr><td colspan=4 style="text-align:center;color:#999;padding:8px">Sem ficha de materiais (BOM) cadastrada para este produto.</td></tr>';
   const medBlock=med.length?`<h3>Ficha técnica de medidas — tamanho ${esc(k.tamanho)}</h3>
     <table><thead><tr><th>Medida</th><th class="c">Valor</th><th class="c">Tolerância</th></tr></thead>
@@ -11126,7 +11207,7 @@ async function kitEtiqueta(id, silencioso){
   }catch(e){ toast(e.message,'err'); }
 }
 function imprimirEtiquetaKit(d, zpl, silencioso){
-  const w=window.open('','_blank','width=440,height=380'); if(!w){ toast('Libere o pop-up para imprimir.','err'); return; }
+  const w=abrirJanelaDoc('Impressão');
   w.document.write(`<html><head><title>${esc(d.codigo)}</title><style>
     @page{size:100mm 70mm;margin:0} body{margin:0;font-family:Arial,sans-serif;color:#000}
     .lbl{width:100mm;height:70mm;box-sizing:border-box;padding:4mm;display:flex;flex-direction:column;gap:1.2mm}
@@ -11574,7 +11655,7 @@ async function mkGerarPreview(){
   if(C.logo){ const im=await load(C.logo.img); if(im){ ctx.drawImage(im,C.logo.x,C.logo.y,C.logo.w,C.logo.w*(im.height/im.width)); } }
   return cv.toDataURL('image/png');
 }
-async function mkImprimir(){ const png=await mkGerarPreview(); const w=window.open('','_blank','width=640,height=800'); if(!w){ toast('Libere o pop-up.','err'); return; } const nome=(val('mkc_nome')||'Mockup'); w.document.write(`<html><head><meta charset=utf-8><title>${esc(nome)}</title></head><body style="margin:0;text-align:center;font-family:Arial"><h3 style="margin:10px">${esc(nome)}</h3><img src="${png}" style="max-width:100%"><div style="margin:10px"><button onclick="window.print()">Imprimir</button></div></body></html>`); w.document.close(); }
+async function mkImprimir(){ const png=await mkGerarPreview(); const w=abrirJanelaDoc('Documento'); const nome=(val('mkc_nome')||'Mockup'); w.document.write(`<html><head><meta charset=utf-8><title>${esc(nome)}</title></head><body style="margin:0;text-align:center;font-family:Arial"><h3 style="margin:10px">${esc(nome)}</h3><img src="${png}" style="max-width:100%"><div style="margin:10px"><button onclick="window.print()">Imprimir</button></div></body></html>`); w.document.close(); }
 
 // ================== SGQ · Universidade do Sistema ==================
 async function viewSGQ(c){
@@ -11674,7 +11755,7 @@ async function sgqSaveManual(){
 async function sgqImprimir(id){
   try{
     const r=await api('/sgq/doc/'+id+'/imprimir'); const d=r.doc;
-    const w=window.open('','_blank','width=800,height=920'); if(!w){ toast('Libere o pop-up para imprimir.','err'); return; }
+    const w=abrirJanelaDoc('Impressão');
     w.document.write(`<html><head><meta charset=utf-8><title>IT ${esc(d.codigo)}</title><style>
       @page{size:A4;margin:14mm} body{font-family:Arial,Helvetica,sans-serif;color:#111}
       .hd{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #c99a2e;padding-bottom:8px}
@@ -11978,7 +12059,7 @@ async function anomAnexo(ev,id,eventoId){
   if(ev) ev.preventDefault();
   try{ const r=await fetchAuth(API+'/anomalias/'+id+'/anexos/'+eventoId);
     if(!r.ok) throw new Error('Anexo indisponível.');
-    const b=await r.blob(); const u=URL.createObjectURL(b); window.open(u,'_blank');
+    const b=await r.blob(); const u=URL.createObjectURL(b); const ext=(b.type||'').split('/')[1]||'bin'; abrirArquivo(u,'anexo-'+eventoId+'.'+ext); setTimeout(()=>URL.revokeObjectURL(u),60000);
   }catch(e){ toast(e.message||'Falha ao abrir o anexo.','err'); }
 }
 
