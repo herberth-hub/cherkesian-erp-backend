@@ -743,7 +743,11 @@ export class ExpedicoesService {
   async conferir(id: number, empresaId: number, codigoRaw: string, usuario: string, caixaAtual?: number, tipoVolume?: string) {
     const codigo = this.extrairCodigo(codigoRaw);
     if (!codigo) throw new BadRequestException('Bipe um código válido.');
-    await this.getExp(id, empresaId); // valida posse (empresa) antes de travar a linha
+    // A CONFERÊNCIA é o ponto mais sensível a latência do sistema: alguém parado
+    // bipando peça a peça. Cada ida ao banco aqui é tempo de espera multiplicado
+    // pelo número de peças da caixa — por isso o caminho é enxuto de propósito.
+    // (Antes havia um getExp aqui que carregava a MESMA expedição que a transação
+    // carrega de novo logo abaixo: 2 consultas jogadas fora em cada bipe.)
     // Tudo dentro de uma transação com LOCK da linha da expedição (FOR UPDATE): dois
     // bips concorrentes do MESMO código são serializados — o 2º já vê o 1º gravado e é
     // recusado ("já conferido"), em vez de contar duas vezes.
@@ -751,6 +755,9 @@ export class ExpedicoesService {
       await tx.$queryRaw`SELECT id FROM "Expedicao" WHERE id = ${id} FOR UPDATE`;
       const exp = await tx.expedicao.findUnique({ where: { id } });
       if (!exp) throw new NotFoundException(`Expedição ${id} não encontrada.`);
+      // Posse (empresa) conferida aqui dentro, com a linha já em mãos.
+      const dono = await tx.cliente.findUnique({ where: { id: exp.clienteId }, select: { empresaId: true } });
+      if (!dono || dono.empresaId !== empresaId) throw new NotFoundException(`Expedição ${id} não encontrada.`);
       if (exp.conferenciaStatus === 'despachado') throw new ConflictException('Expedição já despachada — não é possível conferir.');
       const esperadas = exp.pecas;
       const conferidos = ((exp.conferidos as string[] | null) ?? []).slice();
