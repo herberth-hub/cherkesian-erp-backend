@@ -289,7 +289,7 @@ export class PedidosService {
       return this.prisma.$transaction(async (tx) => {
         await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
         return tx.pedido.update({ where: { id }, data: { ...dadosPedido, itens: { create: novos.map((n) => ({ produtoId: n.produtoId ?? undefined, descricao: n.descricao, cor: n.cor, quantidade: n.quantidade, valorUnit: n.valorUnit, grade: n.grade ?? Prisma.JsonNull })) } }, include: { itens: true } });
-      });
+      }, { maxWait: 15_000, timeout: 30_000 });
     }
 
     // ===== RETIFICAÇÃO SEGURA (pedido já em produção/expedido) =====
@@ -342,7 +342,7 @@ export class PedidosService {
       const statusNovo = exp <= 0 ? pedido.status : exp >= tot ? 'Concluído' : 'Expedição parcial';
       const atualizado = await tx.pedido.update({ where: { id }, data: { ...dadosPedido, etapa: etapaNova, status: statusNovo }, include: { itens: true } });
       return { ...atualizado, opsSincronizadas, opsAviso };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /** Exclui um pedido que ainda não gerou OP nem NF. */
@@ -383,7 +383,7 @@ export class PedidosService {
       await tx.contaReceber.deleteMany({ where: { pedidoId: id } });
       await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
       await tx.pedido.delete({ where: { id } });
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return {
       removido: true,
       id,

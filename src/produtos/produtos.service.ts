@@ -115,7 +115,7 @@ export class ProdutosService {
         });
         await this.upsertTecidoBom(tx, produto.id, dto);
         return produto;
-      });
+      }, { maxWait: 15_000, timeout: 30_000 });
     } catch (err) {
       throw this.tratarErroUnico(err, codigo);
     }
@@ -218,7 +218,7 @@ export class ProdutosService {
       }
       await this.upsertTecidoBom(tx, id, dto);
       return produto;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /** Normaliza as linhas da tabela de medidas para gravação (ordem sequencial). */

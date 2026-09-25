@@ -223,7 +223,7 @@ export class KitsService {
       });
       await tx.kitEvento.create({ data: { empresaId, kitId: kit.id, evento: 'expedido', detalhe: `Facção: ${k.faccaoNome ?? '—'} · OS ${osNum}${dto.remessaNf ? ' · NF remessa: ' + dto.remessaNf : ''}${dto.transportador ? ' · Transp.: ' + dto.transportador : ''}`, usuario, ip } });
       return k;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return { ja: false, mensagem: `Kit ${kit.codigo} expedido (OS ${osNum}) para ${atualizado.faccaoNome ?? 'facção'}.`, kit: atualizado };
   }
 
@@ -315,7 +315,7 @@ export class KitsService {
         }
       }
       return { k, contaPagar };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
 
     // Fecha a NF de remessa quando NÃO há mais kits do controle em facção (todos voltaram).
     if (remessaAberta && kit.controleFaccao) {
@@ -377,7 +377,7 @@ export class KitsService {
     await this.prisma.$transaction(async (tx) => {
       await tx.kit.updateMany({ where: { id: { in: dto.kitIds } }, data: { caixa: dto.caixa.trim() } });
       for (const k of kits) await tx.kitEvento.create({ data: { empresaId, kitId: k.id, evento: 'caixa', detalhe: `Caixa ${dto.caixa}`, usuario } });
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return { caixa: dto.caixa, kits: dto.kitIds.length };
   }
 

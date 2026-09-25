@@ -234,7 +234,7 @@ export class ExpedicoesService {
           data: { saidas: { increment: dto.pecas } },
         });
         return tx.expedicao.create({ data: await this.montarDados(dto, tx) });
-      });
+      }, { maxWait: 15_000, timeout: 30_000 });
     }
 
     return this.prisma.expedicao.create({ data: await this.montarDados(dto, this.prisma) });
@@ -426,7 +426,7 @@ export class ExpedicoesService {
         await tx.pedido.update({ where: { id: pedido.id }, data: totalmente ? { etapa: 'expedicao', status: 'Expedição' } : { status: 'Expedição parcial' } }).catch(() => undefined);
       }
       return { ok: true, mensagem: `Quantidades atualizadas — expedição agora com ${novasPecas} peça(s).`, pecas: novasPecas };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /**
@@ -520,7 +520,7 @@ export class ExpedicoesService {
         data: totalmente ? { etapa: 'expedicao', status: 'Expedição' } : { status: 'Expedição parcial' },
       });
       return exp;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   // ===================== DUPLA CONFERÊNCIA + DESPACHO =====================
@@ -875,7 +875,7 @@ export class ExpedicoesService {
         mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
         conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
       };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /** Zera a conferência: reverte as unidades bipadas (voltam ao estoque) e limpa as
@@ -1013,7 +1013,7 @@ export class ExpedicoesService {
         mensagem: `${codigo} devolvido${ondeCaixa ? ` da Caixa ${ondeCaixa}` : ''} (${add} pç). Aponte a “Caixa atual” e bipe de novo. ${novasPecas}/${exp.pecas}.`,
         conferidas: novasPecas, esperadas: exp.pecas, caixa: ondeCaixa,
       };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /**
@@ -1152,7 +1152,7 @@ export class ExpedicoesService {
           data: restam ? { status: 'Expedição parcial' } : { etapa: 'estoque', status: 'Pronto para expedição' },
         });
       }
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return { ok: true, mensagem: `Expedição ${exp.numero} estornada — pedido liberado para reexpedir (parcial ou total).` };
   }
 

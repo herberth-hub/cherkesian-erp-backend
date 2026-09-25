@@ -252,7 +252,7 @@ export class NfeService {
         await this.desmembrarPedidoParcial(tx, pedido, fat, criada.id);
       }
       return criada;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
 
     // No modo simulado, devolve o payload para conferência da contabilidade.
     return token ? nota : { ...nota, payloadPreview: payload };
@@ -366,7 +366,7 @@ export class NfeService {
         }
       }
       return criada;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return token ? { ...nota, sinal, residual } : { ...nota, sinal, residual, payloadPreview: payload };
   }
 
@@ -445,7 +445,7 @@ export class NfeService {
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
       return criada; // SEM conta a receber — a cobrança está no faturamento.
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return token ? nota : { ...nota, payloadPreview: payload };
   }
 
@@ -598,7 +598,7 @@ export class NfeService {
         await tx.pedido.update({ where: { id: pedidoVinc.id }, data: { etapa: 'aprovado', status: 'Faturado' } });
       }
       return criada;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
 
     return token ? nota : { ...nota, payloadPreview: payload };
   }
@@ -857,7 +857,7 @@ export class NfeService {
         }
       }
       return { titulosReceberCancelados: rec.count, pedidoRevertido };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   /**
@@ -977,7 +977,7 @@ export class NfeService {
         }
       }
       return { numeroReutilizado };
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return { excluido: true, id, numero: nota.numero, numeroReutilizado: resultado.numeroReutilizado };
   }
 
@@ -1555,7 +1555,7 @@ export class NfeService {
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       await tx.kit.updateMany({ where: { empresaId, controleFaccao }, data: { remessaNfNumero: criada.numero } });
       return criada;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return token ? nota : { ...nota, payloadPreview: payload };
   }
 
@@ -1656,7 +1656,7 @@ export class NfeService {
       });
       await tx.filial.update({ where: { id: filial!.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       return criada;
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
     return token ? nota : { ...nota, payloadPreview: payload };
   }
 

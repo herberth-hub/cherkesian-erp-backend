@@ -130,7 +130,7 @@ export class ContratosService {
         }
       }
       return tx.contrato.findUnique({ where: { id }, include: { itens: { orderBy: { id: 'asc' } } } });
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   async setAtivo(id: number, empresaId: number, ativo: boolean) {

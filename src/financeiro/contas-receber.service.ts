@@ -101,7 +101,7 @@ export class ContasReceberService {
         });
       }
       await tx.contaReceber.update({ where: { id: tituloId }, data: { comissaoGerada: true } });
-    });
+    }, { maxWait: 15_000, timeout: 30_000 });
   }
 
   async findAll(empresaId: number, status?: TituloStatus): Promise<ContaReceberView[]> {

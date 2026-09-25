@@ -535,7 +535,7 @@ export class EstoqueService {
           estoque: { ...estoque, saldo: estoque.entradas - estoque.saidas },
           lote,
         };
-      });
+      }, { maxWait: 15_000, timeout: 30_000 });
     }
 
     // SAÍDA
