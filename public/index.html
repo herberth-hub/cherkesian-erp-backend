@@ -1817,6 +1817,11 @@ function pedidoAcoes(p){
     b+=`<button class="btn-sm" onclick="APP.formPedido(${p.id})">Editar</button> `;
     b+=`<button class="btn-sm danger" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
   }
+  // Pedido CANCELADO também pode ser excluído (o backend só barra se a produção
+  // começou de fato). Sem isso ele só saía pela seleção em massa.
+  else if(p.etapa==='cancelado'){
+    b+=`<button class="btn-sm danger" title="Excluir o pedido cancelado (só passa se nenhuma OP tiver começado)" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
+  }
   // Retificar: pedido já em produção/expedição — edição segura (preserva o expedido).
   if(['parcial','concluido','producao','estoque','expedicao'].includes(p.etapa)){
     b+=`<button class="btn-sm" style="color:#8a5a00" title="Retificar o pedido (preserva o que já foi expedido). Cancele a NF antes." onclick="APP.retificarPedido(${p.id})">✏️ Retificar</button> `;
@@ -4260,8 +4265,15 @@ async function savePedido(id){
   }
 }
 async function excluirPedido(id,numero){
-  if(!(await uiConfirm({tipo:'err', titulo:'Excluir pedido '+numero+'?', msg:'Só é permitido enquanto não gerou OP nem NF. Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
-  try{ await api('/pedidos/'+id,{method:'DELETE'}); toast('Pedido '+numero+' excluído.','ok'); loadRoute(); }
+  if(!(await uiConfirm({tipo:'err', titulo:'Excluir pedido '+numero+'?', msg:'Só passa se nenhuma OP tiver começado e não houver NF ativa nem expedição. OP que só estava na fila (aguardando material) é removida junto. Esta ação não pode ser desfeita.', ok:'Excluir'}))) return;
+  try{
+    const r=await api('/pedidos/'+id,{method:'DELETE'});
+    const ops=(r&&r.opsRemovidas&&r.opsRemovidas.length)?(' · '+r.opsRemovidas.length+' OP(s) da fila removida(s)'):'';
+    toast('Pedido '+numero+' excluído'+ops+'.','ok');
+    // OC aberta não some junto — é compromisso com fornecedor. Avisa para decidir.
+    if(r&&r.aviso) await uiAlert({tipo:'warn', titulo:'Ordens de compra em aberto', ok:'Entendi', msg:r.aviso});
+    loadRoute();
+  }
   catch(e){ toast('Falha ao excluir: '+(e.message||e),'err'); }
 }
 async function cancelarPedido(id,numero){

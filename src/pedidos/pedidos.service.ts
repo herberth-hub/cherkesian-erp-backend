@@ -349,21 +349,51 @@ export class PedidosService {
   async remove(id: number, empresaId: number) {
     const pedido = await this.prisma.pedido.findUnique({ where: { id }, include: { ops: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
-    if (pedido.ops.length > 0) throw new ConflictException('Pedido já tem Ordem de Produção — não pode ser excluído.');
+    // O que trava a exclusão é PRODUÇÃO FEITA, não a existência de uma OP. OP em
+    // `aguardando_material`/`a_iniciar`, a 0% e sem nada cortado, é só reserva de
+    // fila: não baixou material nem virou peça. Ela sai junto com o pedido — senão
+    // um pedido cancelado fica preso para sempre por causa de uma OP que nunca
+    // começou, e a fila da fábrica acumula lixo.
+    const iniciadas = pedido.ops.filter(
+      (o) => !['aguardando_material', 'a_iniciar'].includes(o.status) || o.progresso > 0 || o.gradeCortada != null,
+    );
+    if (iniciadas.length > 0) {
+      throw new ConflictException(
+        `Pedido ${pedido.numero} já tem produção iniciada (${iniciadas.map((o) => `${o.numero} · ${o.status}`).join(', ')}) — não pode ser excluído. Cancele a produção antes.`,
+      );
+    }
     const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
     if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de excluir.`);
     const exp = await this.prisma.expedicao.findFirst({ where: { pedidoId: id }, select: { numero: true } });
     if (exp) throw new ConflictException(`Pedido vinculado à expedição ${exp.numero} — não pode ser excluído.`);
+    // Ordens de compra abertas geradas por este pedido: NÃO são apagadas (é compromisso
+    // com fornecedor, pode já ter sido pedido). Ficam avisadas no retorno para alguém
+    // decidir cancelar.
+    const ocsAbertas = await this.prisma.ordemCompra.findMany({
+      where: { status: 'aguardando', motivo: { contains: pedido.numero } },
+      select: { numero: true, descricao: true },
+    });
+
     await this.prisma.$transaction(async (tx) => {
       // Pilotos (amostras) vinculados são removidos junto; NFs inativas (simulada/
       // rejeitada/cancelada) são desvinculadas p/ manter o histórico sem travar.
       await tx.piloto.deleteMany({ where: { pedidoId: id } });
+      await tx.oP.deleteMany({ where: { pedidoId: id } }); // só as que nunca começaram (checado acima)
       await tx.notaFiscal.updateMany({ where: { pedidoId: id }, data: { pedidoId: null } });
       await tx.contaReceber.deleteMany({ where: { pedidoId: id } });
       await tx.pedidoItem.deleteMany({ where: { pedidoId: id } });
       await tx.pedido.delete({ where: { id } });
     });
-    return { removido: true, id, numero: pedido.numero };
+    return {
+      removido: true,
+      id,
+      numero: pedido.numero,
+      opsRemovidas: pedido.ops.map((o) => o.numero),
+      ordensCompraAbertas: ocsAbertas.map((o) => o.numero),
+      aviso: ocsAbertas.length
+        ? `Atenção: ${ocsAbertas.length} ordem(ns) de compra continuam ABERTAS (${ocsAbertas.map((o) => o.numero).join(', ')}) — foram geradas para este pedido. Cancele em Compras se o material não for mais necessário.`
+        : undefined,
+    };
   }
 
   /**
