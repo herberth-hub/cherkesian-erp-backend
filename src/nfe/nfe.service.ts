@@ -2184,6 +2184,11 @@ export class NfeService {
     const ieValida = ieDigitos.length >= 2 && ieDigitos.length <= 14;
     let indicadorIeDest = cliente.indicadorIE ?? 9;
     if (!ieValida && indicadorIeDest === 1) indicadorIeDest = 9; // sem IE não pode ser "Contribuinte"
+    // A tag IE SÓ vai quando o destinatário é contribuinte (indicador 1). Isento (2) e
+    // não contribuinte (9) com IE preenchida é rejeição na SEFAZ. Isso acontece de
+    // verdade: condomínio que tira Inscrição Estadual só para energia no mercado livre
+    // (ACL) continua sem atividade mercantil — a IE fica no cadastro, mas não na nota.
+    const enviaIe = ieValida && indicadorIeDest === 1;
 
     return {
       natureza_operacao: extra?.bonificacao ? 'Remessa em bonificacao, doacao ou brinde' : 'Venda de mercadoria',
@@ -2202,7 +2207,7 @@ export class NfeService {
       // SEFAZ limita xNome (destinatário) a 60 caracteres — trunca p/ não rejeitar.
       nome_destinatario: (cliente.nome || '').trim().slice(0, 60),
       [docDest.length === 11 ? 'cpf_destinatario' : 'cnpj_destinatario']: docDest,
-      inscricao_estadual_destinatario: ieValida ? ieDigitos : null,
+      inscricao_estadual_destinatario: enviaIe ? ieDigitos : null,
       indicador_inscricao_estadual_destinatario: indicadorIeDest,
       logradouro_destinatario: cliente.logradouro,
       numero_destinatario: cliente.numeroEndereco,
