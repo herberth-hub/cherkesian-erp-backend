@@ -7987,7 +7987,7 @@ async function formMov(){
     <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
       <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
     <div class="mrow" style="position:relative"><label class="fl" id="f_itemlab">Produto *</label>
-      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar OU bipe a etiqueta (UN-…) p/ dar saída rápida" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.movBip();}">
+      <input id="f_item" class="inp" autocomplete="off" placeholder="digite p/ buscar · ou bipe o código do produto (PRD-…) · ou a etiqueta da peça (UN-…)" oninput="APP.movItemDD()" onfocus="APP.movItemDD()" onblur="APP.movItemHide()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.movBip();}">
       <div id="f_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div></div>
     <div id="f_movinfo" style="display:none;margin:-4px 0 8px;font-size:12px;padding:7px 10px;background:#eef6ff;border:1px solid #bcd8f5;border-radius:8px"></div>
     <div class="grid3">
@@ -8034,7 +8034,21 @@ function movItemHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style
 // Bipar a etiqueta (UN-…) no Movimentar: puxa material, quantidade e endereço e prepara a SAÍDA.
 async function movBip(){
   const v=(val('f_item')||'').trim();
-  if(!/^UN-/i.test(v)){ movItemDD(); return; } // não é etiqueta de unidade → busca normal
+  if(!/^UN-/i.test(v)){
+    // Código do PRODUTO (PRD-…) ou do material (MP-…/AVI-…) bipado: seleciona direto,
+    // sem obrigar a escolher na lista. É como a pessoa lê da etiqueta da caixa.
+    const alvo=(window.__MOVLIST||[]).find(x=>String(x.codigo||'').toUpperCase()===v.toUpperCase());
+    if(alvo){
+      movItemPick(alvo.id);
+      const tp=$('f_tipo'); if(tp) tp.value='saida';
+      const foco=$('f_tam'); const q=$('f_qtd');
+      if(foco && foco.offsetParent!==null){ foco.focus(); } else if(q){ q.focus(); }
+      beepOk&&beepOk();
+      toast('Produto lido: '+alvo.codigo+' · informe tamanho e quantidade.','ok');
+      return;
+    }
+    movItemDD(); return; // não é código conhecido → busca normal
+  }
   let u; try{ u=await api('/estoque/unidade/'+encodeURIComponent(v)); }catch(e){ toast(e.message,'err'); return; }
   // Etiqueta de PRODUTO ACABADO: a peça bipada já diz produto, cor e tamanho, e é
   // 1 peça. A saída é dada NA ETIQUETA — é ela o estoque real.

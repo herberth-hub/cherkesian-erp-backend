@@ -176,6 +176,7 @@ export class DashboardService {
     for (const c of consumosDash) {
       const q = Number(c.quantidade);
       if (q <= 0) continue;
+      if (!c.material) continue; // receita por família: sem cor definida, não dá para medir o rendimento
       const r = Math.floor(Number(c.material.saldo) / q);
       const cur = rendeProd.get(c.produtoId);
       rendeProd.set(c.produtoId, cur == null ? r : Math.min(cur, r));

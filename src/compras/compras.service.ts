@@ -187,6 +187,9 @@ export class ComprasService {
       if (!dem) continue;
       const q = Number(c.quantidade);
       if (q <= 0) continue;
+      // Linha de receita por FAMÍLIA só vira material quando a cor do pedido é
+      // conhecida (isso acontece na OP). Aqui, sem cor, não dá para somar demanda.
+      if (!c.materialId || !c.material) continue;
       const cur = needed.get(c.materialId) ?? { mat: c.material, qtd: 0, unidade: c.unidade || c.material.unidade };
       cur.qtd += dem * q;
       needed.set(c.materialId, cur);

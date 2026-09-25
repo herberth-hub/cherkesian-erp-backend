@@ -59,6 +59,28 @@ export class OpsService {
   }
 
   /** Consumo de material do item (usa porTamanho quando há grade; senão qtd × BOM). */
+  /**
+   * Linha de receita por FAMÍLIA vira o material da cor pedida. Sem cor, só resolve
+   * quando a família tem um único material (não há ambiguidade).
+   */
+  private async resolverBomPorCor(
+    receita: Array<{ materialId: number | null; familia: string | null; parte: string | null; quantidade: Prisma.Decimal; porTamanho: unknown }>,
+    cor: string | null,
+  ): Promise<Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }>> {
+    const norm = (s: string | null | undefined) =>
+      String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const alvo = norm(cor);
+    const out: Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }> = [];
+    for (const b of receita) {
+      if (b.materialId) { out.push({ materialId: b.materialId, quantidade: b.quantidade, porTamanho: b.porTamanho, parte: b.parte }); continue; }
+      if (!b.familia) continue;
+      const cand = await this.prisma.material.findMany({ where: { familia: b.familia }, select: { id: true, cor: true } });
+      const m = alvo ? cand.find((x) => norm(x.cor) === alvo) : (cand.length === 1 ? cand[0] : undefined);
+      if (m) out.push({ materialId: m.id, quantidade: b.quantidade, porTamanho: b.porTamanho, parte: b.parte });
+    }
+    return out;
+  }
+
   private consumoDoItem(b: { quantidade: Prisma.Decimal; porTamanho?: unknown }, item: { quantidade: number; grade?: unknown }): Prisma.Decimal {
     const porTam = b.porTamanho as Record<string, number> | null | undefined;
     const grade = item.grade as Record<string, number> | null | undefined;
@@ -90,12 +112,16 @@ export class OpsService {
     if (!(total > 0)) throw new BadRequestException('Informe a quantidade (ou a grade de tamanhos) da OP.');
 
     // Romaneio de materiais (BOM × quantidade) — referência para o corte.
-    const bom = await this.prisma.consumo.findMany({ where: { produtoId: produto.id } });
+    const receita = await this.prisma.consumo.findMany({ where: { produtoId: produto.id } });
+    // Receita por FAMÍLIA precisa da cor para virar material; na OP avulsa usa a cor
+    // informada e, se a família só tem um material, ele mesmo.
+    const bom = await this.resolverBomPorCor(receita, dto.cor ?? produto.cor ?? null);
     const mats = bom.length ? await this.prisma.material.findMany({ where: { id: { in: bom.map((b) => b.materialId) } } }) : [];
     const item = { quantidade: total, grade };
-    const romaneio = bom.map((b) => {
-      const m = mats.find((x) => x.id === b.materialId)!;
-      return { materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, item).toFixed(4)), unidade: m.unidade, conferido: false };
+    const romaneio = bom.flatMap((b) => {
+      const m = mats.find((x) => x.id === b.materialId);
+      if (!m) return [];
+      return [{ materialId: b.materialId, codigo: m.codigo, descricao: m.descricao, localizacao: m.localizacao ?? null, quantidade: Number(this.consumoDoItem(b, item).toFixed(4)), unidade: m.unidade, conferido: false }];
     });
 
     let filialId = dto.filialId;

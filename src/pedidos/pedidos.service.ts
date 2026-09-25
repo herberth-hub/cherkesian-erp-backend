@@ -805,19 +805,35 @@ export class PedidosService {
     }
 
     // Consumo agregado (BOM × quantidade) por unidade de produção (romaneio por unidade).
+    // A receita pode apontar para uma FAMÍLIA; aqui ela vira o material da cor do item.
     const necessarioPorMaterial = new Map<number, Prisma.Decimal>();
-    const bomPorItem = new Map<number, Awaited<ReturnType<typeof this.prisma.consumo.findMany>>>();
+    const bomPorItem = new Map<number, Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }>>();
+    const semMaterialDaCor: string[] = [];
     let totalPecas = 0;
     for (const u of unidades) {
       totalPecas += u.quantidade;
       if (!u.produtoId) continue;
-      const bom = await this.prisma.consumo.findMany({ where: { produtoId: u.produtoId } });
-      bomPorItem.set(u.chave, bom);
-      for (const b of bom) {
+      const receita = await this.prisma.consumo.findMany({ where: { produtoId: u.produtoId } });
+      const { linhas, faltando } = await this.resolverBom(receita, u.cor);
+      bomPorItem.set(u.chave, linhas);
+      for (const f of faltando) if (!semMaterialDaCor.includes(f)) semMaterialDaCor.push(f);
+      for (const b of linhas) {
         const usa = this.consumoDoItem(b, u);
         const atual = necessarioPorMaterial.get(b.materialId) ?? new Prisma.Decimal(0);
         necessarioPorMaterial.set(b.materialId, atual.plus(usa));
       }
+    }
+    // Receita pede uma família que não existe naquela cor: a OP não pode sair com o
+    // consumo faltando — seria material baixado a menos e corte errado na fábrica.
+    if (semMaterialDaCor.length) {
+      return {
+        status: 'sem_material_da_cor' as const,
+        pedido: { numero: pedido.numero, etapa: pedido.etapa },
+        faltando: semMaterialDaCor,
+        message:
+          `A ficha técnica pede ${semMaterialDaCor.length === 1 ? 'um material' : 'materiais'} que não existe(m) na cor do pedido: ` +
+          `${semMaterialDaCor.join(' · ')}. Cadastre o material nessa cor (ou aponte a receita para um material específico) e gere a OP de novo.`,
+      };
     }
 
     // 3) Compara com o saldo dos materiais
@@ -1188,6 +1204,39 @@ export class PedidosService {
     const out: Record<string, number> = {};
     for (const [k, v] of Object.entries(g)) { const n = Math.floor((Number(v) || 0) * fator); if (n > 0) out[k] = n; }
     return Object.keys(out).length ? out : undefined;
+  }
+
+  /**
+   * Resolve as linhas de receita que apontam para uma FAMÍLIA (sem cor) no material
+   * concreto, usando a cor do item do pedido. É o que permite cadastrar a receita
+   * uma vez por artigo em vez de uma por cor.
+   * Linha sem material e sem família resolvida fica de fora e é devolvida em
+   * `faltando` — a OP precisa dizer o que não achou, não sumir com o consumo.
+   */
+  private async resolverBom(
+    bom: Array<{ materialId: number | null; familia: string | null; parte: string | null; quantidade: Prisma.Decimal; porTamanho: unknown; unidade: string }>,
+    cor: string | null,
+  ): Promise<{ linhas: Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }>; faltando: string[] }> {
+    const linhas: Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }> = [];
+    const faltando: string[] = [];
+    const norm = (s: string | null | undefined) =>
+      String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const corItem = norm(cor);
+
+    for (const b of bom) {
+      if (b.materialId) { linhas.push({ materialId: b.materialId, quantidade: b.quantidade, porTamanho: b.porTamanho, parte: b.parte }); continue; }
+      if (!b.familia) continue;
+      const candidatos = await this.prisma.material.findMany({
+        where: { familia: b.familia },
+        select: { id: true, cor: true, descricao: true },
+      });
+      const achado = corItem
+        ? candidatos.find((m) => norm(m.cor) === corItem)
+        : (candidatos.length === 1 ? candidatos[0] : undefined);
+      if (achado) linhas.push({ materialId: achado.id, quantidade: b.quantidade, porTamanho: b.porTamanho, parte: b.parte });
+      else faltando.push(`${b.familia}${cor ? ' na cor ' + cor : ' (item sem cor definida)'}`);
+    }
+    return { linhas, faltando };
   }
 
   private consumoDoItem(b: { quantidade: Prisma.Decimal; porTamanho?: unknown }, item: { quantidade: number; grade?: unknown }): Prisma.Decimal {

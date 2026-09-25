@@ -15,6 +15,31 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+/**
+ * Partes de um conjunto. Lista FECHADA de propósito: em campo livre vira "calça",
+ * "Calça" e "CALCA", e o agrupamento por parte deixa de funcionar.
+ */
+export const PARTES_PECA = ['BLUSA', 'CALÇA', 'BERMUDA', 'JAQUETA', 'COLETE', 'SAIA', 'AVENTAL', 'GORRO'] as const;
+
+/** Uma linha da receita: material (ou família) + consumo, opcionalmente por parte. */
+export class ComposicaoItemDto {
+  /** Material específico (com cor). Use ISTO ou `familia`, não os dois. */
+  @IsOptional() @IsInt() materialId?: number;
+
+  /** Artigo genérico sem cor (ex.: "MALHA PV") — a cor vem do pedido na hora da OP. */
+  @IsOptional() @IsString() @MaxLength(80) familia?: string;
+
+  /** Vazio = peça única. Preenchido = parte do conjunto. */
+  @IsOptional() @IsIn(PARTES_PECA as unknown as string[]) parte?: string;
+
+  @IsNumber({ maxDecimalPlaces: 4 }) @IsPositive() quantidade!: number;
+
+  @IsOptional() @IsString() @MaxLength(8) unidade?: string;
+
+  /** Consumo por tamanho DESTA linha — a blusa G e a calça G gastam diferente. */
+  @IsOptional() @IsObject() porTamanho?: Record<string, number>;
+}
+
 /** Campos fiscais reutilizados por create/update de produto (NF-e). */
 export class ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(8) ncm?: string;
@@ -67,6 +92,16 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   @IsOptional() @IsString() @MaxLength(8) tecidoUnidade?: string;
   /** Consumo por tamanho { "PP":1.70, "M":1.80, ... } — precisão por tamanho na OP. */
   @IsOptional() @IsObject() tecidoConsumoPorTamanho?: Record<string, number>;
+  /**
+   * RECEITA COMPLETA (substitui o tecido único quando enviada). Uma linha por
+   * material: no conjunto, um tecido para a blusa e outro para a calça, cada um com
+   * o seu consumo e a sua grade. `familia` deixa a cor para o pedido resolver.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComposicaoItemDto)
+  composicaoMateriais?: ComposicaoItemDto[];
   /** Peso e embalagem (p/ peso líquido/bruto e volumes no pedido/NF). */
   @IsOptional() @IsNumber() pesoUnitario?: number;
   @IsOptional() @IsObject() pesoPorTamanho?: Record<string, number>;

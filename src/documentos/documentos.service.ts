@@ -623,8 +623,8 @@ export class DocumentosService {
           { titulo: 'Total OP', largura: 110, alinhamento: 'right' },
         ],
         bom.map((b) => [
-          b.material.codigo,
-          b.material.descricao,
+          b.material?.codigo ?? '—',
+          b.material?.descricao ?? (b.familia ? b.familia + ' (família — cor do pedido)' : '—'),
           `${this.qtdBR(b.quantidade)} ${b.unidade}`,
           `${this.qtdBR(b.quantidade.mul(op.quantidade))} ${b.unidade}`,
         ]),
@@ -1340,8 +1340,8 @@ export class DocumentosService {
           { titulo: 'Consumo', largura: 100, alinhamento: 'right' },
         ],
         bom.map((b) => [
-          b.material.codigo,
-          b.material.descricao,
+          b.material?.codigo ?? '—',
+          b.material?.descricao ?? (b.familia ? b.familia + ' (família — cor do pedido)' : '—'),
           b.unidade,
           b.quantidade.toFixed(4),
         ]),

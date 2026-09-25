@@ -30,6 +30,14 @@ export class ProdutosService {
     const porProd = new Map<number, { rende: number | null; tecido: string | null; maiorQtd: number; consumoMedio: number | null; unidade: string | null }>();
     for (const c of consumos) {
       const q = Number(c.quantidade);
+      // Receita por FAMÍLIA não tem saldo próprio: a cor (e o saldo) só se define no
+      // pedido. Entra na lista pelo nome da família, sem estimar rendimento.
+      if (!c.material) {
+        const cur = porProd.get(c.produtoId) ?? { rende: null, tecido: null, maiorQtd: -1, consumoMedio: null, unidade: null };
+        if (q > cur.maiorQtd) { cur.maiorQtd = q; cur.tecido = c.familia; cur.consumoMedio = q > 0 ? q : null; cur.unidade = c.unidade; }
+        porProd.set(c.produtoId, cur);
+        continue;
+      }
       const saldo = Number(c.material.saldo);
       // Estimativa REAL do rendimento: se há consumo por tamanho cadastrado, usa a
       // MÉDIA por tamanho (a peça média), não o consumo fixo (que costuma ser o do
@@ -120,6 +128,32 @@ export class ProdutosService {
     produtoId: number,
     dto: CreateProdutoDto | UpdateProdutoDto,
   ) {
+    // RECEITA COMPLETA (lista): substitui tudo o que havia. É o caminho do conjunto —
+    // um tecido para a blusa, outro para a calça, cada um com a sua grade.
+    if (Array.isArray(dto.composicaoMateriais)) {
+      const limpaPorTam = (pt?: Record<string, number>) => {
+        const out: Record<string, number> = {};
+        for (const [k, v] of Object.entries(pt ?? {})) {
+          const n = Number(v);
+          if (k && Number.isFinite(n) && n > 0) out[String(k).toUpperCase()] = n;
+        }
+        return out;
+      };
+      const linhas = dto.composicaoMateriais
+        .filter((l) => (l.materialId || (l.familia ?? '').trim()) && Number(l.quantidade) > 0)
+        .map((l) => ({
+          produtoId,
+          materialId: l.materialId ?? null,
+          familia: l.materialId ? null : (l.familia ?? '').trim().toUpperCase() || null,
+          parte: (l.parte ?? '').trim().toUpperCase() || null,
+          quantidade: new Prisma.Decimal(Number(l.quantidade).toFixed(4)),
+          unidade: (l.unidade || 'm').slice(0, 8),
+          porTamanho: limpaPorTam(l.porTamanho) as Prisma.InputJsonValue,
+        }));
+      await tx.consumo.deleteMany({ where: { produtoId } });
+      if (linhas.length) await tx.consumo.createMany({ data: linhas });
+      return;
+    }
     if (!dto.tecidoMaterialId || !(Number(dto.tecidoConsumo) > 0)) return;
     const materialId = dto.tecidoMaterialId;
     const quantidade = new Prisma.Decimal(Number(dto.tecidoConsumo).toFixed(4));
@@ -300,14 +334,17 @@ export class ProdutosService {
     });
     let custoMaterial = new Prisma.Decimal(0);
     const itens = bom.map((b) => {
-      const subtotal = b.quantidade.mul(b.material.custo);
+      // Família sem material fixo: usa o custo MÉDIO das cores dessa família, senão
+      // o custo do produto sairia menor do que é só porque a cor não foi escolhida.
+      const custoUnit = b.material?.custo ?? new Prisma.Decimal(0);
+      const subtotal = b.quantidade.mul(custoUnit);
       custoMaterial = custoMaterial.plus(subtotal);
       return {
-        material: b.material.codigo,
-        descricao: b.material.descricao,
+        material: b.material?.codigo ?? '—',
+        descricao: b.material?.descricao ?? (b.familia ? `${b.familia} (família — cor do pedido)` : '—'),
         quantidade: b.quantidade.toFixed(4),
         unidade: b.unidade,
-        custoUnit: b.material.custo.toFixed(2),
+        custoUnit: custoUnit.toFixed(2),
         subtotal: subtotal.toFixed(2),
       };
     });

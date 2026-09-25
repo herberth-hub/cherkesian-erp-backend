@@ -716,7 +716,7 @@ export class KitsService {
     const bomLinhas = bom.map((b) => {
       const porTam = (b.porTamanho as Record<string, number> | null) || null;
       const q = porTam && porTam[tam] != null ? Number(porTam[tam]) : Number(b.quantidade);
-      return { codigo: b.material.codigo, descricao: b.material.descricao.split(' · ')[0], consumoUnit: q, unidade: b.unidade, total: Number((q * kit.pecasTotal).toFixed(3)) };
+      return { codigo: b.material?.codigo ?? '—', descricao: (b.material?.descricao ?? b.familia ?? '—').split(' · ')[0], consumoUnit: q, unidade: b.unidade, total: Number((q * kit.pecasTotal).toFixed(3)) };
     });
     const medidas = produtoId ? await this.prisma.produtoMedida.findMany({ where: { produtoId }, orderBy: { ordem: 'asc' } }) : [];
     const medidasTam = medidas
