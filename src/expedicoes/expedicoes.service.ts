@@ -1052,7 +1052,16 @@ export class ExpedicoesService {
 
   /** Despacha a mercadoria (só após a conferência): registra a data de saída ao cliente.
    *  A saída é liberada bipando a ETIQUETA MASTER da caixa (codigoMaster) — 2ª leitura da dupla conferência. */
-  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false) {
+  /**
+   * Canais de envio homologados. A saída precisa dizer POR ONDE foi: sem isso não
+   * há como cobrar entrega de ninguém depois nem achar a mercadoria em trânsito.
+   */
+  canaisEnvio(): string[] {
+    return [...ExpedicoesService.CANAIS];
+  }
+  static readonly CANAIS = ['BRASPRESS', 'JAMEF', 'MELHOR ENVIO', 'LUCAS MOTOBOY', 'MOTORISTA DA EMPRESA'] as const;
+
+  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false, transportadora?: string) {
     const exp = await this.getExp(id, empresaId);
     if (exp.conferenciaStatus === 'despachado') return { ja: true, mensagem: 'Expedição já despachada.', dataSaida: exp.dataSaida };
     // Baixa direta do admin: marca tudo conferido e pula a 2ª leitura (etiqueta master).
@@ -1071,8 +1080,22 @@ export class ExpedicoesService {
       if (!bip) throw new BadRequestException('Bipe a etiqueta MASTER da caixa para despachar.');
       if (bip !== master) throw new BadRequestException(`Etiqueta master incorreta (${bip}). Bipe a etiqueta master desta expedição (${exp.numero}).`);
     }
+    // Canal de envio é OBRIGATÓRIO no despacho — é o registro de por onde a
+    // mercadoria saiu. Aceita o que já estava gravado na expedição.
+    const canal = (transportadora ?? exp.transportadora ?? '').trim().toUpperCase();
+    if (!canal) {
+      throw new BadRequestException(
+        `Informe por qual canal a mercadoria está sendo enviada: ${ExpedicoesService.CANAIS.join(' · ')}.`,
+      );
+    }
+    if (!(ExpedicoesService.CANAIS as readonly string[]).includes(canal)) {
+      throw new BadRequestException(
+        `Canal "${canal}" não é homologado. Use um destes: ${ExpedicoesService.CANAIS.join(' · ')}.`,
+      );
+    }
+
     const now = new Date();
-    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario } });
+    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario, transportadora: canal } });
     // Saiu pra entrega: define a etapa do pedido conforme o que já foi expedido.
     // Só marca CONCLUÍDO quando TODOS os itens foram totalmente expedidos e não há
     // mais expedições pendentes; caso contrário fica PARCIAL (falta expedir o resto).

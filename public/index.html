@@ -235,6 +235,8 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 "use strict";
 const API = '/api/v1';
 const LS = { access:'ck_access', refresh:'ck_refresh', user:'ck_user' };
+// Canais de envio homologados (mesma lista validada no backend, em expedicoes.service).
+const CANAIS_ENVIO = ['BRASPRESS','JAMEF','MELHOR ENVIO','LUCAS MOTOBOY','MOTORISTA DA EMPRESA'];
 
 // ---------- Estado ----------
 const S = {
@@ -9315,6 +9317,14 @@ async function formConferencia(id){
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`
       <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
+      <div style="margin-bottom:6px">
+        <label class="fl">Por qual canal está sendo enviado? <span style="color:#c14a34">*</span></label>
+        <select id="exp_canal" class="inp" style="max-width:320px">
+          <option value="">— selecione —</option>
+          ${CANAIS_ENVIO.map(t=>`<option value="${esc(t)}"${(c.transportadora||'').toUpperCase()===t?' selected':''}>${esc(t)}</option>`).join('')}
+        </select>
+        <div class="muted" style="font-size:10.5px;margin-top:3px">Obrigatório — é o registro de por onde a mercadoria saiu, e sai impresso no romaneio.</div>
+      </div>
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
         <div style="flex:1"><label class="fl">Bipe a etiqueta MASTER (caixa)</label><input id="master_bip" class="inp" placeholder="Etiqueta master ${esc(c.codBip||c.numero)}" onkeydown="if(event.key==='Enter')APP.despacharExp(${id})"></div>
         <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar</button>
@@ -9459,9 +9469,11 @@ async function conferirBip(id, codigo){
   finally{ delete window.__bipBusy[key]; }
 }
 async function despacharExp(id){
+  const canal=((document.getElementById('exp_canal')||{}).value||'').trim();
+  if(!canal){ toast('Informe por qual canal a mercadoria está sendo enviada.','err'); const s=document.getElementById('exp_canal'); if(s) s.focus(); return; }
   const cod=(document.getElementById('master_bip')||{}).value||'';
   if(!cod){ toast('Bipe a etiqueta MASTER da caixa para despachar.','err'); return; }
-  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod}}); toast(r.mensagem,'ok'); closeModal(); loadRoute(); }
+  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal}}); toast(r.mensagem+' · '+canal,'ok'); closeModal(); loadRoute(); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){

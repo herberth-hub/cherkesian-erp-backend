@@ -10,6 +10,10 @@ export interface Filtros {
   de?: string;
   ate?: string;
   status?: string;
+  /** CNPJ emissor. Sem ele o relatório sai com TODAS as empresas juntas. */
+  filialId?: number;
+  /** Competência "AAAA-MM": preenche o período com o mês inteiro. */
+  comp?: string;
 }
 interface Relatorio {
   area: Area;
@@ -30,6 +34,25 @@ function periodo(campo: string, f: Filtros): Record<string, unknown> {
 function statusEq(campo: string, f: Filtros): Record<string, unknown> {
   return f.status ? { [campo]: f.status } : {};
 }
+/** Recorte por CNPJ emissor — é o que separa as empresas no relatório. */
+function filialEq(f: Filtros): Record<string, unknown> {
+  return f.filialId ? { filialId: f.filialId } : {};
+}
+/**
+ * "AAAA-MM" -> primeiro e último dia do mês. A contabilidade trabalha por
+ * COMPETÊNCIA, não por intervalo solto de datas; escolher o mês evita o erro
+ * clássico de pegar 30 ou 31 dias errados na virada.
+ */
+export function periodoDaCompetencia(comp?: string): { de?: string; ate?: string } {
+  const m = /^(\d{4})-(\d{1,2})$/.exec((comp || '').trim());
+  if (!m) return {};
+  const ano = Number(m[1]);
+  const mes = Number(m[2]);
+  if (!(mes >= 1 && mes <= 12)) return {};
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const mm = String(mes).padStart(2, '0');
+  return { de: `${ano}-${mm}-01`, ate: `${ano}-${mm}-${String(ultimo).padStart(2, '0')}` };
+}
 
 /**
  * Relatórios em PDF (papel timbrado) por área. Um botão "Relatório" em cada tela
@@ -46,12 +69,32 @@ export class RelatoriosService {
     if (!perfilPodeAcessar(user.acesso, rel.area)) {
       throw new ForbiddenException('Seu perfil não pode gerar este relatório.');
     }
-    const { colunas, linhas, total } = await rel.build(user.empresaId, filtros);
+    const f = await this.normalizar(filtros, user.empresaId);
+    const { colunas, linhas, total } = await rel.build(user.empresaId, f);
     const descFiltro = [
-      filtros.de || filtros.ate ? `Período: ${filtros.de ? dataBR(filtros.de) : '…'} a ${filtros.ate ? dataBR(filtros.ate) : '…'}` : '',
-      filtros.status ? `Status: ${filtros.status}` : '',
+      f.empresaNome ? `Empresa: ${f.empresaNome}` : 'Empresa: TODAS',
+      f.comp ? `Competência: ${f.comp}` : (f.de || f.ate ? `Período: ${f.de ? dataBR(f.de) : '…'} a ${f.ate ? dataBR(f.ate) : '…'}` : ''),
+      f.status ? `Status: ${f.status}` : '',
     ].filter(Boolean).join('   ·   ');
-    return { titulo: rel.titulo, colunas, linhas, total, descFiltro };
+    return { titulo: rel.titulo, colunas, linhas, total, descFiltro, sufixo: f.sufixo };
+  }
+
+  /** Aplica a competência sobre o período e resolve o nome da empresa escolhida. */
+  private async normalizar(filtros: Filtros, empresaId: number): Promise<Filtros & { empresaNome?: string; sufixo: string }> {
+    const f: Filtros & { empresaNome?: string; sufixo: string } = { ...filtros, sufixo: '' };
+    if (f.comp) {
+      const p = periodoDaCompetencia(f.comp);
+      if (p.de) { f.de = p.de; f.ate = p.ate; } else delete f.comp;
+    }
+    if (f.filialId) {
+      const fil = await this.prisma.filial.findFirst({ where: { id: Number(f.filialId), empresaId }, select: { nome: true } });
+      if (!fil) throw new NotFoundException('Empresa (CNPJ emissor) não encontrada.');
+      f.empresaNome = fil.nome;
+    }
+    // Nome do arquivo: a contadora baixa vários e precisa diferenciar sem abrir.
+    const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 28);
+    f.sufixo = [f.empresaNome ? slug(f.empresaNome) : '', f.comp || ''].filter(Boolean).join('-');
+    return f;
   }
 
   async gerar(tipo: string, user: AuthUser, filtros: Filtros = {}): Promise<{ doc: Pdf; nome: string }> {

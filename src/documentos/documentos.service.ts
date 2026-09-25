@@ -1091,6 +1091,10 @@ export class DocumentosService {
       ['Pedido de origem', pedido?.numero ?? '—'],
       ['Peças', String(exp.pecas)],
       ['Volumes', String(exp.volumes)],
+      // Quem levou a mercadoria: é por aqui que se cobra a entrega e se rastreia
+      // a carga depois. Preenchido obrigatoriamente no despacho.
+      ['Transporte', exp.transportadora ?? '—'],
+      ['Rastreio', exp.rastreio ?? '—'],
       ['Lote consumido', lote?.codigoLote ?? '—'],
       ['Data', dataBR(exp.data)],
     ]);

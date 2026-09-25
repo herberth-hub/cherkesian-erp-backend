@@ -151,11 +151,18 @@ export class ExpedicoesController {
     @Param('id', ParseIntPipe) id: number,
     @Body('codigoMaster') codigoMaster: string,
     @Body('forcar') forcar: boolean,
+    @Body('transportadora') transportadora: string,
     @CurrentUser() user: AuthUser,
   ) {
     // Baixa direta (sem conferir peça a peça) só para o administrador da conta.
     const forcarAdmin = !!forcar && user.acesso === 'total';
-    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin);
+    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin, transportadora);
+  }
+
+  /** Canais de envio homologados — a expedição escolhe um na hora do despacho. */
+  @Get('canais-envio')
+  canaisEnvio() {
+    return this.expedicoesService.canaisEnvio();
   }
 
   /** Admin: conclui a conferência sem bipar (marca "conferida", NÃO despacha). */
