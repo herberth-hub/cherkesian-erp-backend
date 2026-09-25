@@ -7216,64 +7216,531 @@ async function puxarSefazChave(){
 
 function unidTipoPill(t){ const m={produto:['blue','produto acabado'],materia:['gold','matéria-prima'],aviamento:['gray','aviamento']}; const x=m[t]||['gray',t||'—']; return `<span class="pill ${x[0]}">${esc(x[1])}</span>`; }
 async function viewEstoque(c){
-  const [list, unidades] = await Promise.all([api('/estoque'), api('/estoque/unidades').catch(()=>[])]);
+  // Carrega uma vez e filtra tudo no cliente. /materiais entra porque material com
+  // saldo e ZERO etiqueta também tem de aparecer (é o caso de todo aviamento hoje).
+  const [unidades, materiais] = await Promise.all([
+    api('/estoque/unidades').catch(()=>[]),
+    api('/materiais').catch(()=>[]),
+  ]);
   window.__UNIDS_ALL = unidades||[];
+  window.__MATS_EST = materiais||[];
   try{ const cfg=await api('/estoque/caixas/config'); window.__MASTERMAX=Number(cfg&&cfg.max)||14; window.__MASTERPOS=(cfg&&cfg.pos)||{}; }catch(_){ if(window.__MASTERMAX==null) window.__MASTERMAX=14; if(window.__MASTERPOS==null) window.__MASTERPOS={}; }
-  const emEstoque=(unidades||[]).filter(u=>u.status==='em_estoque'||u.status==='reservado').length;
-  const aguard=(unidades||[]).filter(u=>u.status==='aguardando_endereco').length;
-  const quar=(unidades||[]).filter(u=>u.status==='quarentena').length;
-  const desp=(unidades||[]).filter(u=>u.status==='despachado').length;
-  // DESPACHADA nao esta mais no armazem: nao entra em nenhuma contagem de estoque,
-  // senao a quantidade que aparece nao e a que existe na prateleira. Ela continua
-  // acessivel na aba propria, como historico.
-  const noArmazem=(unidades||[]).filter(u=>u.status!=='despachado');
-  const cont={produto:0,materia:0,aviamento:0}; noArmazem.forEach(u=>{ if(cont[u.tipo]!=null)cont[u.tipo]++; });
+  if(!window.__EST) window.__EST={cat:'',status:'',q:'',col:'',andar:'',visao:'produto',semMetragem:false,verTudo:{}};
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
-      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button> <button class="btn-sm" onclick="APP.formQuarentena()">⚠ Enviar p/ quarentena</button> <button class="btn-sm" onclick="APP.formConsultaEtiqueta()">🔎 Consultar etiqueta</button> <button class="btn-sm" onclick="APP.consultarCaixa()">📦 Consultar caixa</button> <button class="btn-sm" onclick="APP.etiquetasCaixasMaster()">🏷 Etiquetas das caixas</button> <button class="btn-sm" onclick="APP.verRetalhos()">🧵 Retalhos</button> <button class="btn-sm" onclick="APP.verMovimentos()">📊 Movimentações</button> <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`)
-    + `<div class="cards">
-        <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('estoque')"><div class="k">Em estoque</div><div class="v">${emEstoque}</div><div class="s">endereçadas</div></div>
-        <div class="card kpi" style="cursor:pointer" onclick="APP.estAreaSet('recebimento')"><div class="k">📥 Recebimento</div><div class="v">${aguard}</div><div class="s">aguardando endereço</div></div>
-        <div class="card kpi" style="cursor:pointer;${quar?'border-color:#e0a99b':''}" onclick="APP.estAreaSet('quarentena')"><div class="k">⚠ Quarentena</div><div class="v" style="${quar?'color:#c14a34':''}">${quar}</div><div class="s">anomalia / estorno</div></div>
-      </div>`
-    + `<div class="sect"><h3>Produto acabado (agregado)</h3>${panelTable(['Produto','Tamanho','Saldo','Local',''],
-        list.map(e=>[
-          `<span class="mono gold">${esc(e.produto.codigo)}</span> <span class="muted" style="font-size:11px">${esc(e.produto.descricao)}</span>`,
-          esc(e.tamanho), `<b style="${e.abaixoMinimo?'color:#c14a34':''}">${e.saldo}</b>`, esc(e.localizacao||'—'),
-          `<button class="btn-sm" onclick="APP.verLotes('${esc(e.produto.codigo)}')">Lotes</button>`
-        ]), list.length?null:'Sem produto acabado agregado.')}</div>`
-    + `<div class="sect"><h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Unidades
-        <select id="und_area" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
-          <option value="">No armazém (${noArmazem.length})</option>
-          <option value="estoque">Em estoque (${emEstoque})</option>
-          <option value="recebimento">📥 Recebimento (${aguard})</option>
-          <option value="quarentena">⚠ Quarentena (${quar})</option>
-          <option value="despachado">🚚 Despachadas (${desp}) — já saíram</option>
-        </select>
-        <select id="und_tipo" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
-          <option value="">Todos os tipos (${cont.produto+cont.materia+cont.aviamento})</option>
-          <option value="produto">Produto acabado (${cont.produto})</option>
-          <option value="materia">Matéria-prima (${cont.materia})</option>
-          <option value="aviamento">Aviamento (${cont.aviamento})</option>
-        </select>
-        <select id="und_col" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
-          <option value="">Todas as colunas</option>
-          ${[...new Set((unidades||[]).map(u=>u.coluna).filter(Boolean))].sort().map(c=>`<option value="${esc(c)}">Coluna ${esc(c)}</option>`).join('')}
-        </select>
-        <select id="und_andar" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
-          <option value="">Todos os andares</option>
-          ${[...new Set((unidades||[]).map(u=>u.andar).filter(x=>x!=null&&x!==''))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(a=>`<option value="${esc(a)}">Andar ${esc(a)}</option>`).join('')}
-        </select>
-        <select id="und_cx" class="inp" style="width:auto;font-size:12px;padding:5px 8px" onchange="APP.renderUnidades()">
-          <option value="">Todas as caixas/gôndolas</option>
-          ${[...new Set((unidades||[]).map(u=>u.caixaMaster).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(c=>`<option value="${esc(c)}">Gôndola ${esc(c)}</option>`).join('')}
-        </select>
-        <input id="und_q" class="inp" placeholder="buscar código/descrição/caixa" oninput="APP.renderUnidades()" style="width:230px;font-size:12px;padding:5px 8px">
-        <button class="btn-sm" onclick="APP.reimprimirVisiveis()">🖨 Reimprimir visíveis</button></h3>
-        <div id="unidsbox"></div></div>`;
-  renderUnidades();
+      `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button>`
+    + ` <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`
+    + ` <button class="btn-sm" onclick="APP.formExpAvulsa()">🚚 Expedição avulsa</button>`
+    + ` <span style="position:relative;display:inline-block"><button class="btn-sm" onclick="APP.estMais()">Mais ▾</button>`
+    + `<span id="est_mais" style="display:none;position:absolute;right:0;top:100%;z-index:70;background:#fff;border:1px solid #e7e4dd;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:6px;min-width:230px;text-align:left">`
+    + [['⚠ Enviar p/ quarentena','APP.formQuarentena()'],['🔎 Consultar etiqueta','APP.formConsultaEtiqueta()'],['📦 Consultar caixa','APP.consultarCaixa()'],['🏷 Etiquetas das caixas','APP.etiquetasCaixasMaster()'],['🧵 Retalhos','APP.verRetalhos()'],['📊 Movimentações','APP.verMovimentos()']]
+        .map(([t,a])=>`<div onclick="APP.estMaisFecha();${a}" style="padding:7px 10px;cursor:pointer;font-size:12.5px;border-radius:7px" onmouseover="this.style.background='#faf8f0'" onmouseout="this.style.background=''">${t}</div>`).join('')
+    + `</span></span>`)
+    + `<div id="estbox"></div>`;
+  estRender();
 }
-function estAreaSet(a){ const s=$('und_area'); if(s){ s.value=a; renderUnidades(); const el=$('unidsbox'); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); } }
-function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u.status==='aguardando_endereco') return 'recebimento'; if(u.status==='em_estoque'||u.status==='reservado') return 'estoque'; return u.status; }
+function estMais(){ const m=$('est_mais'); if(m) m.style.display = m.style.display==='none'?'':'none'; }
+function estMaisFecha(){ const m=$('est_mais'); if(m) m.style.display='none'; }
+
+// ===== helpers de classificação =====
+function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u.status==='aguardando_endereco') return 'recebimento'; if(u.status==='em_estoque') return 'estoque'; if(u.status==='reservado') return 'reservado'; return u.status; }
+function estEnderecoTxt(u){ return (u.coluna||u.andar!=null||u.caixaMaster) ? `Col ${u.coluna||'—'} · And ${u.andar!=null?u.andar:'—'} · Cx ${u.caixaMaster||'—'}` : null; }
+function estSet(campo, valor){ const E=window.__EST; E[campo] = (E[campo]===valor && campo!=='q') ? '' : valor; estRender(); }
+function estToggleSemMetragem(){ window.__EST.semMetragem=!window.__EST.semMetragem; estRender(); }
+function estVisao(v){ window.__EST.visao=v; estRender(); }
+function estBusca(){ window.__EST.q=(val('est_q')||''); estRender(); }
+function estLimpar(){ window.__EST=Object.assign(window.__EST,{cat:'',status:'',q:'',col:'',andar:'',semMetragem:false}); estRender(); }
+
+/** Unidades que passam nos filtros. Despachada NUNCA entra (histórico à parte). */
+function estFiltradas(){
+  const E=window.__EST; const q=bnorm(E.q);
+  let arr=(window.__UNIDS_ALL||[]).filter(u=>u.status!=='despachado');
+  if(E.cat) arr=arr.filter(u=>u.tipo===E.cat);
+  if(E.status) arr=arr.filter(u=>areaDaUnidade(u)===E.status);
+  if(E.col) arr=arr.filter(u=>u.coluna===E.col);
+  if(E.andar) arr=arr.filter(u=>String(u.andar)===String(E.andar));
+  if(E.semMetragem) arr=arr.filter(u=>u.tipo!=='produto' && u.quantidade==null);
+  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.itemCodigo].some(x=>bnorm(x).includes(q)));
+  return arr;
+}
+
+function estRender(){
+  const box=$('estbox'); if(!box) return;
+  const E=window.__EST;
+  const todas=(window.__UNIDS_ALL||[]).filter(u=>u.status!=='despachado');
+  const desp=(window.__UNIDS_ALL||[]).filter(u=>u.status==='despachado').length;
+  const cnt=(f)=>todas.filter(f).length;
+  const semMetragemN=todas.filter(u=>u.tipo!=='produto' && u.quantidade==null).length;
+  const arr=estFiltradas();
+
+  const pill=(ativo,label,n,acao)=>`<button class="btn-sm" onclick="${acao}" style="border-radius:999px;padding:5px 13px;${ativo?'background:#d4a82a;color:#3a2f08;border-color:#d4a82a;font-weight:700':''}">${label}${n!=null?` <span style="opacity:.75">${n}</span>`:''}</button>`;
+  const card=(ativo,rot,n,sub,cor,acao)=>`<div class="card kpi" onclick="${acao}" style="cursor:pointer;${ativo?'border-color:'+cor+';box-shadow:0 0 0 2px '+cor+'33':''}"><div class="k">${rot}</div><div class="v" style="color:${cor}">${n}</div><div class="s">${sub}</div></div>`;
+
+  const chips=[];
+  if(E.cat) chips.push(['Categoria: '+({produto:'Produto acabado',materia:'Matéria-prima',aviamento:'Aviamento'}[E.cat]||E.cat),`APP.estSet('cat','${E.cat}')`]);
+  if(E.status) chips.push(['Status: '+E.status,`APP.estSet('status','${E.status}')`]);
+  if(E.col) chips.push(['Coluna '+E.col,`APP.estSet('col','${E.col}')`]);
+  if(E.andar) chips.push(['Andar '+E.andar,`APP.estSet('andar','${E.andar}')`]);
+  if(E.semMetragem) chips.push(['Sem metragem','APP.estToggleSemMetragem()']);
+  if(E.q) chips.push(['Busca: '+E.q,"APP.estSet('q','')"]);
+
+  box.innerHTML = `
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
+      ${pill(!E.cat,'Tudo',todas.length,"APP.estSet('cat','')")}
+      ${pill(E.cat==='produto','Produto acabado',cnt(u=>u.tipo==='produto'),"APP.estSet('cat','produto')")}
+      ${pill(E.cat==='aviamento','Aviamentos',(window.__MATS_EST||[]).filter(m=>/AVI-/.test(m.codigo||'')).length,"APP.estSet('cat','aviamento')")}
+      ${pill(E.cat==='materia','Matéria-prima',(window.__MATS_EST||[]).filter(m=>!/AVI-/.test(m.codigo||'')).length,"APP.estSet('cat','materia')")}
+    </div>
+    <div class="cards" style="margin-bottom:12px">
+      ${card(!E.status,'Todas',todas.length,'no armazém','#1d1c1a',"APP.estSet('status','')")}
+      ${card(E.status==='estoque','Em estoque',cnt(u=>u.status==='em_estoque'),'endereçadas','#1e7a44',"APP.estSet('status','estoque')")}
+      ${card(E.status==='reservado','Reservado',cnt(u=>u.status==='reservado'),'separado p/ expedição','#2b4a8b',"APP.estSet('status','reservado')")}
+      ${card(E.status==='recebimento','📥 Recebimento',cnt(u=>u.status==='aguardando_endereco'),'aguardando endereço','#b5731a',"APP.estSet('status','recebimento')")}
+      ${card(E.status==='quarentena','⚠ Quarentena',cnt(u=>u.status==='quarentena'),'anomalia / estorno','#c14a34',"APP.estSet('status','quarentena')")}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:10px">
+      <input id="est_q" class="inp" value="${esc(E.q)}" placeholder="🔎 buscar código, descrição, cor, tamanho ou caixa  ( / )" oninput="APP.estBusca()" style="flex:1;min-width:230px">
+      <select class="inp" onchange="APP.estSet('col',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Coluna</option>${['A','B'].map(x=>`<option value="${x}"${E.col===x?' selected':''}>Coluna ${x}</option>`).join('')}</select>
+      <select class="inp" onchange="APP.estSet('andar',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Andar</option>${[...new Set(todas.map(u=>u.andar).filter(x=>x!=null&&x!==''))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(a=>`<option value="${esc(a)}"${String(E.andar)===String(a)?' selected':''}>Andar ${esc(a)}</option>`).join('')}</select>
+      ${semMetragemN?`<button class="btn-sm" onclick="APP.estToggleSemMetragem()" style="${E.semMetragem?'background:#c14a34;color:#fff;border-color:#c14a34;font-weight:700':'color:#c14a34;border-color:#e8bcae'}">Sem metragem · ${semMetragemN}</button>`:''}
+      <select class="inp" onchange="APP.estVisao(this.value)" style="width:auto;font-size:12px;padding:6px 8px">
+        <option value="produto"${E.visao==='produto'?' selected':''}>Visão por produto</option>
+        <option value="endereco"${E.visao==='endereco'?' selected':''}>Visão por endereço</option>
+        <option value="unidades"${E.visao==='unidades'?' selected':''}>Visão por unidades</option>
+      </select>
+      ${desp?`<button class="btn-sm" onclick="APP.estSet('status','despachado')" title="Histórico — não entra em nenhuma contagem" style="margin-left:auto;color:#77746d">🚚 Despachadas (${desp})</button>`:''}
+    </div>
+    ${chips.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">${chips.map(([t,a])=>`<span class="pill" style="background:#f0e7d0;color:#7a5b12">${esc(t)} <b style="cursor:pointer" onclick="${a}">×</b></span>`).join('')}<a onclick="APP.estLimpar()" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">Limpar filtros</a></div>`:''}
+    <div id="estvbox"></div>`;
+  if(E.status==='despachado') estViewDespachadas();
+  else if(E.visao==='endereco') estViewEndereco(arr);
+  else if(E.visao==='unidades') estViewUnidades(arr);
+  else estViewProduto(arr);
+}
+
+function estViewDespachadas(){
+  const arr=(window.__UNIDS_ALL||[]).filter(u=>u.status==='despachado');
+  const b=$('estvbox'); if(!b) return;
+  b.innerHTML=`<div class="card" style="background:#f4f1ea;border-color:#d9cfb5;font-size:12.5px;margin-bottom:8px">🚚 <b>Histórico de saídas</b> — ${arr.length} peça(s) que já deixaram o armazém. <b>Não entram em nenhuma contagem de estoque.</b></div>`
+    + panelTable(['Código','Item','Saiu em','Motivo'], arr.slice(0,300).map(u=>[
+        `<span class="mono gold">${esc(u.codigo)}</span>`,
+        esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
+        '—', esc(u.areaMotivo||'—')]), arr.length?null:'Nenhuma.');
+}
+
+// ===== VISÃO POR PRODUTO =====
+// Produto acabado: matriz cor × tamanho (cada etiqueta é 1 peça).
+// Granel: card por material com o SALDO do cadastro — a etiqueta ali é rastreio do
+// rolo, e só 3% deles têm metragem gravada; somar etiqueta daria um número falso.
+const EST_ESCADA=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8','ÚNICO'];
+function estViewProduto(arr){
+  const b=$('estvbox'); if(!b) return;
+  const E=window.__EST;
+
+  // --- produto acabado ---
+  const prods=new Map();
+  for(const u of arr){
+    if(u.tipo!=='produto') continue;
+    const k=u.produtoId ?? ('d:'+u.descricao);
+    if(!prods.has(k)) prods.set(k,{codigo:u.itemCodigo,desc:u.descricao,cels:new Map(),tot:0,rec:0,qua:0,res:0});
+    const g=prods.get(k);
+    const cor=u.cor||'—', tam=(u.tamanho||'ÚNICO').toUpperCase();
+    const ck=cor+'¦'+tam;
+    g.cels.set(ck,(g.cels.get(ck)||0)+1);
+    g.tot++;
+    if(u.status==='aguardando_endereco') g.rec++;
+    if(u.status==='quarentena') g.qua++;
+    if(u.status==='reservado') g.res++;
+  }
+
+  const cardsProd=[...prods.entries()].sort((a,b2)=>b2[1].tot-a[1].tot).map(([k,g])=>{
+    const cores=[...new Set([...g.cels.keys()].map(x=>x.split('¦')[0]))].sort();
+    const tamsPres=new Set([...g.cels.keys()].map(x=>x.split('¦')[1]));
+    const tams=EST_ESCADA.filter(t=>tamsPres.has(t)).concat([...tamsPres].filter(t=>!EST_ESCADA.includes(t)).sort());
+    const max=Math.max(...g.cels.values(),1);
+    const linhas=cores.map(cor=>`<tr><td style="padding:3px 7px;font-size:11.5px;white-space:nowrap;color:#77746d">${esc(cor)}</td>`
+      + tams.map(t=>{ const n=g.cels.get(cor+'¦'+t)||0;
+          if(!n) return `<td style="padding:2px"><div style="height:26px;border-radius:5px;background:#f6f5f2"></div></td>`;
+          const i=Math.sqrt(n/max);
+          return `<td style="padding:2px"><div onclick="APP.estDrawer('${esc(String(k))}','${esc(cor)}','${esc(t)}')" title="${n} peça(s)" style="height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11.5px;font-weight:700;color:${i>0.55?'#fff':'#1d1c1a'};background:rgba(30,122,68,${(0.12+i*0.8).toFixed(2)})">${n}</div></td>`;
+        }).join('') + '</tr>').join('');
+    const barra=[[g.tot-g.rec-g.qua,'#1e7a44'],[g.rec,'#d4a82a'],[g.qua,'#c14a34']].filter(([n])=>n>0)
+      .map(([n,c])=>`<div style="width:${(n*100/g.tot).toFixed(1)}%;background:${c}"></div>`).join('');
+    return `<div class="card" style="padding:12px 14px;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div style="min-width:190px;flex:0 0 230px">
+        <div class="mono gold" style="font-size:11.5px;font-weight:700">${esc(g.codigo||'—')}</div>
+        <div style="font-size:12.5px;line-height:1.3;margin:2px 0 6px">${esc(g.desc)}</div>
+        <div style="font-size:23px;font-weight:800">${g.tot}<span class="muted" style="font-size:12px;font-weight:400"> peça(s)</span></div>
+        <div style="height:6px;border-radius:4px;overflow:hidden;display:flex;background:#eee;margin-top:6px">${barra}</div>
+        <div class="muted" style="font-size:10.5px;margin-top:4px">${[g.res?g.res+' reservada(s)':'',g.rec?g.rec+' recebimento':'',g.qua?g.qua+' quarentena':''].filter(Boolean).join(' · ')||'tudo em estoque'}</div>
+      </div>
+      <div style="flex:1;min-width:250px;overflow-x:auto"><table style="border-collapse:collapse"><thead><tr><th></th>${tams.map(t=>`<th style="padding:2px 6px;font-size:10.5px;color:#77746d">${esc(t)}</th>`).join('')}</tr></thead><tbody>${linhas}</tbody></table></div>
+    </div>`;
+  });
+
+  // --- granel: matéria-prima e aviamento ---
+  const cardsGranel = (E.cat==='produto') ? [] : estCardsGranel(arr);
+
+  b.innerHTML = (cardsProd.length||cardsGranel.length)
+    ? `${cardsProd.length&&E.cat!=='materia'&&E.cat!=='aviamento'?`<div class="sect"><h3>Produto acabado · ${cardsProd.length} item(ns)</h3><div style="display:flex;flex-direction:column;gap:10px">${cardsProd.join('')}</div></div>`:(cardsProd.length?`<div style="display:flex;flex-direction:column;gap:10px">${cardsProd.join('')}</div>`:'')}
+       ${cardsGranel.length?`<div class="sect"><h3>Matéria-prima e aviamento · ${cardsGranel.length} item(ns) <span class="muted" style="font-weight:400;font-size:12px">· saldo do cadastro; a etiqueta é o rastreio do rolo</span></h3><div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(290px,1fr))">${cardsGranel.join('')}</div></div>`:''}`
+    : '<div class="panel"><div class="empty">Nada neste filtro.</div></div>';
+}
+
+/** Cards de granel: um por material, com saldo do cadastro e cobertura de etiquetas. */
+function estCardsGranel(arr){
+  const E=window.__EST; const q=bnorm(E.q);
+  const porMat=new Map();
+  for(const u of arr){ if(u.tipo==='produto') continue; const k=u.materialId ?? ('d:'+u.descricao);
+    if(!porMat.has(k)) porMat.set(k,[]); porMat.get(k).push(u); }
+
+  // Material com saldo e ZERO etiqueta também aparece (todo aviamento hoje).
+  const mats=(window.__MATS_EST||[]).filter(m=>{
+    // Aviamento aparece como AVI-GOR-0001 e também como MP-AVI-0001 — o prefixo
+    // não é único, então procura AVI- em qualquer posição do código.
+    const ehAvi=/AVI-/.test(String(m.codigo||''));
+    if(E.cat==='materia' && ehAvi) return false;
+    if(E.cat==='aviamento' && !ehAvi) return false;
+    if(E.status && E.status!=='estoque') return false;      // status é de etiqueta
+    if(E.col||E.andar) return porMat.has(m.id);              // filtro de endereço
+    if(E.semMetragem) return (porMat.get(m.id)||[]).some(u=>u.quantidade==null);
+    if(q && !bnorm(m.codigo+' '+m.descricao+' '+(m.cor||'')).includes(q)) return porMat.has(m.id);
+    return Number(m.saldo)>0 || porMat.has(m.id);
+  });
+
+  return mats.map(m=>{
+    const rolos=(porMat.get(m.id)||[]);
+    const semMet=rolos.filter(r=>r.quantidade==null).length;
+    const comMet=rolos.filter(r=>r.quantidade!=null);
+    const somaEtq=comMet.reduce((s,r)=>s+Number(r.quantidade||0),0);
+    const un=m.unidade||'un';
+    const cobertura = rolos.length
+      ? `${rolos.length} rolo(s) etiquetado(s) · ${somaEtq.toLocaleString('pt-BR',{maximumFractionDigits:2})} de ${Number(m.saldo).toLocaleString('pt-BR',{maximumFractionDigits:2})} ${esc(un)}`
+      : 'Sem etiquetas · saldo só no cadastro';
+    const amostra=rolos.slice(0,3).map(r=>`<div style="display:flex;gap:8px;align-items:center;font-size:11px;padding:2px 0;border-top:1px solid #f2efe8">
+        <span class="mono" style="color:#8a6a0c">${esc(r.codigo)}</span>
+        <span style="${r.quantidade==null?'color:#c14a34;font-weight:700':''}">${r.quantidade==null?'sem metragem':(Number(r.quantidade).toLocaleString('pt-BR',{maximumFractionDigits:2})+' '+esc(un))}</span>
+        <span class="muted" style="margin-left:auto">${esc(estEnderecoTxt(r)||'sem endereço')}</span></div>`).join('');
+    return `<div class="card" style="padding:12px 14px;cursor:pointer" onclick="APP.estDrawerMaterial(${m.id})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          <div class="mono gold" style="font-size:11px;font-weight:700">${esc(m.codigo)}</div>
+          <div style="font-size:12.5px;line-height:1.3">${esc(m.descricao)}${m.cor?` · <b style="color:#7a5b12">${esc(m.cor)}</b>`:''}</div>
+        </div>
+        ${semMet?`<span class="pill red" style="font-size:9.5px;white-space:nowrap">${semMet} sem metragem</span>`:''}
+      </div>
+      <div style="font-size:23px;font-weight:800;margin-top:6px">${Number(m.saldo).toLocaleString('pt-BR',{maximumFractionDigits:3})}<span class="muted" style="font-size:12px;font-weight:400"> ${esc(un)}</span></div>
+      <div class="muted" style="font-size:10.5px">${esc(cobertura)}</div>
+      ${amostra}
+      ${rolos.length>3?`<div style="font-size:11px;color:#8a6a0c;margin-top:4px">+ ${rolos.length-3} rolo(s)</div>`:''}
+    </div>`;
+  });
+}
+
+// ===== VISÃO POR ENDEREÇO (só colunas A e B) =====
+function estViewEndereco(arr){
+  const b=$('estvbox'); if(!b) return;
+  const semEnd=arr.filter(u=>u.status==='aguardando_endereco');
+  const comEnd=arr.filter(u=>u.coluna||u.andar!=null||u.caixaMaster);
+  const mapa=new Map();
+  for(const u of comEnd){
+    const col=u.coluna||'—', and=u.andar!=null?String(u.andar):'—', cx=u.caixaMaster||'—';
+    if(!mapa.has(col)) mapa.set(col,new Map());
+    const mc=mapa.get(col); if(!mc.has(and)) mc.set(and,new Map());
+    mc.get(and).set(cx,(mc.get(and).get(cx)||0)+1);
+  }
+  const cols=['A','B'].filter(c=>mapa.has(c)).concat([...mapa.keys()].filter(c=>!['A','B'].includes(c)));
+  b.innerHTML = (semEnd.length?`<div class="card" style="background:#fff8e6;border-color:#e6d29a;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <div style="flex:1;min-width:220px;font-size:13px">📥 <b>${semEnd.length} unidade(s)</b> aguardando endereço — sem endereço elas não são achadas na separação.</div>
+      <button class="btn-primary" onclick="APP.formEnderecar()">Endereçar agora</button></div>`:'')
+    + (cols.length?cols.map(col=>{
+        const andares=[...mapa.get(col).keys()].sort((a,b2)=>String(a).localeCompare(String(b2),'pt',{numeric:true}));
+        return `<div class="sect"><h3>Coluna ${esc(col)}</h3>${andares.map(a=>{
+          const caixas=[...mapa.get(col).get(a).entries()].sort((x,y)=>String(x[0]).localeCompare(String(y[0]),'pt',{numeric:true}));
+          const tot=caixas.reduce((s,[,n])=>s+n,0);
+          return `<div style="margin-bottom:8px"><div style="font-size:12px;color:#77746d;margin-bottom:4px">Andar ${esc(a)} · ${tot} un.</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">${caixas.map(([cx,n])=>`<button class="btn-sm" onclick="APP.consultarCaixaCodigo('${esc(cx)}')" style="border-radius:8px">Cx ${esc(cx)} <b style="color:#1e7a44">${n}</b></button>`).join('')}</div></div>`;
+        }).join('')}</div>`;
+      }).join('') : '<div class="panel"><div class="empty">Nenhuma unidade endereçada neste filtro.</div></div>');
+}
+
+// ===== VISÃO POR UNIDADES (tabela) =====
+function estViewUnidades(arr){
+  const b=$('estvbox'); if(!b) return;
+  if(!window.__UNSEL) window.__UNSEL=new Set();
+  const lim=window.__EST.verTudo.unidades||100;
+  const vis=arr.slice(0,lim);
+  window.__UNIDS=vis;
+  const sel=window.__UNSEL.size;
+  b.innerHTML = (sel?`<div style="position:sticky;top:0;z-index:5;background:#1d1c1a;color:#fff;border-radius:10px;padding:9px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <b>${sel} selecionada(s)</b>
+      <button class="btn-sm" onclick="APP.unBulkReimprimir()">🖨 Reimprimir</button>
+      <button class="btn-sm" onclick="APP.unBulkQuarentena()">⚠ Quarentena</button>
+      ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#ffb4a4" onclick="APP.unBulkExcluir()">🗑 Excluir</button>`:''}
+      <button class="btn-sm" style="margin-left:auto" onclick="APP.unLimparSel()">Limpar seleção</button></div>`:'')
+    + `<div style="font-size:11.5px;color:#77746d;margin-bottom:6px"><label style="cursor:pointer"><input type="checkbox" onchange="APP.unSelAll(this.checked)"> Selecionar visíveis</label> · ${arr.length} unidade(s)</div>`
+    + panelTable(['Sel','Código','Tipo','Item','Status','Endereço / Motivo','Ações'], vis.map(u=>[
+        `<input type="checkbox" class="unchk" ${window.__UNSEL.has(u.codigo)?'checked':''} onchange="APP.unSel('${esc(u.codigo)}',this.checked)">`,
+        `<span class="mono gold">${esc(u.codigo)}</span>`,
+        unidTipoPill(u.tipo),
+        (u.itemCodigo?`<span class="mono" style="color:#8a6a0c;font-size:10.5px">${esc(u.itemCodigo)}</span> `:'')+esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):'')
+          +(u.tipo!=='produto'&&u.quantidade==null?' <span class="pill red" style="font-size:9px">sem metragem</span>':''),
+        unidStatusPill(u.status),
+        esc(estEnderecoTxt(u)||(u.areaMotivo?('⚠ '+u.areaMotivo):'—')),
+        `<button class="btn-sm" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>`
+      ]), vis.length?null:'Nenhuma unidade neste filtro.')
+    + (arr.length>lim?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="APP.estMostrarMais()">Mostrar mais 100 (${arr.length-lim} restantes)</button></div>`:'');
+}
+function estMostrarMais(){ const E=window.__EST; E.verTudo.unidades=(E.verTudo.unidades||100)+100; estRender(); }
+function unLimparSel(){ window.__UNSEL=new Set(); estRender(); }
+
+// Faltavam no projeto: quarentena em lote e abrir caixa por código.
+async function unBulkQuarentena(){
+  const cods=[...(window.__UNSEL||[])];
+  if(!cods.length){ toast('Selecione ao menos uma unidade.','err'); return; }
+  const motivo=prompt('Motivo da quarentena para '+cods.length+' unidade(s):','');
+  if(motivo==null||!motivo.trim()){ toast('Informe o motivo.','err'); return; }
+  let ok=0, falhou=0;
+  for(const codigo of cods){
+    try{ await api('/estoque/quarentena',{method:'POST',body:{codigo,motivo:motivo.trim()},silent:true}); ok++; }catch(_){ falhou++; }
+  }
+  window.__UNSEL=new Set();
+  toast(ok+' enviada(s) p/ quarentena'+(falhou?(' · '+falhou+' falhou(ram)'):'')+'.',falhou?'err':'ok');
+  loadRoute();
+}
+function consultarCaixaCodigo(cx){ const el=$('cx_cod'); if(el) el.value=cx; consultarCaixa(cx); }
+
+// ===== DRAWER =====
+function estDrawerFechar(){ const d=$('est_drawer'); if(d) d.remove(); }
+function estDrawerAbrir(titulo, sub, corpo, rodape){
+  estDrawerFechar();
+  const d=document.createElement('div');
+  d.id='est_drawer';
+  d.innerHTML=`<div onclick="APP.estDrawerFechar()" style="position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:9000"></div>
+    <aside style="position:fixed;top:0;right:0;bottom:0;width:460px;max-width:94vw;background:#fff;z-index:9001;display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,.18)">
+      <div style="padding:14px 16px;border-bottom:1px solid #e7e4dd">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div style="min-width:0"><div style="font-weight:800;font-size:14px;line-height:1.25">${titulo}</div>
+          <div class="muted" style="font-size:12px;margin-top:2px">${sub}</div></div>
+          <button class="btn-sm" onclick="APP.estDrawerFechar()">✕</button></div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:12px 16px">${corpo}</div>
+      ${rodape?`<div style="padding:12px 16px;border-top:1px solid #e7e4dd;display:flex;gap:8px;flex-wrap:wrap">${rodape}</div>`:''}
+    </aside>`;
+  document.body.appendChild(d);
+}
+
+/** Célula da matriz: as etiquetas daquele produto · cor · tamanho. */
+function estDrawer(chave, cor, tam){
+  const arr=estFiltradas().filter(u=>{
+    const k=String(u.produtoId ?? ('d:'+u.descricao));
+    return k===String(chave) && (u.cor||'—')===cor && (u.tamanho||'ÚNICO').toUpperCase()===tam;
+  });
+  if(!arr.length) return;
+  const u0=arr[0];
+  const porEnd=new Map();
+  for(const u of arr){ const e=estEnderecoTxt(u)||'sem endereço'; porEnd.set(e,(porEnd.get(e)||0)+1); }
+  estDrawerAbrir(
+    `${esc(u0.itemCodigo||'')} · ${esc(u0.descricao)}`,
+    `${esc(cor)} · ${esc(tam)} · <b>${arr.length}</b> peça(s)`,
+    `<div style="font-size:11.5px;font-weight:700;color:#77746d;margin-bottom:5px">ONDE ESTÃO</div>
+     ${[...porEnd.entries()].map(([e,n])=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12.5px"><span>${esc(e)}</span><b>${n}</b></div>`).join('')}
+     <div style="font-size:11.5px;font-weight:700;color:#77746d;margin:12px 0 5px">ETIQUETAS (${arr.length})</div>
+     ${arr.map(u=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12px">
+        <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>${unidStatusPill(u.status)}
+        <button class="btn-sm" style="margin-left:auto;padding:2px 8px" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">Etiqueta</button></div>`).join('')}`,
+    `<button class="btn-primary" style="flex:1" onclick="APP.estDrawerFechar();APP.formMov()">Movimentar ${arr.length} un.</button>
+     <button class="btn-sm" onclick="APP.unBulkReimprimirCods(${JSON.stringify(arr.map(u=>u.codigo)).replace(/"/g,'&quot;')})">Reimprimir todas</button>`);
+}
+
+/** Card de granel: todos os rolos daquele material. */
+function estDrawerMaterial(matId){
+  const m=(window.__MATS_EST||[]).find(x=>x.id===matId); if(!m) return;
+  const rolos=(window.__UNIDS_ALL||[]).filter(u=>u.status!=='despachado' && u.materialId===matId);
+  const un=m.unidade||'un';
+  const semMet=rolos.filter(r=>r.quantidade==null).length;
+  const soma=rolos.reduce((s,r)=>s+Number(r.quantidade||0),0);
+  const corpo = rolos.length
+    ? `<div style="font-size:11.5px;font-weight:700;color:#77746d;margin-bottom:5px">COBERTURA</div>
+       <div style="font-size:12.5px;margin-bottom:10px">${rolos.length} rolo(s) etiquetado(s) somando <b>${soma.toLocaleString('pt-BR',{maximumFractionDigits:2})} ${esc(un)}</b> de <b>${Number(m.saldo).toLocaleString('pt-BR',{maximumFractionDigits:2})} ${esc(un)}</b> no cadastro.
+       ${semMet?`<div style="color:#c14a34;margin-top:4px"><b>${semMet} rolo(s) sem metragem gravada</b> — por isso a soma das etiquetas não fecha com o saldo.</div>`:''}</div>
+       <div style="font-size:11.5px;font-weight:700;color:#77746d;margin:12px 0 5px">ROLOS (${rolos.length})</div>
+       ${rolos.map(r=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12px">
+          <span class="mono" style="color:#8a6a0c">${esc(r.codigo)}</span>
+          <span style="${r.quantidade==null?'color:#c14a34;font-weight:700':''}">${r.quantidade==null?'sem metragem':(Number(r.quantidade).toLocaleString('pt-BR',{maximumFractionDigits:2})+' '+esc(un))}</span>
+          <span class="muted" style="margin-left:auto;font-size:11px">${esc(estEnderecoTxt(r)||'sem endereço')}</span>
+          <button class="btn-sm" style="padding:2px 8px" onclick="APP.reimprimirUnidade('${esc(r.codigo)}')">Etiqueta</button></div>`).join('')}`
+    : `<div class="card" style="background:#fff8e6;border-color:#e6d29a;font-size:12.5px">Este material <b>não tem nenhuma etiqueta</b>. O saldo de <b>${Number(m.saldo).toLocaleString('pt-BR',{maximumFractionDigits:2})} ${esc(un)}</b> existe só no cadastro — não dá para saber em que prateleira ele está nem rastrear o rolo. Gere etiquetas na entrada para ter rastreio.</div>`;
+  estDrawerAbrir(
+    `${esc(m.codigo)} · ${esc(m.descricao)}`,
+    `${m.cor?esc(m.cor)+' · ':''}saldo <b>${Number(m.saldo).toLocaleString('pt-BR',{maximumFractionDigits:3})} ${esc(un)}</b>`,
+    corpo,
+    `<button class="btn-primary" style="flex:1" onclick="APP.estDrawerFechar();APP.formMov()">Movimentar</button>`);
+}
+async function unBulkReimprimirCods(cods){
+  try{ const r=await api('/estoque/unidades/etiquetas',{method:'POST',body:{codigos:cods}});
+    etiquetasUnidades(r.etiquetas||r||[]); }catch(e){ toast(e.message,'err'); }
+}
+
+// ===== EXPEDIÇÃO AVULSA: saída sem pedido e sem nota fiscal =====
+const MOTIVOS_AVULSA=['AMOSTRA','PEÇA PILOTO','REPOSIÇÃO / GARANTIA','BONIFICAÇÃO / BRINDE','ENVIO PARA FACÇÃO','TRANSFERÊNCIA ENTRE UNIDADES','EMPRÉSTIMO / MOSTRUÁRIO','OUTRO'];
+
+async function formExpAvulsa(){
+  let clientes=[], produtos=[], unidades=[];
+  try{ [clientes,produtos,unidades]=await Promise.all([api('/clientes'),api('/produtos'),api('/estoque/unidades').catch(()=>[])]); }
+  catch(e){ toast(e.message,'err'); return; }
+  window.__AV={cliente:'',motivo:'',outro:'',obs:'',itens:[{}],prods:produtos,unid:unidades};
+  openModal(`<h3>🚚 Expedição avulsa <span class="muted" style="font-weight:400;font-size:12px">· sem pedido e sem nota fiscal</span></h3>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:330px">
+        <div class="mrow"><label class="fl">Cliente *</label>
+          <select id="av_cli" class="inp" onchange="APP.avSync()"><option value="">— selecione —</option>${clientes.map(c=>`<option value="${c.id}">${esc(c.fantasia||c.nome)}</option>`).join('')}</select></div>
+        <div class="mrow"><label class="fl">Motivo da saída *</label>
+          <div id="av_motivos" style="display:flex;gap:6px;flex-wrap:wrap">${MOTIVOS_AVULSA.map(m=>`<button type="button" class="btn-sm" data-m="${esc(m)}" onclick="APP.avMotivo('${esc(m)}')" style="border-radius:999px">${esc(m)}</button>`).join('')}</div>
+          <div class="muted" style="font-size:10.5px;margin-top:4px">É o que justifica depois a mercadoria ter saído sem nota.</div></div>
+        <div id="av_outrowrap" style="display:none">${field('av_outro','Descreva o motivo *','placeholder="ex.: envio para feira" oninput="APP.avSync()"')}</div>
+        <div class="mrow"><label class="fl">Observação (vai no romaneio)</label><textarea id="av_obs" class="inp" rows="2" oninput="APP.avSync()"></textarea></div>
+        <label class="fl" style="margin-top:6px">Itens *</label>
+        <div id="av_itens"></div>
+        <button class="btn-sm" onclick="APP.avAddItem()" style="margin-top:6px">+ Adicionar item</button>
+      </div>
+      <div style="flex:0 0 280px;min-width:250px;position:sticky;top:0">
+        <div class="card" style="padding:12px 14px"><div id="av_resumo"></div></div>
+      </div>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" id="av_ok" onclick="APP.avSalvar()">Criar expedição avulsa</button></div>`, {wide:true});
+  avRender();
+}
+function avMotivo(m){ const A=window.__AV; A.motivo=(A.motivo===m?'':m); avRender(); }
+function avAddItem(){ avSync(); window.__AV.itens.push({}); avRender(); }
+function avDelItem(i){ avSync(); window.__AV.itens.splice(i,1); if(!window.__AV.itens.length) window.__AV.itens=[{}]; avRender(); }
+function avSync(){
+  const A=window.__AV; if(!A) return;
+  A.cliente=val('av_cli'); A.outro=val('av_outro'); A.obs=val('av_obs');
+  A.itens.forEach((it,i)=>{
+    it.prodLabel=(($('av_p_'+i)||{}).value)||'';
+    it.cor=(($('av_c_'+i)||{}).value)||'';
+    it.grade=it.grade||{};
+    (it.tams||[]).forEach(t=>{ const e=$('av_g_'+i+'_'+t); if(e) it.grade[t]=Number(e.value||0); });
+    const q=$('av_q_'+i); if(q) it.qtdSimples=Number(q.value||0);
+  });
+}
+/** Disponível em ESTOQUE (em_estoque) daquele produto/cor/tamanho. */
+function avDisp(produtoId, cor, tam){
+  const n=(window.__AV.unid||[]).filter(u=>u.status==='em_estoque' && u.produtoId===produtoId
+    && bnorm(u.cor||'')===bnorm(cor||'') && String(u.tamanho||'').toUpperCase()===String(tam||'').toUpperCase()).length;
+  return n;
+}
+function avProdDe(it){
+  const txt=(it.prodLabel||'').trim(); if(!txt) return null;
+  const ps=window.__AV.prods||[];
+  return ps.find(p=>((p.codigo||'')+' · '+(p.descricao||''))===txt) || ps.find(p=>String(p.codigo||'').toLowerCase()===txt.toLowerCase()) || null;
+}
+function avRender(){
+  const A=window.__AV; const box=$('av_itens'); if(!box) return;
+  document.querySelectorAll('#av_motivos [data-m]').forEach(b=>{
+    const on=b.dataset.m===A.motivo;
+    b.style.cssText='border-radius:999px;'+(on?'background:#d4a82a;color:#3a2f08;border-color:#d4a82a;font-weight:700':'');
+  });
+  const ow=$('av_outrowrap'); if(ow) ow.style.display = A.motivo==='OUTRO' ? '' : 'none';
+  const dl=`<datalist id="av_plist">${(A.prods||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>`;
+  box.innerHTML = dl + A.itens.map((it,i)=>{
+    const p=avProdDe(it);
+    const tams=p&&p.grade ? String(p.grade).split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,12) : [];
+    it.tams=tams;
+    const campos = tams.length
+      ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">${tams.map(t=>{
+          const d=p?avDisp(p.id,it.cor||p.cor,t):0; const v=Number((it.grade||{})[t]||0); const excede=v>d;
+          return `<div style="text-align:center"><div style="font-size:10px;color:#77746d">${esc(t)}</div>
+            <input id="av_g_${i}_${t}" class="inp" type="number" min="0" value="${v||''}" data-disp="${d}" oninput="APP.avSync();APP.avBorda();APP.avResumo()" style="width:56px;padding:4px;text-align:center;font-size:12px;${excede?'border-color:#c14a34;background:#fdf3f0':''}">
+            <div id="av_d_${i}_${t}" style="font-size:9.5px;${excede?'color:#c14a34;font-weight:700':'color:#77746d'}">disp. ${d}</div></div>`;
+        }).join('')}</div>`
+      : `<input id="av_q_${i}" class="inp" type="number" min="1" placeholder="quantidade" value="${it.qtdSimples||''}" oninput="APP.avSync();APP.avResumo()" style="width:120px;margin-top:5px">`;
+    return `<div class="card" style="padding:9px 11px;margin-bottom:7px">
+      <div style="display:flex;gap:6px;align-items:center">
+        <input id="av_p_${i}" class="inp" list="av_plist" placeholder="produto do catálogo ou descrição livre" value="${esc(it.prodLabel||'')}" oninput="APP.avSync();APP.avRender()" style="flex:2;min-width:0">
+        <input id="av_c_${i}" class="inp" placeholder="cor" value="${esc(it.cor||'')}" oninput="APP.avSync();APP.avResumo()" style="flex:1;min-width:0">
+        ${A.itens.length>1?`<button class="btn-sm" onclick="APP.avDelItem(${i})">×</button>`:''}
+      </div>
+      ${campos}
+    </div>`;
+  }).join('');
+  avResumo();
+}
+/**
+ * Marca em vermelho o campo que pediu mais do que há em estoque. Feito à parte do
+ * avRender porque redesenhar a lista a cada tecla faria o campo perder o foco no
+ * meio da digitação.
+ */
+function avBorda(){
+  document.querySelectorAll('[id^=av_g_]').forEach(inp=>{
+    const d=Number(inp.dataset.disp||0), v=Number(inp.value||0), excede=v>d;
+    inp.style.borderColor = excede?'#c14a34':'';
+    inp.style.background  = excede?'#fdf3f0':'';
+    const lbl=$(inp.id.replace('av_g_','av_d_'));
+    if(lbl){ lbl.style.color = excede?'#c14a34':'#77746d'; lbl.style.fontWeight = excede?'700':'400'; }
+  });
+}
+function avTotal(){
+  const A=window.__AV; let t=0;
+  A.itens.forEach(it=>{ const p=avProdDe(it);
+    if(it.tams&&it.tams.length) t+=it.tams.reduce((s,x)=>s+Number((it.grade||{})[x]||0),0);
+    else if(it.prodLabel&&it.qtdSimples>0) t+=Number(it.qtdSimples);
+  });
+  return t;
+}
+function avPendencias(){
+  const A=window.__AV; const p=[];
+  if(!A.cliente) p.push('Escolha o cliente');
+  if(!A.motivo) p.push('Escolha o motivo');
+  if(A.motivo==='OUTRO' && !(A.outro||'').trim()) p.push('Descreva o motivo "Outro"');
+  if(!avTotal()) p.push('Informe ao menos 1 peça');
+  A.itens.forEach((it,i)=>{ if((it.prodLabel||'').trim() && !avProdDe(it) && !it.qtdSimples) p.push(`Item ${i+1}: quantidade`); });
+  return p;
+}
+function avResumo(){
+  const A=window.__AV; const box=$('av_resumo'); if(!box) return;
+  const pend=avPendencias(); const tot=avTotal();
+  const cliNome=(($('av_cli')||{}).selectedOptions||[{}])[0]?.text||'—';
+  box.innerHTML=`<div style="font-size:11.5px;font-weight:700;color:#77746d;margin-bottom:6px">RESUMO</div>
+    <div style="font-size:12.5px;line-height:1.6">
+      <div>Cliente: <b>${A.cliente?esc(cliNome):'—'}</b></div>
+      <div>Motivo: <b>${A.motivo?esc(A.motivo==='OUTRO'?(A.outro||'Outro'):A.motivo):'—'}</b></div>
+      <div>Itens: <b>${A.itens.filter(i=>(i.prodLabel||'').trim()).length}</b></div>
+    </div>
+    <div style="font-size:30px;font-weight:800;margin:6px 0 2px">${tot}<span class="muted" style="font-size:12px;font-weight:400"> peça(s)</span></div>
+    <div class="card" style="background:#fff8e6;border-color:#e6d29a;font-size:11px;padding:7px 9px;margin:8px 0">
+      Sai <b>sem NF</b> e <b>sem abater pedido</b>.<br>Notifica Expedição e Vendas.</div>
+    ${pend.length?`<div style="font-size:11.5px;color:#c14a34"><b>Falta:</b><ul style="margin:4px 0 0 16px;padding:0">${pend.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<div style="font-size:11.5px;color:#1e7a44;font-weight:700">✔ Pronto para criar</div>'}`;
+  const ok=$('av_ok'); if(ok){ ok.disabled=pend.length>0; ok.style.opacity=pend.length?0.5:1; ok.style.cursor=pend.length?'not-allowed':'pointer'; }
+}
+async function avSalvar(){
+  avSync(); const A=window.__AV;
+  if(avPendencias().length){ toast('Complete os campos pendentes.','err'); return; }
+  const itens=[];
+  for(const it of A.itens){
+    const txt=(it.prodLabel||'').trim(); if(!txt) continue;
+    const p=avProdDe(it);
+    const grade={}; (it.tams||[]).forEach(t=>{ const v=Number((it.grade||{})[t]||0); if(v>0) grade[t]=v; });
+    const temGrade=Object.keys(grade).length>0;
+    const qtd=temGrade?Object.values(grade).reduce((s,v)=>s+v,0):Number(it.qtdSimples||0);
+    if(!(qtd>0)) continue;
+    const item={quantidade:qtd};
+    if(p) item.produtoId=p.id; else item.descricao=txt;
+    if((it.cor||'').trim()) item.cor=it.cor.trim();
+    if(temGrade) item.grade=grade;
+    itens.push(item);
+  }
+  const body={ clienteId:Number(A.cliente), motivo:A.motivo, itens,
+    observacao:[A.motivo==='OUTRO'?A.outro:'',A.obs].filter(x=>(x||'').trim()).join(' · ')||undefined };
+  try{
+    const r=await api('/expedicoes/avulsa',{method:'POST',body});
+    closeModal();
+    toast('Expedição avulsa '+r.numero+' criada · '+r.pecas+' peça(s) · '+r.motivoAvulsa,'ok');
+    go('expedicao');
+  }catch(e){ toast(e.message,'err'); }
+}
+
 function renderUnidades(){
   const box=$('unidsbox'); if(!box) return;
   const tipo=val('und_tipo'), area=val('und_area'), col=val('und_col'), andar=val('und_andar'), cx=val('und_cx'), q=bnorm(val('und_q')); const _admin=S.user.acesso==='total';
@@ -12301,7 +12768,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estAreaSet, enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estLimpar, estRender, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
