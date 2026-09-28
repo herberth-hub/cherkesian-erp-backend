@@ -6,6 +6,14 @@ import { CreateComissaoDto } from './dto/create-comissao.dto';
 import { UpdateComissaoDto } from './dto/update-comissao.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
 
+/** Comissão + a venda que a gerou (número do PV, cliente e NFs) — rastreio na própria linha. */
+export type ComissaoComOrigem = Comissao & {
+  pedidoNumero: string | null;
+  pedidoEtapa: string | null;
+  clienteNome: string | null;
+  notas: Array<{ numero: string; serie: string; status: string; tipo: string }>;
+};
+
 const D = (n: Prisma.Decimal.Value = 0) => new Prisma.Decimal(n);
 /** Chave de dia (YYYY-MM-DD) de uma data, sem fuso — coerente com vencimentos gravados à meia-noite UTC. */
 const diaKey = (d: Date) => new Date(d).toISOString().slice(0, 10);
@@ -249,13 +257,50 @@ export class FinanceiroService {
 
   // ===== Comissões =====
 
-  listarComissoes(empresaId: number, vendedorNome?: string): Promise<Comissao[]> {
-    // Vendedor vê só as próprias comissões (casadas pelo nome do vendedor).
-    return this.prisma.comissao.findMany({
+  /**
+   * Lista as comissões já com a ORIGEM resolvida: número do pedido, cliente e as
+   * notas fiscais emitidas para ele. Quem confere a comissão (financeiro) muitas
+   * vezes não tem acesso à tela de Vendas, então o `pedidoId` cru não rastreava
+   * nada — o número do PV e o da NF fecham a conferência na própria linha.
+   */
+  async listarComissoes(empresaId: number, vendedorNome?: string): Promise<ComissaoComOrigem[]> {
+    const comissoes = await this.prisma.comissao.findMany({
+      // Vendedor vê só as próprias comissões (casadas pelo nome do vendedor).
       where: vendedorNome
         ? { empresaId, vendedor: { equals: vendedorNome, mode: 'insensitive' } }
         : { empresaId },
       orderBy: { id: 'desc' },
+    });
+    const pedidoIds = [...new Set(comissoes.map((c) => c.pedidoId))];
+    if (!pedidoIds.length) return [];
+    const [pedidos, notas] = await Promise.all([
+      this.prisma.pedido.findMany({
+        where: { id: { in: pedidoIds } },
+        select: { id: true, numero: true, etapa: true, cliente: { select: { nome: true } } },
+      }),
+      this.prisma.notaFiscal.findMany({
+        where: { pedidoId: { in: pedidoIds }, status: { not: 'cancelada' } },
+        select: { pedidoId: true, numero: true, serie: true, status: true, tipo: true },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+    const porPedido = new Map(pedidos.map((p) => [p.id, p]));
+    const notasPorPedido = new Map<number, ComissaoComOrigem['notas']>();
+    for (const n of notas) {
+      if (n.pedidoId == null) continue;
+      const lista = notasPorPedido.get(n.pedidoId) ?? [];
+      lista.push({ numero: n.numero, serie: n.serie, status: n.status, tipo: n.tipo });
+      notasPorPedido.set(n.pedidoId, lista);
+    }
+    return comissoes.map((c) => {
+      const p = porPedido.get(c.pedidoId);
+      return {
+        ...c,
+        pedidoNumero: p?.numero ?? null,
+        pedidoEtapa: p?.etapa ?? null,
+        clienteNome: p?.cliente?.nome ?? null,
+        notas: notasPorPedido.get(c.pedidoId) ?? [],
+      };
     });
   }
 

@@ -9,6 +9,12 @@ import { AuthUser } from '../auth/auth.types';
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
+  /**
+   * KPIs do topo. Também liberado pela área `tv`: o Painel de TV (mural do chão de
+   * fábrica) consome este endpoint, e perfis como `chao` não têm `dashboard`.
+   * O próprio serviço já esconde faturamento/curva ABC conforme o perfil.
+   */
+  @Areas('dashboard', 'tv')
   @Get()
   kpis(@CurrentUser() user: AuthUser) {
     return this.dashboardService.kpis(user.empresaId, user.acesso);

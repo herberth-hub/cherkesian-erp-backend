@@ -13,6 +13,7 @@ import { Usuario } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from './auth.types';
+import { ACESSO_AREAS } from '../common/rbac/acesso.config';
 import { dentroDoHorario, horaAtual } from '../common/utils/horario.util';
 import { LoginDto } from './dto/login.dto';
 import { AuthorizeOffhoursDto } from './dto/authorize-offhours.dto';
@@ -29,6 +30,12 @@ export interface TokensResposta {
     cargo: string | null;
     /** E-mail do comprador (Portal) — o campo de cópia do pedido já vem preenchido. */
     email: string | null;
+    /**
+     * Áreas que o perfil realmente acessa na API. O menu do frontend usa isto para
+     * nunca oferecer uma tela que o backend vai negar — o RBAC do backend passa a
+     * ser a única fonte de verdade. `'*'` = perfil `total` (irrestrito).
+     */
+    areas: readonly string[] | '*';
   };
 }
 
@@ -136,8 +143,12 @@ export class AuthService {
     return this.emitirTokens(alvo, true);
   }
 
-  /** Renova o access token a partir de um refresh token válido. */
-  async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  /**
+   * Renova o access token a partir de um refresh token válido. Devolve também o
+   * `usuario` — é por aqui que uma sessão aberta antes de uma mudança de RBAC
+   * recebe as `areas` novas, sem obrigar o usuário a sair e entrar de novo.
+   */
+  async refresh(refreshToken: string): Promise<TokensResposta> {
     let payload: JwtPayload;
     try {
       payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
@@ -155,8 +166,7 @@ export class AuthService {
       throw new UnauthorizedException('Usuário não encontrado ou inativo.');
     }
 
-    const tokens = await this.emitirTokens(user, payload.offhours === true);
-    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+    return this.emitirTokens(user, payload.offhours === true);
   }
 
   /** Monta e assina o par de tokens (access + refresh). */
@@ -200,6 +210,7 @@ export class AuthService {
         setor: user.setor,
         cargo: user.cargo,
         email: user.email ?? null,
+        areas: ACESSO_AREAS[user.acesso] ?? [],
       },
     };
   }

@@ -9,6 +9,8 @@ import { AuthUser } from '../auth/auth.types';
 export class PcpController {
   constructor(private readonly pcpService: PcpService) {}
 
+  /** Também liberado pela área `tv` — é a fila que o mural do chão de fábrica exibe. */
+  @Areas('pcp', 'tv')
   @Get('painel')
   painel(@CurrentUser() user: AuthUser) {
     return this.pcpService.painel(user.empresaId);

@@ -67,19 +67,12 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'tv',
     'anomalias',
   ],
-  producao: [
-    'pcp',
-    'producao',
-    'piloto',
-    'compras',
-    'estoque',
-    'medidas',
-    'cadastros',
-    'dashboard',
-    'tv',
-    'anomalias',
-  ],
-  chao: ['tv', 'producao', 'piloto', 'estoque', 'anomalias'],
+  // Produção e chão de fábrica NÃO entram no canal de anomalias: ele é o quadro de
+  // problemas e trocas do CLIENTE (comercial/expedição/financeiro). Era herança da
+  // primeira versão do canal. Uma anomalia com `setor = 'producao'` continua podendo
+  // ser roteada, mas quem resolve é o comercial — ver observação no handoff.
+  producao: ['pcp', 'producao', 'piloto', 'compras', 'estoque', 'medidas', 'cadastros', 'dashboard', 'tv'],
+  chao: ['tv', 'producao', 'piloto', 'estoque'],
   expedicao: ['dashboard', 'tv', 'estoque', 'expedicao', 'anomalias'],
   financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh', 'anomalias'],
   // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e + RH.
@@ -100,6 +93,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'anomalias',
   ],
   // Consultoria: leitura ampla p/ BI de produtividade da cadeia produtiva.
+  // SEM `comissoes`: a consultoria não enxerga quanto a casa paga de comissão.
   consultoria: [
     'dashboard',
     'tv',
@@ -110,7 +104,6 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'compras',
     'vendas',
     'clientes',
-    'comissoes',
     'anomalias',
   ],
   // Cliente (portal externo): NÃO enxerga nada interno — só o portal dele.
