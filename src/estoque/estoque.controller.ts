@@ -69,6 +69,17 @@ export class EstoqueController {
     return this.estoqueService.consultarUnidade(codigo, user.empresaId);
   }
 
+  /**
+   * Bipagem genérica: recebe o que o leitor mandou (etiqueta, código do produto,
+   * da matéria-prima, do cliente, caixa master ou uma URL de QR) e diz o que é.
+   * Nunca lança 404 — devolve `achou:false` com o motivo, p/ a tela explicar.
+   */
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('resolver')
+  resolverCodigo(@Query('codigo') codigo: string, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.resolverCodigo(codigo, user.empresaId);
+  }
+
   @Areas('estoque', 'producao')
   /** SAÍDA da peça bipada — baixa a própria etiqueta (o estoque real). */
   @Post('unidade/:codigo/saida')

@@ -33,6 +33,186 @@ export class EstoqueService {
       .map((g) => ({ produtoId: g.produtoId as number, tamanho: g.tamanho, cor: g.cor, quantidade: g._count._all }));
   }
 
+  // ===================== LEITURA DE CÓDIGO (bipagem) =====================
+  /**
+   * Descobre O QUE FOI BIPADO. O leitor devolve coisas bem diferentes conforme a
+   * etiqueta: o código da peça (UN-...), o do produto (PRD-...), o da matéria-prima
+   * (MP-/AVI-...), o código que o CLIENTE usa naquele tamanho, o número da caixa
+   * master, ou uma URL inteira quando é QR. Antes tudo isso caía num findUnique
+   * exato e "não encontrava" — sem dizer por quê.
+   *
+   * Aqui normalizamos (maiúsculas, só letras e números), procuramos o código
+   * ENCRAVADO na string, e respondemos sempre com o motivo quando não achamos.
+   */
+  async resolverCodigo(bruto: string, empresaId: number) {
+    const cru = String(bruto ?? '').trim();
+    if (!cru) throw new BadRequestException('Informe ou bipe um código.');
+    const alnum = cru.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    // 1) Etiqueta da peça — aceita "UN-20260115-000123", "un20260115000123" e a
+    //    mesma coisa dentro de uma URL/QR.
+    const un = await this.acharUnidade(cru, alnum, empresaId);
+    if (un) {
+      const unidade = await this.consultarUnidade(un.codigo, empresaId);
+      return { achou: true as const, tipo: 'unidade' as const, lido: cru, unidade };
+    }
+
+    // 2) Código do PRODUTO ou da MATÉRIA-PRIMA (o da etiqueta da caixa).
+    const item = await this.acharItem(alnum, empresaId);
+    if (item) {
+      const resumo = await this.resumoDoItem(item, empresaId);
+      return { achou: true as const, tipo: item.tipo, lido: cru, item: resumo };
+    }
+
+    // 3) Caixa master — "1.000", "CX-1000" ou a URL "...?caixa=1000". O campo é
+    //    gravado formatado ("1.000"), então procuramos as duas grafias.
+    const cx = this.digitosCaixa(cru);
+    if (cx) {
+      const formatado = Number(cx).toLocaleString('pt-BR');
+      const n = await this.prisma.unidadeEstoque.count({ where: { empresaId, caixaMaster: { in: [cx, formatado] } } });
+      if (n) return { achou: true as const, tipo: 'caixa' as const, lido: cru, caixaMaster: formatado, pecas: n };
+    }
+
+    // 4) Por último, o código que o CLIENTE usa naquele tamanho. Fica depois da
+    //    caixa porque costuma ser numérico curto e colidiria com o nº da caixa.
+    const doCliente = await this.acharPorCodigoCliente(alnum, empresaId);
+    if (doCliente) {
+      const resumo = await this.resumoDoItem(doCliente, empresaId);
+      return { achou: true as const, tipo: 'produto' as const, lido: cru, item: resumo };
+    }
+
+    // 5) Etiqueta de EXPEDIÇÃO ("EXP0094" ou a unitária "EXP0094-001"). Não é
+    //    estoque, mas é o que mais se bipa no galpão — dizer de quem é resolve
+    //    a confusão de bipar a etiqueta errada na tela errada.
+    const exp = await this.acharExpedicao(alnum, empresaId);
+    if (exp) return { achou: true as const, tipo: 'expedicao' as const, lido: cru, expedicao: exp };
+
+    // 6) Não achou: diz o que foi lido e o que o código PARECE ser, para o
+    //    operador saber se o problema é a leitura ou o cadastro.
+    return { achou: false as const, lido: cru, normalizado: alnum, motivo: this.motivoNaoAchou(alnum) };
+  }
+
+  /** Procura a unidade pelo código exato, sem pontuação, ou encravado no texto do QR. */
+  private async acharUnidade(cru: string, alnum: string, empresaId: number) {
+    const exato = await this.prisma.unidadeEstoque.findFirst({
+      where: { empresaId, codigo: { equals: cru, mode: 'insensitive' } },
+      select: { id: true, codigo: true },
+    });
+    if (exato) return exato;
+    // UN + 8 dígitos de data + sequencial, com ou sem hífen, em qualquer posição.
+    const m = /UN-?(\d{8})-?(\d{4,8})/i.exec(alnum) ?? /UN-?(\d{8})-?(\d{4,8})/i.exec(cru.toUpperCase());
+    if (!m) return null;
+    const candidato = `UN-${m[1]}-${m[2]}`;
+    return this.prisma.unidadeEstoque.findFirst({
+      where: { empresaId, codigo: { equals: candidato, mode: 'insensitive' } },
+      select: { id: true, codigo: true },
+    });
+  }
+
+  /** Compara códigos ignorando pontuação — o leitor troca hífen por espaço direto. */
+  private static soAlnum(s: string) { return String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  private static casaCodigo(cod: string, alnum: string) {
+    const c = EstoqueService.soAlnum(cod);
+    return !!c && (c === alnum || (c.length >= 5 && alnum.includes(c)));
+  }
+
+  /** Produto ou matéria-prima pelo código próprio (PRD-…, MP-…, AVI-…). */
+  private async acharItem(alnum: string, empresaId: number) {
+    if (alnum.length < 4) return null;
+    const [produtos, materiais] = await Promise.all([
+      this.prisma.produto.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, cor: true } }),
+      this.prisma.material.findMany({ where: { empresaId }, select: { id: true, codigo: true, descricao: true, cor: true, unidade: true, saldo: true } }),
+    ]);
+    const p = produtos.find((x) => EstoqueService.casaCodigo(x.codigo, alnum));
+    if (p) return { tipo: 'produto' as const, id: p.id, codigo: p.codigo, descricao: p.descricao, cor: p.cor, tamanhoCliente: null as string | null };
+    const m = materiais.find((x) => EstoqueService.casaCodigo(x.codigo, alnum));
+    if (m) return { tipo: 'material' as const, id: m.id, codigo: m.codigo, descricao: m.descricao, cor: m.cor, unidade: m.unidade, saldo: Number(m.saldo), tamanhoCliente: null as string | null };
+    return null;
+  }
+
+  /** Código que o CLIENTE usa naquele tamanho (ex.: VIVARA "MC0400054" = tam 36). */
+  private async acharPorCodigoCliente(alnum: string, empresaId: number) {
+    if (alnum.length < 4) return null;
+    const produtos = await this.prisma.produto.findMany({
+      where: { empresaId },
+      select: { id: true, codigo: true, descricao: true, cor: true, codigosPorTamanho: true },
+    });
+    for (const x of produtos) {
+      const mapa = (x.codigosPorTamanho && typeof x.codigosPorTamanho === 'object') ? (x.codigosPorTamanho as Record<string, string>) : null;
+      if (!mapa) continue;
+      for (const [tam, cod] of Object.entries(mapa)) {
+        if (EstoqueService.casaCodigo(cod, alnum)) {
+          return { tipo: 'produto' as const, id: x.id, codigo: x.codigo, descricao: x.descricao, cor: x.cor, tamanhoCliente: tam };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Expedição pelo código bipado. A etiqueta da caixa usa "EXP0094" e a unitária
+   * "EXP0094-001"; nos dois casos o que identifica é o número da expedição.
+   */
+  private async acharExpedicao(alnum: string, empresaId: number) {
+    // "EXP" + 4 dígitos da expedição + 3 dígitos OPCIONAIS da peça. Os 3 últimos
+    // só são a peça quando sobram sete dígitos — senão "EXP0094" viraria peça 4.
+    const m = /EXP(\d{4})(\d{3})?(?!\d)/.exec(alnum);
+    if (!m) return null;
+    const numero = `EXP-${m[1]}`;
+    const pecaNum = m[2] ? Number(m[2]) : null;
+    const exp = await this.prisma.expedicao.findFirst({
+      where: { numero },
+      select: { id: true, numero: true, conferenciaStatus: true, pecas: true, pecasConferidas: true, nf: true, pedidoId: true, clienteId: true },
+    });
+    if (!exp) return null;
+    const [cliente, pedido] = await Promise.all([
+      this.prisma.cliente.findUnique({ where: { id: exp.clienteId }, select: { nome: true, empresaId: true } }),
+      exp.pedidoId ? this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, select: { numero: true } }) : Promise.resolve(null),
+    ]);
+    if (!cliente || cliente.empresaId !== empresaId) return null;
+    return {
+      numero: exp.numero, status: exp.conferenciaStatus, pecas: exp.pecas, pecasConferidas: exp.pecasConferidas,
+      nf: exp.nf, pedido: pedido?.numero ?? null, cliente: cliente.nome, pecaNum,
+    };
+  }
+
+  /** Onde estão as peças/rolos deste item — inclusive as já despachadas. */
+  private async resumoDoItem(
+    item: { tipo: 'produto' | 'material'; id: number; codigo: string; descricao: string; cor: string | null; unidade?: string; saldo?: number; tamanhoCliente: string | null },
+    empresaId: number,
+  ) {
+    const where = item.tipo === 'produto' ? { empresaId, produtoId: item.id } : { empresaId, materialId: item.id };
+    const grupos = await this.prisma.unidadeEstoque.groupBy({
+      by: ['status', 'tamanho', 'cor'],
+      where,
+      _count: { _all: true },
+      _sum: { quantidade: true },
+    });
+    const porStatus: Record<string, number> = {};
+    for (const g of grupos) porStatus[g.status] = (porStatus[g.status] ?? 0) + g._count._all;
+    const disponivel = grupos.filter((g) => g.status !== 'despachado').reduce((s, g) => s + g._count._all, 0);
+    return {
+      ...item,
+      etiquetas: grupos.reduce((s, g) => s + g._count._all, 0),
+      disponivel,
+      despachadas: porStatus['despachado'] ?? 0,
+      porStatus,
+      grade: grupos
+        .filter((g) => g.status !== 'despachado')
+        .map((g) => ({ tamanho: g.tamanho, cor: g.cor, status: g.status, pecas: g._count._all, quantidade: g._sum.quantidade != null ? Number(g._sum.quantidade) : null })),
+    };
+  }
+
+  /** Mensagem que explica a leitura — evita o "não encontrado" mudo. */
+  private motivoNaoAchou(alnum: string): string {
+    if (/^UN\d/.test(alnum)) return 'A etiqueta foi lida, mas essa peça não existe nesta empresa. Pode ter sido excluída, ou é de outra conta.';
+    if (/^(PRD|MP|AVI)/.test(alnum)) return 'O código do item foi lido, mas não existe nenhum produto/material com ele cadastrado.';
+    if (/^EXP/.test(alnum)) return 'É uma etiqueta de EXPEDIÇÃO, mas essa expedição não existe nesta empresa.';
+    if (/^\d+$/.test(alnum)) return 'Só vieram números. Se for caixa master, ela ainda não tem peça endereçada; se for a etiqueta da peça, o leitor cortou o prefixo "UN-".';
+    if (!alnum) return 'O leitor não mandou nada legível — confira se ele está no modo de teclado (HID) e com sufixo Enter.';
+    return 'O código lido não bate com nenhuma etiqueta, produto, matéria-prima ou caixa cadastrada.';
+  }
+
   // ===================== ESTOQUE UNITÁRIO (etiqueta por peça + endereço) =====================
   /**
    * ENTRADA: cria N unidades (uma etiqueta única por peça) para estocar ou ir
