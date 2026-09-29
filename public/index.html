@@ -6644,8 +6644,8 @@ async function formCompra(){
   const revenda = (prods||[]).filter(p=>p.tipo==='revenda');
   // Índice único de busca (digitar p/ achar): material (matéria-prima) + produto de revenda, com a COR p/ diferenciar itens de mesma descrição.
   window.__OCITENS = [].concat(
-    (mats||[]).map(m=>({kind:'mat', id:m.id, codigo:m.codigo||'', descricao:m.descricao||'', cor:m.cor||'', unidade:m.unidade||'un', codigoArtigo:m.codigoArtigo||'', artigo:m.artigo||''})),
-    revenda.map(p=>({kind:'prod', id:p.id, codigo:p.codigo||'', descricao:p.descricao||'', cor:p.cor||''}))
+    (mats||[]).map(m=>({kind:'mat', id:m.id, codigo:m.codigo||'', descricao:m.descricao||'', cor:m.cor||'', unidade:m.unidade||'un', codigoArtigo:m.codigoArtigo||'', artigo:m.artigo||'', custo:m.custo!=null?Number(m.custo):null})),
+    revenda.map(p=>({kind:'prod', id:p.id, codigo:p.codigo||'', descricao:p.descricao||'', cor:p.cor||'', custo:p.custo!=null?Number(p.custo):null}))
   );
   openModal(`<h3>Nova ordem de compra</h3>
     <div class="grid2"><div class="mrow"><label class="fl">Fornecedor *</label><select id="f_forn" class="inp">${fo||'<option>—</option>'}</select></div>
@@ -6663,7 +6663,9 @@ async function formCompra(){
       <div id="oc_grade" style="display:flex;flex-wrap:wrap;gap:8px"></div>
     </div>
     ${field('f_desc','Descrição * (seu produto/material)','')}
-    <div class="grid3">${field('f_qtd','Quantidade *','type="number" step="0.001"')}${field('f_un','Unidade *','value="un"')}${field('f_val','Valor total *','type="number" step="0.01"')}</div>
+    <div class="grid2">${field('f_qtd','Quantidade *','type="number" step="0.001" oninput="APP.ocCalc(\'qtd\')"')}${field('f_un','Unidade *','value="un"')}</div>
+    <div class="grid2">${field('f_vunit','Valor unitário','type="number" step="0.0001" placeholder="preço por unidade" oninput="APP.ocCalc(\'unit\')"')}${field('f_val','Valor total *','type="number" step="0.01" oninput="APP.ocCalc(\'total\')"')}</div>
+    <div id="oc_calc" class="muted" style="font-size:11.5px;margin:-4px 0 10px"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveCompra()">Salvar</button></div>`);
 }
@@ -6687,11 +6689,65 @@ function ocBusca(){
   dd.style.display='';
 }
 function ocBuscaHide(){ setTimeout(()=>{ const dd=$('f_itemdd'); if(dd) dd.style.display='none'; }, 180); }
-function ocItemLimpar(){ if($('f_mat'))$('f_mat').value=''; if($('f_prod'))$('f_prod').value=''; if($('f_itemsel'))$('f_itemsel').innerHTML=''; if($('f_itembusca'))$('f_itembusca').value=''; ocGradeHide(); }
+/**
+ * Quantidade × valor unitário = valor total, nos dois sentidos. O comprador às
+ * vezes tem o preço da tabela (unitário) e às vezes só o total da proposta do
+ * fornecedor, então quem foi digitado por último manda e o outro campo se ajusta.
+ * `origem`: 'qtd' | 'unit' | 'total' — de onde veio a digitação.
+ */
+function ocCalc(origem){
+  const q=Number(val('f_qtd'))||0, u=Number(val('f_vunit'))||0, t=Number(val('f_val'))||0;
+  const eu=$('f_vunit'), et=$('f_val');
+  if(origem==='total'){
+    // Digitou o total: descobre o unitário (só se a quantidade já estiver lá).
+    if(q>0 && eu) eu.value = t>0 ? String(Number((t/q).toFixed(4))) : '';
+  }else if(q>0 && u>0){
+    if(et) et.value=(q*u).toFixed(2);
+  }else if(q>0 && t>0 && !u){
+    // Já havia um total digitado à mão e agora veio a quantidade: deduz o unitário
+    // em vez de apagar o que o comprador escreveu.
+    if(eu) eu.value=String(Number((t/q).toFixed(4)));
+  }else if(et){
+    // Sem quantidade ou sem unitário não há total — não deixa número velho na tela.
+    et.value='';
+  }
+  ocCalcInfo();
+}
+/** Linha de conferência abaixo dos campos: a conta feita e o custo do cadastro. */
+function ocCalcInfo(){
+  const el=$('oc_calc'); if(!el) return;
+  const q=Number(val('f_qtd'))||0, u=Number(val('f_vunit'))||0, t=Number(val('f_val'))||0;
+  const un=val('f_un')||'un';
+  const cad=window.__OCCUSTO;
+  const partes=[];
+  if(q>0 && u>0) partes.push(`<b>${fmtQtd(q)} ${esc(un)}</b> × ${money(u)} = <b style="color:#1e7a44">${money(t||q*u)}</b>`);
+  if(cad!=null && cad>0){
+    partes.push(`custo cadastrado: <b>${money(cad)}</b>/${esc(un)}`);
+    if(u>0){
+      const dif=((u-cad)/cad)*100;
+      if(Math.abs(dif)>=0.5) partes.push(`<b style="color:${dif>0?'#c14a34':'#1e7a44'}">${dif>0?'▲':'▼'} ${Math.abs(dif).toFixed(1)}% ${dif>0?'acima':'abaixo'}</b> do cadastro`);
+    }
+  } else if(window.__OCITEMSEL) partes.push('<span style="color:#8a5a00">este item não tem custo cadastrado</span>');
+  el.innerHTML=partes.join(' &nbsp;·&nbsp; ');
+}
+/** Quantidade sem casas decimais inúteis (10 e não 10,000). */
+function fmtQtd(n){ return Number(n).toLocaleString('pt-BR',{maximumFractionDigits:3}); }
+function ocItemLimpar(){
+  if($('f_mat'))$('f_mat').value=''; if($('f_prod'))$('f_prod').value='';
+  if($('f_itemsel'))$('f_itemsel').innerHTML=''; if($('f_itembusca'))$('f_itembusca').value='';
+  window.__OCITEMSEL=null; window.__OCCUSTO=null;
+  if($('f_vunit')) $('f_vunit').value=''; if($('f_val')) $('f_val').value='';
+  ocGradeHide(); ocCalcInfo();
+}
 function ocItemPick(kind,id){
   const dd=$('f_itemdd'); if(dd) dd.style.display='none';
   id=Number(id);
   const it=(window.__OCITENS||[]).find(x=>x.kind===kind && x.id===id); if(!it) return;
+  // Custo do cadastro entra como valor unitário sugerido — o comprador troca se
+  // o fornecedor cotou diferente, e a linha de conferência mostra a diferença.
+  window.__OCITEMSEL=it;
+  window.__OCCUSTO=(it.custo!=null && Number(it.custo)>0)?Number(it.custo):null;
+  if($('f_vunit')) $('f_vunit').value = window.__OCCUSTO!=null ? String(window.__OCCUSTO) : '';
   if($('f_itembusca')) $('f_itembusca').value=(it.codigo?it.codigo+' · ':'')+(it.descricao||'')+(it.cor?' · '+it.cor:'');
   const selEl=$('f_itemsel');
   const selHtml=lbl=>`✔️ ${lbl}: <b>${esc(it.codigo)}</b>${it.cor?(' · cor <b style="color:#8a5a00">'+esc(it.cor)+'</b>'):''} <a href="javascript:void 0" onmousedown="event.preventDefault();APP.ocItemLimpar()" style="color:#c14a34;text-decoration:underline">trocar</a>`;
@@ -6712,6 +6768,7 @@ function ocItemPick(kind,id){
     if(selEl) selEl.innerHTML=selHtml('Produto');
     ocProd(); // usa o produto (lê f_prod) p/ montar a grade de tamanhos
   }
+  ocCalc('unit'); // já multiplica se a quantidade veio da grade
 }
 function ocGradeHide(){ const b=$('oc_gradebox'); if(b) b.style.display='none'; const g=$('oc_grade'); if(g) g.innerHTML=''; window.__OCPRODSEL=null; if($('f_qtd')) $('f_qtd').removeAttribute('readonly'); }
 // Grade LIVRE (material ou produto sem tamanhos): digita "36:10, 38:8" e soma.
@@ -6753,8 +6810,8 @@ function ocGradeSync(){
   const temGrade=Object.keys(g).length>0;
   if($('f_qtd')){ if(temGrade){ $('f_qtd').value=soma||''; $('f_qtd').setAttribute('readonly','readonly'); } else { $('f_qtd').removeAttribute('readonly'); } }
   const sumEl=$('oc_gradesum'); if(sumEl) sumEl.textContent = temGrade?('Total: '+soma+' peça(s)'):'';
-  const p=window.__OCPRODSEL; const custo=p&&p.custo!=null?Number(p.custo):0;
-  if(temGrade && custo>0 && $('f_val')) $('f_val').value=(soma*custo).toFixed(2);
+  // A quantidade mudou (veio da grade): o total é recalculado pelo valor unitário.
+  ocCalc('qtd');
 }
 async function saveCompra(){
   const body = { fornecedorId:Number(val('f_forn')), descricao:val('f_desc'), quantidade:Number(val('f_qtd')), unidade:val('f_un')||'un', valor:Number(val('f_val')) };
@@ -13034,7 +13091,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocProd, ocGradeSync, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
+  formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
