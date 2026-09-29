@@ -6567,15 +6567,71 @@ function ocMsgTexto(o){
   linhas.push('Confirme o pedido e o prazo de entrega, por favor.');
   return linhas.join('\n');
 }
+/** Gera o PDF da OC e devolve como File, pronto p/ anexar no compartilhamento. */
+async function ocPdfFile(id, numero){
+  const d = await api('/documentos/pedido_compra', {method:'POST', body:{referenciaId:id}});
+  const sep = d.urlPdf.indexOf('?')>=0 ? '&' : '?';
+  const r = await fetchAuth(d.urlPdf+sep+'t='+Date.now(), { cache:'no-store', headers:{ Authorization:'Bearer '+S.access } });
+  if(!r.ok) throw new Error('Falha ao gerar o PDF da ordem de compra ('+r.status+').');
+  const blob = await r.blob();
+  const nome = 'Ordem de Compra '+(d.numero||numero||id)+'.pdf';
+  return { file: new File([blob], nome, {type:'application/pdf'}), blob, nome, numero:d.numero };
+}
+/**
+ * Envia a OC pelo WhatsApp COM o PDF anexado.
+ *
+ * O link wa.me só carrega TEXTO — não existe parâmetro de arquivo nele, então o
+ * anexo nunca ia junto. Quem resolve é o compartilhamento nativo
+ * (navigator.share com `files`): abre a folha de compartilhamento do sistema, a
+ * pessoa escolhe o WhatsApp e a mensagem sai com o PDF numa coisa só.
+ * Onde o navegador não compartilha arquivo, caímos no plano B explícito: baixa o
+ * PDF, copia o texto e abre a conversa — com a instrução na tela.
+ */
 async function ocWhats(id){
   const o=(window.__OCLIST||[]).find(x=>x.id===id); if(!o) return;
   const forn=(window.__OCFORN||[]).find(f=>f.id===o.fornecedorId);
   const tel=(forn&&forn.telefone||'').replace(/\D/g,'');
   if(!tel){ toast('Fornecedor sem telefone cadastrado.','err'); return; }
   const num=tel.length<=11?('55'+tel):tel; // assume Brasil se vier sem DDI
-  abrirArquivo('https://wa.me/'+num+'?text='+encodeURIComponent(ocMsgTexto(o)));
+  const texto=ocMsgTexto(o);
+
+  let pdf=null;
+  try{ toast('Gerando o PDF da ordem de compra…','ok'); pdf=await ocPdfFile(id, o.numero); }
+  catch(e){ toast(e.message+' Vou enviar só a mensagem.','err'); }
+
+  let enviouComAnexo=false;
+  if(pdf && navigator.share && navigator.canShare && navigator.canShare({files:[pdf.file]})){
+    try{ await navigator.share({ files:[pdf.file], text:texto, title:pdf.nome }); enviouComAnexo=true; }
+    catch(e){ if((e&&e.name)==='AbortError') return; } // desistiu no meio: não marca como enviada
+  }
+  if(!enviouComAnexo) await ocWhatsPlanoB(num, texto, pdf);
+
   // marca como enviada (não bloqueia se falhar)
   try{ await api('/ordens-compra/'+id+'/situacao',{method:'POST',body:{situacao:'enviada'},silent:true}); loadRoute(); }catch(_){}
+}
+/** Sem compartilhamento de arquivo: baixa o PDF, copia o texto e abre a conversa. */
+async function ocWhatsPlanoB(num, texto, pdf){
+  if(pdf){
+    const url=URL.createObjectURL(pdf.blob);
+    const a=document.createElement('a'); a.href=url; a.download=pdf.nome;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch(_){} }, 60000);
+  }
+  let copiou=false;
+  try{ await navigator.clipboard.writeText(texto); copiou=true; }catch(_){}
+  abrirArquivo('https://wa.me/'+num+'?text='+encodeURIComponent(texto));
+  if(!pdf) return;
+  openModal(`<h3>📎 Anexe o PDF na conversa</h3>
+    <div style="font-size:13px;line-height:1.6">
+      Este navegador não deixa o site anexar arquivo direto no WhatsApp, então fiz o seguinte:
+      <ul style="margin:8px 0 0 18px;padding:0">
+        <li>O PDF <b>${esc(pdf.nome)}</b> foi baixado.</li>
+        <li>${copiou?'A mensagem foi <b>copiada</b> — é só colar (Ctrl+V) na conversa.':'A conversa abriu com a mensagem já preenchida.'}</li>
+        <li>Na conversa, clique no <b>clipe 📎</b> e escolha o PDF que acabou de baixar.</li>
+      </ul>
+      <div class="muted" style="margin-top:10px;font-size:11.5px">No celular (e no Edge/Chrome do Windows com o WhatsApp instalado) o anexo vai junto automaticamente, sem esse passo.</div>
+    </div>
+    <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Entendi</button></div>`);
 }
 async function ocSituacao(id, situacao){
   let prazo;
@@ -13091,7 +13147,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocSituacao, formReposicao, repCalc, saveReposicao,
+  formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
