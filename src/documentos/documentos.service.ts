@@ -1179,6 +1179,19 @@ export class DocumentosService {
     ]);
     // Instruções de entrega / etiquetagem do pedido — o packing confere aqui.
     this.secaoEntrega(doc, pedido?.instrucoesEntrega);
+    // CARIMBO DE IMPRESSÃO. O romaneio lê "já expedido"/"falta" do banco VIVO a cada
+    // impressão, então duas vias impressas em momentos diferentes mostram números
+    // diferentes — e sem a hora não dá para saber qual é a atual. Já aconteceu de um
+    // papel antigo em mãos divergir da tela e ninguém conseguir datar a diferença.
+    const agora = new Date();
+    const carimbo = agora.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    if (doc.y + 40 > doc.page.height - 80) doc.addPage();
+    doc.moveDown(0.6);
+    doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(8.5)
+      .text(`Impresso em ${carimbo} — os números de "já expedido" e "falta" valem para ESTE instante.`, 50, doc.y, { width: doc.page.width - 100 });
+    doc.fillColor('#666666').font('Helvetica').fontSize(8)
+      .text('Se esta via for antiga, reimprima antes de embarcar: uma via reimpressa mantém o mesmo número de romaneio.', 50, doc.y + 1, { width: doc.page.width - 100 });
+    doc.fillColor('#222222').font('Helvetica').fontSize(10);
     assinaturas(doc, 'Expedição — GRUPO CHERKESIAN', 'Recebido por (nome/documento)');
     return doc;
   }
