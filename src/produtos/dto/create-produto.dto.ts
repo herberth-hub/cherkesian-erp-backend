@@ -121,12 +121,21 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   // Arquivo da modelagem Audaces (.adsx/.zip) em data URI base64.
   @IsOptional() @IsString() @MaxLength(12_000_000) arquivoModelagem?: string;
   @IsOptional() @IsString() @MaxLength(200) arquivoModelagemNome?: string;
-  /** Logo vetorizado do cliente (.ai/.eps/.svg/.cdr/.pdf) — base do bordado/estampa. */
+  /**
+   * Logos vetorizados do cliente (.ai/.eps/.svg/.cdr/.pdf) — base do bordado/estampa.
+   * Uma peça costuma ter vários (peito, costas, manga, patrocinador), então é lista.
+   * O serviço valida a quantidade e o tamanho: ver LOGOS_MAX / LOGO_MAX_BYTES.
+   */
+  @IsOptional() @IsArray() logosVetor?: Array<{ nome?: string; data?: string }>;
+  /** Legado: primeiro logo. Mantido em sincronia com logosVetor[0]. */
   @IsOptional() @IsString() @MaxLength(12_000_000) logoVetor?: string;
   @IsOptional() @IsString() @MaxLength(200) logoVetorNome?: string;
   /** Ficha técnica original enviada pelo cliente (PDF/imagem). */
   @IsOptional() @IsString() @MaxLength(12_000_000) fichaCliente?: string;
   @IsOptional() @IsString() @MaxLength(200) fichaClienteNome?: string;
+  /** Mapa de aplicacao DTF/bordado — imagem entra como pagina da ficha tecnica. */
+  @IsOptional() @IsString() @MaxLength(12_000_000) mapaDtf?: string;
+  @IsOptional() @IsString() @MaxLength(200) mapaDtfNome?: string;
 
   @IsOptional()
   @IsArray()

@@ -2779,30 +2779,69 @@ function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThu
 const ANEXOS={
   modelagem:{ estado:'__ARQMOD', icone:'📁', vazio:'Nenhum arquivo arquivado.', baixaComo:'modelagem',
     accept:'.adsx,.zip,.rar,.dxf,.plt,application/zip,application/octet-stream,application/x-zip-compressed' },
-  logo:{ estado:'__LOGOVET', icone:'🎨', vazio:'Nenhum logo vetorizado anexado.', baixaComo:'logo',
+  logo:{ estado:'__LOGOVET', icone:'🎨', vazio:'Nenhum logo vetorizado anexado.', baixaComo:'logo', varios:true, max:8,
     accept:'.ai,.eps,.svg,.cdr,.pdf,image/svg+xml,application/pdf,application/postscript,application/illustrator' },
+  dtf:{ estado:'__MAPADTF', icone:'📐', vazio:'Nenhum mapa de aplicação anexado.', baixaComo:'mapa-dtf',
+    accept:'.png,.jpg,.jpeg,.webp,.pdf,image/*,application/pdf' },
   ficha:{ estado:'__FICHACLI', icone:'📄', vazio:'Nenhuma ficha do cliente anexada.', baixaComo:'ficha-tecnica',
     accept:'.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*' },
 };
+/** Lista de arquivos do anexo — sempre um array, mesmo quando o campo é de um só. */
+function anexoLista(tipo){
+  const v=window[ANEXOS[tipo].estado];
+  if(Array.isArray(v)) return v;
+  return (v&&v.data) ? [v] : [];
+}
 function anexoThumb(tipo){
-  const cfg=ANEXOS[tipo]; const a=window[cfg.estado]||{};
-  if(a.data){ return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pill green" style="font-size:11px">${cfg.icone} arquivo</span> <a href="${a.data}" download="${esc(a.nome||cfg.baixaComo)}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||cfg.baixaComo)}</a> <a onclick="APP.anexoDel('${tipo}')" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`; }
-  return `<span class="muted" style="font-size:12px">${cfg.vazio}</span>`;
+  const cfg=ANEXOS[tipo]; const arr=anexoLista(tipo);
+  if(!arr.length) return `<span class="muted" style="font-size:12px">${cfg.vazio}</span>`;
+  const linha=(a,i)=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 0">
+    <span class="pill green" style="font-size:11px">${cfg.icone}${cfg.varios?' '+(i+1):''}</span>
+    <a href="${a.data}" download="${esc(a.nome||cfg.baixaComo)}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||cfg.baixaComo)}</a>
+    <span class="muted" style="font-size:10.5px">${anexoTam(a.data)}</span>
+    <a onclick="APP.anexoDel('${tipo}',${i})" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`;
+  const cab=cfg.varios&&arr.length>1?`<div class="muted" style="font-size:11px;margin-bottom:2px"><b>${arr.length}</b> logo(s) anexado(s)</div>`:'';
+  return cab+arr.map(linha).join('');
+}
+/** Tamanho aproximado do arquivo a partir do data URI (base64 infla ~33%). */
+function anexoTam(data){
+  const b64=String(data||'').split(',')[1]||''; const bytes=b64.length*0.75;
+  return bytes>1048576 ? (bytes/1048576).toFixed(1)+' MB' : Math.max(1,Math.round(bytes/1024))+' KB';
 }
 function anexoSel(tipo, el){
-  const cfg=ANEXOS[tipo]; const f=el.files&&el.files[0]; if(!f) return;
-  if(f.size > 9*1024*1024){ toast('Arquivo muito grande (máx. ~9 MB).','err'); el.value=''; return; }
-  const r=new FileReader();
-  r.onload=()=>{ window[cfg.estado]={ data:String(r.result), nome:f.name }; const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo); toast(f.name+' anexado.','ok'); };
-  r.onerror=()=>toast('Não foi possível ler o arquivo.','err');
-  r.readAsDataURL(f);
+  const cfg=ANEXOS[tipo]; const fs=[...(el.files||[])]; if(!fs.length) return;
+  const limite=cfg.varios ? 4*1024*1024 : 9*1024*1024;
+  const atual=anexoLista(tipo);
+  if(cfg.varios && atual.length+fs.length > cfg.max){
+    toast(`Máximo de ${cfg.max} logos — você já tem ${atual.length} e escolheu mais ${fs.length}.`,'err'); el.value=''; return;
+  }
+  let pendentes=fs.length;
+  for(const f of fs){
+    if(f.size > limite){ toast(`"${f.name}" é grande demais (máx. ~${limite/1024/1024} MB).`,'err'); pendentes--; continue; }
+    const r=new FileReader();
+    r.onload=()=>{
+      const novo={ data:String(r.result), nome:f.name };
+      window[cfg.estado] = cfg.varios ? anexoLista(tipo).concat([novo]) : novo;
+      const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo);
+      if(--pendentes<=0) toast(fs.length>1?`${fs.length} arquivos anexados.`:`${f.name} anexado.`,'ok');
+    };
+    r.onerror=()=>{ toast('Não foi possível ler "'+f.name+'".','err'); pendentes--; };
+    r.readAsDataURL(f);
+  }
+  el.value=''; // permite escolher o mesmo arquivo de novo depois de remover
 }
-function anexoDel(tipo){ window[ANEXOS[tipo].estado]={ data:'', nome:'' }; const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo); }
+function anexoDel(tipo, i){
+  const cfg=ANEXOS[tipo];
+  if(cfg.varios){ const a=anexoLista(tipo); a.splice(Number(i)||0,1); window[cfg.estado]=a; }
+  else window[cfg.estado]={ data:'', nome:'' };
+  const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo);
+}
 /** Bloco pronto do anexo (rótulo + preview + input), p/ usar no formulário. */
 function anexoBox(tipo, rotulo, ajuda){
+  const cfg=ANEXOS[tipo];
   return `<div class="mrow"><label class="fl">${esc(rotulo)}</label>
     <div id="anx_${tipo}" style="margin:4px 0">${anexoThumb(tipo)}</div>
-    <input type="file" accept="${ANEXOS[tipo].accept}" onchange="APP.anexoSel('${tipo}',this)" style="font-size:12px">
+    <input type="file" accept="${cfg.accept}"${cfg.varios?' multiple':''} onchange="APP.anexoSel('${tipo}',this)" style="font-size:12px">
     <div class="muted" style="font-size:11px;margin-top:2px">${ajuda}</div></div>`;
 }
 // Compatibilidade: os nomes antigos continuam valendo (usados no form da modelagem).
@@ -2869,8 +2908,10 @@ async function formProduto(id, prefill){
   const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
-  window.__LOGOVET = { data: p.logoVetor||'', nome: p.logoVetorNome||'' };
+  // Lista de logos; cai no campo antigo quando o produto e anterior a mudanca.
+  window.__LOGOVET = Array.isArray(p.logosVetor) && p.logosVetor.length ? p.logosVetor : (p.logoVetor ? [{ data:p.logoVetor, nome:p.logoVetorNome||'logo' }] : []);
   window.__FICHACLI = { data: p.fichaCliente||'', nome: p.fichaClienteNome||'' };
+  window.__MAPADTF = { data: p.mapaDtf||'', nome: p.mapaDtfNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
   const fotoBox=(kind,lbl)=>`<div><label class="fl">${esc(lbl)}</label><div id="fpv_${kind}" style="margin:4px 0">${fotoThumb(kind)}</div><input type="file" accept="image/*" onchange="APP.fotoSel('${kind}',this)" style="font-size:12px"></div>`;
@@ -2937,6 +2978,7 @@ async function formProduto(id, prefill){
       ${anexoBox('logo','🎨 Logo vetorizado do cliente','Formato vetorial (.ai, .eps, .svg, .cdr, .pdf) — é o que o bordado e o DTF precisam. PNG/JPG não serve para gerar a matriz. Máx. ~9 MB.')}
       ${anexoBox('ficha','📄 Ficha técnica do cliente','O PDF/imagem que o cliente mandou. Fica guardado junto do produto para conferir divergência depois. Máx. ~9 MB.')}
     </div>
+    ${anexoBox('dtf','📐 Mapa de aplicação (DTF / bordado)','Onde cada arte entra na peça, com as medidas. Se for IMAGEM (.png/.jpg), sai impresso junto da ficha técnica do produto. Em PDF, fica anexado mas não entra na página.')}
     ${anexoBox('modelagem','📁 Arquivo de modelagem (Audaces · .adsx / .zip)','Guarda o arquivo original da modelagem no produto (máx. ~9 MB). Depois é só baixar aqui.')}
     ${secDivisor('DADOS FISCAIS (NF-e) · valide com a contabilidade')}
     <div class="grid2">${field('f_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'" placeholder="ex.: 61099000"')}${field('f_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
@@ -3109,8 +3151,9 @@ async function saveProduto(id){
   body.fotoModelo = fm.modelo||''; body.fotoModelagem = fm.modelagem||'';
   const am=window.__ARQMOD||{};
   body.arquivoModelagem = am.data||''; body.arquivoModelagemNome = am.nome||'';
-  const lv=window.__LOGOVET||{}; body.logoVetor = lv.data||''; body.logoVetorNome = lv.nome||'';
+  body.logosVetor = anexoLista('logo'); // o backend espelha o [0] nos campos antigos
   const fc=window.__FICHACLI||{}; body.fichaCliente = fc.data||''; body.fichaClienteNome = fc.nome||'';
+  const md=window.__MAPADTF||{}; body.mapaDtf = md.data||''; body.mapaDtfNome = md.nome||'';
   body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
     .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
   // Tamanhos: sincroniza o campo "Tamanhos (colunas)" para a grade — persiste sempre,

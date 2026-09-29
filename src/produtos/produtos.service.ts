@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -18,7 +19,7 @@ export class ProdutosService {
     // e isso mantém o payload leve. Eles voltam no findOne (edição).
     const produtos = await this.prisma.produto.findMany({
       where: { empresaId },
-      omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true, logoVetor: true, fichaCliente: true },
+      omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true, logoVetor: true, logosVetor: true, fichaCliente: true },
       orderBy: { codigo: 'asc' },
     });
     // Rendimento: quantas peças o estoque de material rende (limitado pelo material
@@ -268,6 +269,44 @@ export class ProdutosService {
   }
 
   /** Extrai os campos descritivos da ficha técnica presentes no DTO. */
+  /** Quantos logos vetorizados cabem num produto, e o tamanho de cada um. */
+  private static readonly LOGOS_MAX = 8;
+  private static readonly LOGO_MAX_BYTES = 4 * 1024 * 1024; // ~4 MB por arquivo
+  private static readonly LOGOS_TOTAL_BYTES = 14 * 1024 * 1024; // teto da linha inteira
+
+  /**
+   * Normaliza a lista de logos vetorizados. São base64 dentro da linha do produto,
+   * então há limite: sem teto, um punhado de .ai de 9 MB estoura a linha no Postgres
+   * e deixa o findOne do produto lento para todo mundo.
+   * Mantém `logoVetor`/`logoVetorNome` (campos antigos) apontando para o primeiro.
+   */
+  private dadosLogos(dto: CreateProdutoDto | UpdateProdutoDto) {
+    if (dto.logosVetor === undefined) {
+      // Lista não veio: respeita o campo antigo, se ele veio.
+      return dto.logoVetor === undefined ? {} : { logoVetor: dto.logoVetor, logoVetorNome: dto.logoVetorNome };
+    }
+    const lista = (dto.logosVetor ?? [])
+      .filter((l) => typeof l?.data === 'string' && l.data.trim())
+      .map((l) => ({ nome: String(l.nome ?? 'logo').slice(0, 200), data: String(l.data) }));
+
+    if (lista.length > ProdutosService.LOGOS_MAX) {
+      throw new BadRequestException(`Máximo de ${ProdutosService.LOGOS_MAX} logos por produto (enviados: ${lista.length}).`);
+    }
+    const grande = lista.find((l) => l.data.length > ProdutosService.LOGO_MAX_BYTES);
+    if (grande) {
+      throw new BadRequestException(`O logo "${grande.nome}" é grande demais (máx. ~4 MB por arquivo).`);
+    }
+    const total = lista.reduce((s, l) => s + l.data.length, 0);
+    if (total > ProdutosService.LOGOS_TOTAL_BYTES) {
+      throw new BadRequestException(`Os logos somam ${(total / 1024 / 1024).toFixed(1)} MB — o limite do produto é 14 MB. Remova algum ou mande em resolução menor.`);
+    }
+    return {
+      logosVetor: lista as unknown as Prisma.InputJsonValue,
+      logoVetor: lista[0]?.data ?? null,
+      logoVetorNome: lista[0]?.nome ?? null,
+    };
+  }
+
   private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {
     return {
       referencia: dto.referencia,
@@ -286,10 +325,11 @@ export class ProdutosService {
       fotoModelagem: dto.fotoModelagem,
       arquivoModelagem: dto.arquivoModelagem,
       arquivoModelagemNome: dto.arquivoModelagemNome,
-      logoVetor: dto.logoVetor,
-      logoVetorNome: dto.logoVetorNome,
+      ...this.dadosLogos(dto),
       fichaCliente: dto.fichaCliente,
       fichaClienteNome: dto.fichaClienteNome,
+      mapaDtf: dto.mapaDtf,
+      mapaDtfNome: dto.mapaDtfNome,
     };
   }
 

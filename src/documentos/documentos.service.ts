@@ -1325,6 +1325,26 @@ export class DocumentosService {
       );
     }
 
+    // MAPA DE APLICAÇÃO DTF — vai junto da ficha, que é o que chega na mão de quem
+    // aplica. A tabela acima diz o tamanho; o mapa diz ONDE cada arte entra na peça,
+    // e sem ele o setor de DTF tem que adivinhar o posicionamento.
+    if (produto.mapaDtf) {
+      const ehImagem = /^data:image\//i.test(produto.mapaDtf);
+      secao(doc, 'Mapa de aplicação (DTF / bordado)');
+      if (ehImagem) {
+        imagem(doc, produto.mapaDtf, 330);
+        doc.moveDown(0.3);
+        doc.fillColor('#666666').font('Helvetica').fontSize(8)
+          .text('Confira uma amostra física antes da produção em série.', 50, doc.y, { width: doc.page.width - 100 });
+        doc.fillColor('#222222').fontSize(10);
+      } else {
+        // PDF não entra como página aqui — avisa em vez de sumir com o anexo.
+        doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9)
+          .text(`Mapa anexado ao produto: ${produto.mapaDtfNome ?? 'arquivo'} — abra pelo cadastro do produto (não é imagem, por isso não entra nesta página).`, 50, doc.y, { width: doc.page.width - 100 });
+        doc.fillColor('#222222').font('Helvetica').fontSize(10);
+      }
+    }
+
     if (produto.medidas.length) {
       secao(doc, 'Tabela de medidas', 30 + produto.medidas.length * 20);
       const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
