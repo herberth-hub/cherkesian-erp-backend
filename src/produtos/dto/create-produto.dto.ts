@@ -121,6 +121,12 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   // Arquivo da modelagem Audaces (.adsx/.zip) em data URI base64.
   @IsOptional() @IsString() @MaxLength(12_000_000) arquivoModelagem?: string;
   @IsOptional() @IsString() @MaxLength(200) arquivoModelagemNome?: string;
+  /** Logo vetorizado do cliente (.ai/.eps/.svg/.cdr/.pdf) — base do bordado/estampa. */
+  @IsOptional() @IsString() @MaxLength(12_000_000) logoVetor?: string;
+  @IsOptional() @IsString() @MaxLength(200) logoVetorNome?: string;
+  /** Ficha técnica original enviada pelo cliente (PDF/imagem). */
+  @IsOptional() @IsString() @MaxLength(12_000_000) fichaCliente?: string;
+  @IsOptional() @IsString() @MaxLength(200) fichaClienteNome?: string;
 
   @IsOptional()
   @IsArray()

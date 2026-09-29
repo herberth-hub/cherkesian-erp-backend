@@ -220,8 +220,63 @@ export class ClientesService {
       }));
     }
 
+    // UNIDADES/FILIAIS do cliente. Cada uma tem CNPJ próprio e é ela que vira o
+    // destinatário da NF-e quando o pedido aponta para a unidade — por isso a ficha
+    // mostra os dados fiscais e avisa o que falta para faturar nela.
+    const filiais = await this.prisma.clienteUnidade.findMany({
+      where: { clienteId: id },
+      orderBy: { nome: 'asc' },
+    });
+    const pedidosPorUnidade = filiais.length
+      ? await this.prisma.pedido.groupBy({
+          by: ['clienteUnidadeId'],
+          where: { clienteId: id, clienteUnidadeId: { not: null } },
+          _count: { _all: true },
+          _sum: { valorTotal: true },
+        })
+      : [];
+    const movPorUni = new Map(pedidosPorUnidade.map((g) => [g.clienteUnidadeId as number, g]));
+    const semUnidade = filiais.length
+      ? await this.prisma.pedido.count({ where: { clienteId: id, clienteUnidadeId: null } })
+      : 0;
+    /**
+     * O que a NF-e REALMENTE exige do destinatário (ver nfe.service `faltaEnd`):
+     * logradouro, número, bairro, município, UF e CEP — o código IBGE NÃO entra,
+     * e o CNPJ da unidade é o que a distingue da matriz.
+     * Cada campo vazio na unidade CAI DE VOLTA no cliente-mãe (`uni.x ?? cliente.x`),
+     * então só é problema quando falta nos dois. Sem isso o aviso apontaria falha
+     * em unidade que fatura normalmente.
+     */
+    const herda = (campo: 'logradouro' | 'numeroEndereco' | 'bairro' | 'municipio' | 'uf' | 'cep', u: { [k: string]: unknown }) =>
+      String(u[campo] ?? '').trim() || String((cliente as unknown as Record<string, unknown>)[campo] ?? '').trim();
+    const ENDERECO = ['logradouro', 'numeroEndereco', 'bairro', 'municipio', 'uf', 'cep'] as const;
+
     return {
       cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
+      unidades: filiais.map((u) => {
+        const mov = movPorUni.get(u.id);
+        const falta = [
+          ...(String(u.cnpjCpf ?? '').trim() ? [] : ['cnpjCpf']),
+          ...ENDERECO.filter((c) => !herda(c, u as unknown as Record<string, unknown>)),
+        ];
+        return {
+          id: u.id,
+          nome: u.nome,
+          cnpjCpf: u.cnpjCpf,
+          inscricaoEstadual: u.inscricaoEstadual,
+          indicadorIE: u.indicadorIE,
+          endereco: [u.logradouro, u.numeroEndereco, u.bairro].filter(Boolean).join(', ') || null,
+          cidadeUf: u.municipio && u.uf ? `${u.municipio}/${u.uf}` : null,
+          cep: u.cep,
+          email: u.email,
+          pedidos: mov?._count._all ?? 0,
+          valor: Number(mov?._sum.valorTotal ?? 0),
+          // O que impede de emitir NF-e para esta unidade (vazio = pronta).
+          faltaParaNfe: falta,
+        };
+      }),
+      // Pedidos que ficaram na matriz, sem unidade — útil quando o cliente tem filiais.
+      pedidosSemUnidade: semUnidade,
       acessosPortal,
       orcamentos: { qtd: orc.length, valor: somaP(orc) },
       pedidos: { qtd: ped.length, valor: somaP(ped) },

@@ -612,6 +612,14 @@ model Produto {
   fotoModelagem  String? @db.Text // imagem da modelagem Audaces (data URI base64)
   arquivoModelagem     String? @db.Text // arquivo da modelagem Audaces (.adsx/.zip) em data URI base64
   arquivoModelagemNome String? // nome original do arquivo de modelagem arquivado
+  // Logo VETORIZADO do cliente (.ai/.eps/.svg/.cdr/.pdf) — é o que a bordadeira e a
+  // estamparia pedem; a imagem em PNG/JPG não serve para gerar a matriz.
+  logoVetor            String? @db.Text
+  logoVetorNome        String?
+  // Ficha técnica que o CLIENTE mandou (PDF/imagem) — a fonte original das
+  // especificações, guardada junto do produto para conferir divergência depois.
+  fichaCliente         String? @db.Text
+  fichaClienteNome     String?
 
   // ===== Dados fiscais (item da NF-e) — validar com a contabilidade =====
   ncm             String? // 8 dígitos

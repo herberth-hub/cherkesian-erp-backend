@@ -18,7 +18,7 @@ export class ProdutosService {
     // e isso mantém o payload leve. Eles voltam no findOne (edição).
     const produtos = await this.prisma.produto.findMany({
       where: { empresaId },
-      omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true },
+      omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true, logoVetor: true, fichaCliente: true },
       orderBy: { codigo: 'asc' },
     });
     // Rendimento: quantas peças o estoque de material rende (limitado pelo material
@@ -286,6 +286,10 @@ export class ProdutosService {
       fotoModelagem: dto.fotoModelagem,
       arquivoModelagem: dto.arquivoModelagem,
       arquivoModelagemNome: dto.arquivoModelagemNome,
+      logoVetor: dto.logoVetor,
+      logoVetorNome: dto.logoVetorNome,
+      fichaCliente: dto.fichaCliente,
+      fichaClienteNome: dto.fichaClienteNome,
     };
   }
 

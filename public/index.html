@@ -1491,6 +1491,24 @@ async function clienteResumo(id){
     fin.vencido>0?`<tr style="background:#faf6ea;position:sticky;bottom:0"><td colspan="6" style="padding:2px 8px 6px;font-size:11px;color:#c14a34">do saldo, ${money(fin.vencido)} está vencido</td></tr>`:''):'';
   const finHtml=`<div style="flex:1;min-width:320px"><div style="font-weight:700;margin-bottom:6px">💰 Contas a receber (${(fin.titulos||[]).length}) ${fin.vencido>0?`<span class="pill red" style="font-size:10px">vencido ${money(fin.vencido)}</span>`:''}</div>
     <div class="panel" style="overflow:auto;max-height:340px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">NF/Doc.</th><th style="padding:5px 8px;text-align:left">Vencim.</th><th style="padding:5px 8px;text-align:right">Valor</th><th style="padding:5px 8px;text-align:right">Pago</th><th style="padding:5px 8px;text-align:right">Saldo</th><th style="padding:5px 8px;text-align:center">Status</th></tr></thead><tbody>${titRows||'<tr><td colspan=6 class="muted" style="padding:10px">Sem títulos a receber.</td></tr>'}</tbody>${titFoot}</table></div></div>`;
+  // UNIDADES / FILIAIS — cada uma tem CNPJ próprio e é o destinatário da NF-e
+  // quando o pedido aponta para ela. A ficha mostra o que ainda falta para faturar.
+  const unis=r.unidades||[];
+  const uniRows=unis.map(u=>{
+    const pronta=!(u.faltaParaNfe||[]).length;
+    const rot={cnpjCpf:'CNPJ',logradouro:'logradouro',numeroEndereco:'número',bairro:'bairro',municipio:'município',codMunicipio:'cód. IBGE',uf:'UF',cep:'CEP'};
+    return `<tr>
+      <td style="padding:6px 8px"><b>${esc(u.nome)}</b>${u.email?`<div class="muted" style="font-size:11px">✉️ ${esc(u.email)}</div>`:''}</td>
+      <td style="padding:6px 8px" class="mono">${u.cnpjCpf?esc(u.cnpjCpf):'<span style="color:#c14a34">sem CNPJ</span>'}${u.inscricaoEstadual?`<div class="muted" style="font-size:11px">IE ${esc(u.inscricaoEstadual)}</div>`:''}</td>
+      <td style="padding:6px 8px;font-size:11.5px">${u.endereco?esc(u.endereco):'<span class="muted">—</span>'}${u.cidadeUf?`<div class="muted">${esc(u.cidadeUf)}${u.cep?' · '+esc(u.cep):''}</div>`:''}</td>
+      <td style="padding:6px 8px;text-align:center">${u.pedidos?`<b>${u.pedidos}</b><div class="muted" style="font-size:11px">${money(u.valor)}</div>`:'<span class="muted">—</span>'}</td>
+      <td style="padding:6px 8px;text-align:center">${pronta
+        ? '<span class="pill green" style="font-size:10px">pronta p/ NF-e</span>'
+        : `<span class="pill red" style="font-size:10px" title="Falta: ${esc((u.faltaParaNfe||[]).map(c=>rot[c]||c).join(', '))}">falta cadastro</span><div class="muted" style="font-size:10.5px;margin-top:2px">${esc((u.faltaParaNfe||[]).map(c=>rot[c]||c).join(' · '))}</div>`}</td></tr>`;
+  }).join('');
+  const uniHtml = !unis.length ? '' : `<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:6px">🏢 Unidades / filiais deste cliente (${unis.length})${r.pedidosSemUnidade?` <span class="pill gray" style="font-size:10px;font-weight:400">${r.pedidosSemUnidade} pedido(s) sem unidade</span>`:''}</div>
+    <div class="panel" style="overflow:auto;max-height:260px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:#faf6ea;color:#8a6d1e;position:sticky;top:0"><th style="padding:5px 8px;text-align:left">Unidade</th><th style="padding:5px 8px;text-align:left">CNPJ</th><th style="padding:5px 8px;text-align:left">Endereço</th><th style="padding:5px 8px;text-align:center">Pedidos</th><th style="padding:5px 8px;text-align:center">NF-e</th></tr></thead><tbody>${uniRows}</tbody></table></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">No pedido, escolha a unidade em 📍 — a nota sai no CNPJ dela.</div></div>`;
   const prods=r.produtos||[];
   const prodHtml=`<div style="margin-bottom:14px"><div style="font-weight:700;margin-bottom:6px">🏷️ Produtos vinculados ao cliente (${prods.length})</div>
     ${prods.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto">${prods.map(p=>`<span class="pill gray" style="font-size:11px" title="${esc(p.descricao)}"><b class="mono gold">${esc(p.codigo)}</b> ${esc(String(p.descricao).slice(0,32))}${p.cor?' · '+esc(p.cor):''}</span>`).join('')}</div>`:'<div class="muted" style="font-size:12px">Nenhum produto vinculado a este cliente/grupo.</div>'}</div>`;
@@ -1511,6 +1529,7 @@ async function clienteResumo(id){
       ${card('Recebido', 'já pago', fin.recebido, '#1e7a44')}
       <div class="card" style="padding:12px 16px;border-left:4px solid #8a5a00"><div class="k" style="font-size:11px;color:var(--muted)">Estoque pronta-entrega</div><div style="font-size:22px;font-weight:800;color:#8a5a00">${estTot}</div><div class="s" style="font-size:11px">peça(s) · ${estItens.length} item(ns)</div></div>
     </div>
+    ${uniHtml}
     ${prodHtml}
     ${acsHtml}
     ${estHtml}
@@ -2748,21 +2767,48 @@ async function fotoSel(kind, el){
   catch(e){ toast('Não foi possível ler a imagem.','err'); }
 }
 function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
-// Arquivo da modelagem Audaces (.adsx/.zip) — arquivado como data URI, com nome original.
-function arqModThumb(){
-  const a=window.__ARQMOD||{};
-  if(a.data){ return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pill green" style="font-size:11px">📁 arquivo</span> <a href="${a.data}" download="${esc(a.nome||'modelagem')}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||'modelagem')}</a> <a onclick="APP.arqModDel()" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`; }
-  return `<span class="muted" style="font-size:12px">Nenhum arquivo arquivado.</span>`;
+/**
+ * Anexos do produto arquivados como data URI, com o nome original.
+ * São três e todos seguem a mesma mecânica, então o widget é um só:
+ *   modelagem  — arquivo do Audaces (.adsx/.zip)
+ *   logo       — LOGO VETORIZADO do cliente (.ai/.eps/.svg/.cdr/.pdf). É o que a
+ *                bordadeira e a estamparia pedem; PNG/JPG não gera matriz.
+ *   ficha      — a ficha técnica que o CLIENTE mandou (PDF/imagem), a fonte
+ *                original das especificações, p/ conferir divergência depois.
+ */
+const ANEXOS={
+  modelagem:{ estado:'__ARQMOD', icone:'📁', vazio:'Nenhum arquivo arquivado.', baixaComo:'modelagem',
+    accept:'.adsx,.zip,.rar,.dxf,.plt,application/zip,application/octet-stream,application/x-zip-compressed' },
+  logo:{ estado:'__LOGOVET', icone:'🎨', vazio:'Nenhum logo vetorizado anexado.', baixaComo:'logo',
+    accept:'.ai,.eps,.svg,.cdr,.pdf,image/svg+xml,application/pdf,application/postscript,application/illustrator' },
+  ficha:{ estado:'__FICHACLI', icone:'📄', vazio:'Nenhuma ficha do cliente anexada.', baixaComo:'ficha-tecnica',
+    accept:'.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*' },
+};
+function anexoThumb(tipo){
+  const cfg=ANEXOS[tipo]; const a=window[cfg.estado]||{};
+  if(a.data){ return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pill green" style="font-size:11px">${cfg.icone} arquivo</span> <a href="${a.data}" download="${esc(a.nome||cfg.baixaComo)}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||cfg.baixaComo)}</a> <a onclick="APP.anexoDel('${tipo}')" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`; }
+  return `<span class="muted" style="font-size:12px">${cfg.vazio}</span>`;
 }
-function arqModSel(el){
-  const f=el.files&&el.files[0]; if(!f) return;
+function anexoSel(tipo, el){
+  const cfg=ANEXOS[tipo]; const f=el.files&&el.files[0]; if(!f) return;
   if(f.size > 9*1024*1024){ toast('Arquivo muito grande (máx. ~9 MB).','err'); el.value=''; return; }
   const r=new FileReader();
-  r.onload=()=>{ window.__ARQMOD={ data:String(r.result), nome:f.name }; $('arqmod_pv').innerHTML=arqModThumb(); };
+  r.onload=()=>{ window[cfg.estado]={ data:String(r.result), nome:f.name }; const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo); toast(f.name+' anexado.','ok'); };
   r.onerror=()=>toast('Não foi possível ler o arquivo.','err');
   r.readAsDataURL(f);
 }
-function arqModDel(){ window.__ARQMOD={ data:'', nome:'' }; $('arqmod_pv').innerHTML=arqModThumb(); }
+function anexoDel(tipo){ window[ANEXOS[tipo].estado]={ data:'', nome:'' }; const pv=$('anx_'+tipo); if(pv) pv.innerHTML=anexoThumb(tipo); }
+/** Bloco pronto do anexo (rótulo + preview + input), p/ usar no formulário. */
+function anexoBox(tipo, rotulo, ajuda){
+  return `<div class="mrow"><label class="fl">${esc(rotulo)}</label>
+    <div id="anx_${tipo}" style="margin:4px 0">${anexoThumb(tipo)}</div>
+    <input type="file" accept="${ANEXOS[tipo].accept}" onchange="APP.anexoSel('${tipo}',this)" style="font-size:12px">
+    <div class="muted" style="font-size:11px;margin-top:2px">${ajuda}</div></div>`;
+}
+// Compatibilidade: os nomes antigos continuam valendo (usados no form da modelagem).
+function arqModThumb(){ return anexoThumb('modelagem'); }
+function arqModSel(el){ return anexoSel('modelagem', el); }
+function arqModDel(){ return anexoDel('modelagem'); }
 function pmedSync(){
   (window.__PMED||[]).forEach((r,i)=>{
     const d=$('pm_desc_'+i); if(!d) return;
@@ -2823,6 +2869,8 @@ async function formProduto(id, prefill){
   const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
+  window.__LOGOVET = { data: p.logoVetor||'', nome: p.logoVetorNome||'' };
+  window.__FICHACLI = { data: p.fichaCliente||'', nome: p.fichaClienteNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
   const fotoBox=(kind,lbl)=>`<div><label class="fl">${esc(lbl)}</label><div id="fpv_${kind}" style="margin:4px 0">${fotoThumb(kind)}</div><input type="file" accept="image/*" onchange="APP.fotoSel('${kind}',this)" style="font-size:12px"></div>`;
@@ -2884,11 +2932,12 @@ async function formProduto(id, prefill){
     <div id="pmedbox"></div>
     ${secDivisor('FOTOS')}
     <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Foto da modelagem (imagem)')}</div>
-    <div style="margin-top:10px"><label class="fl">Arquivo de modelagem (Audaces · .adsx / .zip) — para arquivar</label>
-      <div id="arqmod_pv" style="margin:4px 0">${arqModThumb()}</div>
-      <input type="file" accept=".adsx,.zip,.rar,.dxf,.plt,application/zip,application/octet-stream,application/x-zip-compressed" onchange="APP.arqModSel(this)" style="font-size:12px">
-      <div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo original da modelagem no produto (máx. ~9 MB). Depois é só baixar aqui.</div>
+    ${secDivisor('ANEXOS DO PRODUTO')}
+    <div class="grid2">
+      ${anexoBox('logo','🎨 Logo vetorizado do cliente','Formato vetorial (.ai, .eps, .svg, .cdr, .pdf) — é o que o bordado e o DTF precisam. PNG/JPG não serve para gerar a matriz. Máx. ~9 MB.')}
+      ${anexoBox('ficha','📄 Ficha técnica do cliente','O PDF/imagem que o cliente mandou. Fica guardado junto do produto para conferir divergência depois. Máx. ~9 MB.')}
     </div>
+    ${anexoBox('modelagem','📁 Arquivo de modelagem (Audaces · .adsx / .zip)','Guarda o arquivo original da modelagem no produto (máx. ~9 MB). Depois é só baixar aqui.')}
     ${secDivisor('DADOS FISCAIS (NF-e) · valide com a contabilidade')}
     <div class="grid2">${field('f_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'" placeholder="ex.: 61099000"')}${field('f_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
     <div class="grid3">${field('f_orig','Origem (0-8)','type="number" min="0" max="8" value="'+(p.origem??0)+'"')}${field('f_un','Unidade','value="'+esc(p.unidadeComercial||'UN')+'"')}${field('f_cest','CEST (se houver)','value="'+esc(p.cest||'')+'"')}</div>
@@ -3060,6 +3109,8 @@ async function saveProduto(id){
   body.fotoModelo = fm.modelo||''; body.fotoModelagem = fm.modelagem||'';
   const am=window.__ARQMOD||{};
   body.arquivoModelagem = am.data||''; body.arquivoModelagemNome = am.nome||'';
+  const lv=window.__LOGOVET||{}; body.logoVetor = lv.data||''; body.logoVetorNome = lv.nome||'';
+  const fc=window.__FICHACLI||{}; body.fichaCliente = fc.data||''; body.fichaClienteNome = fc.nome||'';
   body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
     .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
   // Tamanhos: sincroniza o campo "Tamanhos (colunas)" para a grade — persiste sempre,
@@ -13165,7 +13216,7 @@ window.APP = {
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
-  fotoSel, fotoDel, arqModSel, arqModDel, pmedAdd, pmedDel, pmedApplySizes,
+  fotoSel, fotoDel, arqModSel, arqModDel, anexoSel, anexoDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
   navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
