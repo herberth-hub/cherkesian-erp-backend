@@ -10329,8 +10329,8 @@ async function emitirNfe(expedicaoId, transporte){
     loadRoute();
   }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
-function labExpHTML(d, rows, dataBR, vol, total){
-  return `<div class="page"><div class="lab">
+function labExpHTML(d, rows, dataBR, vol, total, denso){
+  return `<div class="page"><div class="lab${denso||''}">
     <div class="hd"><span class="ttl">EXPEDIÇÃO</span><span class="vol">VOL ${vol}/${total}</span></div>
     <div class="pad">
       <div class="line nf"><b>NF ${esc(d.nf||'—')}</b> &nbsp;·&nbsp; Pedido ${esc(d.pedido)} &nbsp;·&nbsp; ${esc(dataBR)}</div>
@@ -10339,7 +10339,7 @@ function labExpHTML(d, rows, dataBR, vol, total){
       <div class="codes"><img class="qr" src="${d.qr}">
         <div class="ci"><span class="lbl">Código (BIP)</span><div class="bip">${esc(d.codBip)}</div>
           <span class="lbl">Lote tecido</span><div>${esc(d.lote||'—')}</div><span class="lbl">Peso</span><div>______ kg</div></div></div>
-      <table class="resumo"><thead><tr><th>Peça</th><th>Descrição</th><th style="text-align:center">Grade</th><th style="text-align:right">Qt</th></tr></thead><tbody>${rows||'<tr><td colspan=4>—</td></tr>'}</tbody></table>
+      <div class="resumowrap"><table class="resumo"><thead><tr><th>Peça</th><th>Descrição</th><th style="text-align:center">Grade</th><th style="text-align:right">Qt</th></tr></thead><tbody>${rows||'<tr><td colspan=4>—</td></tr>'}</tbody></table></div>
       <div class="tot"><span>TOTAL DE PEÇAS</span><span>${d.totalPecas}</span></div>
       <div class="bc"><img src="${d.barcode}"><div class="bip">${esc(d.codBip)} · NF ${esc(d.nf||'—')} · VOL ${vol}/${total}</div></div>
     </div>
@@ -10352,7 +10352,10 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
     const total = Math.max(1, Number(volumesOverride)||Number(d.volumes)||1);
     const rows = (d.itens||[]).map(i=>`<tr><td>${esc(i.codigo)}</td><td>${esc(i.descricao)}</td><td style="text-align:center">${esc(i.grade)}</td><td style="text-align:right;font-weight:700">${i.quantidade}</td></tr>`).join('');
     const dataBR = new Date(d.data).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'});
-    let labels=''; for(let v=1; v<=total; v++){ labels += labExpHTML(d,rows,dataBR,v,total); }
+        // Parcial costuma ter muito mais linhas que a expedição cheia: aperta a
+    // fonte da lista para caber mais antes de o container começar a cortar.
+    const denso=(d.itens||[]).length>8?' denso':'';
+    let labels=''; for(let v=1; v<=total; v++){ labels += labExpHTML(d,rows,dataBR,v,total,denso); }
     const w = abrirJanelaDoc('Etiqueta de expedição');
     w.document.write(`<html><head><title>Etiqueta expedição ${esc(d.numero)}${d.nf?(' · NF '+esc(d.nf)):''}</title><meta charset="utf-8">
     <style id="psz">@page{size:100mm 150mm;margin:0}</style>
@@ -10363,18 +10366,25 @@ async function etiquetaExpedicao(expedicaoId, volumesOverride){
       /* padding lateral p/ área não-imprimível da Zebra (~10mm); viés à direita (L14/R12) */
       .page{width:100mm;height:150mm;overflow:hidden;display:flex;page-break-after:always;background:#fff;margin:0 auto 4mm;padding:2mm 12mm 2mm 14mm}
       .page:last-child{page-break-after:auto}
-      .lab{width:100%;height:100%;background:#fff;display:flex;flex-direction:column;overflow:hidden}
+      /* min-height:0 em TODA a cadeia: sem isso o item flex nao encolhe abaixo do
+         proprio conteudo, e a lista de itens empurra o codigo de barras p/ fora. */
+      .lab{width:100%;height:100%;min-height:0;background:#fff;display:flex;flex-direction:column;overflow:hidden}
       @media print{ body{background:#fff} .page{margin:0} }
       .hd{background:#000;color:#fff;display:flex;justify-content:space-between;align-items:center;padding:2mm 3mm}
       .hd .ttl{font-weight:800;font-size:13pt;letter-spacing:1px} .hd .vol{font-weight:800;font-size:13pt}
-      .pad{padding:2mm 3mm;flex:1;display:flex;flex-direction:column}
+      .pad{padding:2mm 3mm;flex:1;min-height:0;display:flex;flex-direction:column}
       .line{font-size:9pt;margin-bottom:1mm} .destnome{font-size:11pt}
       .ender{font-size:8pt;color:#333;margin-bottom:1.5mm}
       .lbl{font-size:7pt;color:#666;text-transform:uppercase;letter-spacing:.3px}
       .codes{display:flex;gap:3mm;align-items:center;margin-bottom:1.5mm}
       .codes .qr{width:26mm;height:26mm}
       .ci{font-size:8pt;line-height:1.35} .bip{font-family:'Courier New',monospace;font-weight:800;font-size:11pt}
-      .resumo{width:100%;border-collapse:collapse;font-size:7.5pt;margin-bottom:1mm}
+      /* A LISTA é quem cede espaço: o código de barras nunca pode ser empurrado
+         para fora da etiqueta, senão não dá para bipar o despacho. */
+      .resumowrap{flex:1;min-height:0;overflow:hidden;margin-bottom:1mm}
+      .resumo{width:100%;border-collapse:collapse;font-size:7.5pt}
+      .tot,.bc{flex:0 0 auto}
+      .lab.denso .resumo{font-size:6.2pt} .lab.denso .resumo th,.lab.denso .resumo td{padding:.5mm}
       .resumo th{background:#000;color:#fff;text-align:left;padding:1mm} .resumo td{border-bottom:.2mm solid #ccc;padding:1mm}
       .tot{display:flex;justify-content:space-between;font-weight:800;font-size:10pt;border-top:.5mm solid #000;padding-top:1mm;margin-bottom:1mm}
       .bc img{height:12mm;width:auto}
