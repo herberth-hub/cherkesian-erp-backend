@@ -10815,12 +10815,25 @@ function nfMesesHtml(meses, list){
     </button>`;
   }).join('');
   const total=meses.reduce((s,x)=>s+x.valor,0);
+  // ACUMULADO DO ANO — soma dos meses do ano corrente. Fica num bloco à parte,
+  // em destaque, porque é o número que se olha para comparar com a meta do ano.
+  const anos=new Map();
+  for(const x of meses){ const a=x.chave.slice(0,4); const o=anos.get(a)||{ano:a,valor:0,qtd:0}; o.valor+=x.valor; o.qtd+=x.qtd; anos.set(a,o); }
+  const anoAtual=(nfChaveMes(new Date())||'').slice(0,4);
+  const blocosAno=[...anos.values()].sort((a,b)=>a.ano.localeCompare(b.ano)).map(a=>{
+    const ativo = sel===a.ano;
+    return `<button class="btn-sm" onclick="APP.nfMesFiltrar('${a.ano}')" title="${a.qtd} nota(s) no ano" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:132px;padding:7px 12px;border-radius:9px;background:${ativo?'#3a2f08':'#1d1c1a'};border-color:#3a2f08;color:#f6efd8">
+      <span style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#d4a82a">Acumulado ${esc(a.ano)}${a.ano===anoAtual?'':' (fechado)'}</span>
+      <span style="font-size:15px;font-weight:800;color:#f0d98a">${money(a.valor)}</span>
+      <span style="font-size:10px;color:#a9a294">${a.qtd} nota(s) · ${a.qtd?money(a.valor/a.qtd):money(0)}/nota</span>
+    </button>`;
+  }).join('');
   const fora=(list||[]).filter(n=>['autorizada','simulada'].includes(n.status)&&!nfEhFaturamento(n)).reduce((s,n)=>s+Number(n.valor||0),0);
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:0 0 8px">${blocos}</div>
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:0 0 8px">${blocosAno}${blocos}</div>
     <div class="muted" style="font-size:11.5px;margin:-2px 0 10px">
-      ${(list||[]).length} nota(s) no total · faturamento acumulado <b>${money(total)}</b>
+      ${(list||[]).length} nota(s) no total · faturamento de todo o período <b>${money(total)}</b>
       ${fora?` · <span title="Remessa de entrega futura, devolução e bonificação não entram no faturamento">${money(fora)} em remessa/devolução/bonificação (fora da conta)</span>`:''}
-      ${sel?` · <a onclick="APP.nfMesFiltrar('')" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">ver todos os meses</a>`:''}
+      ${sel?` · <a onclick="APP.nfMesFiltrar('')" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">ver tudo</a>`:''}
     </div>`;
 }
 function nfMesFiltrar(chave){ window.__NFMES = (window.__NFMES===chave)?'':chave; loadRoute(); }
@@ -10829,7 +10842,11 @@ async function viewNotas(c){
   window.__NFS = list;
   const meses = nfFaturamentoMeses(list);
   const atual = meses[meses.length-1] || { chave: nfChaveMes(new Date()), valor: 0, qtd: 0 };
-  c.innerHTML = toolbar('Faturamento de '+nfMesLabel(atual.chave)+' · '+money(atual.valor)+' · '+atual.qtd+' nota(s)', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
+  // No titulo: o mes corrente e, ao lado, o acumulado do ano — o numero que se
+  // compara com a meta.
+  const anoAtual=(atual.chave||'').slice(0,4);
+  const noAno=meses.filter(m=>m.chave.startsWith(anoAtual)).reduce((s2,m)=>s2+m.valor,0);
+  c.innerHTML = toolbar('Faturamento de '+nfMesLabel(atual.chave)+' · '+money(atual.valor)+' · '+atual.qtd+' nota(s)  |  acumulado '+anoAtual+' · '+money(noAno), 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
     + nfMesesHtml(meses, list)
     + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
     + `<div id="nfAutoAviso" class="muted" style="font-size:11.5px;margin:-4px 0 8px"></div>`
@@ -10873,7 +10890,9 @@ function nfFiltrar(){
   const list = window.__NFS||[];
   const q = bnorm(val('nfBusca'));
   const mes = window.__NFMES||'';
-  const base = mes ? list.filter(n=> nfChaveMes(n.emitidaEm||n.criadoEm)===mes) : list;
+  // O filtro aceita mes ('2026-09') ou ano inteiro ('2026') — o bloco de
+  // acumulado do ano manda so os 4 digitos.
+  const base = mes ? list.filter(n=> String(nfChaveMes(n.emitidaEm||n.criadoEm)||'').startsWith(mes)) : list;
   const f = q ? base.filter(n=> bnorm(n.clienteNome).includes(q) || bnorm(n.numero).includes(q) || bnorm(n.chave).includes(q) || bnorm(n.cfop).includes(q)) : base;
   const alvo = document.getElementById('nfLista'); if(!alvo) return;
   alvo.innerHTML = panelTable(
