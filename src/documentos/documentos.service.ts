@@ -1129,6 +1129,27 @@ export class DocumentosService {
       const pedItens = pedido
         ? await this.prisma.pedidoItem.findMany({ where: { pedidoId: pedido.id }, select: { id: true, descricao: true, quantidade: true, quantidadeExpedida: true } })
         : [];
+      /**
+       * JÁ EXPEDIDO vem das EXPEDIÇÕES do pedido, não do contador `quantidadeExpedida`.
+       * O contador é mantido em vários pontos (criação, ajuste ao conferido, estorno,
+       * retificação do pedido) e pode dessincronizar — aconteceu no PV55, que tinha
+       * 609 peças despachadas de fato e o contador zerado, e o romaneio saiu com
+       * "já expedido 0 / falta = pedido inteiro" em todas as linhas.
+       * Somar os snapshots é a fonte que não mente: é o que cada remessa levou.
+       */
+      const expedidoPorItem = new Map<number, number>();
+      if (pedido) {
+        const exps = await this.prisma.expedicao.findMany({
+          where: { pedidoId: pedido.id, status: { not: 'Cancelada' } },
+          select: { itens: true },
+        });
+        for (const e of exps) {
+          for (const s of ((e.itens as Array<{ pedidoItemId?: number; quantidade?: number }> | null) ?? [])) {
+            if (s.pedidoItemId == null) continue;
+            expedidoPorItem.set(s.pedidoItemId, (expedidoPorItem.get(s.pedidoItemId) ?? 0) + Number(s.quantidade || 0));
+          }
+        }
+      }
       const pedidoTotalPecas = pedItens.reduce((s, i) => s + i.quantidade, 0);
       const parcial = pedidoTotalPecas > totPecas;
       secao(doc, `Separar para esta expedição · ${totPecas} peça(s)`);
@@ -1148,7 +1169,9 @@ export class DocumentosService {
         let tPed = 0, tRem = 0, tExp = 0, tFalta = 0;
         const linhas = pedItens.map((i, idx) => {
           const rem = remessaPorItem.get(i.id) ?? 0;
-          const jaExp = i.quantidadeExpedida ?? 0;
+          // Inclui ESTA remessa (o snapshot dela já entrou na soma) — é o que faz o
+          // "falta" descontar o que está saindo agora, e não só o que já saiu antes.
+          const jaExp = Math.max(expedidoPorItem.get(i.id) ?? 0, i.quantidadeExpedida ?? 0);
           const falta = Math.max(0, i.quantidade - jaExp);
           tPed += i.quantidade; tRem += rem; tExp += jaExp; tFalta += falta;
           return [String(idx + 1).padStart(2, '0'), i.descricao, String(i.quantidade), String(rem), String(jaExp), String(falta)];
