@@ -10759,11 +10759,78 @@ function nfPill(s){
   const map = { autorizada:['green','autorizada'], pendente:['blue','pendente'], simulada:['gold','simulada'], rejeitada:['red','rejeitada'], cancelada:['gray','cancelada'] };
   const m = map[s]||['gray',s]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
 }
+/**
+ * FATURAMENTO — o que realmente entra como receita.
+ * O total antigo somava TODAS as notas autorizadas, e isso inflava o número:
+ * entravam as remessas (mercadoria que já foi faturada antes, seria contar duas
+ * vezes), a devolução de compra e as bonificações, que saem sem cobrança.
+ * Conta: venda + faturamento de entrega futura, autorizada ou simulada, menos
+ * bonificação (CFOP 5910/6910).
+ */
+function nfEhFaturamento(n){
+  if(!['autorizada','simulada'].includes(n.status)) return false;
+  if(!['venda','faturamento'].includes(n.tipo||'venda')) return false;
+  if(/^[56]91/.test(String(n.cfop||''))) return false; // bonificação: sem cobrança
+  return true;
+}
+/** Mês de uma data no fuso de São Paulo, como "2026-09" (ordenável). */
+function nfChaveMes(d){
+  const dt = d instanceof Date ? d : new Date(d);
+  if(isNaN(dt)) return null;
+  const br = dt.toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}); // dd/mm/aaaa
+  const [,m,a] = br.split('/');
+  return a+'-'+m;
+}
+function nfMesLabel(chave){
+  if(!chave) return '—';
+  const [a,m] = chave.split('-');
+  const nomes=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return (nomes[Number(m)-1]||m)+'/'+a;
+}
+/** Faturamento agrupado por mês, do mais antigo ao mais recente. */
+function nfFaturamentoMeses(list){
+  const m=new Map();
+  for(const n of (list||[])){
+    if(!nfEhFaturamento(n)) continue;
+    const k=nfChaveMes(n.emitidaEm||n.criadoEm); if(!k) continue;
+    const a=m.get(k)||{chave:k,valor:0,qtd:0}; a.valor+=Number(n.valor||0); a.qtd++; m.set(k,a);
+  }
+  // O mês corrente aparece mesmo zerado — é o "inicia 0,00 quando vira o mês".
+  const hoje=nfChaveMes(new Date());
+  if(hoje && !m.has(hoje)) m.set(hoje,{chave:hoje,valor:0,qtd:0});
+  return [...m.values()].sort((x,y)=>x.chave.localeCompare(y.chave));
+}
+/** Faixa com um bloco por mês; clicar filtra a lista naquele mês. */
+function nfMesesHtml(meses, list){
+  const sel=window.__NFMES||'';
+  const max=Math.max(1,...meses.map(x=>x.valor));
+  const blocos=meses.slice(-12).map(x=>{
+    const ativo = sel===x.chave;
+    const alt=Math.max(3,Math.round((x.valor/max)*26));
+    return `<button class="btn-sm" onclick="APP.nfMesFiltrar('${x.chave}')" title="${x.qtd} nota(s)" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:118px;padding:7px 11px;border-radius:9px;${ativo?'background:#faf6ea;border-color:#d4a82a;box-shadow:0 0 0 1px #d4a82a':''}">
+      <span style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8a6d1e">${esc(nfMesLabel(x.chave))}</span>
+      <span style="font-size:14px;font-weight:800;color:${x.valor?'#1e7a44':'#a8a49b'}">${money(x.valor)}</span>
+      <span style="font-size:10px;color:#77746d">${x.qtd} nota(s)</span>
+      <span style="display:block;width:100%;height:3px;border-radius:2px;background:#eee7d6"><span style="display:block;height:3px;border-radius:2px;width:${Math.round((x.valor/max)*100)}%;background:#d4a82a"></span></span>
+    </button>`;
+  }).join('');
+  const total=meses.reduce((s,x)=>s+x.valor,0);
+  const fora=(list||[]).filter(n=>['autorizada','simulada'].includes(n.status)&&!nfEhFaturamento(n)).reduce((s,n)=>s+Number(n.valor||0),0);
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:0 0 8px">${blocos}</div>
+    <div class="muted" style="font-size:11.5px;margin:-2px 0 10px">
+      ${(list||[]).length} nota(s) no total · faturamento acumulado <b>${money(total)}</b>
+      ${fora?` · <span title="Remessa de entrega futura, devolução e bonificação não entram no faturamento">${money(fora)} em remessa/devolução/bonificação (fora da conta)</span>`:''}
+      ${sel?` · <a onclick="APP.nfMesFiltrar('')" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">ver todos os meses</a>`:''}
+    </div>`;
+}
+function nfMesFiltrar(chave){ window.__NFMES = (window.__NFMES===chave)?'':chave; loadRoute(); }
 async function viewNotas(c){
   const list = await api('/nfe');
   window.__NFS = list;
-  const emAberto = list.filter(n=>n.status==='autorizada'||n.status==='simulada').reduce((s,n)=>s+Number(n.valor),0);
-  c.innerHTML = toolbar('Notas fiscais emitidas · '+list.length+' nota(s) · '+money(emAberto)+' autorizado/simulado', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
+  const meses = nfFaturamentoMeses(list);
+  const atual = meses[meses.length-1] || { chave: nfChaveMes(new Date()), valor: 0, qtd: 0 };
+  c.innerHTML = toolbar('Faturamento de '+nfMesLabel(atual.chave)+' · '+money(atual.valor)+' · '+atual.qtd+' nota(s)', 'Emitir NF avulsa', 'APP.formNfeAvulsa()', '<button class="btn-ghost" onclick="APP.gerenciarTransportadoras()">🚚 Transportadoras</button><button class="btn-ghost" title="Cruza o CFOP das notas com o XML autorizado" onclick="APP.sincronizarCfop()">🔄 Sincronizar CFOP</button>'+relBtn('nfs'))
+    + nfMesesHtml(meses, list)
     + `<div style="margin:0 0 12px"><input id="nfBusca" class="inp" placeholder="🔎 Buscar por cliente, número ou chave…" oninput="APP.nfFiltrar()" style="max-width:420px"></div>`
     + `<div id="nfAutoAviso" class="muted" style="font-size:11.5px;margin:-4px 0 8px"></div>`
     + `<div id="nfLista"></div>`;
@@ -10805,7 +10872,9 @@ async function nfAutoConsultarPendentes(quiet){
 function nfFiltrar(){
   const list = window.__NFS||[];
   const q = bnorm(val('nfBusca'));
-  const f = q ? list.filter(n=> bnorm(n.clienteNome).includes(q) || bnorm(n.numero).includes(q) || bnorm(n.chave).includes(q) || bnorm(n.cfop).includes(q)) : list;
+  const mes = window.__NFMES||'';
+  const base = mes ? list.filter(n=> nfChaveMes(n.emitidaEm||n.criadoEm)===mes) : list;
+  const f = q ? base.filter(n=> bnorm(n.clienteNome).includes(q) || bnorm(n.numero).includes(q) || bnorm(n.chave).includes(q) || bnorm(n.cfop).includes(q)) : base;
   const alvo = document.getElementById('nfLista'); if(!alvo) return;
   alvo.innerHTML = panelTable(
     ['Número','Série','CFOP','Cliente / Destinatário','Status','Valor','ICMS','Chave de acesso','Emitida em','Ações'],
@@ -13391,7 +13460,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, sincronizarCfop,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
