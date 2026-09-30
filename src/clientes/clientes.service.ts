@@ -252,7 +252,9 @@ export class ClientesService {
     const ENDERECO = ['logradouro', 'numeroEndereco', 'bairro', 'municipio', 'uf', 'cep'] as const;
 
     return {
-      cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome },
+      // `grupo` vai junto p/ o atalho "novo produto deste cliente" já nascer com o
+      // grupo preenchido — é o campo que amarra o produto ao cliente no catálogo.
+      cliente: { id: cliente.id, nome: cliente.fantasia || cliente.nome, razao: cliente.nome, grupo: cliente.grupo },
       unidades: filiais.map((u) => {
         const mov = movPorUni.get(u.id);
         const falta = [
