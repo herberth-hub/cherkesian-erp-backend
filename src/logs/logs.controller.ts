@@ -12,10 +12,12 @@ export class LogsController {
   findAll(
     @Query('usuario') usuario?: string,
     @Query('entidade') entidade?: string,
+    @Query('de') de?: string,
+    @Query('ate') ate?: string,
     @Query('limit') limit?: string,
   ) {
     // parse manual: o ValidationPipe global (implicit conversion) conflita com ParseIntPipe optional
     const n = limit ? Number(limit) : undefined;
-    return this.logsService.findAll({ usuario, entidade, limit: Number.isInteger(n) ? n : undefined });
+    return this.logsService.findAll({ usuario, entidade, de, ate, limit: Number.isInteger(n) ? n : undefined });
   }
 }

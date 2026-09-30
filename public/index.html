@@ -7698,7 +7698,32 @@ function estEnderecoTxt(u){ return (u.coluna||u.andar!=null||u.caixaMaster) ? `C
 function estSet(campo, valor){ const E=window.__EST; E[campo] = (E[campo]===valor && campo!=='q') ? '' : valor; estRender(); }
 function estToggleSemMetragem(){ window.__EST.semMetragem=!window.__EST.semMetragem; estRender(); }
 function estVisao(v){ window.__EST.visao=v; estRender(); }
-function estBusca(){ window.__EST.q=(val('est_q')||''); estRender(); }
+/**
+ * Busca do Estoque enquanto se digita.
+ * Antes chamava estRender(), que reconstrói a tela INTEIRA — inclusive o próprio
+ * campo. O input era destruído a cada tecla, o foco ia embora e não dava para
+ * terminar a palavra. Agora só o que depende da busca é redesenhado (a lista e os
+ * chips), e com um respiro de 180 ms para não refiltrar 6 mil etiquetas por tecla.
+ */
+function estBusca(){
+  window.__EST.q=(val('est_q')||'');
+  clearTimeout(window.__ESTBT);
+  window.__ESTBT=setTimeout(estBuscaAplica, 180);
+}
+function estBuscaAplica(){
+  const E=window.__EST;
+  // Chips: só o da busca muda aqui; os outros filtros já redesenham a tela toda.
+  estRenderChips();
+  estRenderLista();
+}
+/** Só a área da lista (mantém o campo de busca vivo e com o cursor onde está). */
+function estRenderLista(){
+  const E=window.__EST;
+  if(E.status==='despachado') return estViewDespachadas();
+  if(E.visao==='endereco') return estViewEndereco();
+  if(E.visao==='unidades') return estViewUnidades();
+  return estViewProduto();
+}
 /**
  * BIPAGEM no Estoque. O leitor manda coisas muito diferentes conforme a etiqueta
  * (peça UN-…, produto PRD-…, matéria-prima MP-…, código do cliente, caixa master,
@@ -7785,6 +7810,28 @@ function estFiltradas(){
   return arr;
 }
 
+/** Chips dos filtros ativos — compartilhados pelo estRender e pela busca. */
+function estChips(){
+  const E=window.__EST;
+  const chips=[];
+  if(E.cat) chips.push(['Categoria: '+({produto:'Produto acabado',materia:'Matéria-prima',aviamento:'Aviamento'}[E.cat]||E.cat),`APP.estSet('cat','${E.cat}')`]);
+  if(E.status) chips.push(['Status: '+E.status,`APP.estSet('status','${E.status}')`]);
+  if(E.col) chips.push(['Coluna '+E.col,`APP.estSet('col','${E.col}')`]);
+  if(E.andar) chips.push(['Andar '+E.andar,`APP.estSet('andar','${E.andar}')`]);
+  if(E.semMetragem) chips.push(['Sem metragem','APP.estToggleSemMetragem()']);
+  if(E.q) chips.push(['Busca: '+E.q,"APP.estSet('q','')"]);
+  return chips;
+}
+/** Redesenha só a faixa de chips — o campo de busca não é tocado. */
+function estRenderChips(){
+  const ch=$('est_chips'); if(!ch) return;
+  const chips=estChips();
+  ch.innerHTML = chips.length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">`
+      + chips.map(([t,a])=>`<span class="pill" style="background:#f0e7d0;color:#7a5b12">${esc(t)} <b style="cursor:pointer" onclick="${a}">×</b></span>`).join("")
+      + `<a onclick="APP.estLimpar()" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">Limpar filtros</a></div>`
+    : '';
+}
 function estRender(){
   const box=$('estbox'); if(!box) return;
   const E=window.__EST;
@@ -7797,13 +7844,7 @@ function estRender(){
   const pill=(ativo,label,n,acao)=>`<button class="btn-sm" onclick="${acao}" style="border-radius:999px;padding:5px 13px;${ativo?'background:#d4a82a;color:#3a2f08;border-color:#d4a82a;font-weight:700':''}">${label}${n!=null?` <span style="opacity:.75">${n}</span>`:''}</button>`;
   const card=(ativo,rot,n,sub,cor,acao)=>`<div class="card kpi" onclick="${acao}" style="cursor:pointer;${ativo?'border-color:'+cor+';box-shadow:0 0 0 2px '+cor+'33':''}"><div class="k">${rot}</div><div class="v" style="color:${cor}">${n}</div><div class="s">${sub}</div></div>`;
 
-  const chips=[];
-  if(E.cat) chips.push(['Categoria: '+({produto:'Produto acabado',materia:'Matéria-prima',aviamento:'Aviamento'}[E.cat]||E.cat),`APP.estSet('cat','${E.cat}')`]);
-  if(E.status) chips.push(['Status: '+E.status,`APP.estSet('status','${E.status}')`]);
-  if(E.col) chips.push(['Coluna '+E.col,`APP.estSet('col','${E.col}')`]);
-  if(E.andar) chips.push(['Andar '+E.andar,`APP.estSet('andar','${E.andar}')`]);
-  if(E.semMetragem) chips.push(['Sem metragem','APP.estToggleSemMetragem()']);
-  if(E.q) chips.push(['Busca: '+E.q,"APP.estSet('q','')"]);
+  const chips=estChips();
 
   box.innerHTML = `
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
@@ -7831,7 +7872,7 @@ function estRender(){
       </select>
       ${desp?`<button class="btn-sm" onclick="APP.estSet('status','despachado')" title="Histórico — não entra em nenhuma contagem" style="margin-left:auto;color:#77746d">🚚 Despachadas (${desp})</button>`:''}
     </div>
-    ${chips.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">${chips.map(([t,a])=>`<span class="pill" style="background:#f0e7d0;color:#7a5b12">${esc(t)} <b style="cursor:pointer" onclick="${a}">×</b></span>`).join('')}<a onclick="APP.estLimpar()" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">Limpar filtros</a></div>`:''}
+    <div id="est_chips">${chips.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">${chips.map(([t,a])=>`<span class="pill" style="background:#f0e7d0;color:#7a5b12">${esc(t)} <b style="cursor:pointer" onclick="${a}">×</b></span>`).join('')}<a onclick="APP.estLimpar()" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">Limpar filtros</a></div>`:''}</div>
     <div id="est_bip" style="display:${window.__ESTBIP?'':'none'};margin-bottom:10px">${window.__ESTBIP||''}</div>
     <div id="estvbox"></div>`;
   if(E.status==='despachado') estViewDespachadas();
@@ -8067,14 +8108,56 @@ function estDrawer(chave, cor, tam){
     `${esc(cor)} · ${esc(tam)} · <b>${arr.length}</b> peça(s)`,
     `<div style="font-size:11.5px;font-weight:700;color:#77746d;margin-bottom:5px">ONDE ESTÃO</div>
      ${[...porEnd.entries()].map(([e,n])=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12.5px"><span>${esc(e)}</span><b>${n}</b></div>`).join('')}
-     <div style="font-size:11.5px;font-weight:700;color:#77746d;margin:12px 0 5px">ETIQUETAS (${arr.length})</div>
+     <div style="display:flex;align-items:center;gap:8px;margin:12px 0 5px">
+       <span style="font-size:11.5px;font-weight:700;color:#77746d">ETIQUETAS (${arr.length})</span>
+       <label style="margin-left:auto;font-size:11.5px;display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none">
+         <input type="checkbox" id="dw_all" onclick="APP.dwTodas(this.checked)"> selecionar tudo</label>
+     </div>
+     <div id="dw_sel" class="muted" style="font-size:11px;margin-bottom:4px"></div>
      ${arr.map(u=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12px">
+        <input type="checkbox" class="dwck" value="${esc(u.codigo)}" onclick="APP.dwConta()">
         <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>${unidStatusPill(u.status)}
         <button class="btn-sm" style="margin-left:auto;padding:2px 8px" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">Etiqueta</button></div>`).join('')}`,
     `<button class="btn-primary" style="flex:1" onclick="APP.estDrawerFechar();APP.formMov()">Movimentar ${arr.length} un.</button>
-     <button class="btn-sm" onclick="APP.unBulkReimprimirCods(${JSON.stringify(arr.map(u=>u.codigo)).replace(/"/g,'&quot;')})">Reimprimir todas</button>`);
+     <button class="btn-sm" onclick="APP.unBulkReimprimirCods(${JSON.stringify(arr.map(u=>u.codigo)).replace(/"/g,'&quot;')})">Reimprimir todas</button>
+     ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#c14a34;border-color:#e8bcae" onclick="APP.dwExcluir()">🗑 Excluir selecionadas</button>`:''}`);
 }
 
+/**
+ * Seleção de etiquetas dentro do drawer do estoque.
+ * Excluir etiqueta APAGA a peça do estoque — por isso é só do admin, confirma
+ * mostrando quantas e nunca deixa apagar etiqueta já despachada ou reservada,
+ * que tem pedido/expedição atrás e sumiria sem deixar rastro.
+ */
+function dwTodas(marcar){
+  document.querySelectorAll('.dwck').forEach(c=>{ c.checked=!!marcar; });
+  dwConta();
+}
+function dwSelecionadas(){
+  return [...document.querySelectorAll('.dwck:checked')].map(c=>c.value);
+}
+function dwConta(){
+  const n=dwSelecionadas().length, tot=document.querySelectorAll('.dwck').length;
+  const el=$('dw_sel'); if(el) el.textContent = n? (n+' de '+tot+' selecionada(s)') : '';
+  const all=$('dw_all'); if(all){ all.checked = n>0 && n===tot; all.indeterminate = n>0 && n<tot; }
+}
+async function dwExcluir(){
+  const cods=dwSelecionadas();
+  if(!cods.length){ toast('Marque ao menos uma etiqueta.','err'); return; }
+  const todas=window.__UNIDS_ALL||[];
+  const presas=cods.filter(c=>{ const u=todas.find(x=>x.codigo===c); return u && (u.status==='despachado'||u.status==='reservado'); });
+  if(presas.length){
+    await uiAlert({tipo:'err', titulo:'Tem etiqueta presa a uma expedição', msg:presas.length+' das '+cods.length+' já foram reservadas ou despachadas. Elas têm pedido atrás e não podem ser apagadas — estorne a expedição primeiro. Desmarque-as para seguir com o resto.'});
+    return;
+  }
+  const ok=await uiConfirm({titulo:'Excluir '+cods.length+' etiqueta(s)?', msg:'A(s) peça(s) somem do estoque e não dá para desfazer. Só faça isso se a etiqueta foi gerada por engano.', tipo:'err', ok:'Excluir'});
+  if(!ok) return;
+  try{ await api('/estoque/unidades/excluir',{method:'POST',body:{codigos:cods}}); }
+  catch(e){ toast(e.message,'err'); return; }
+  toast(cods.length+' etiqueta(s) excluída(s).','ok');
+  estDrawerFechar();
+  loadRoute();
+}
 /** Card de granel: todos os rolos daquele material. */
 function estDrawerMaterial(matId){
   const m=(window.__MATS_EST||[]).find(x=>x.id===matId); if(!m) return;
@@ -9493,6 +9576,9 @@ async function viewLogs(c){
   c.innerHTML = toolbar('Auditoria / Logs', null, null,
       `<select id="log_op" class="inp" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Todos os operadores</option>${opOpts}</select>
        <input id="log_ent" class="inp" placeholder="entidade (ex.: nfe, pedido)" style="width:150px;font-size:12px;padding:6px 8px">
+       <input id="log_de" class="inp" type="date" title="De (data inicial)" style="width:auto;font-size:12px;padding:5px 8px">
+       <span class="muted" style="font-size:11px">até</span>
+       <input id="log_ate" class="inp" type="date" title="Até (data final)" style="width:auto;font-size:12px;padding:5px 8px">
        <select id="log_lim" class="inp" style="width:auto;font-size:12px;padding:6px 8px"><option value="200">200</option><option value="500">500</option><option value="100">100</option></select>
        <button class="btn-sm" onclick="APP.logsFiltrar()">🔎 Filtrar</button>
        <button class="btn-sm" onclick="APP.logsLimpar()">Limpar</button>
@@ -9503,12 +9589,15 @@ async function viewLogs(c){
 }
 async function logsFiltrar(){
   const op=val('log_op'), ent=val('log_ent'), lim=val('log_lim')||'200';
+  const de=val('log_de'), ate=val('log_ate');
   const qs=new URLSearchParams(); qs.set('limit',lim); if(op) qs.set('usuario',op); if(ent) qs.set('entidade',ent);
+  if(de) qs.set('de',de); if(ate) qs.set('ate',ate);
   let list; try{ list=await api('/logs?'+qs.toString()); }catch(e){ toast(e.message,'err'); return; }
-  window.__LOGS=list||[]; window.__LOGS_FILTRO={op,ent,lim};
+  window.__LOGS=list||[]; window.__LOGS_FILTRO={op,ent,lim,de,ate};
   const info=$('log_info'); if(info){
     const nomeOp = op ? ((window.__LOG_USERS||[]).find(u=>u.usuario===op)||{}).nome||op : 'todos os operadores';
-    info.innerHTML = `<b>${list.length}</b> registro(s) · operador: <b>${esc(nomeOp)}</b>${ent?(' · entidade: <b>'+esc(ent)+'</b>'):''}`;
+    const per = (de||ate) ? (' · período: <b>'+(de?dfmt(de):'início')+' até '+(ate?dfmt(ate):'hoje')+'</b>') : '';
+    info.innerHTML = `<b>${list.length}</b> registro(s) · operador: <b>${esc(nomeOp)}</b>${ent?(' · entidade: <b>'+esc(ent)+'</b>'):''}${per}`;
   }
   const wrap=$('log_wrap'); if(!wrap) return;
   wrap.innerHTML = panelTable(
@@ -9519,7 +9608,7 @@ async function logsFiltrar(){
       esc(l.entidade||'—'), esc(l.detalhe||'—')
     ]), (list&&list.length)?null:'Sem registros para esse filtro.');
 }
-function logsLimpar(){ const o=$('log_op'),e=$('log_ent'),l=$('log_lim'); if(o)o.value=''; if(e)e.value=''; if(l)l.value='200'; logsFiltrar(); }
+function logsLimpar(){ ['log_op','log_ent','log_de','log_ate'].forEach(id=>{ const el=$(id); if(el) el.value=''; }); const l=$('log_lim'); if(l)l.value='200'; logsFiltrar(); }
 function logsPdf(){
   const list=window.__LOGS||[]; const f=window.__LOGS_FILTRO||{};
   const nomeOp = f.op ? (((window.__LOG_USERS||[]).find(u=>u.usuario===f.op)||{}).nome||f.op)+' (@'+f.op+')' : 'Todos os operadores';
@@ -13292,7 +13381,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
