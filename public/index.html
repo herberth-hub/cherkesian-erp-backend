@@ -10807,12 +10807,12 @@ function nfMesesHtml(meses, list){
   const blocos=meses.slice(-12).map(x=>{
     const ativo = sel===x.chave;
     const alt=Math.max(3,Math.round((x.valor/max)*26));
-    return `<button class="btn-sm" onclick="APP.nfMesFiltrar('${x.chave}')" title="${x.qtd} nota(s)" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:118px;padding:7px 11px;border-radius:9px;${ativo?'background:#faf6ea;border-color:#d4a82a;box-shadow:0 0 0 1px #d4a82a':''}">
+    return `<div onclick="APP.nfMesFiltrar('${x.chave}')" title="${x.qtd} nota(s)" style="cursor:pointer;user-select:none;display:flex;flex-direction:column;gap:3px;min-width:128px;padding:9px 12px;border:1px solid ${ativo?'#d4a82a':'#e6e1d6'};border-radius:10px;background:${ativo?'#faf6ea':'#fff'};${ativo?'box-shadow:0 0 0 1px #d4a82a':''}">
       <span style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8a6d1e">${esc(nfMesLabel(x.chave))}</span>
       <span style="font-size:14px;font-weight:800;color:${x.valor?'#1e7a44':'#a8a49b'}">${money(x.valor)}</span>
       <span style="font-size:10px;color:#77746d">${x.qtd} nota(s)</span>
-      <span style="display:block;width:100%;height:3px;border-radius:2px;background:#eee7d6"><span style="display:block;height:3px;border-radius:2px;width:${Math.round((x.valor/max)*100)}%;background:#d4a82a"></span></span>
-    </button>`;
+      <span style="display:block;width:100%;height:3px;border-radius:2px;background:#eee7d6;margin-top:2px"><span style="display:block;height:3px;border-radius:2px;width:${Math.round((x.valor/max)*100)}%;background:#d4a82a"></span></span>
+    </div>`;
   }).join('');
   const total=meses.reduce((s,x)=>s+x.valor,0);
   // ACUMULADO DO ANO — soma dos meses do ano corrente. Fica num bloco à parte,
@@ -10822,15 +10822,15 @@ function nfMesesHtml(meses, list){
   const anoAtual=(nfChaveMes(new Date())||'').slice(0,4);
   const blocosAno=[...anos.values()].sort((a,b)=>a.ano.localeCompare(b.ano)).map(a=>{
     const ativo = sel===a.ano;
-    return `<button class="btn-sm" onclick="APP.nfMesFiltrar('${a.ano}')" title="${a.qtd} nota(s) no ano" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:132px;padding:7px 12px;border-radius:9px;background:${ativo?'#3a2f08':'#1d1c1a'};border-color:#3a2f08;color:#f6efd8">
+    return `<div onclick="APP.nfMesFiltrar('${a.ano}')" title="${a.qtd} nota(s) no ano" style="cursor:pointer;user-select:none;display:flex;flex-direction:column;gap:3px;min-width:146px;padding:9px 13px;border:1px solid ${ativo?'#d4a82a':'#3a2f08'};border-radius:10px;background:${ativo?'#3a2f08':'#1d1c1a'};color:#f6efd8">
       <span style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#d4a82a">Acumulado ${esc(a.ano)}${a.ano===anoAtual?'':' (fechado)'}</span>
       <span style="font-size:15px;font-weight:800;color:#f0d98a">${money(a.valor)}</span>
       <span style="font-size:10px;color:#a9a294">${a.qtd} nota(s) · ${a.qtd?money(a.valor/a.qtd):money(0)}/nota</span>
-    </button>`;
+    </div>`;
   }).join('');
   const fora=(list||[]).filter(n=>['autorizada','simulada'].includes(n.status)&&!nfEhFaturamento(n)).reduce((s,n)=>s+Number(n.valor||0),0);
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:0 0 8px">${blocosAno}${blocos}</div>
-    <div class="muted" style="font-size:11.5px;margin:-2px 0 10px">
+  return `<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:stretch;margin:0 0 10px">${blocosAno}${blocos}</div>
+    <div class="muted" style="font-size:11.5px;margin:0 0 12px">
       ${(list||[]).length} nota(s) no total · faturamento de todo o período <b>${money(total)}</b>
       ${fora?` · <span title="Remessa de entrega futura, devolução e bonificação não entram no faturamento">${money(fora)} em remessa/devolução/bonificação (fora da conta)</span>`:''}
       ${sel?` · <a onclick="APP.nfMesFiltrar('')" style="cursor:pointer;color:#8a6a0c;text-decoration:underline">ver tudo</a>`:''}
