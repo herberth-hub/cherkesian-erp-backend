@@ -8145,9 +8145,13 @@ async function dwExcluir(){
   const cods=dwSelecionadas();
   if(!cods.length){ toast('Marque ao menos uma etiqueta.','err'); return; }
   const todas=window.__UNIDS_ALL||[];
-  const presas=cods.filter(c=>{ const u=todas.find(x=>x.codigo===c); return u && (u.status==='despachado'||u.status==='reservado'); });
+  // Bloqueia só o que já foi BIPADO numa conferência e saiu (despachado) — essa
+  // peça tem expedição atrás. Reservada ainda não passou por conferência nenhuma:
+  // é separação planejada, e pode ser apagada. Estorno devolve a reservado, então
+  // peça estornada também volta a ser excluível — a expedição dela foi desfeita.
+  const presas=cods.filter(c=>{ const u=todas.find(x=>x.codigo===c); return u && u.status==='despachado'; });
   if(presas.length){
-    await uiAlert({tipo:'err', titulo:'Tem etiqueta presa a uma expedição', msg:presas.length+' das '+cods.length+' já foram reservadas ou despachadas. Elas têm pedido atrás e não podem ser apagadas — estorne a expedição primeiro. Desmarque-as para seguir com o resto.'});
+    await uiAlert({tipo:'err', titulo:'Tem etiqueta já despachada', msg:presas.length+' das '+cods.length+' já foram bipadas na conferência e saíram numa expedição. Apagar sumiria com o rastro da entrega — estorne a expedição primeiro. Desmarque-as para seguir com o resto.'});
     return;
   }
   const ok=await uiConfirm({titulo:'Excluir '+cods.length+' etiqueta(s)?', msg:'A(s) peça(s) somem do estoque e não dá para desfazer. Só faça isso se a etiqueta foi gerada por engano.', tipo:'err', ok:'Excluir'});

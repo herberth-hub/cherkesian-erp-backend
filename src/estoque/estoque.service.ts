@@ -484,7 +484,10 @@ export class EstoqueService {
     const codigo = (codigoRaw ?? '').trim();
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Etiqueta ${codigo} não encontrada.`);
-    if (un.status === 'despachado') throw new BadRequestException('Etiqueta já despachada não pode ser excluída.');
+    // Mesma regra da exclusão em massa: intocável só a que foi bipada e saiu.
+    if (un.status === 'despachado' || un.expedicaoId != null) {
+      throw new BadRequestException('Etiqueta já bipada e despachada numa expedição — estorne a expedição antes de excluir.');
+    }
     await this.prisma.unidadeEstoque.delete({ where: { codigo } });
     return { removido: true, codigo };
   }
@@ -493,11 +496,22 @@ export class EstoqueService {
   async excluirUnidades(codigos: string[], empresaId: number) {
     const lista = [...new Set((codigos ?? []).map((c) => (c ?? '').trim()).filter(Boolean))].slice(0, 1000);
     if (!lista.length) throw new BadRequestException('Selecione ao menos uma unidade.');
-    const uns = await this.prisma.unidadeEstoque.findMany({ where: { empresaId, codigo: { in: lista } }, select: { codigo: true, status: true } });
-    const excluir = uns.filter((u) => u.status !== 'despachado').map((u) => u.codigo);
-    const bloqueadas = uns.length - excluir.length;
+    const uns = await this.prisma.unidadeEstoque.findMany({ where: { empresaId, codigo: { in: lista } }, select: { codigo: true, status: true, expedicaoId: true } });
+    // Só é intocável a peça que JÁ FOI BIPADA numa conferência e saiu: ela tem
+    // expedição atrás e apagá-la sumiria com o rastro da entrega.
+    // RESERVADA não: é separação planejada, ninguém bipou ainda. E a peça de uma
+    // expedição estornada volta para reservada com expedicaoId nulo — a expedição
+    // dela foi desfeita, então ela também pode ser apagada.
+    const presa = (u: { status: string; expedicaoId: number | null }) => u.status === 'despachado' || u.expedicaoId != null;
+    const excluir = uns.filter((u) => !presa(u)).map((u) => u.codigo);
+    const bloqueadas = uns.filter(presa).map((u) => u.codigo);
     if (excluir.length) await this.prisma.unidadeEstoque.deleteMany({ where: { empresaId, codigo: { in: excluir } } });
-    return { removidas: excluir.length, bloqueadasDespachadas: bloqueadas, naoEncontradas: lista.length - uns.length };
+    return {
+      removidas: excluir.length,
+      bloqueadasDespachadas: bloqueadas.length,
+      bloqueadas,
+      naoEncontradas: lista.length - uns.length,
+    };
   }
 
   /** Regenera as etiquetas (código de barras) de unidades já existentes, para reimpressão. */
