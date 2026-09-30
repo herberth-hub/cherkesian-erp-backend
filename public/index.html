@@ -1739,6 +1739,17 @@ async function fornecedorResumo(id){
     <td style="padding:5px 8px;font-size:11px">${m.composicao?esc(m.composicao):'—'}${(m.largura||m.gramatura)?'<div class="muted" style="font-size:10px">'+[m.largura?('L '+m.largura+'m'):'',m.gramatura?(m.gramatura+' g/m²'):''].filter(Boolean).join(' · ')+'</div>':''}</td>
     <td style="padding:5px 8px;text-align:right">${Number(m.saldo).toLocaleString('pt-BR')} ${esc(m.unidade||'')}</td>
     <td style="padding:5px 8px;text-align:center;color:#8a6d1e;font-weight:700">abrir ›</td></tr>`).join('');
+  // PRODUTOS deste fornecedor — revenda (comprado pronto) e também os de produção
+  // que ele fornece. O código do fornecedor é o que sai na OC p/ ele identificar.
+  const prodRows=(r.produtos||[]).map(p=>`<tr style="cursor:pointer" onclick="APP.fornAbrirProduto(${p.id})" onmouseover="this.style.background='#fbf7ec'" onmouseout="this.style.background=''" title="Abrir este produto no cadastro">
+    <td style="padding:5px 8px"><b class="mono gold">${esc(p.codigo)}</b>${p.tipo==='revenda'?'<div><span class="pill" style="background:#eef3e7;color:#3a6a2a;font-size:9px">revenda</span></div>':''}</td>
+    <td style="padding:5px 8px">${esc(p.descricao)}${p.cor?'<div class="muted" style="font-size:10px">🎨 '+esc(p.cor)+'</div>':''}</td>
+    <td style="padding:5px 8px;font-size:11px">${p.codigoFornecedor?('<b>'+esc(p.codigoFornecedor)+'</b>'):'<span class="muted">—</span>'}${p.descricaoFornecedor?'<div class="muted" style="font-size:10px">'+esc(String(p.descricaoFornecedor).slice(0,34))+'</div>':''}</td>
+    <td style="padding:5px 8px;text-align:right">${p.custo!=null?money(p.custo):'<span class="muted">—</span>'}<div class="muted" style="font-size:10px">${esc(p.unidade||'UN')}</div></td>
+    <td style="padding:5px 8px;text-align:center;color:#8a6d1e;font-weight:700">abrir ›</td></tr>`).join('');
+  const prodBox=`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:700">🛍️ Produtos deste fornecedor (${(r.produtos||[]).length})</div>
+      <button class="btn-sm" onclick="APP.fornNovoProduto(${id})">＋ Vincular produto de revenda</button></div>
+      ${(r.produtos||[]).length?`<div class="panel" style="overflow:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Cód. no fornecedor</th><th style="padding:5px 8px;text-align:right">Custo</th><th style="padding:5px 8px"></th></tr></thead><tbody>${prodRows}</tbody></table></div>`:'<div class="muted" style="font-size:12px">Nenhum produto vinculado a este fornecedor ainda. Use o botão acima, ou no cadastro do produto informe este fornecedor.</div>'}</div>`;
   const catBox = r.fornecedor.temCatalogo
     ? `<button class="btn-sm" onclick="APP.verCatalogoForn(${id})">📎 Ver catálogo${r.fornecedor.catalogoNome?' ('+esc(r.fornecedor.catalogoNome)+')':''}</button> <button class="btn-sm" onclick="APP.uploadCatalogoForn(${id})">Trocar</button>`
     : `<button class="btn-primary" onclick="APP.uploadCatalogoForn(${id})">⬆ Enviar catálogo (PDF/imagem)</button>`;
@@ -1748,11 +1759,13 @@ async function fornecedorResumo(id){
       ${card('Notas de entrada', r.notasEntrada.qtd+' nota(s)', r.notasEntrada.valor, '#3a6ea5')}
       ${card('Contas a pagar (aberto)', r.contasPagar.qtd+' título(s) · total '+money(r.contasPagar.total), r.contasPagar.aberto, '#c14a34')}
       <div class="card kpi" style="border-left:4px solid #6b3fa0"><div class="k">Tecidos / materiais</div><div class="v" style="color:#6b3fa0">${r.materiaisQtd||0}</div><div class="s">deste fabricante</div></div>
+      <div class="card kpi" style="border-left:4px solid #3a6a2a"><div class="k">Produtos</div><div class="v" style="color:#3a6a2a">${r.produtosQtd||0}</div><div class="s">revenda / fornecidos</div></div>
     </div>
     <div style="margin-bottom:12px"><b style="font-size:12px">📎 Catálogo do fornecedor</b><div style="margin-top:6px">${catBox}<input type="file" id="forn_cat_file" accept="application/pdf,image/*" style="display:none" onchange="APP.uploadCatalogoFornGo(${id})"></div></div>
     <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:700">🧵 Tecidos / materiais deste fabricante (${(r.materiais||[]).length})</div>
       <button class="btn-sm" onclick="APP.fornNovoMaterial(${id})">＋ Vincular material deste fabricante</button></div>
       ${(r.materiais||[]).length?`<div class="panel" style="overflow:auto;max-height:240px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Código</th><th style="padding:5px 8px;text-align:left">Descrição</th><th style="padding:5px 8px;text-align:left">Ficha</th><th style="padding:5px 8px;text-align:right">Saldo</th><th style="padding:5px 8px"></th></tr></thead><tbody>${matRows}</tbody></table></div>`:'<div class="muted" style="font-size:12px">Nenhum material vinculado a este fabricante ainda. Use o botão acima (ou cadastre em Matéria-prima informando este fabricante).</div>'}</div>
+    ${prodBox}
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:280px"><div style="font-weight:700;margin-bottom:6px">🛒 Compras (${(r.listaCompras||[]).length})</div>
         <div class="panel" style="overflow:auto;max-height:280px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">OC</th><th style="padding:5px 8px;text-align:left">Status</th><th style="padding:5px 8px;text-align:left">Ref.</th><th style="padding:5px 8px;text-align:right">Valor</th></tr></thead><tbody>${ocRows||'<tr><td colspan=4 class="muted" style="padding:10px">Nenhuma OC.</td></tr>'}</tbody></table></div></div>
@@ -1765,6 +1778,22 @@ async function fornecedorResumo(id){
 }
 // Acesso direto ao material (matéria-prima) a partir da ficha do fornecedor.
 async function fornAbrirMaterial(mid){ await formMaterial(mid); }
+// Acesso direto ao produto a partir da ficha do fornecedor.
+async function fornAbrirProduto(pid){ await formProduto(pid); }
+/**
+ * Novo produto de REVENDA já vinculado a este fornecedor. Revenda é o produto
+ * comprado pronto (não gera OP) — é ele que entra na ordem de compra junto com
+ * o código do artigo no fornecedor.
+ */
+async function fornNovoProduto(fornId){
+  const f = window.__FORNFICHA && window.__FORNFICHA.fornecedor;
+  const nome = f ? (f.fantasia || f.nome) : '';
+  await formProdutoRevenda();
+  // O campo é um datalist por NOME (cadastra se for novo), não um id.
+  const el=$('rev_forn'); if(el && nome){ el.value=nome; }
+  const foco=$('rev_desc')||$('rev_cod'); if(foco) foco.focus();
+  toast('Preencha o produto — o fornecedor já vem como '+(nome||'este fornecedor')+'.','ok');
+}
 // Novo material já vinculado a este fabricante (pré-preenche o campo Fabricante).
 async function fornNovoMaterial(fornId){
   const f = window.__FORNFICHA && window.__FORNFICHA.fornecedor;
@@ -13229,7 +13258,7 @@ window.APP = {
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
-  formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
+  formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,

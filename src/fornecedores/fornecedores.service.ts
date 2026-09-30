@@ -21,11 +21,18 @@ export class FornecedoresService {
   /** Ficha do fornecedor: compras (OCs), notas de entrada e contas a pagar. */
   async resumo(id: number, empresaId: number) {
     const f = await this.findOne(id, empresaId);
-    const [ocs, notas, pagar, materiais] = await Promise.all([
+    const [ocs, notas, pagar, materiais, produtos] = await Promise.all([
       this.prisma.ordemCompra.findMany({ where: { fornecedorId: id }, select: { numero: true, valor: true, status: true, motivo: true }, orderBy: { id: 'desc' } }),
       this.prisma.notaEntrada.findMany({ where: { fornecedorId: id }, select: { id: true, numero: true, valor: true, emitidaEm: true }, orderBy: { id: 'desc' } }),
       this.prisma.contaPagar.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, categoria: true, referencia: true, valor: true, pago: true, vencimento: true, status: true }, orderBy: { vencimento: 'desc' } }),
       this.prisma.material.findMany({ where: { empresaId, fornecedorId: id }, select: { id: true, codigo: true, descricao: true, artigo: true, composicao: true, largura: true, gramatura: true, saldo: true, unidade: true }, orderBy: { descricao: 'asc' } }),
+      // PRODUTOS DE REVENDA comprados deste fornecedor. O `codigoFornecedor` é o
+      // artigo dele — é o que vai na OC para ele identificar o item.
+      this.prisma.produto.findMany({
+        where: { empresaId, fornecedorId: id },
+        select: { id: true, codigo: true, descricao: true, cor: true, tipo: true, custo: true, precoBase: true, unidadeComercial: true, codigoFornecedor: true, descricaoFornecedor: true },
+        orderBy: { descricao: 'asc' },
+      }),
     ]);
     const soma = (arr: { valor: unknown }[]) => Number(arr.reduce((s, x) => s + Number(x.valor), 0).toFixed(2));
     const abertoPagar = Number(pagar.reduce((s, t) => s + (Number(t.valor) - Number(t.pago)), 0).toFixed(2));
@@ -36,6 +43,14 @@ export class FornecedoresService {
       compras: { qtd: ocs.length, valor: soma(ocs) },
       materiaisQtd: materiais.length,
       materiais: materiais.map((m) => ({ id: m.id, codigo: m.codigo, descricao: m.descricao, artigo: m.artigo, composicao: m.composicao, largura: m.largura != null ? Number(m.largura) : null, gramatura: m.gramatura != null ? Number(m.gramatura) : null, saldo: Number(m.saldo), unidade: m.unidade })),
+      produtosQtd: produtos.length,
+      produtos: produtos.map((p) => ({
+        id: p.id, codigo: p.codigo, descricao: p.descricao, cor: p.cor, tipo: p.tipo,
+        custo: p.custo != null ? Number(p.custo) : null,
+        precoBase: p.precoBase != null ? Number(p.precoBase) : null,
+        unidade: p.unidadeComercial ?? 'UN',
+        codigoFornecedor: p.codigoFornecedor, descricaoFornecedor: p.descricaoFornecedor,
+      })),
       notasEntrada: { qtd: notas.length, valor: soma(notas) },
       contasPagar: {
         qtd: pagar.length,
