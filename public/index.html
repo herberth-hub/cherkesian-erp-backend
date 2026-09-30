@@ -10771,11 +10771,27 @@ function nfPill(s){
  * Conta: venda + faturamento de entrega futura, autorizada ou simulada, menos
  * bonificação (CFOP 5910/6910).
  */
-function nfEhFaturamento(n){
+function nfEhFaturamento(n, pedidosComVendaFutura){
   if(!['autorizada','simulada'].includes(n.status)) return false;
   if(!['venda','faturamento'].includes(n.tipo||'venda')) return false;
   if(/^[56]91/.test(String(n.cfop||''))) return false; // bonificação: sem cobrança
+  // VENDA PARA ENTREGA FUTURA: quem cobra é a nota de faturamento (5922/6922) —
+  // é ela que gera o título a receber. As notas de ENTREGA do mesmo pedido são só
+  // a movimentação da mercadoria já vendida; contá-las dobraria o faturamento.
+  // Isso acontecia de verdade: o PV100 e o PV101 apareciam com o dobro, porque a
+  // entrega saiu com CFOP 6101 (venda normal) e não com 5116/6116.
+  if(pedidosComVendaFutura && n.pedidoId != null
+     && pedidosComVendaFutura.has(n.pedidoId)
+     && (n.tipo||'venda') !== 'faturamento') return false;
   return true;
+}
+/** Pedidos que já têm a NF de venda futura — só ela conta nesses pedidos. */
+function nfPedidosVendaFutura(list){
+  const s=new Set();
+  for(const n of (list||[])){
+    if(n.tipo==='faturamento' && ['autorizada','simulada'].includes(n.status) && n.pedidoId!=null) s.add(n.pedidoId);
+  }
+  return s;
 }
 /** Mês de uma data no fuso de São Paulo, como "2026-09" (ordenável). */
 function nfChaveMes(d){
@@ -10794,8 +10810,9 @@ function nfMesLabel(chave){
 /** Faturamento agrupado por mês, do mais antigo ao mais recente. */
 function nfFaturamentoMeses(list){
   const m=new Map();
+  const vf=nfPedidosVendaFutura(list);
   for(const n of (list||[])){
-    if(!nfEhFaturamento(n)) continue;
+    if(!nfEhFaturamento(n,vf)) continue;
     const k=nfChaveMes(n.emitidaEm||n.criadoEm); if(!k) continue;
     const a=m.get(k)||{chave:k,valor:0,qtd:0}; a.valor+=Number(n.valor||0); a.qtd++; m.set(k,a);
   }
@@ -10832,7 +10849,8 @@ function nfMesesHtml(meses, list){
       <span style="font-size:10px;color:#a9a294">${a.qtd} nota(s) · ${a.qtd?money(a.valor/a.qtd):money(0)}/nota</span>
     </div>`;
   }).join('');
-  const fora=(list||[]).filter(n=>['autorizada','simulada'].includes(n.status)&&!nfEhFaturamento(n)).reduce((s,n)=>s+Number(n.valor||0),0);
+  const vf=nfPedidosVendaFutura(list);
+  const fora=(list||[]).filter(n=>['autorizada','simulada'].includes(n.status)&&!nfEhFaturamento(n,vf)).reduce((s,n)=>s+Number(n.valor||0),0);
   return `<div style="display:flex;gap:9px;flex-wrap:wrap;align-items:stretch;margin:0 0 10px">${blocosAno}${blocos}</div>
     <div class="muted" style="font-size:11.5px;margin:0 0 12px">
       ${(list||[]).length} nota(s) no total · faturamento de todo o período <b>${money(total)}</b>
@@ -13483,7 +13501,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
