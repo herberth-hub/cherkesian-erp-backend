@@ -2343,8 +2343,13 @@ function openModal(html, opts){
   opts=opts||{};
   const title=_winTitle(html), body=_winStripTitle(html);
   // Re-render da mesma janela (mesmo título) substitui o conteúdo em vez de empilhar.
-  const ex=__wins.find(w=>w.title===title && !w.minimized);
-  if(ex){ ex.el.querySelector('.win-body').innerHTML=body; if(opts.wide) ex.el.classList.add('wide'); _winFocus(ex); return ex.el; }
+  // Vale também para a janela MINIMIZADA: se abrisse outra, ficariam DUAS no DOM com os
+  // mesmos ids de campo, e getElementById leria o campo vazio da que está escondida
+  // (era o que dava "Informe por qual canal" com o canal já escolhido na tela).
+  const ex=__wins.find(w=>w.title===title);
+  if(ex){ ex.el.querySelector('.win-body').innerHTML=body; if(opts.wide) ex.el.classList.add('wide');
+    if(ex.minimized) _winRestore(ex.id); else _winFocus(ex);
+    return ex.el; }
   const id=++__winSeq; const el=document.createElement('div'); el.className='win'+(opts.wide?' wide':''); el.dataset.id=id;
   el.innerHTML=`<div class="win-hd"><span class="t">${esc(title)}</span><button title="Minimizar" onclick="APP._winMin(${id})">—</button><button class="wmx" title="Maximizar / restaurar" onclick="APP._winMax(${id})">⤢</button><button title="Fechar (Esc)" onclick="APP._winClose(${id})">✕</button></div><div class="win-body">${body}</div>`;
   $('winlayer').appendChild(el);
@@ -3014,6 +3019,10 @@ async function formProduto(id, prefill){
     <div class="mrow"><label class="fl">Equivalente a <span class="muted">(expedição — código diferente, mesma peça)</span></label>
       <select id="f_equiv" class="inp"><option value="">— nenhum —</option>${(window.__PRODLIST||[]).filter(x=>x.id!==p.id).map(x=>'<option value="'+x.id+'"'+(p.equivalenteId===x.id?' selected':'')+'>'+esc(x.codigo+' · '+(x.descricao||''))+'</option>').join('')}</select>
       <div class="muted" style="font-size:11px;margin-top:2px">Use quando a etiqueta física tem um código (ex.: CAL-003) e o pedido tem outro (ex.: CAL-004). A conferência da expedição passa a reconhecer as peças deste produto como sendo do <b>produto principal</b> escolhido, e dá baixa no pedido.</div></div>
+    ${secDivisor('FICHA TÉCNICA DO CLIENTE')}
+    <div class="grid2">${field('f_projeto','Projeto (sai no topo da ficha)','value="'+esc(p.projeto||'')+'" placeholder="ex.: Uniformes Delphos — Camisa Social Feminina"')}${field('f_revisao','Revisão','value="'+esc(p.revisao||'')+'" placeholder="ex.: 02"')}</div>
+    ${taField('f_detalhes','Detalhes de construção — uma linha por item, no formato "Rótulo: valor"','',6, p.detalhes ? '' : 'Gola: Colarinho social\nFechamento: Abotoamento frontal, 7 botões\nBolso: 1 bolso chapa, cantos chanfrados\nPunho: Social, 7 cm\nBarra: Barra lenço')}
+    <div class="muted" style="font-size:11px;margin:-4px 0 8px">Cada linha vira uma linha da tabela ESPECIFICAÇÕES DA PEÇA na ficha técnica.</div>
     ${secDivisor('ESPECIFICAÇÕES DE CONFECÇÃO / COSTURA')}
     ${taField('f_espec','Costura, acabamentos, bolsos, tabelas de zíper/elástico...','',6, p.especificacoes? '' : 'Descreva a confecção como na ficha técnica do cliente.')}
     ${secDivisor('TABELA DE MEDIDAS')}
@@ -3202,6 +3211,9 @@ async function saveProduto(id){
   body.logosVetor = anexoLista('logo'); // o backend espelha o [0] nos campos antigos
   const fc=window.__FICHACLI||{}; body.fichaCliente = fc.data||''; body.fichaClienteNome = fc.nome||'';
   const md=window.__MAPADTF||{}; body.mapaDtf = md.data||''; body.mapaDtfNome = md.nome||'';
+  const proj=val('f_projeto'); if(proj) body.projeto=proj;
+  const rev=val('f_revisao'); if(rev) body.revisao=rev;
+  const det=($('f_detalhes')||{}).value||''; if(det.trim()) body.detalhes=det;
   body.medidas = (window.__PMED||[]).filter(r=>r.descricao&&r.descricao.trim())
     .map((r,i)=>({ descricao:r.descricao.trim(), tolerancia:(r.tolerancia||'').trim()||undefined, valores:r.valores||{}, ordem:i }));
   // Tamanhos: sincroniza o campo "Tamanhos (colunas)" para a grade — persiste sempre,
@@ -10570,16 +10582,16 @@ async function formConferencia(id){
       <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
       <div style="margin-bottom:6px">
         <label class="fl">Por qual canal está sendo enviado? <span style="color:#c14a34">*</span></label>
-        <select id="exp_canal" class="inp" style="max-width:320px">
+        <select id="exp_canal_${id}" class="inp" style="max-width:320px">
           <option value="">— selecione —</option>
           ${CANAIS_ENVIO.map(t=>`<option value="${esc(t)}"${(c.transportadora||'').toUpperCase()===t?' selected':''}>${esc(t)}</option>`).join('')}
         </select>
         <div class="muted" style="font-size:10.5px;margin-top:3px">Obrigatório — é o registro de por onde a mercadoria saiu, e sai impresso no romaneio.</div>
       </div>
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
-        <div style="flex:1"><label class="fl">Bipe a etiqueta MASTER (caixa)</label><input id="master_bip" class="inp" placeholder="Etiqueta master ${esc(c.codBip||c.numero)}" onkeydown="if(event.key==='Enter')APP.despacharExp(${id})"></div>
+        <div style="flex:1"><label class="fl">Bipe a etiqueta MASTER (caixa)</label><input id="master_bip_${id}" class="inp" placeholder="Etiqueta master ${esc(c.codBip||c.numero)}" onkeydown="if(event.key==='Enter')APP.despacharExp(${id})"></div>
         <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar</button>
-        <button class="btn-sm" onclick="APP.abrirScanner(function(code){document.getElementById('master_bip').value=code;APP.despacharExp(${id})})">📷</button>
+        <button class="btn-sm" onclick="APP.abrirScanner(function(code){const i=document.getElementById('master_bip_${id}'); if(i)i.value=code; APP.despacharExp(${id})})">📷</button>
       </div>
       <div style="margin-bottom:2px"><button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${id})">🏷 Reimprimir etiqueta master</button></div>`
       :`${(function(){
@@ -10591,8 +10603,8 @@ async function formConferencia(id){
           const cap=curTipo==='fardo'?100:50; const f=b?b.pecas:0; const cor=f>=cap?'#c14a34':(f>=cap*0.8?'#9a5a00':'#1e7a44');
           return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:7px 9px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;flex-wrap:wrap">
         <label class="fl" style="margin:0">📦 Volume atual</label>
-        <input id="conf_caixa" type="number" min="1" value="${nAtu}" onchange="APP.confSetCaixa(${id})" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
-        <select id="conf_tipo" class="inp" onchange="APP.confSetTipo(${id})" style="width:auto;font-size:12px;padding:5px">
+        <input id="conf_caixa_${id}" type="number" min="1" value="${nAtu}" onchange="APP.confSetCaixa(${id})" style="width:56px;text-align:center;padding:5px;font-weight:800;font-size:15px">
+        <select id="conf_tipo_${id}" class="inp" onchange="APP.confSetTipo(${id})" style="width:auto;font-size:12px;padding:5px">
           <option value="caixa" ${curTipo!=='fardo'?'selected':''}>Caixa (máx 50)</option>
           <option value="fardo" ${curTipo==='fardo'?'selected':''}>Fardo (máx 100)</option></select>
         <span style="font-size:12px;font-weight:800;color:${cor}">${f}/${cap}${f>=cap?' — cheio':''}</span>
@@ -10601,14 +10613,18 @@ async function formConferencia(id){
       </div>`; })()}
       ${window.__confDevolver?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 9px;background:#fdecea;border:1px solid #f0b3a6;border-radius:8px"><b style="color:#c14a34;font-size:12px">↩ MODO DEVOLVER</b><span class="muted" style="font-size:11px">bipe a peça/kit p/ TIRAR da caixa — depois aponte a “Caixa atual” e bipe de novo</span></div>`:''}
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
-        <div style="flex:1"><label class="fl">${window.__confDevolver?'Bipe a PEÇA/KIT a DEVOLVER':'Bipe a PEÇA, o KIT ou a CAIXA'+(c.totalCaixas?' (📦 QR da caixa)':'')}</label><input id="conf_bip" class="inp" placeholder="${window.__confDevolver?'Bipe a peça que quer tirar da caixa':'Bipe peça, kit ou caixa (leitor USB ou digite)'}" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
+        <div style="flex:1"><label class="fl">${window.__confDevolver?'Bipe a PEÇA/KIT a DEVOLVER':'Bipe a PEÇA, o KIT ou a CAIXA'+(c.totalCaixas?' (📦 QR da caixa)':'')}</label><input id="conf_bip_${id}" class="inp" placeholder="${window.__confDevolver?'Bipe a peça que quer tirar da caixa':'Bipe peça, kit ou caixa (leitor USB ou digite)'}" onkeydown="if(event.key==='Enter')APP.conferirBip(${id})"></div>
         <button class="btn-primary" style="${window.__confDevolver?'background:#c14a34':''}" onclick="APP.conferirBip(${id})">${window.__confDevolver?'↩ Devolver':'Bipar'}</button>
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>
       <div style="margin-bottom:6px"><button class="btn-sm" style="${window.__confDevolver?'color:#1e7a44;font-weight:700':'color:#c14a34'}" onclick="APP.confToggleDevolver(${id})">${window.__confDevolver?'✅ Voltar a conferir':'↩ Devolver peça (passei na caixa errada)'}</button></div>`}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${S.user.acesso==='total'?`<button class="btn-sm" style="color:#2b4a8b" title="Admin — editar as quantidades desta expedição (incluir a mais ou tirar)" onclick="APP.formEditarExpItens(${id})">✏️ Editar quantidades</button>`:''}${S.user.acesso==='total'&&c.conferidas>0&&c.conferidas<c.esperadas?`<button class="btn-sm" style="color:#1e7a44;font-weight:700" title="Admin — reduz a expedição ao que já foi conferido e abre a emissão da NF-e (o resto volta pro residual do pedido)" onclick="APP.faturarConferido(${id})">🧾 Faturar só o conferido</button>`:''}${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
-  const inp=$('conf_bip')||$('master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
+  const inp=cfEl(id,'conf_bip')||cfEl(id,'master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
 }
+// Os campos da conferência têm id POR EXPEDIÇÃO (conf_bip_12, exp_canal_12...). Assim,
+// com mais de uma conferência aberta/minimizada, cada janela lê o SEU campo.
+function cfEl(id,nome){ return document.getElementById(nome+'_'+id); }
+function cfVal(id,nome){ const e=cfEl(id,nome); return e?String(e.value||'').trim():''; }
 // ADMIN: fatura só o que foi conferido — reduz a expedição ao conferido e abre a NF-e.
 async function faturarConferido(id){
   const ok = await uiConfirm({tipo:'warn', titulo:'Faturar só o conferido?', ok:'Ajustar e emitir NF-e', cancel:'Cancelar',
@@ -10683,34 +10699,34 @@ async function zerarConferencia(id){
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // Caixa atual da bipagem (montagem da caixa conforme se bipa).
-function confSetCaixa(id){ const n=Math.floor(Number(val('conf_caixa'))||1); window.__confCaixa=n>=1?n:1; if(id) formConferencia(id); }
+function confSetCaixa(id, semRender){ const n=Math.floor(Number(cfVal(id,'conf_caixa'))||1); window.__confCaixa=n>=1?n:1; if(id&&!semRender) formConferencia(id); }
 // Troca o tipo do VOLUME ATUAL (caixa↔fardo). Se o volume já existe, grava no backend
 // (valida o limite); se ainda não tem nada bipado, só ajusta o padrão do próximo.
 async function confSetTipo(id){
-  const s=$('conf_tipo'); const tipo=(s&&s.value==='fardo')?'fardo':'caixa'; window.__confTipo=tipo;
-  const n=Math.floor(Number(val('conf_caixa'))||window.__confCaixa||1);
+  const s=cfEl(id,'conf_tipo'); const tipo=(s&&s.value==='fardo')?'fardo':'caixa'; window.__confTipo=tipo;
+  const n=Math.floor(Number(cfVal(id,'conf_caixa'))||window.__confCaixa||1);
   try{ const r=await api('/expedicoes/'+id+'/volume-tipo',{method:'POST',body:{caixa:n,tipo}});
     if(r&&r.trocou) toast('Volume '+n+' agora é '+tipo+' (máx '+r.cap+').','ok');
   }catch(e){ toast(e.message,'err'); }
   formConferencia(id);
 }
-function confNovaCaixa(id){ confSetCaixa(); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
+function confNovaCaixa(id){ confSetCaixa(id,true); window.__confCaixa=(window.__confCaixa||1)+1; formConferencia(id); toast('Agora bipando na Caixa '+window.__confCaixa+'.','ok'); }
 window.__bipBusy = window.__bipBusy || {};
 function confToggleDevolver(id){ window.__confDevolver=!window.__confDevolver; formConferencia(id); }
 async function devolverBip(id, codigo){
-  const cod=(codigo||val('conf_bip')||'').trim(); if(!cod){ toast('Bipe a peça a devolver.','err'); const i=$('conf_bip'); if(i)i.focus(); return; }
+  const cod=(codigo||cfVal(id,'conf_bip')||'').trim(); if(!cod){ toast('Bipe a peça a devolver.','err'); const i=cfEl(id,'conf_bip'); if(i)i.focus(); return; }
   try{ const r=await api('/expedicoes/'+id+'/devolver-peca',{method:'POST',body:{codigo:cod}});
     beepOk(); toast('↩ '+(r.mensagem||'Peça devolvida.'),'ok'); formConferencia(id);
   }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); }
 }
 async function conferirBip(id, codigo){
   if(window.__confDevolver){ return devolverBip(id, codigo); }
-  const cod=(codigo||val('conf_bip')||'').trim(); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
+  const cod=(codigo||cfVal(id,'conf_bip')||'').trim(); if(!cod){ toast('Bipe ou digite o código.','err'); return; }
   const key=cod.toUpperCase();
   // Trava anti-duplo-envio: mesmo código bipado 2x muito rápido não dispara 2 leituras.
-  if(window.__bipBusy[key]){ beepErro(); toast('⏳ '+cod+' já está sendo lido — aguarde.','err'); const i=$('conf_bip'); if(i){ i.value=''; i.focus(); } return; }
+  if(window.__bipBusy[key]){ beepErro(); toast('⏳ '+cod+' já está sendo lido — aguarde.','err'); const i=cfEl(id,'conf_bip'); if(i){ i.value=''; i.focus(); } return; }
   window.__bipBusy[key]=1;
-  const caixa=Math.floor(Number(val('conf_caixa'))||window.__confCaixa||1);
+  const caixa=Math.floor(Number(cfVal(id,'conf_caixa'))||window.__confCaixa||1);
   const tipo=window.__confTipo==='fardo'?'fardo':'caixa';
   try{ const r=await api('/expedicoes/'+id+'/conferir',{method:'POST',body:{codigo:cod, caixa, tipo}});
     if(r.ja) beepErro(); else beepOk();
@@ -10720,9 +10736,9 @@ async function conferirBip(id, codigo){
   finally{ delete window.__bipBusy[key]; }
 }
 async function despacharExp(id){
-  const canal=((document.getElementById('exp_canal')||{}).value||'').trim();
-  if(!canal){ toast('Informe por qual canal a mercadoria está sendo enviada.','err'); const s=document.getElementById('exp_canal'); if(s) s.focus(); return; }
-  const cod=(document.getElementById('master_bip')||{}).value||'';
+  const canal=cfVal(id,'exp_canal');
+  if(!canal){ toast('Informe por qual canal a mercadoria está sendo enviada.','err'); const s=cfEl(id,'exp_canal'); if(s) s.focus(); return; }
+  const cod=cfVal(id,'master_bip');
   if(!cod){ toast('Bipe a etiqueta MASTER da caixa para despachar.','err'); return; }
   try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal}}); toast(r.mensagem+' · '+canal,'ok'); closeModal(); loadRoute(); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
