@@ -13398,6 +13398,7 @@ async function viewAnomalias(c){
   const opt=(v,l,sel)=>`<option value="${v}"${sel===v?' selected':''}>${esc(l)}</option>`;
   const filtros=`<div class="toolbar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
     <button class="btn-primary" onclick="APP.anomAbrir()">+ Registrar anomalia</button>
+    <button class="btn-sm" title="Imprimir esta lista em PDF, com os filtros que estão aplicados" onclick="APP.anomPdfLista()">🖨 Imprimir lista</button>
     <select class="inp" style="max-width:190px" onchange="APP.anomFiltro('status',this.value)">
       ${opt('','Situação: todas em aberto',ANOMFILTRO.status)}${ANOM_FLUXO.map(f=>opt(f[0],f[1],ANOMFILTRO.status)).join('')}</select>
     <select class="inp" style="max-width:190px" onchange="APP.anomFiltro('tipo',this.value)">
@@ -13421,6 +13422,21 @@ async function viewAnomalias(c){
     <tbody>${linhas||'<tr><td colspan=7 class="muted" style="padding:14px">Nenhuma anomalia com esses filtros. Use <b>+ Registrar anomalia</b> quando um cliente reportar um problema ou pedir troca.</td></tr>'}</tbody></table></div>`;
 }
 function anomFiltro(campo,valor){ ANOMFILTRO[campo]=valor; loadRoute(); }
+// Impressão. A ficha vai para a mão de quem resolve; a lista, para a reunião.
+async function anomPdfAbrir(url, titulo, nome){
+  try{
+    const r=await fetchAuth(API+url, { headers:{ Authorization:'Bearer '+S.access } });
+    if(!r.ok){ let m='Falha ao gerar o PDF ('+r.status+').'; try{const j=await r.json();m=j.message||m;}catch(e){} throw new Error(m); }
+    abrirPdfBlob(await r.blob(), {titulo, nome});
+  }catch(e){ toast(e.message||String(e),'err'); }
+}
+function anomPdf(id){ return anomPdfAbrir('/anomalias/'+id+'/pdf', '⚠️ Ficha da anomalia', 'ANOMALIA-'+id); }
+function anomPdfLista(){
+  // Leva os MESMOS filtros da tela — o papel tem que bater com o que está na frente.
+  const qs=[]; if(ANOMFILTRO.status)qs.push('status='+ANOMFILTRO.status); if(ANOMFILTRO.tipo)qs.push('tipo='+ANOMFILTRO.tipo);
+  if(ANOMFILTRO.setor)qs.push('setor='+ANOMFILTRO.setor); if(ANOMFILTRO.todas)qs.push('todas=1');
+  return anomPdfAbrir('/anomalias/pdf'+(qs.length?'?'+qs.join('&'):''), '⚠️ Anomalias de pedido', 'ANOMALIAS');
+}
 
 /** Formulário de abertura. `pedidoId` vem preenchido quando aberto de dentro do pedido. */
 async function anomAbrir(pedidoId, pedidoNum, clienteNome){
@@ -13532,7 +13548,7 @@ async function anomDetalhe(id){
     ${encerrada?'':`<div class="mrow" style="margin-top:12px"><label class="fl">Nova mensagem</label><textarea id="an_d_msg" class="inp" rows="2" placeholder="Informe o andamento — todo mundo envolvido vê aqui."></textarea></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="an_d_anexo" type="file" accept="image/*,application/pdf" class="inp" style="max-width:260px">
       <button class="btn-sm" onclick="APP.anomComentar(${a.id})">Enviar</button></div>`}
-    <div class="mactions" style="margin-top:14px;flex-wrap:wrap;gap:6px">${botoes}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+    <div class="mactions" style="margin-top:14px;flex-wrap:wrap;gap:6px">${botoes}<button class="btn-sm" title="Imprimir a ficha desta anomalia (problema, ação, prazo e histórico)" onclick="APP.anomPdf(${id})">🖨 Imprimir ficha</button><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
 }
 async function anomSalvarAcao(id){
   const body={ setor:val('an_d_setor')||undefined, responsavel:val('an_d_resp'), acao:val('an_d_acao'),
@@ -13575,7 +13591,7 @@ async function anomAnexo(ev,id,eventoId){
 window.APP = {
   mkBaseUpload, mkBaseCarregar, mkPintarBase, mkBaseDesenhar, mkConta, mkCanvasPick, mkParteSet, mkParteDel, mkParteReset, mkPartesUI, mkSalvarBase,
   login(){ doLogin(val('l_user'), $('l_pass').value); },
-  anomFiltro, anomAbrir, anomBuscaPedido, anomSalvar, anomDetalhe, anomSalvarAcao, anomComentar, anomMover, anomAnexo,
+  anomFiltro, anomAbrir, anomBuscaPedido, anomSalvar, anomDetalhe, anomSalvarAcao, anomComentar, anomMover, anomAnexo, anomPdf, anomPdfLista,
   gate(){ doGate(val('g_admin'), $('g_pass').value); },
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },

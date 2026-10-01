@@ -57,6 +57,52 @@ export class AnomaliasController {
     });
   }
 
+  /**
+   * Relatório da LISTA em PDF — mesmos filtros da tela.
+   * Declarado ANTES de `:id`, senão a rota curinga engoliria "pdf".
+   */
+  @Get('pdf')
+  async pdfLista(
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+    @Query('status') status?: string,
+    @Query('tipo') tipo?: string,
+    @Query('setor') setor?: string,
+    @Query('pedidoId') pedidoId?: string,
+    @Query('clienteId') clienteId?: string,
+    @Query('todas') todas?: string,
+  ) {
+    const { doc, numero } = await this.anomalias.pdfLista(user, {
+      status,
+      tipo,
+      setor,
+      pedidoId: pedidoId ? Number(pedidoId) : undefined,
+      clienteId: clienteId ? Number(clienteId) : undefined,
+      incluirFechadas: todas === '1' || todas === 'true',
+    });
+    this.enviarPdf(res, doc, numero);
+  }
+
+  /** Ficha da anomalia em PDF — para imprimir e entregar a quem vai resolver. */
+  @Get(':id/pdf')
+  async pdfFicha(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const { doc, numero } = await this.anomalias.pdfFicha(id, user);
+    this.enviarPdf(res, doc, numero);
+  }
+
+  private enviarPdf(res: Response, doc: NodeJS.ReadableStream & { end: () => void }, numero: string) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${numero}.pdf"`);
+    // Regerado dos dados atuais a cada chamada — nunca cachear.
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    doc.pipe(res);
+    doc.end();
+  }
+
   @Get(':id')
   obter(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.anomalias.obter(id, user);

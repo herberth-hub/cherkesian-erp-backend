@@ -1,5 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  camposDuplos,
+  dataBR,
+  novoDocumento,
+  secao,
+  setDataDoc,
+  setLogoDoc,
+  tabela,
+  textoBloco,
+  type Pdf,
+} from '../documentos/pdf.renderer';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthUser } from '../auth/auth.types';
@@ -403,6 +414,143 @@ export class AnomaliasService {
   }
 
   /** Monta o retorno com o contexto legível; a linha do tempo só na tela de detalhe. */
+  /** Logo da empresa no cabeçalho — igual aos demais documentos da casa. */
+  private async prepararPdf(empresaId: number) {
+    const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
+    setLogoDoc(emp?.logo ?? null);
+    setDataDoc(null); // data de hoje: o papel vale pelo dia em que foi impresso
+  }
+
+  /**
+   * FICHA da anomalia — o papel que vai para a mão de quem vai resolver.
+   * Traz o problema, o que foi combinado, o prazo e a linha do tempo inteira.
+   */
+  async pdfFicha(id: number, user: AuthUser): Promise<{ doc: Pdf; numero: string }> {
+    const a = await this.obter(id, user);
+    await this.prepararPdf(user.empresaId);
+    const doc = novoDocumento('Anomalia de Pedido', a.numero);
+
+    secao(doc, 'Identificação');
+    camposDuplos(doc, [
+      ['Nº', a.numero],
+      ['Situação', a.statusLabel + (a.atrasada ? ' · FORA DO PRAZO' : '')],
+      ['Tipo', a.tipo],
+      ['Gravidade', a.gravidade],
+      ['Origem', a.origem],
+      ['Aberta em', dataBR(a.criadoEm)],
+      ['Aberta por', a.abertoPor],
+      ['Prazo', a.prazo ? dataBR(a.prazo) : '—'],
+      ['Setor responsável', a.setor ?? '—'],
+      ['Responsável', a.responsavel ?? '—'],
+      ['Cliente', a.cliente ?? '—'],
+      ['Pedido', a.pedido ?? '—'],
+    ]);
+
+    if (a.itemDescricao || a.cor || a.tamanho || a.quantidade) {
+      secao(doc, 'Item afetado');
+      camposDuplos(doc, [
+        ['Produto', a.itemDescricao ?? '—'],
+        ['Cor', a.cor ?? '—'],
+        ['Tamanho', a.tamanho ?? '—'],
+        ['Quantidade', a.quantidade != null ? `${a.quantidade} pç` : '—'],
+      ]);
+    }
+
+    secao(doc, 'O que aconteceu');
+    textoBloco(doc, a.titulo);
+    if (a.descricao && a.descricao.trim() && a.descricao.trim() !== a.titulo.trim()) textoBloco(doc, a.descricao);
+
+    secao(doc, 'O que foi decidido');
+    textoBloco(doc, a.acao?.trim() || 'Ainda não há ação definida para esta anomalia.');
+
+    if (a.resolucao?.trim()) {
+      secao(doc, 'Como terminou');
+      textoBloco(doc, a.resolucao);
+      if (a.fechadoEm) textoBloco(doc, `Encerrada em ${dataBR(a.fechadoEm)}.`);
+    }
+
+    const ev = a.eventos ?? [];
+    secao(doc, 'Histórico', 28 + ev.length * 22);
+    if (ev.length) {
+      tabela(
+        doc,
+        [
+          { titulo: 'Quando', largura: 110 },
+          { titulo: 'Quem', largura: 95 },
+          { titulo: 'O quê', largura: 90 },
+          { titulo: 'Detalhe', largura: 200 },
+        ],
+        ev.map((e) => {
+          const mudanca = e.de || e.para ? `${e.de ?? '—'} -> ${e.para ?? '—'}` : '';
+          const detalhe = [e.texto?.trim(), mudanca, e.temAnexo ? `[anexo: ${e.anexoNome ?? 'arquivo'}]` : '']
+            .filter(Boolean)
+            .join(' · ');
+          return [dataBR(e.criadoEm), e.usuario, e.tipo, detalhe || '—'];
+        }),
+      );
+    } else {
+      textoBloco(doc, 'Sem interações registradas.');
+    }
+
+    return { doc, numero: a.numero };
+  }
+
+  /** RELATÓRIO da lista — mesma filtragem da tela, para imprimir e levar à reunião. */
+  async pdfLista(
+    user: AuthUser,
+    filtros: { status?: string; tipo?: string; setor?: string; pedidoId?: number; clienteId?: number; incluirFechadas?: boolean },
+  ): Promise<{ doc: Pdf; numero: string }> {
+    const { anomalias } = await this.listar(user, filtros);
+    const res = await this.resumo(user);
+    await this.prepararPdf(user.empresaId);
+    const numero = 'ANOMALIAS-' + new Date().toISOString().slice(0, 10).split('-').reverse().join('');
+    const doc = novoDocumento('Anomalias de Pedido', numero);
+
+    secao(doc, 'Panorama');
+    camposDuplos(doc, [
+      ['Em aberto', String(res.abertas)],
+      ['Prioridade alta', String(res.altas)],
+      ['Fora do prazo', String(res.atrasadas)],
+      ['Resolvidas', String(res.contagem.resolvida ?? 0)],
+    ]);
+    const filtroTxt = [
+      filtros.status ? `situação: ${ROTULO_STATUS[filtros.status] ?? filtros.status}` : (filtros.incluirFechadas ? 'situação: todas' : 'situação: todas em aberto'),
+      filtros.tipo ? `tipo: ${filtros.tipo}` : null,
+      filtros.setor ? `setor: ${filtros.setor}` : null,
+    ].filter(Boolean).join(' · ');
+    textoBloco(doc, `Filtro aplicado — ${filtroTxt}. ${anomalias.length} registro(s).`);
+
+    secao(doc, 'Anomalias', 28 + anomalias.length * 22);
+    if (anomalias.length) {
+      tabela(
+        doc,
+        [
+          { titulo: 'Nº', largura: 58 },
+          { titulo: 'Anomalia', largura: 190 },
+          { titulo: 'Cliente / Pedido', largura: 110 },
+          { titulo: 'Grav.', largura: 42 },
+          { titulo: 'Responsável', largura: 85 },
+          { titulo: 'Prazo', largura: 60 },
+          { titulo: 'Situação', largura: 60 },
+        ],
+        anomalias.map((a) => [
+          a.numero,
+          a.titulo,
+          [a.cliente, a.pedido].filter(Boolean).join(' · ') || '—',
+          a.gravidade,
+          [a.setor, a.responsavel].filter(Boolean).join(' · ') || '—',
+          (a.prazo ? dataBR(a.prazo) : '—') + (a.atrasada ? ' !' : ''),
+          a.statusLabel,
+        ]),
+      );
+      if (anomalias.some((a) => a.atrasada)) textoBloco(doc, '! = prazo combinado já passou.');
+    } else {
+      textoBloco(doc, 'Nenhuma anomalia para o filtro escolhido.');
+    }
+
+    return { doc, numero };
+  }
+
   private montar(
     a: AnomaliaRegistro,
     ctx: { pedidos: Map<number, { numero: string; etapa: string }>; clientes: Map<number, string> },
