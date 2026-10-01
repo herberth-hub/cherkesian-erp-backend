@@ -143,12 +143,16 @@ export class NfeService {
     // BONIFICAÇÃO: pedido de brinde/doação — NF sai como REMESSA DE BONIFICAÇÃO
     // (CFOP 5910/6910, sem cobrança) e NÃO gera conta a receber.
     const bonificacao = !!pedido?.bonificacao;
+    // VENDA FUTURA: se o pedido (ou a família pai/filhos) já tem NF de faturamento,
+    // a venda JÁ foi cobrada e já gerou imposto. Esta NF só acompanha a entrega —
+    // não lança a receber nem imprime duplicata, senão cobra o cliente duas vezes.
+    const futura = bonificacao ? null : await this.faturamentoDeVendaFutura(exp.pedidoId, pedido?.pedidoPaiId);
     // Frete cobrado do cliente (R$): informado na emissão (prioridade) ou o do pedido.
     // Entra no total da NF e no contas a receber.
     const vFrete = bonificacao ? 0 : Number(transporte?.valorFrete != null ? transporte.valorFrete : (pedido?.valorFrete ?? 0));
     const valorComFrete = vFrete > 0 ? valor.plus(vFrete) : valor;
     // Cobrança/vencimento a partir da forma de pagamento do pedido (aparece no DANFE).
-    const cobranca = bonificacao
+    const cobranca = (bonificacao || futura)
       ? { duplicatas: undefined, primeiroVenc: new Date(), venctoTxt: undefined as string | undefined }
       : this.duplicatasDePedido(pedido?.formaPagamento, Number(valorComFrete));
     const infoAdic = [
@@ -159,8 +163,11 @@ export class NfeService {
       pedido?.formaPagamento ? `Forma de pagamento: ${pedido.formaPagamento}` : null,
       transporte?.dimensoes ? `Dimensoes (C x L x A): ${transporte.dimensoes.trim()}` : null,
       cobranca.venctoTxt,
+      // Entrega de venda futura: aponta a NF que já faturou, p/ a contabilidade e o cliente
+      // não lerem esta nota como uma segunda venda.
+      futura ? `Entrega referente a NF de venda futura ${futura.numero} — mercadoria ja faturada, sem nova cobranca` : null,
       // Bonificação/doação não gera cobrança — não faz sentido pedir pagamento.
-      bonificacao ? null : this.dadosPagamentoTxt(filial),
+      (bonificacao || futura) ? null : this.dadosPagamentoTxt(filial),
     ].filter(Boolean).join(' | ') || undefined;
     // Grade de tamanhos → vai na DESCRIÇÃO de cada item (aparece na tabela de
     // produtos do DANFE, p/ conferência no recebimento).
@@ -238,7 +245,8 @@ export class NfeService {
       await tx.expedicao.update({ where: { id: expedicaoId }, data: { nf: criada.numero } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       // BONIFICAÇÃO não gera cobrança — não lança a receber.
-      if (!bonificacao) {
+      // VENDA FUTURA já faturada idem: o título nasceu na NF de faturamento.
+      if (!bonificacao && !futura) {
         // Um título por PARCELA (duplicata) — o "A receber" reflete as parcelas, não o total.
         for (const t of this.titulosReceber(cobranca.duplicatas, Number(valorComFrete), cobranca.primeiroVenc)) {
           await tx.contaReceber.create({
@@ -510,12 +518,12 @@ export class NfeService {
     const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
 
     // Pedido vinculado (opcional): valida, avança a etapa e traz a grade por produto.
-    let pedidoVinc: { id: number; etapa: string } | null = null;
+    let pedidoVinc: { id: number; etapa: string; pedidoPaiId: number | null } | null = null;
     const gradePorProduto = new Map<number, Record<string, number>>();
     if (dto.pedidoId) {
       const ped = await this.prisma.pedido.findUnique({ where: { id: dto.pedidoId }, include: { itens: true } });
       if (!ped || ped.empresaId !== empresaId) throw new NotFoundException(`Pedido ${dto.pedidoId} não encontrado.`);
-      pedidoVinc = { id: ped.id, etapa: ped.etapa };
+      pedidoVinc = { id: ped.id, etapa: ped.etapa, pedidoPaiId: ped.pedidoPaiId };
       for (const it of ped.itens) {
         const g = it.grade as Record<string, number> | null;
         if (it.produtoId && g && Object.keys(g).length) gradePorProduto.set(it.produtoId, g);
@@ -527,9 +535,11 @@ export class NfeService {
     const vencimentoData = new Date();
     vencimentoData.setHours(0, 0, 0, 0);
     vencimentoData.setDate(vencimentoData.getDate() + diasV);
+    // Venda futura já faturada no pedido vinculado: esta nota não cobra de novo.
+    const futuraAv = dto.bonificacao ? null : await this.faturamentoDeVendaFutura(pedidoVinc?.id, pedidoVinc?.pedidoPaiId);
     let duplicatas: Array<{ numero: string; data_vencimento: string; valor: number }> | undefined;
     let venctoTxt: string | undefined;
-    if (diasV > 0) {
+    if (diasV > 0 && !futuraAv) {
       const iso = vencimentoData.toISOString().slice(0, 10);
       duplicatas = [{ numero: '001', data_vencimento: iso, valor: Number(valor.toFixed(2)) }];
       venctoTxt = `Vencimento: ${iso.split('-').reverse().join('/')} (${diasV} dias)`;
@@ -538,7 +548,8 @@ export class NfeService {
       (dto.observacoes || '').trim() || null,
       dto.ordemCompraCliente ? `Pedido de compra do cliente: ${dto.ordemCompraCliente}` : null,
       venctoTxt,
-      this.dadosPagamentoTxt(filial),
+      futuraAv ? `Entrega referente a NF de venda futura ${futuraAv.numero} — mercadoria ja faturada, sem nova cobranca` : null,
+      futuraAv ? null : this.dadosPagamentoTxt(filial),
     ].filter(Boolean).join(' | ') || undefined;
 
     // Grade na descrição do item (por produto do pedido vinculado).
@@ -585,8 +596,8 @@ export class NfeService {
       await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
       // Financeiro: lança a conta a receber da venda (saída), ligada à NF.
       // Só quando há cliente cadastrado — destinatário avulso não gera título a receber.
-      // Bonificação/doação NÃO gera cobrança.
-      if (dto.clienteId && !dto.bonificacao) {
+      // Bonificação/doação NÃO gera cobrança. Venda futura já faturada tampouco.
+      if (dto.clienteId && !dto.bonificacao && !futuraAv) {
         for (const t of this.titulosReceber(duplicatas, Number(valor), vencimentoData)) {
           await tx.contaReceber.create({
             data: { empresaId, clienteId: dto.clienteId, pedidoId: pedidoVinc?.id, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' },
@@ -1405,6 +1416,33 @@ export class NfeService {
   }
 
   /** Referência da nota na Focus (avulsa usa prefixo NFEAV-, normal usa NFE-). */
+  /**
+   * Venda para entrega futura: devolve a NF de FATURAMENTO do pedido (ou da família
+   * pai/filhos dele), se existir. É ela que cobrou o cliente e recolheu o imposto.
+   *
+   * A NF que sai depois, junto com a mercadoria, não pode cobrar de novo: já custou
+   * cobrança em dobro e ICMS pago duas vezes (PV38, PV71, PV100 e PV101, set/2026).
+   * A família importa porque o faturamento fica no pedido PAI e a entrega sai pelo
+   * pedido-filho do faturamento parcial (PVxxx-N).
+   */
+  private async faturamentoDeVendaFutura(pedidoId?: number | null, pedidoPaiId?: number | null) {
+    if (!pedidoId) return null;
+    const raiz = pedidoPaiId ?? pedidoId;
+    const familia = await this.prisma.pedido.findMany({
+      where: { OR: [{ id: raiz }, { pedidoPaiId: raiz }] },
+      select: { id: true },
+    });
+    return this.prisma.notaFiscal.findFirst({
+      where: {
+        pedidoId: { in: familia.map((f) => f.id) },
+        tipo: 'faturamento',
+        status: { in: ['pendente', 'autorizada', 'simulada'] },
+      },
+      select: { id: true, numero: true, serie: true },
+      orderBy: { id: 'asc' },
+    });
+  }
+
   private refDaNota(nota: NotaFiscal): string {
     // Preferir a referência EXATA gravada na emissão (inclui o sufixo -rN de reemissão).
     if (nota.focusRef && nota.focusRef.trim()) return nota.focusRef.trim();
