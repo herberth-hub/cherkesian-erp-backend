@@ -1452,6 +1452,8 @@ export class NfeService {
     // consulta/cancelamento/DANFE pergunta por uma referência que não existe.
     let prefixo: string;
     if (nota.tipo === 'faturamento') prefixo = 'NFEFAT';
+    else if (nota.tipo === 'devolucao_venda') prefixo = 'NFEDEVVEN';
+    else if (nota.tipo === 'devolucao') prefixo = 'NFEDEV';
     else if (nota.tipo === 'remessa_futura') prefixo = 'NFEREMF';
     else if (nota.tipo === 'remessa') prefixo = nota.controleFaccao ? 'NFEREM' : 'NFEREMAV';
     else if (nota.expedicaoId) prefixo = 'NFE';
@@ -1857,6 +1859,160 @@ export class NfeService {
       return criada;
     }, { maxWait: 15_000, timeout: 30_000 });
     return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /**
+   * NF de ENTRADA de DEVOLUÇÃO DE VENDA (anulação) — emitida pela PRÓPRIA empresa
+   * para desfazer uma NF de venda que não dá para cancelar (passou das 24h) e que
+   * a CC-e não corrige, como destinatário errado (CC-e não troca destinatário).
+   *
+   * Entra como documento de ENTRADA (tipo_documento 0, CFOP 1202/2202, finalidade 4)
+   * referenciando a chave da nota original, espelhando os MESMOS tributos — é o
+   * espelho que estorna o débito. Depois reemite-se a venda nos dados corretos.
+   *
+   * NÃO mexe no estoque: a anulação é documental, a mercadoria física não voltou.
+   * Devolução com retorno físico é outro fluxo (estorno da expedição).
+   */
+  async emitirDevolucaoVenda(
+    dto: {
+      notaFiscalId: number;
+      cfop?: string;
+      naturezaOperacao?: string;
+      observacoes?: string;
+      estornarTitulo?: boolean;
+      simular?: boolean;
+    },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const orig = await this.prisma.notaFiscal.findUnique({ where: { id: dto.notaFiscalId } });
+    if (!orig || orig.empresaId !== empresaId) throw new NotFoundException(`Nota ${dto.notaFiscalId} não encontrada.`);
+    if (orig.status !== 'autorizada') {
+      throw new BadRequestException(`Só dá para devolver nota autorizada — a ${orig.numero} está "${orig.status}". Se ainda dá para cancelar, cancele (é mais simples e sem custo).`);
+    }
+    if (!['venda', 'faturamento'].includes(orig.tipo)) {
+      throw new BadRequestException(`A ${orig.numero} é do tipo "${orig.tipo}" — esta rota devolve nota de VENDA.`);
+    }
+    const chaveRef = digitos(orig.chave || '');
+    if (chaveRef.length !== 44) {
+      throw new BadRequestException(`A ${orig.numero} está sem chave de acesso (44 dígitos). A devolução precisa referenciar a nota original.`);
+    }
+    const jaDevolvida = await this.prisma.notaFiscal.findFirst({
+      where: { notaRefId: orig.id, tipo: 'devolucao_venda', status: { in: ['pendente', 'autorizada', 'simulada'] } },
+      select: { numero: true },
+    });
+    if (jaDevolvida) throw new ConflictException(`A ${orig.numero} já foi devolvida pela nota ${jaDevolvida.numero}.`);
+
+    const pay = (orig.payloadJson ?? null) as Record<string, unknown> | null;
+    const itensOrig = pay && Array.isArray(pay.items) ? (pay.items as Array<Record<string, unknown>>) : [];
+    if (!itensOrig.length) {
+      throw new BadRequestException(`A ${orig.numero} não tem os itens gravados (emitida antes do registro do payload). Emita a devolução pelo painel da Focus.`);
+    }
+    const filial = orig.filialId ? await this.prisma.filial.findUnique({ where: { id: orig.filialId } }) : null;
+    if (!filial) throw new NotFoundException('CNPJ emissor da nota original não encontrado.');
+
+    // CFOP de ENTRADA por devolução de venda: 1202 dentro do estado, 2202 fora.
+    // Continua editável — se a contabilidade informar outro, é o informado que vale.
+    const ufDest = String(pay?.uf_destinatario ?? '').toUpperCase();
+    const mesmaUf = (filial.uf ?? '').toUpperCase() === ufDest;
+    const cfop = (dto.cfop ?? '').replace(/\D/g, '').slice(0, 4) || (mesmaUf ? '1202' : '2202');
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const valorTotal = Number(Number(orig.valor).toFixed(2));
+    const payload = this.montarPayloadDevolucaoVenda(filial, pay ?? {}, itensOrig, serie, numeroSeq, valorTotal, cfop, chaveRef, orig.numero, dto.naturezaOperacao, dto.observacoes);
+
+    if (dto.simular) {
+      return {
+        status: 'rascunho' as const,
+        numero: numeroNota,
+        cfop,
+        chaveReferenciada: chaveRef,
+        notaOriginal: orig.numero,
+        destinatario: pay?.nome_destinatario ?? null,
+        cnpjDestinatario: pay?.cnpj_destinatario ?? null,
+        valorTotal,
+        payloadPreview: payload,
+        message: 'Rascunho — nada foi enviado à SEFAZ. Confira o CFOP, o destinatário e os tributos antes de emitir.',
+      };
+    }
+
+    const token = this.tokenDaFilial(filial);
+    const emissao = token
+      ? await this.emitirFocusNfe(token, `NFEDEVVEN-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
+      : this.emitirSimulada();
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, payloadPreview: token ? undefined : payload };
+    }
+
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          ...this.resumoFiscalPayload(payload),
+          empresaId, filialId: filial.id, pedidoId: orig.pedidoId, tipo: 'devolucao_venda',
+          notaRefId: orig.id, cfop,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          focusRef: emissao.ref ?? null, motivo: emissao.motivo,
+          valor: new Prisma.Decimal(valorTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      // A cobrança da nota desfeita morre junto — mesma regra do cancelamento.
+      // Parcela já paga NÃO some: isso é acerto de caixa, não de documento fiscal.
+      if (dto.estornarTitulo !== false) {
+        await tx.contaReceber.deleteMany({ where: { notaFiscalId: orig.id, pago: 0 } });
+      }
+      return criada;
+    }, { maxWait: 15_000, timeout: 30_000 });
+    return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  private montarPayloadDevolucaoVenda(
+    emitente: Filial,
+    orig: Record<string, unknown>,
+    itensOrig: Array<Record<string, unknown>>,
+    serie: string,
+    numero: number,
+    valorTotal: number,
+    cfop: string,
+    chaveRef: string,
+    numeroOrig: string,
+    natureza?: string,
+    observacoes?: string,
+  ) {
+    // Espelha item a item o que saiu na venda: mesmos valores, mesmos tributos.
+    // Só o CFOP vira o de entrada — é isso que estorna o débito do ICMS.
+    const items = itensOrig.map((it, idx) => ({ ...it, numero_item: idx + 1, cfop }));
+    const copiaDest = [
+      'nome_destinatario', 'cnpj_destinatario', 'cpf_destinatario', 'inscricao_estadual_destinatario',
+      'indicador_inscricao_estadual_destinatario', 'logradouro_destinatario', 'numero_destinatario',
+      'complemento_destinatario', 'bairro_destinatario', 'municipio_destinatario', 'uf_destinatario',
+      'cep_destinatario', 'telefone_destinatario',
+    ];
+    const dest: Record<string, unknown> = {};
+    for (const k of copiaDest) if (orig[k] != null) dest[k] = orig[k];
+
+    return {
+      natureza_operacao: (natureza?.trim() || 'Devolucao de venda').slice(0, 60),
+      data_emissao: new Date().toISOString(),
+      tipo_documento: 0, // 0 = ENTRADA (a mercadoria/operação volta para a empresa)
+      finalidade_emissao: 4, // 4 = devolução de mercadoria
+      presenca_comprador: 9,
+      modalidade_frete: 9,
+      serie,
+      numero,
+      cnpj_emitente: digitos(emitente.cnpj),
+      // É a referência à NF de venda que fecha a anulação perante a SEFAZ.
+      notas_referenciadas: [{ chave_nfe: chaveRef }],
+      ...dest,
+      valor_total: valorTotal,
+      informacoes_adicionais_contribuinte: [
+        `Devolucao/anulacao da NF ${numeroOrig}, chave ${chaveRef}. Nota emitida com dados do destinatario incorretos; sera reemitida nos dados corretos.`,
+        observacoes?.trim() || '',
+      ].filter(Boolean).join(' ').slice(0, 5000),
+      items,
+    };
   }
 
   private montarPayloadDevolucao(

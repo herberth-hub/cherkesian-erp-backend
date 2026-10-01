@@ -10967,6 +10967,88 @@ async function sincronizarCfop(){
     loadRoute();
   }catch(e){ uiSpinnerClose&&uiSpinnerClose(); toast(e.message||'Falha ao sincronizar CFOP.','err'); }
 }
+// ---------- Devolução de VENDA (anulação por NF de entrada) ----------
+// Para a nota que passou das 24h de cancelamento e que a CC-e não corrige —
+// destinatário errado é o caso clássico (CC-e não troca destinatário).
+function devVendaForm(id, numero){
+  openModal(`<h3>↩️ Devolver venda — NF ${esc(numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Emite uma <b>NF de entrada</b> (CFOP 1202/2202, finalidade 4) referenciando esta nota e espelhando os mesmos tributos — é ela que estorna o débito. Depois você reemite a venda nos dados corretos.</div>
+    <div class="panel" style="border-color:#e8d9ae;background:#fdfaf0;padding:8px 10px;font-size:12px;margin-bottom:10px">
+      ⚠️ Se esta nota <b>ainda dá para cancelar</b> (dentro do prazo da SEFAZ), cancele — é mais simples e sem custo. A devolução é para quando o prazo já passou.
+      <div style="margin-top:4px">A mercadoria física <b>não volta ao estoque</b>: isto é anulação de documento. Retorno físico é estorno da expedição.</div>
+    </div>
+    <div class="grid2">
+      <div class="mrow"><label class="fl">CFOP <span class="muted" style="font-size:10px">(vazio = pela regra)</span></label>
+        <input id="dvv_cfop" class="inp" placeholder="vazio: 1202 no estado / 2202 fora" onchange="APP.devVendaRascunho(${id})" title="Padrão da casa: 1202 dentro do estado, 2202 fora. Confirme com a contabilidade.">
+        <div class="muted" style="font-size:10.5px;margin-top:3px">Dentro do estado <b>1202</b> · fora <b>2202</b></div></div>
+      <div class="mrow"><label class="fl">Natureza da operação</label><input id="dvv_nat" class="inp" value="Devolucao de venda" onchange="APP.devVendaRascunho(${id})"></div>
+    </div>
+    <div style="margin:2px 0 8px"><label style="font-size:12px"><input type="checkbox" id="dvv_est" checked> Cancelar também a cobrança desta nota (títulos <b>não pagos</b>)</label></div>
+    <div class="mrow"><label class="fl">Observações (vão nos dados adicionais)</label><textarea id="dvv_obs" class="inp" rows="2" placeholder="ex.: nota emitida no CNPJ da matriz; sera reemitida para a unidade correta"></textarea></div>
+    <div class="panel" style="background:#faf8f0;border-color:#efe2b8;padding:10px 12px;margin-top:8px">
+      <div id="dvv_resumo" style="font-size:13px">Gerando rascunho…</div>
+    </div>
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" onclick="APP.devVendaRascunho(${id})">👁 Atualizar rascunho</button>
+      <button class="btn-primary" onclick="APP.devVendaEmitir(${id},'${esc(numero)}')">Emitir NF de devolução</button>
+    </div>`, {wide:true});
+  devVendaRascunho(id);
+}
+// 01597589000110 -> 01.597.589/0001-10 (só p/ leitura na tela; o envio usa os dígitos)
+function devCnpj(s){
+  const d=String(s||'').replace(/\D/g,'');
+  return d.length===14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5') : (s||'—');
+}
+function devVendaLer(id){
+  return {
+    notaFiscalId:id,
+    cfop:val('dvv_cfop')||undefined,
+    naturezaOperacao:val('dvv_nat')||undefined,
+    observacoes:val('dvv_obs')||undefined,
+    estornarTitulo:!!($('dvv_est')||{}).checked,
+  };
+}
+async function devVendaRascunho(id){
+  const box=$('dvv_resumo'); if(box) box.innerHTML='Gerando rascunho…';
+  try{
+    const r=await api('/nfe/devolucao-venda',{method:'POST',body:Object.assign(devVendaLer(id),{simular:true})});
+    const pay=r.payloadPreview||{};
+    const its=pay.items||[];
+    const lin=its.map(i=>`<tr style="border-top:1px solid #f0e7d0">
+      <td style="padding:5px 8px">${esc(i.descricao||'')}</td>
+      <td style="padding:5px 8px;text-align:right">${Number(i.quantidade_comercial||0).toLocaleString('pt-BR')}</td>
+      <td style="padding:5px 8px;text-align:right">${money(i.valor_unitario_comercial||0)}</td>
+      <td style="padding:5px 8px;text-align:center">${esc(String(i.icms_situacao_tributaria||'—'))}</td>
+      <td style="padding:5px 8px;text-align:right">${Number(i.icms_aliquota||0)}%</td>
+      <td style="padding:5px 8px;text-align:right">${money(i.icms_valor||0)}</td>
+      <td style="padding:5px 8px;text-align:right;font-weight:700">${money(i.valor_bruto||0)}</td></tr>`).join('');
+    const icms=its.reduce((s,i)=>s+Number(i.icms_valor||0),0);
+    if(box) box.innerHTML=`
+      <div style="font-size:12.5px;margin-bottom:6px">👁 <b>Rascunho</b> — sairá como nota <b>${esc(r.numero)}</b> · CFOP <b style="color:#8a6d1e">${esc(r.cfop)}</b> · entrada, finalidade 4
+        <div class="muted" style="font-size:10.5px">anula a NF ${esc(r.notaOriginal||'')} · referencia a chave ${esc(r.chaveReferenciada||'')}</div></div>
+      <div style="font-size:12px;margin-bottom:6px">Destinatário: <b>${esc(r.destinatario||'—')}</b> <span class="muted">· ${esc(devCnpj(r.cnpjDestinatario))}</span></div>
+      <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f3ecd8;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Item</th><th style="padding:5px 8px;text-align:right">Qtd</th><th style="padding:5px 8px;text-align:right">Unit.</th><th style="padding:5px 8px">CST</th><th style="padding:5px 8px;text-align:right">ICMS%</th><th style="padding:5px 8px;text-align:right">ICMS</th><th style="padding:5px 8px;text-align:right">Total</th></tr></thead>
+        <tbody>${lin||'<tr><td colspan=7 class="muted" style="padding:8px">sem itens</td></tr>'}</tbody></table></div>
+      <div style="margin-top:6px;font-size:14px">Total da devolução: <b>${money(r.valorTotal||0)}</b>${icms?' · ICMS estornado <b>'+money(icms)+'</b>':''}</div>
+      <div class="muted" style="font-size:11px;margin-top:4px">Nada foi enviado à SEFAZ. Confira o CFOP com a contabilidade antes de emitir.</div>`;
+  }catch(e){ if(box) box.innerHTML='<span style="color:#c14a34">'+esc(e.message||String(e))+'</span>'; else toast(e.message,'err'); }
+}
+async function devVendaEmitir(id, numero){
+  const body=devVendaLer(id);
+  const ok=await uiConfirm({tipo:'warn', titulo:'Emitir NF de devolução?', ok:'Emitir agora', cancel:'Voltar',
+    msg:`Vai para a SEFAZ e não dá para desfazer (só cancelar depois, dentro do prazo).\n\n`
+      +`Anula a NF ${numero}.\nCFOP: ${body.cfop||'pela regra (1202 no estado / 2202 fora)'}\n`
+      +(body.estornarTitulo?'A cobrança não paga desta nota será cancelada.':'A cobrança desta nota será MANTIDA.')
+      +'\n\nO estoque não é alterado.'});
+  if(!ok) return;
+  try{
+    const r=await api('/nfe/devolucao-venda',{method:'POST',body});
+    if(r.status==='rejeitada'){ await uiAlert({tipo:'err',titulo:'SEFAZ rejeitou',ok:'Entendi',msg:'Nota '+r.numero+': '+(r.motivo||'sem motivo informado.')}); return; }
+    closeModal(); toast('NF de devolução '+r.numero+' — '+r.status+'. Agora reemita a venda nos dados corretos.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 function nfAcoes(n){
   const b=[];
   // Prévia da DANFE (sem valor fiscal) — conferir a NF ANTES de autorizar.
@@ -10981,6 +11063,9 @@ function nfAcoes(n){
     b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
     b.push(`<button class="btn-sm" onclick="APP.baixarCartaCorrecao(${n.id})">🖨 CC-e</button>`);
     b.push(`<button class="btn-sm danger" onclick="APP.cancelarNfe(${n.id},'${esc(n.numero)}')">Cancelar</button>`);
+    // Passou o prazo de cancelamento e a CC-e não resolve (ela não troca destinatário):
+    // o caminho é a NF de ENTRADA de devolução, que estorna a venda.
+    if(n.tipo==='venda'||n.tipo==='faturamento') b.push(`<button class="btn-sm" style="color:#8a5a00" title="Anula esta venda por NF de entrada (devolução) — use quando passou o prazo de cancelamento" onclick="APP.devVendaForm(${n.id},'${esc(n.numero)}')">↩ Devolver</button>`);
   } else if(n.status!=='cancelada'){
     b.push(`<button class="btn-sm danger" onclick="APP.excluirNfe(${n.id},'${esc(n.numero)}')">Excluir</button>`);
   }
@@ -13527,7 +13612,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

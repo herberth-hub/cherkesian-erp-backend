@@ -163,6 +163,28 @@ export class NfeController {
     return this.nfeService.emitirDevolucao(dto, user.empresaId, user.usuario);
   }
 
+  /**
+   * NF de ENTRADA de DEVOLUÇÃO DE VENDA (anulação) — desfaz uma NF de venda que
+   * passou do prazo de cancelamento e que a CC-e não corrige (destinatário errado).
+   * Sempre rode antes com `simular: true` e confira o rascunho.
+   */
+  @Post('devolucao-venda')
+  @Areas('expedicao', 'receber')
+  @HttpCode(HttpStatus.CREATED)
+  devolucaoVenda(
+    @Body() dto: {
+      notaFiscalId: number;
+      cfop?: string;
+      naturezaOperacao?: string;
+      observacoes?: string;
+      estornarTitulo?: boolean;
+      simular?: boolean;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.nfeService.emitirDevolucaoVenda(dto, user.empresaId, user.usuario);
+  }
+
   /** Cruza e corrige o CFOP das notas com o CFOP real do XML autorizado (contabilidade). */
   @Post('cfop/sincronizar')
   @Areas('expedicao', 'receber')
