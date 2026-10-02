@@ -183,6 +183,39 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 .mrow{margin-bottom:12px}
 .mactions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
 
+/* ===== Formulário no desenho do DANFE =====
+   Os quadros e a ordem dos campos imitam a nota impressa, para preencher
+   olhando o mesmo lugar onde o dado sai. Os ids dos inputs são os mesmos
+   do formulário antigo — só a casca mudou. */
+.dz{border:1px solid #2b2b2b;background:#fff;color:#111;margin-bottom:9px;border-radius:3px;overflow:hidden}
+.dz-hd{background:#f0ece0;border-bottom:1px solid #2b2b2b;padding:3px 7px;font-size:10px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+.dz-r{display:flex;border-bottom:1px solid #2b2b2b}
+.dz-r:last-child{border-bottom:0}
+.dz-c{border-right:1px solid #2b2b2b;padding:2px 6px 4px;min-width:0;flex:1}
+.dz-c:last-child{border-right:0}
+.dz-l{font-size:8.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#5b564a;display:block;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dz-c input,.dz-c select,.dz-c textarea{width:100%;border:0;outline:0;background:transparent;font:inherit;font-size:12.5px;color:#111;padding:1px 0;min-width:0}
+.dz-c textarea{resize:vertical;line-height:1.35}
+.dz-c input::placeholder,.dz-c textarea::placeholder{color:#b3ac9c}
+.dz-c input:focus,.dz-c select:focus,.dz-c textarea:focus{background:#fffbe8}
+.dz-c.req .dz-l::after{content:' *';color:#c14a34}
+.dz-obs{font-size:10.5px;color:#6b6555;padding:3px 7px;background:#faf8f2;border-top:1px solid #d8d2c4}
+/* linha de item: mesma grade das colunas do quadro de produtos */
+.dz-item{display:grid;grid-template-columns:1.6fr 2.4fr .9fr .6fr .8fr 1fr 1fr 28px;border-bottom:1px solid #2b2b2b}
+.dz-item:last-child{border-bottom:0}
+.dz-item > div{border-right:1px solid #2b2b2b;padding:2px 5px 4px;min-width:0}
+.dz-item > div:last-child{border-right:0;display:flex;align-items:center;justify-content:center;padding:2px}
+.dz-item input{width:100%;border:0;outline:0;background:transparent;font:inherit;font-size:12px;color:#111;padding:1px 0;min-width:0}
+.dz-item input:focus{background:#fffbe8}
+.dz-item.hd{background:#f0ece0;font-size:8.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#5b564a}
+.dz-item.hd > div{padding:3px 5px}
+@media(max-width:820px){
+  .dz-r{flex-wrap:wrap}
+  .dz-c{flex:1 1 46%;border-right:0;border-bottom:1px solid #d8d2c4}
+  .dz-item{grid-template-columns:1fr 1fr;font-size:11px}
+  .dz-item.hd{display:none}
+}
+
 /* Toast */
 #toast{position:fixed;bottom:22px;right:22px;z-index:80;display:flex;flex-direction:column;gap:8px}
 .tst{background:#131109;color:#fff;border-left:3px solid var(--gold);padding:12px 16px;border-radius:8px;font-size:13px;max-width:360px;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:slideup .25s}
@@ -11163,43 +11196,98 @@ async function formNfeAvulsa(){
   const po = ['<option value="">— nenhum —</option>'].concat(pedAbertos.map(p=>`<option value="${p.id}" data-cli="${p.clienteId}">${esc(p.numero)} · ${esc(p.cliente?p.cliente.nome:'')} · ${money(p.valorTotal)}</option>`)).join('');
   NFITENS=[{}]; window.__NF_FORNS = fornecedores||[];
   openModal(`<h3>Emitir NF-e avulsa</h3>
-    <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Confira cliente, itens e impostos antes.</div>
-    <label style="display:block;font-size:12.5px;cursor:pointer;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin-bottom:8px">
-      <input type="checkbox" id="nf_remessa" onchange="APP.nfRemessaToggle()"> 🏭 <b>Remessa para industrialização</b> <span class="muted">(CFOP 5901/6901 · ICMS suspenso · sem cobrança — destinatário é a facção/fornecedor)</span></label>
-    <label style="display:block;font-size:12.5px;cursor:pointer;background:#f3e8ff;border:1px solid #ddc9f0;border-radius:8px;padding:8px 11px;margin-bottom:10px">
-      <input type="checkbox" id="nf_bonif" onchange="APP.nfBonifToggle()"> 🎁 <b>Bonificação / doação</b> <span class="muted">(CFOP 5910/6910 · ICMS não incidência CST 41 + cBenef · sem cobrança)</span></label>
-    <div class="mrow" id="nf_pedrow"><label class="fl">Pedido de venda vinculado (opcional — ao emitir, avança o pedido p/ aprovado)</label><select id="nf_ped" class="inp" onchange="APP.nfPedSel()">${po}</select></div>
-    <div class="grid2">
-      <div class="mrow" id="nf_clirow"><label class="fl">Cliente *</label><select id="nf_cli" class="inp">${co||'<option>—</option>'}</select></div>
-      <div class="mrow" id="nf_fornrow" style="display:none"><label class="fl">🏭 Facção / Fornecedor destinatário *</label>
-        <input id="nf_forn" class="inp" list="nf_fornlist" autocomplete="off" placeholder="digite p/ buscar a facção/fornecedor…" oninput="APP.nfFornHint()">
-        <datalist id="nf_fornlist">${(fornecedores||[]).map(f=>`<option value="${esc(f.nome)}">${f.cnpjCpf?esc(f.cnpjCpf):''}${f.faccao?' · facção':''}</option>`).join('')}</datalist>
-        <div id="nf_fornhint" class="muted" style="font-size:11px;margin-top:3px"></div></div>
-      <div class="mrow"><label class="fl">Empresa / CNPJ emissor</label><select id="nf_fil" class="inp">${fo||'<option value="">— matriz —</option>'}</select></div>
-    </div>
-    <div class="mrow" id="nf_cbenefrow" style="display:none"><label class="fl">Código de benefício fiscal (cBenef) <span class="muted">— informe o código que o contador passar (ICMS suspenso). Deixe vazio se ele disser que não usa.</span></label>
-      <input id="nf_cbenef" class="inp" placeholder="ex.: SP029017" maxlength="10" style="text-transform:uppercase" autocomplete="off"></div>
-    <label id="nf_avulsochk" style="display:block;font-size:12.5px;cursor:pointer;background:#f2f7fb;border:1px solid #cfe0ec;border-radius:8px;padding:8px 11px;margin-bottom:10px">
-      <input type="checkbox" id="nf_avulso" onchange="APP.nfAvulsoToggle()"> 👤 <b>Destinatário avulso</b> <span class="muted">(emitir sem cadastrar o cliente — informe os dados fiscais abaixo)</span></label>
-    <div id="nf_avulsorow" style="display:none;border:1px solid #cfe0ec;border-radius:8px;padding:10px 11px;margin-bottom:10px;background:#fbfdff">
-      <div class="grid2">${field('nfa_nome','Nome / Razão social *','placeholder="destinatário"')}${field('nfa_doc','CNPJ / CPF','placeholder="só números"')}</div>
-      <div class="grid3">
-        ${field('nfa_ie','Inscrição estadual','placeholder="ISENTO se não tiver"')}
-        <div class="mrow"><label class="fl">Indicador IE</label><select id="nfa_indie" class="inp"><option value="9">9 · Não contribuinte</option><option value="1">1 · Contribuinte ICMS</option><option value="2">2 · Contribuinte isento</option></select></div>
-        ${field('nfa_email','E-mail (envio do XML/DANFE)','placeholder="opcional"')}
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Os quadros abaixo seguem o desenho do DANFE — o campo fica no mesmo lugar em que sai impresso.</div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Tipo de operação</span></div>
+      <div class="dz-r"><div class="dz-c" style="flex:2">
+        <label style="display:block;font-size:12px;cursor:pointer;padding:2px 0"><input type="checkbox" id="nf_remessa" onchange="APP.nfRemessaToggle()"> 🏭 <b>Remessa para industrialização</b></label>
+        <label style="display:block;font-size:12px;cursor:pointer;padding:2px 0"><input type="checkbox" id="nf_bonif" onchange="APP.nfBonifToggle()"> 🎁 <b>Bonificação / doação</b></label>
       </div>
-      <div class="grid2">${field('nfa_log','Logradouro','placeholder="rua / av."')}${field('nfa_num','Número','placeholder="nº"')}</div>
-      <div class="grid2">${field('nfa_bairro','Bairro','')}${field('nfa_mun','Município','')}</div>
-      <div class="grid3">${field('nfa_cmun','Cód. município (IBGE)','placeholder="7 dígitos"')}${field('nfa_uf','UF','placeholder="ex.: SP" maxlength="2"')}${field('nfa_cep','CEP (preenche endereço + IBGE)','placeholder="só números" onblur="APP.buscarCepDestAvulso()"')}</div>
-      <div class="muted" style="font-size:11px;margin-top:2px">Sem endereço completo a SEFAZ pode rejeitar — preencha o máximo possível.</div>
+      <div class="dz-c" style="flex:3"><span class="dz-l">Natureza da operação</span><input id="nf_nat" value="Venda de mercadoria"></div>
+      <div class="dz-c"><span class="dz-l">Nº da nota</span><input value="gerado na emissão" disabled style="color:#8c8575;font-style:italic"></div></div>
+      <div class="dz-obs">Remessa = CFOP 5901/6901, ICMS suspenso, sem cobrança · Bonificação = CFOP 5910/6910, CST 41 + cBenef, sem cobrança · nenhum dos dois = venda normal.</div>
     </div>
-    <div class="grid2">${field('nf_nat','Natureza da operação','value="Venda de mercadoria"')}${field('nf_oc','Ordem de compra do cliente (PO/SAP)','placeholder="ex.: 4100676333"')}</div>
-    <div class="grid2"><div id="nf_volrow">${field('nf_vol','Volumes','type="number" min="1" value="1"')}</div><div id="nf_vencrow">${field('nf_venc','Vencimento (dias após faturamento)','type="number" min="0" placeholder="ex.: 20"')}</div></div>
-    <label class="fl" style="margin-top:6px">Itens</label>
-    <div id="nfitens"></div>
-    <button class="btn-sm" onclick="APP.nfAdd()" style="margin-top:6px">+ item</button>
-    <div class="mrow" style="margin-top:8px"><label class="fl">Observações (saem em "Informações Adicionais" do DANFE)</label>
-      <textarea id="nf_obs" class="inp" rows="2" placeholder="ex.: Venda Mercado Livre pedido nº …, mercadoria conferida, etc."></textarea></div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Emitente</span></div>
+      <div class="dz-r">
+        <div class="dz-c" style="flex:2"><span class="dz-l">Empresa / CNPJ emissor</span><select id="nf_fil">${fo||'<option value="">— matriz —</option>'}</select></div>
+        <div class="dz-c" id="nf_pedrow" style="flex:2"><span class="dz-l">Pedido de venda vinculado (opcional)</span><select id="nf_ped" onchange="APP.nfPedSel()">${po}</select></div>
+      </div>
+      <div id="nf_cbenefrow" style="display:none"><div class="dz-r"><div class="dz-c">
+        <span class="dz-l">Código de benefício fiscal (cBenef)</span>
+        <input id="nf_cbenef" placeholder="ex.: SP029017 — o que o contador passar; vazio se ele disser que não usa" maxlength="10" style="text-transform:uppercase" autocomplete="off"></div></div></div>
+      <div class="dz-obs">Ao emitir com pedido vinculado, o pedido avança para aprovado.</div>
+    </div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Destinatário / Remetente</span>
+        <label id="nf_avulsochk" style="font-size:10px;font-weight:600;text-transform:none;letter-spacing:0;cursor:pointer;display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="nf_avulso" onchange="APP.nfAvulsoToggle()"> 👤 avulso (sem cadastro)</label></div>
+      <div id="nf_clirow"><div class="dz-r"><div class="dz-c req"><span class="dz-l">Nome / Razão social</span><select id="nf_cli">${co||'<option>—</option>'}</select></div></div></div>
+      <div id="nf_fornrow" style="display:none"><div class="dz-r"><div class="dz-c req"><span class="dz-l">🏭 Facção / Fornecedor destinatário</span>
+        <input id="nf_forn" list="nf_fornlist" autocomplete="off" placeholder="digite p/ buscar a facção/fornecedor…" oninput="APP.nfFornHint()">
+        <datalist id="nf_fornlist">${(fornecedores||[]).map(f=>`<option value="${esc(f.nome)}">${f.cnpjCpf?esc(f.cnpjCpf):''}${f.faccao?' · facção':''}</option>`).join('')}</datalist>
+        <div id="nf_fornhint" class="muted" style="font-size:10.5px"></div></div></div></div>
+      <div id="nf_avulsorow" style="display:none">
+        <div class="dz-r">
+          <div class="dz-c req" style="flex:3"><span class="dz-l">Nome / Razão social</span><input id="nfa_nome" placeholder="destinatário"></div>
+          <div class="dz-c" style="flex:2"><span class="dz-l">CNPJ / CPF</span><input id="nfa_doc" placeholder="só números"></div>
+        </div>
+        <div class="dz-r">
+          <div class="dz-c" style="flex:2"><span class="dz-l">Inscrição estadual</span><input id="nfa_ie" placeholder="ISENTO se não tiver"></div>
+          <div class="dz-c" style="flex:2"><span class="dz-l">Indicador IE</span><select id="nfa_indie"><option value="9">9 · Não contribuinte</option><option value="1">1 · Contribuinte ICMS</option><option value="2">2 · Contribuinte isento</option></select></div>
+          <div class="dz-c" style="flex:2"><span class="dz-l">E-mail (envio do XML/DANFE)</span><input id="nfa_email" placeholder="opcional"></div>
+        </div>
+        <div class="dz-r">
+          <div class="dz-c" style="flex:4"><span class="dz-l">Endereço</span><input id="nfa_log" placeholder="rua / av."></div>
+          <div class="dz-c" style="flex:1"><span class="dz-l">Número</span><input id="nfa_num" placeholder="nº"></div>
+          <div class="dz-c" style="flex:2"><span class="dz-l">Bairro / Distrito</span><input id="nfa_bairro"></div>
+        </div>
+        <div class="dz-r">
+          <div class="dz-c" style="flex:2"><span class="dz-l">CEP</span><input id="nfa_cep" placeholder="só números — preenche o resto" onblur="APP.buscarCepDestAvulso()"></div>
+          <div class="dz-c" style="flex:3"><span class="dz-l">Município</span><input id="nfa_mun"></div>
+          <div class="dz-c" style="flex:1"><span class="dz-l">UF</span><input id="nfa_uf" placeholder="SP" maxlength="2"></div>
+          <div class="dz-c" style="flex:2"><span class="dz-l">Cód. município (IBGE)</span><input id="nfa_cmun" placeholder="7 dígitos"></div>
+        </div>
+        <div class="dz-obs">Sem endereço completo a SEFAZ pode rejeitar. Digite o CEP e saia do campo: o resto se preenche sozinho.</div>
+      </div>
+    </div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Fatura / Duplicatas · Transporte</span></div>
+      <div class="dz-r">
+        <div class="dz-c" id="nf_vencrow" style="flex:2"><span class="dz-l">Vencimento (dias após o faturamento)</span><input id="nf_venc" type="number" min="0" placeholder="ex.: 20"></div>
+        <div class="dz-c" id="nf_volrow" style="flex:1"><span class="dz-l">Volumes</span><input id="nf_vol" type="number" min="1" value="1"></div>
+        <div class="dz-c" style="flex:2"><span class="dz-l">Ordem de compra do cliente (PO/SAP)</span><input id="nf_oc" placeholder="ex.: 4100676333"></div>
+      </div>
+      <div class="dz-r" id="nf_freterow">
+        <div class="dz-c" style="flex:1"><span class="dz-l">Valor do frete (R$)</span><input id="nf_frete" type="number" step="0.01" min="0" placeholder="0,00" oninput="APP.nfCalc()"></div>
+        <div class="dz-c" style="flex:2"><span class="dz-l">Modalidade do frete</span><select id="nf_fretemod">
+          <option value="">— pela regra (com frete = CIF) —</option>
+          <option value="0">0 · CIF — por conta do emitente</option>
+          <option value="1">1 · FOB — por conta do destinatário</option>
+          <option value="2">2 · por conta de terceiros</option>
+          <option value="9">9 · sem transporte</option></select></div>
+        <div class="dz-c" style="flex:2"><span class="dz-l">Total da nota (itens + frete)</span><input id="nf_totnota" disabled style="font-weight:800;color:#111"></div>
+      </div>
+      <div class="dz-obs">O frete <b>entra no total da nota e na duplicata</b> — é o valor que o cliente paga. Bonificação não cobra frete.</div>
+    </div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Dados dos produtos / serviços</span>
+        <button class="btn-sm" onclick="APP.nfAdd()" style="font-size:10px;padding:1px 8px;height:auto">+ item</button></div>
+      <div id="nfitens"></div>
+    </div>
+
+    <div class="dz">
+      <div class="dz-hd"><span>Dados adicionais</span></div>
+      <div class="dz-r"><div class="dz-c"><span class="dz-l">Informações complementares (saem no DANFE)</span>
+        <textarea id="nf_obs" rows="2" placeholder="ex.: Venda Mercado Livre pedido nº …, mercadoria conferida, etc."></textarea></div></div>
+      <div class="dz-obs">O cálculo do imposto (base, ICMS, PIS, COFINS) é feito na emissão, a partir do regime da empresa emissora e do NCM de cada item.</div>
+    </div>
+
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveNfeAvulsa()">Emitir NF-e</button></div>`);
   nfRender();
@@ -11207,24 +11295,45 @@ async function formNfeAvulsa(){
 function nfRender(){
   const box=$('nfitens'); if(!box) return;
   const prods=window.__NFPROD||[];
-  box.innerHTML = prodDatalist('nfprodlist',prods) + NFITENS.map((it,i)=>{
+  // Colunas no desenho do quadro "DADOS DOS PRODUTOS / SERVIÇOS" do DANFE.
+  box.innerHTML = prodDatalist('nfprodlist',prods)
+    + `<div class="dz-item hd"><div>Código / produto</div><div>Descrição</div><div>NCM/SH</div><div>UN</div><div>Quant.</div><div>Vlr unitário</div><div>Vlr total</div><div></div></div>`
+    + NFITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
-    return `<div class="grid2" style="margin-bottom:6px">
-      <input class="inp" id="nf_prod_${i}" list="nfprodlist" placeholder="digite p/ buscar produto (opcional)…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.nfProd(${i})">
-      <input class="inp" id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}">
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <input class="inp" id="nf_qtd_${i}" type="number" step="0.001" placeholder="qtd" value="${it.quantidade!=null?it.quantidade:''}" style="flex:1;min-width:0">
-      <input class="inp" id="nf_vu_${i}" type="number" step="0.01" placeholder="valor unit." value="${it.valorUnit!=null?it.valorUnit:''}" style="flex:1;min-width:0">
-      <input class="inp" id="nf_ncm_${i}" placeholder="NCM (se sem produto)" title="NCM de 8 dígitos — usado quando o item não é um produto cadastrado" value="${esc(it.ncm||'')}" style="flex:1;min-width:0" inputmode="numeric" maxlength="10">
-      <div style="display:flex;align-items:center">${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})">×</button>`:''}</div>
+    const tot = (Number(it.quantidade)||0)*(Number(it.valorUnit)||0);
+    return `<div class="dz-item">
+      <div><input id="nf_prod_${i}" list="nfprodlist" placeholder="buscar produto…" value="${cur?esc(prodLabel(cur)):''}" onchange="APP.nfProd(${i})"></div>
+      <div><input id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}"></div>
+      <div><input id="nf_ncm_${i}" placeholder="8 dígitos" title="NCM — usado quando o item não é um produto cadastrado" value="${esc(it.ncm||'')}" inputmode="numeric" maxlength="10"></div>
+      <div><input value="UN" disabled style="color:#8c8575"></div>
+      <div><input id="nf_qtd_${i}" type="number" step="0.001" placeholder="0" value="${it.quantidade!=null?it.quantidade:''}" oninput="APP.nfCalc()"></div>
+      <div><input id="nf_vu_${i}" type="number" step="0.01" placeholder="0,00" value="${it.valorUnit!=null?it.valorUnit:''}" oninput="APP.nfCalc()"></div>
+      <div><input id="nf_tot_${i}" value="${tot?money(tot):''}" disabled style="color:#111;font-weight:700"></div>
+      <div>${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})" style="padding:0 6px;height:22px;line-height:1">×</button>`:''}</div>
     </div>`;
-  }).join('');
+  }).join('')
+    + `<div class="dz-item" style="background:#f0ece0"><div></div><div></div><div></div><div></div><div></div>
+       <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#5b564a;display:flex;align-items:center;justify-content:flex-end">Total da nota</div>
+       <div><input id="nf_totgeral" value="" disabled style="color:#111;font-weight:800"></div><div></div></div>`;
+  nfCalc();
+}
+/** Recalcula o total de cada linha e o total da nota (só visual — o valor fiscal sai do backend). */
+function nfCalc(){
+  let soma=0;
+  NFITENS.forEach((_,i)=>{
+    const q=Number((($('nf_qtd_'+i)||{}).value)||0), v=Number((($('nf_vu_'+i)||{}).value)||0);
+    const t=q*v; soma+=t;
+    const c=$('nf_tot_'+i); if(c) c.value = t? money(t) : '';
+  });
+  const g=$('nf_totgeral'); if(g) g.value = soma? money(soma) : '';
+  // Total da nota = itens + frete (é assim que o backend monta, e é o que vai na duplicata).
+  const fr=Number((($('nf_frete')||{}).value)||0);
+  const tn=$('nf_totnota'); if(tn) tn.value = (soma+fr)? money(soma+fr) : '';
 }
 function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const nc=$('nf_ncm_'+i); it.ncm=nc?nc.value:''; const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); it.produtoId=p?p.id:undefined; }); }
 function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
 function nfDel(i){ nfSync(); NFITENS.splice(i,1); nfRender(); }
-function nfProd(i){ const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); if(p){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=p.descricao||''; if(p.precoBase&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=p.precoBase; } }
+function nfProd(i){ const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); if(p){ if(!$('nf_desc_'+i).value)$('nf_desc_'+i).value=p.descricao||''; if(p.precoBase&&!$('nf_vu_'+i).value)$('nf_vu_'+i).value=p.precoBase; nfCalc(); } }
 function nfPedSel(){ const s=$('nf_ped'); const o=s&&s.selectedOptions[0]; if(o&&o.value){ const cli=o.getAttribute('data-cli'); if(cli&&$('nf_cli')){ $('nf_cli').value=cli; } } }
 function nfResolveForn(){
   const txt=(val('nf_forn')||'').trim(); if(!txt) return null;
@@ -11243,7 +11352,8 @@ function nfBonifToggle(){
   const on=$('nf_bonif')&&$('nf_bonif').checked;
   if(on && $('nf_remessa')&&$('nf_remessa').checked){ $('nf_remessa').checked=false; nfRemessaToggle(); }
   const show=(id,v)=>{ const e=$(id); if(e) e.style.display=v?'':'none'; };
-  show('nf_vencrow', !on); // bonificação não gera cobrança
+  show('nf_vencrow', !on); show('nf_freterow', !on); // bonificação não gera cobrança nem cobra frete
+  if(on){ const f=$('nf_frete'); if(f){ f.value=''; nfCalc(); } }
   const nat=$('nf_nat'); if(nat){
     if(on && (!nat.value.trim() || nat.value==='Venda de mercadoria')) nat.value='Remessa em bonificacao, doacao ou brinde';
     if(!on && nat.value==='Remessa em bonificacao, doacao ou brinde') nat.value='Venda de mercadoria';
@@ -11257,12 +11367,13 @@ function nfRemessaToggle(){
   show('nf_clirow', !on && !avulso); show('nf_fornrow', on);
   show('nf_cbenefrow', on); // cBenef só faz sentido na remessa (ICMS suspenso)
   show('nf_avulsochk', !on); show('nf_avulsorow', !on && avulso); // remessa vai p/ facção, não p/ destinatário avulso
-  show('nf_vencrow', !on); show('nf_pedrow', !on); // remessa não tem cobrança nem vínculo de venda
+  show('nf_vencrow', !on); show('nf_pedrow', !on); show('nf_freterow', !on); // remessa não tem cobrança, frete cobrado nem vínculo de venda
   const nat=$('nf_nat'); if(nat){
     if(on && (!nat.value.trim() || nat.value==='Venda de mercadoria')) nat.value='Remessa para industrialização por conta e ordem';
     if(!on && nat.value==='Remessa para industrialização por conta e ordem') nat.value='Venda de mercadoria';
   }
-  const oc=$('nf_oc'); if(oc){ const lbl=oc.previousElementSibling; if(lbl&&lbl.classList&&lbl.classList.contains('fl')) lbl.textContent = on?'Referência da remessa (opcional)':'Ordem de compra do cliente (PO/SAP)'; }
+  // O rótulo agora é o <span class="dz-l"> do quadro do DANFE (antes era .fl).
+  const oc=$('nf_oc'); if(oc){ const lbl=oc.previousElementSibling; if(lbl&&lbl.classList&&(lbl.classList.contains('dz-l')||lbl.classList.contains('fl'))) lbl.textContent = on?'Referência da remessa (opcional)':'Ordem de compra do cliente (PO/SAP)'; }
 }
 async function saveNfeAvulsa(){
   nfSync();
@@ -11311,6 +11422,9 @@ async function saveNfeAvulsa(){
   const fil=val('nf_fil'); if(fil) body.filialId=Number(fil); const nat=val('nf_nat'); if(nat) body.naturezaOperacao=nat;
   const nfoc=val('nf_oc'); if(nfoc) body.ordemCompraCliente=nfoc;
   const nfvol=Number(val('nf_vol')); if(nfvol>0) body.volumes=nfvol;
+  // Frete: entra no total da nota e na duplicata. Bonificação não cobra.
+  const nffr=Number(val('nf_frete')); if(nffr>0 && !bonif) body.valorFrete=Number(nffr.toFixed(2));
+  const nffm=val('nf_fretemod'); if(nffm!=='' && nffm!=null) body.modalidadeFrete=Number(nffm);
   const nfvenc=Number(val('nf_venc')); if(nfvenc>0) body.diasVencimento=nfvenc;
   const nfobs=(($('nf_obs')&&$('nf_obs').value)||'').trim(); if(nfobs) body.observacoes=nfobs;
   const nfped=Number(val('nf_ped')); if(nfped>0) body.pedidoId=nfped;
@@ -13627,7 +13741,7 @@ window.APP = {
   notifCiente, notifCienteTodas, notifImprimir,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
-  formNfeAvulsa, nfAdd, nfDel, nfProd, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
+  formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,

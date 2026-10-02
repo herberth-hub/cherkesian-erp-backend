@@ -462,7 +462,7 @@ export class NfeService {
    * direto. Mesma numeração e validação fiscal da emissão normal.
    */
   async emitirAvulsa(
-    dto: { clienteId?: number; destinatario?: { nome?: string; cnpjCpf?: string; inscricaoEstadual?: string; indicadorIE?: number; logradouro?: string; numeroEndereco?: string; bairro?: string; municipio?: string; codMunicipio?: string; uf?: string; cep?: string; email?: string }; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; ncm?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; diasVencimento?: number; observacoes?: string; bonificacao?: boolean },
+    dto: { clienteId?: number; destinatario?: { nome?: string; cnpjCpf?: string; inscricaoEstadual?: string; indicadorIE?: number; logradouro?: string; numeroEndereco?: string; bairro?: string; municipio?: string; codMunicipio?: string; uf?: string; cep?: string; email?: string }; filialId?: number; pedidoId?: number; itens: Array<{ produtoId?: number; descricao?: string; ncm?: string; quantidade: number; valorUnit: number }>; naturezaOperacao?: string; ordemCompraCliente?: string; volumes?: number; valorFrete?: number; modalidadeFrete?: number; diasVencimento?: number; observacoes?: string; bonificacao?: boolean },
     empresaId: number,
     usuario: string,
   ) {
@@ -504,6 +504,14 @@ export class NfeService {
       const ncm = (it.ncm ?? '').replace(/\D/g, '');
       itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit, ncm: ncm || null });
     }
+
+    // Frete cobrado do cliente: entra no TOTAL da nota e, por consequência, na duplicata.
+    // Bonificação não cobra frete (a nota inteira é sem cobrança).
+    const vFreteAv = dto.bonificacao ? 0 : Number(dto.valorFrete ?? 0);
+    if (vFreteAv < 0) throw new BadRequestException('O frete não pode ser negativo.');
+    valor = valor.plus(vFreteAv);
+    // Modalidade: a informada; senão CIF (0) quando há frete cobrado, senão sem frete (9).
+    const modFreteAv = dto.modalidadeFrete != null ? dto.modalidadeFrete : (vFreteAv > 0 ? 0 : 9);
 
     const token = this.tokenDaFilial(filial);
     if (token) {
@@ -556,7 +564,13 @@ export class NfeService {
     const itensNf = this.explodirPorTamanho(itens.map((it) => ({ ...it, grade: it.produtoId ? gradePorProduto.get(it.produtoId) : undefined })));
     const volumes = dto.volumes && dto.volumes > 0 ? Math.round(dto.volumes) : Math.max(1, Math.round(totalQtd));
     // Bonificação: CFOP 5910/6910, ICMS não incidência (CST 41) + cBenef; SEM cobrança.
-    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, { volumes, duplicatas: dto.bonificacao ? undefined : duplicatas, bonificacao: dto.bonificacao });
+    const payload = await this.montarPayload(filial, cliente, { pecas: Math.max(1, Math.round(totalQtd)) }, itensNf, serie, numeroSeq, valor, infoAdic, {
+      volumes,
+      duplicatas: dto.bonificacao ? undefined : duplicatas,
+      bonificacao: dto.bonificacao,
+      valorFrete: vFreteAv,
+      frete: modFreteAv,
+    });
     if (dto.naturezaOperacao) (payload as Record<string, unknown>).natureza_operacao = dto.naturezaOperacao;
 
     const emissao = token

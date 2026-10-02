@@ -9,7 +9,9 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -73,6 +75,15 @@ export class CreateNfeAvulsaDto {
 
   /** Quantidade de volumes declarada na NF (transporte). Padrão: nº de peças. */
   @IsOptional() @IsInt() @IsPositive() volumes?: number;
+
+  /** Frete cobrado do cliente (R$). ENTRA no total da NF e na duplicata. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'valorFrete deve ter no máximo 2 casas.' })
+  @Min(0, { message: 'valorFrete não pode ser negativo.' })
+  valorFrete?: number;
+
+  /** Modalidade do frete no DANFE: 0 CIF (emitente), 1 FOB (destinatário), 9 sem frete. */
+  @IsOptional() @IsInt() @Min(0) @Max(9) modalidadeFrete?: number;
 
   /** Prazo de pagamento em dias a partir do faturamento (gera fatura/duplicata na NF). */
   @IsOptional() @IsInt() @IsPositive() diasVencimento?: number;
