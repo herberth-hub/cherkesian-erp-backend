@@ -2064,11 +2064,13 @@ function pedidoAcoes(p){
   if(p.etapa==='orcamento'){
     b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
+    b+=`<button class="btn-sm" style="color:#1e5aa8" title="Abrir um NOVO orçamento já preenchido com os itens e as condições deste" onclick="APP.pedidoCopiar(${p.id})">📋 Copiar</button> `;
   } else {
     if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
     if(p.producaoParcial) b+=`<button class="btn-sm" style="color:#9a5a00" title="Produzir o restante — o estoque cobria só parte" onclick="APP.gerarOp(${p.id})">⚙️ OP complementar</button> `;
     if(p.etapa!=='expedicao'){ b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir tudo</button> <button class="btn-sm" onclick="APP.formExpParcial(${p.id})">📦 Expedição parcial</button> `; }
     b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
+    b+=`<button class="btn-sm" style="color:#1e5aa8" title="Abrir um NOVO pedido já preenchido com os itens e as condições deste" onclick="APP.pedidoCopiar(${p.id})">📋 Copiar</button> `;
     b+=`<button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Simples Faturamento (venda p/ entrega futura): cobra o pedido cheio e permite entregas parciais depois" onclick="APP.formFaturamento(${p.id},${Number(p.valorTotal)||0},${Number(p.valorFrete)||0})">🧾 NF Faturamento</button> `;
     if(['producao','expedicao'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarDoc('plano_corte',${p.id})">🧵 Plano de Corte</button> `;
   }
@@ -4077,11 +4079,17 @@ function crmCopiaPreco(codigo, preco){
 
 // Pedido: cliente + itens dinâmicos
 let PITENS = [];
-async function formPedido(id){
+/** Abre um pedido NOVO já preenchido com os dados de outro (itens, cliente, condições). */
+function pedidoCopiar(id){ return formPedido(id, true); }
+async function formPedido(id, copiar){
   const [clientes, produtos, filiais] = await Promise.all([api('/clientes'), api('/produtos'), api('/filiais')]);
   window.__PROD = produtos;
   let ped=null;
   if(id){ try{ ped = await api('/pedidos/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  // COPIAR: daqui para baixo é um pedido NOVO — `ped` só serve para preencher.
+  // Zerar o id faz o botão virar "Criar pedido" e o save usar POST em vez de PATCH.
+  const copiadoDe = copiar ? (ped && ped.numero) : null;
+  if(copiar) id = null;
   PITENS = ped && ped.itens && ped.itens.length
     ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
     : [{}];
@@ -4108,7 +4116,7 @@ async function formPedido(id){
   else if(preCli){ const e=cliEntries.find(x=>x.clienteId===preCli && !x.unidadeId); if(e){ initLabel=e.label; window.__PEDFILTER=e.filterKey; } }
   const cliDatalist = `<datalist id="clidatalist">${cliEntries.map(e=>`<option value="${esc(e.label)}"></option>`).join('')}</datalist>`;
   const filialOpts = ativas.map(f=>`<option value="${f.id}" ${selFil?(selFil===f.id?'selected':''):(f.matriz?'selected':'')}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
-  openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):'Novo pedido'}</h3>
+  openModal(`<h3>${id?'Editar pedido '+esc(ped.numero):(copiadoDe?'Novo pedido — cópia de '+esc(copiadoDe):'Novo pedido')}</h3>
     <div class="grid2">
       <div class="mrow" style="position:relative"><label class="fl">Cliente *</label>
         <input id="f_cli_txt" class="inp" placeholder="digite grupo, cliente, filial ou CNPJ…" value="${esc(initLabel)}" onchange="APP.pedCliPick()" oninput="APP.pedCliDD()" onfocus="APP.pedCliDD()" onblur="APP.pedCliDDHide()" autocomplete="off">
@@ -10977,15 +10985,17 @@ function nfFiltrar(){
   const f = q ? base.filter(n=> bnorm(n.clienteNome).includes(q) || bnorm(n.numero).includes(q) || bnorm(n.chave).includes(q) || bnorm(n.cfop).includes(q)) : base;
   const alvo = document.getElementById('nfLista'); if(!alvo) return;
   alvo.innerHTML = panelTable(
-    ['Número','Série','CFOP','Cliente / Destinatário','Status','Valor','ICMS','Chave de acesso','Emitida em','Ações'],
+    // A chave de acesso saiu da tabela (44 dígitos ocupavam meia tela e ninguém lê
+    // de olho). Continua buscável no campo de busca e copiável pelo botão 🔑.
+    ['Número','Série','CFOP','Cliente / Destinatário','Status','Valor','ICMS','Emitida em','Ações'],
     f.map(n=>[
       `<span class="mono gold">${esc(n.numero)}</span>`, esc(n.serie),
       n.cfop?`<span class="mono" style="font-weight:700" title="${esc(n.natureza||'')}">${esc(n.cfop)}</span>`:'<span class="muted">—</span>',
       n.clienteNome?`<b style="font-size:12.5px">${esc(n.clienteNome)}</b>${n.tipo==='remessa'?' <span class="pill" style="background:#eef;color:#446;font-size:9px">REMESSA</span>':''}`:'<span class="muted">—</span>',
       nfPill(n.status)+(n.status==='autorizada'?' <span class="pill green" style="font-size:9px;background:#e6f5ea;color:#1e7a44">DANFE ✓</span>':''), money(n.valor),
       n.valorIcms!=null?`<span title="Base ICMS: ${n.baseIcms!=null?money(n.baseIcms):'—'} · PIS: ${n.valorPis!=null?money(n.valorPis):'—'} · COFINS: ${n.valorCofins!=null?money(n.valorCofins):'—'}">${money(n.valorIcms)}</span>`:'<span class="muted">—</span>',
-      n.chave?`<span class="mono" style="font-size:10.5px">${esc(n.chave)}</span>`:(n.motivo?`<span class="muted" title="${esc(n.motivo)}" style="font-size:11px">${esc(n.motivo.slice(0,60))}…</span>`:'—'),
-      n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—',
+      (n.emitidaEm?new Date(n.emitidaEm).toLocaleString('pt-BR'):'—')
+        + (!n.chave&&n.motivo?`<div class="muted" title="${esc(n.motivo)}" style="font-size:10.5px;margin-top:2px">${esc(n.motivo.slice(0,48))}…</div>`:''),
       nfAcoes(n)
     ]), f.length?null:(q?'Nenhuma NF encontrada para "'+esc(q)+'".':'Nenhuma nota fiscal emitida. Use "Emitir NF avulsa" ou emita a partir da Expedição.'));
 }
@@ -11082,6 +11092,27 @@ async function devVendaEmitir(id, numero){
     closeModal(); toast('NF de devolução '+r.numero+' — '+r.status+'. Agora reemita a venda nos dados corretos.','ok'); loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
+/** Copia a chave de acesso (ela saiu da tabela, mas às vezes é preciso colar em algum portal). */
+function nfChaveCopiar(id){
+  const n=(window.__NFS||[]).find(x=>x.id===id);
+  if(!n||!n.chave){ toast('Esta nota ainda não tem chave de acesso.','err'); return; }
+  _copiaTexto(String(n.chave).replace(/^NFe/,''));
+}
+/**
+ * COPIAR NOTA — abre a emissão avulsa já preenchida com os dados desta nota.
+ * Serve para reemitir com um ajuste (incluir frete, corrigir destinatário) sem
+ * redigitar tudo. Nada é emitido aqui: só preenche o formulário.
+ */
+function nfCopiar(id){
+  const n=(window.__NFS||[]).find(x=>x.id===id);
+  if(!n){ toast('Nota não encontrada na lista.','err'); return; }
+  const p=n.payloadJson;
+  if(!p||!Array.isArray(p.items)||!p.items.length){
+    toast('Esta nota não tem os itens gravados (emitida antes do registro do payload) — não dá para copiar.','err'); return;
+  }
+  window.__NFCOPIA = { nota:n, payload:p };
+  formNfeAvulsa();
+}
 function nfAcoes(n){
   const b=[];
   // Prévia da DANFE (sem valor fiscal) — conferir a NF ANTES de autorizar.
@@ -11091,6 +11122,9 @@ function nfAcoes(n){
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'danfe')">🖨 Imprimir</button>`);
     b.push(`<button class="btn-sm" onclick="APP.baixarNfeArquivo(${n.id},'xml')">XML</button>`);
   }
+  if(n.chave) b.push(`<button class="btn-sm" title="Copiar a chave de acesso (44 dígitos)" onclick="APP.nfChaveCopiar(${n.id})">🔑 Chave</button>`);
+  // Copiar: reabre a emissão avulsa preenchida com esta nota (reemitir com ajuste).
+  if(n.payloadJson && n.tipo!=='remessa') b.push(`<button class="btn-sm" style="color:#1e5aa8" title="Abrir uma NOVA nota avulsa já preenchida com os dados desta — para reemitir com algum ajuste" onclick="APP.nfCopiar(${n.id})">📋 Copiar</button>`);
   if(n.status==='autorizada'){
     b.push(`<button class="btn-sm" onclick="APP.enviarNfeEmail(${n.id},'${esc(n.clienteEmail||'')}')">✉ E-mail</button>`);
     b.push(`<button class="btn-sm" onclick="APP.cartaCorrecaoNfe(${n.id})">CC-e</button>`);
@@ -11194,7 +11228,17 @@ async function formNfeAvulsa(){
   const fo = ativas.map(f=>`<option value="${f.id}" ${f.matriz?'selected':''}>${esc(f.nome)}${f.cnpj?' · '+esc(f.cnpj):''}</option>`).join('');
   const pedAbertos = (pedidos||[]).filter(p=>['orcamento','aprovado','piloto','material','compra','producao','estoque','expedicao'].includes(p.etapa));
   const po = ['<option value="">— nenhum —</option>'].concat(pedAbertos.map(p=>`<option value="${p.id}" data-cli="${p.clienteId}">${esc(p.numero)} · ${esc(p.cliente?p.cliente.nome:'')} · ${money(p.valorTotal)}</option>`)).join('');
-  NFITENS=[{}]; window.__NF_FORNS = fornecedores||[];
+  // Vindo de "📋 Copiar": os itens já nascem preenchidos com os da nota de origem.
+  const cop = window.__NFCOPIA; window.__NFCOPIA = null;
+  NFITENS = cop
+    ? (cop.payload.items||[]).map(it=>({
+        descricao: String(it.descricao||''),
+        quantidade: Number(it.quantidade_comercial||0),
+        valorUnit: Number(it.valor_unitario_comercial||0),
+        ncm: String(it.codigo_ncm||''),
+      }))
+    : [{}];
+  window.__NF_FORNS = fornecedores||[];
   openModal(`<h3>Emitir NF-e avulsa</h3>
     <div class="muted" style="font-size:12px;margin:-6px 0 8px">⚠️ Emite direto na SEFAZ. Os quadros abaixo seguem o desenho do DANFE — o campo fica no mesmo lugar em que sai impresso.</div>
 
@@ -11291,6 +11335,36 @@ async function formNfeAvulsa(){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveNfeAvulsa()">Emitir NF-e</button></div>`);
   nfRender();
+  if(cop) nfAplicarCopia(cop);
+}
+/**
+ * Preenche o formulário com os dados da nota copiada. O destinatário entra SEMPRE
+ * como avulso: assim o nome, o CNPJ e o endereço ficam visíveis e editáveis, mesmo
+ * que a nota de origem fosse de um cliente cadastrado.
+ */
+function nfAplicarCopia(cop){
+  const p=cop.payload, n=cop.nota;
+  const set=(id,v)=>{ const e=$(id); if(e&&v!=null&&v!=='') e.value=v; };
+  if(n.filialId) set('nf_fil', String(n.filialId));
+  set('nf_nat', p.natureza_operacao);
+  set('nf_oc', n.ordemCompraCliente);
+  if(p.volumes) set('nf_vol', String(p.volumes));
+  if(p.valor_frete) { set('nf_frete', String(p.valor_frete)); }
+  if(p.modalidade_frete!=null) set('nf_fretemod', String(p.modalidade_frete));
+  const obs=$('nf_obs'); if(obs && p.informacoes_adicionais_contribuinte) obs.value=String(p.informacoes_adicionais_contribuinte);
+  // destinatário → modo avulso, com tudo preenchido
+  const av=$('nf_avulso'); if(av){ av.checked=true; nfAvulsoToggle(); }
+  set('nfa_nome', p.nome_destinatario);
+  set('nfa_doc', p.cnpj_destinatario||p.cpf_destinatario);
+  set('nfa_ie', p.inscricao_estadual_destinatario);
+  if(p.indicador_inscricao_estadual_destinatario!=null) set('nfa_indie', String(p.indicador_inscricao_estadual_destinatario));
+  set('nfa_email', p.email_destinatario);
+  set('nfa_log', p.logradouro_destinatario); set('nfa_num', p.numero_destinatario);
+  set('nfa_bairro', p.bairro_destinatario); set('nfa_mun', p.municipio_destinatario);
+  set('nfa_uf', p.uf_destinatario); set('nfa_cep', p.cep_destinatario);
+  set('nfa_cmun', p.codigo_municipio_destinatario);
+  nfCalc();
+  toast('Cópia da NF '+n.numero+' — confira e ajuste antes de emitir. Nada foi enviado ainda.','ok');
 }
 function nfRender(){
   const box=$('nfitens'); if(!box) return;
@@ -13718,7 +13792,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
@@ -13742,7 +13816,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, nfCopiar, nfChaveCopiar, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

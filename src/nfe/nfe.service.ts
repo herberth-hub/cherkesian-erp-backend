@@ -56,8 +56,18 @@ export class NfeService {
     const porForn = new Map(forns.map((f) => [f.id, f.nome]));
     return notas.map((n) => {
       const cli = n.pedidoId != null ? porPedido.get(n.pedidoId) : n.expedicaoId != null ? porExp.get(n.expedicaoId) : null;
-      const nome = n.tipo === 'remessa' && n.fornecedorId != null ? porForn.get(n.fornecedorId) ?? null : cli?.nome ?? null;
-      return { ...n, clienteNome: nome, clienteEmail: cli?.email ?? null };
+      let nome = n.tipo === 'remessa' && n.fornecedorId != null ? porForn.get(n.fornecedorId) ?? null : cli?.nome ?? null;
+      let email = cli?.email ?? null;
+      // DESTINATÁRIO AVULSO: a nota não tem cliente nem pedido, mas o nome está no
+      // payload gravado na emissão. Sem isto a nota aparece sem destinatário na lista
+      // e não é achada pela busca — foi o caso da 1/002812.
+      if (!nome && n.payloadJson) {
+        const p = n.payloadJson as Record<string, unknown>;
+        const avulso = typeof p.nome_destinatario === 'string' ? p.nome_destinatario.trim() : '';
+        if (avulso) nome = avulso;
+        if (!email && typeof p.email_destinatario === 'string' && p.email_destinatario.trim()) email = p.email_destinatario.trim();
+      }
+      return { ...n, clienteNome: nome, clienteEmail: email };
     });
   }
 
