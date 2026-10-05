@@ -25,7 +25,7 @@ export class PedidosController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     // Vendedor vê só os pedidos dele; managers veem todos.
-    const scope = user.acesso === 'vendedor' ? { vendedorId: user.sub, usuario: user.usuario } : undefined;
+    const scope = user.acesso === 'vendedor' ? { vendedorId: user.sub, usuario: user.usuario, user } : undefined;
     return this.pedidosService.findAll(user.empresaId, scope);
   }
 
@@ -53,7 +53,7 @@ export class PedidosController {
   @Post()
   create(@Body() dto: CreatePedidoDto, @CurrentUser() user: AuthUser) {
     // Atribui a venda ao vendedor logado (base da comissão/CRM).
-    return this.pedidosService.create(dto, user.empresaId, user.usuario, user.sub);
+    return this.pedidosService.create(dto, user.empresaId, user.usuario, user.sub, user);
   }
 
   @Areas('vendas')

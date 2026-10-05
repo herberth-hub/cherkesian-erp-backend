@@ -17,7 +17,7 @@ export class DashboardController {
   @Areas('dashboard', 'tv')
   @Get()
   kpis(@CurrentUser() user: AuthUser) {
-    return this.dashboardService.kpis(user.empresaId, user.acesso);
+    return this.dashboardService.kpis(user.empresaId, user.acesso, user);
   }
 
   /** Painel do Diretor: índices (0–100) por pilar da empresa. */

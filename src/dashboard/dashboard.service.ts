@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
+import { AuthUser } from '../auth/auth.types';
+import { escopoCarteira } from '../common/rbac/carteira';
 
 /** Conta ocorrências de uma chave num array (ex.: etapas de pedido). */
 function contar<T extends string>(itens: { [k: string]: unknown }[], campo: string): Record<T, number> {
@@ -23,13 +26,20 @@ export class DashboardService {
    *  `acesso` controla a visibilidade de dados financeiros: curva ABC e comparativo
    *  de faturamento são exclusivos do admin (`total`); o bloco financeiro (a receber/
    *  a pagar/saldos) é visível a quem lida com dinheiro (admin/financeiro/contabilidade). */
-  async kpis(empresaId: number, acesso?: string) {
+  async kpis(empresaId: number, acesso?: string, user?: AuthUser) {
+    /**
+     * VENDEDOR: o painel mostra só a carteira dele. Além de filtrar os pedidos,
+     * os blocos de produção, compras e estoque saem do ar — são da fábrica, não
+     * da carteira, e apareciam inteiros para o perfil `vendedor`.
+     */
+    const esc = user ? await escopoCarteira(this.prisma, user) : { limitado: false, clienteIds: [] as number[] };
+    const soDaCarteira: Prisma.PedidoWhereInput = esc.limitado ? { clienteId: { in: esc.clienteIds } } : {};
     const [pedidos, ops, ocsAguardando, materiais, clientes, produtos, fluxo] = await Promise.all([
-      this.prisma.pedido.findMany({ where: { empresaId }, select: { etapa: true, valorTotal: true } }),
-      this.prisma.oP.findMany({ where: { pedido: { empresaId } }, select: { status: true, quantidade: true } }),
+      this.prisma.pedido.findMany({ where: { empresaId, ...soDaCarteira }, select: { etapa: true, valorTotal: true } }),
+      this.prisma.oP.findMany({ where: { pedido: { empresaId, ...soDaCarteira } }, select: { status: true, quantidade: true } }),
       this.prisma.ordemCompra.count({ where: { fornecedor: { empresaId }, status: 'aguardando' } }),
       this.prisma.material.findMany({ where: { empresaId }, select: { saldo: true, minimo: true } }),
-      this.prisma.cliente.count({ where: { empresaId } }),
+      this.prisma.cliente.count({ where: esc.limitado ? { empresaId, id: { in: esc.clienteIds } } : { empresaId } }),
       this.prisma.produto.count({ where: { empresaId } }),
       this.financeiro.fluxo(empresaId),
     ]);
@@ -318,6 +328,20 @@ export class DashboardService {
         saldoProjetado: fluxo.saldoProjetado,
       };
       resposta.cobrancasDia = cobrancasDia;
+    }
+    /**
+     * VENDEDOR: tira do painel o que é da fábrica, não da carteira — compras,
+     * estoque de matéria-prima, tecido insuficiente, remessas em facção e o
+     * contador de produtos. Os pedidos, as OPs e os clientes acima já vieram
+     * filtrados pela carteira.
+     */
+    if (esc.limitado) {
+      delete resposta.compras;
+      delete resposta.estoque;
+      delete resposta.alertasTecido;
+      delete resposta.remessasPendentes;
+      resposta.cadastros = { clientes, produtos: null };
+      resposta.escopo = { carteira: true, clientes: esc.clienteIds.length };
     }
     return resposta;
   }

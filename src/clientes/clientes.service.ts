@@ -3,14 +3,18 @@ import { Cliente, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
+import { AuthUser } from '../auth/auth.types';
+import { escopoCarteira } from '../common/rbac/carteira';
 
 @Injectable()
 export class ClientesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number) {
+  /** `user` presente => aplica a carteira do vendedor (os demais perfis veem tudo). */
+  async findAll(empresaId: number, user?: AuthUser) {
+    const esc = user ? await escopoCarteira(this.prisma, user) : { limitado: false, clienteIds: [] as number[] };
     return this.prisma.cliente.findMany({
-      where: { empresaId },
+      where: esc.limitado ? { empresaId, id: { in: esc.clienteIds } } : { empresaId },
       orderBy: { id: 'asc' },
       include: {
         consultasCredito: { orderBy: { consultadoEm: 'desc' }, take: 1 },
@@ -74,10 +78,16 @@ export class ClientesService {
     };
   }
 
-  async findOne(id: number, empresaId: number): Promise<Cliente> {
+  async findOne(id: number, empresaId: number, user?: AuthUser): Promise<Cliente> {
     const cliente = await this.prisma.cliente.findUnique({ where: { id }, include: { unidades: { orderBy: { nome: 'asc' } } } });
     if (!cliente || cliente.empresaId !== empresaId) {
       throw new NotFoundException(`Cliente ${id} não encontrado.`);
+    }
+    // Vendedor não abre a ficha de cliente que não é da carteira dele — e o erro é
+    // o mesmo "não encontrado", para não revelar que o cliente existe.
+    if (user) {
+      const esc = await escopoCarteira(this.prisma, user);
+      if (esc.limitado && !esc.clienteIds.includes(id)) throw new NotFoundException(`Cliente ${id} não encontrado.`);
     }
     return cliente;
   }

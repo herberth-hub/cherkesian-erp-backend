@@ -10,6 +10,8 @@ import { CreatePedidoDto } from './dto/create-pedido.dto';
 import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { AuthUser } from '../auth/auth.types';
+import { ehVendedor, escopoCarteira } from '../common/rbac/carteira';
 
 @Injectable()
 export class PedidosService {
@@ -19,11 +21,22 @@ export class PedidosService {
     private readonly notificacoes: NotificacoesService,
   ) {}
 
-  async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string }) {
-    // Escopo do vendedor: só os pedidos dele (vendedorId) ou criados por ele (legado).
-    const where: Prisma.PedidoWhereInput = scope
-      ? { empresaId, OR: [{ vendedorId: scope.vendedorId }, { criadoPor: scope.usuario }] }
-      : { empresaId };
+  async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string; user?: AuthUser }) {
+    /**
+     * Escopo do vendedor. Olhar só `vendedorId` não bastava: nos dados reais esse
+     * campo está vazio e a carteira vive em `Cliente.representante` /
+     * `Contrato.vendedor` / `Pedido.comissaoRepresentante`. Por isso o vendedor
+     * via ZERO pedidos aqui enquanto via a empresa inteira no dashboard.
+     */
+    let where: Prisma.PedidoWhereInput = { empresaId };
+    if (scope) {
+      const alt: Prisma.PedidoWhereInput[] = [{ vendedorId: scope.vendedorId }, { criadoPor: scope.usuario }];
+      if (scope.user) {
+        const esc = await escopoCarteira(this.prisma, scope.user);
+        if (esc.limitado) alt.push({ clienteId: { in: esc.clienteIds } });
+      }
+      where = { empresaId, OR: alt };
+    }
     const pedidos = await this.prisma.pedido.findMany({
       where,
       omit: { ocArquivo: true }, // não trafega o base64 da OC na listagem
@@ -145,10 +158,25 @@ export class PedidosService {
     return obj as Prisma.InputJsonValue;
   }
 
-  async create(dto: CreatePedidoDto, empresaId: number, criadoPor: string, vendedorId?: number) {
+  async create(dto: CreatePedidoDto, empresaId: number, criadoPor: string, vendedorId?: number, user?: AuthUser) {
     const cliente = await this.prisma.cliente.findUnique({ where: { id: dto.clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) {
       throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+    }
+    if (user && ehVendedor(user)) {
+      // Vendedor só registra venda/orçamento com COMPROVANTE do pedido do cliente:
+      // a ordem de compra ou o print da conversa. É a dupla checagem da diretoria —
+      // sem isso não há como conferir depois o que o cliente de fato pediu.
+      if (!String(dto.ocArquivo ?? '').trim()) {
+        throw new BadRequestException(
+          'Anexe a ordem de compra do cliente ou o print da conversa em que ele solicitou. É obrigatório para registrar a venda.',
+        );
+      }
+      // E o cliente tem que ser da carteira dele.
+      const esc = await escopoCarteira(this.prisma, user);
+      if (!esc.clienteIds.includes(dto.clienteId)) {
+        throw new NotFoundException(`Cliente ${dto.clienteId} não encontrado.`);
+      }
     }
 
     // Crédito: consulta na criação do pedido. Restrição bloqueia; À VISTA pode avançar

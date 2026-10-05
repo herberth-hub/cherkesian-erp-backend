@@ -12,6 +12,7 @@ import {
   type Pdf,
 } from '../documentos/pdf.renderer';
 import { PrismaService } from '../prisma/prisma.service';
+import { escopoCarteira } from '../common/rbac/carteira';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area } from '../common/rbac/acesso.config';
@@ -205,6 +206,9 @@ export class AnomaliasService {
     filtros: { status?: string; tipo?: string; setor?: string; pedidoId?: number; clienteId?: number; incluirFechadas?: boolean },
   ) {
     const where: Prisma.AnomaliaWhereInput = { empresaId: user.empresaId };
+    // Vendedor só vê anomalia de cliente da carteira dele.
+    const esc = await escopoCarteira(this.prisma, user);
+    if (esc.limitado) where.clienteId = { in: esc.clienteIds };
     if (filtros.status) where.status = filtros.status;
     else if (!filtros.incluirFechadas) where.status = { notIn: FECHADOS };
     if (filtros.tipo) where.tipo = filtros.tipo;
@@ -224,9 +228,12 @@ export class AnomaliasService {
 
   /** Contagem por status e as que estouraram o prazo — alimenta o cabeçalho da tela. */
   async resumo(user: AuthUser) {
+    // Os KPIs do topo também respeitam a carteira do vendedor.
+    const esc = await escopoCarteira(this.prisma, user);
+    const daCarteira: Prisma.AnomaliaWhereInput = esc.limitado ? { clienteId: { in: esc.clienteIds } } : {};
     const porStatus = await this.prisma.anomalia.groupBy({
       by: ['status'],
-      where: { empresaId: user.empresaId },
+      where: { empresaId: user.empresaId, ...daCarteira },
       _count: { _all: true },
     });
     const contagem: Record<string, number> = {};
@@ -236,10 +243,10 @@ export class AnomaliasService {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
     const atrasadas = await this.prisma.anomalia.count({
-      where: { empresaId: user.empresaId, status: { notIn: FECHADOS }, prazo: { lt: hoje } },
+      where: { empresaId: user.empresaId, ...daCarteira, status: { notIn: FECHADOS }, prazo: { lt: hoje } },
     });
     const altas = await this.prisma.anomalia.count({
-      where: { empresaId: user.empresaId, status: { notIn: FECHADOS }, gravidade: 'alta' },
+      where: { empresaId: user.empresaId, ...daCarteira, status: { notIn: FECHADOS }, gravidade: 'alta' },
     });
     const abertas = STATUS.filter((s) => !FECHADOS.includes(s)).reduce((n, s) => n + (contagem[s] ?? 0), 0);
     return { contagem, abertas, atrasadas, altas };
@@ -251,6 +258,12 @@ export class AnomaliasService {
       include: { eventos: { orderBy: { id: 'asc' } } },
     });
     if (!a) throw new NotFoundException(`Anomalia ${id} não encontrada.`);
+    // Fora da carteira do vendedor responde o MESMO "não encontrada", para não
+    // revelar por diferença de erro que a anomalia existe.
+    const escA = await escopoCarteira(this.prisma, user);
+    if (escA.limitado && (a.clienteId == null || !escA.clienteIds.includes(a.clienteId))) {
+      throw new NotFoundException(`Anomalia ${id} não encontrada.`);
+    }
     const ctx = await this.contexto(user.empresaId, [a]);
     return this.montar(a, ctx, true);
   }
