@@ -1456,7 +1456,7 @@ export class NfeService {
       where: { OR: [{ id: raiz }, { pedidoPaiId: raiz }] },
       select: { id: true },
     });
-    return this.prisma.notaFiscal.findFirst({
+    const futuras = await this.prisma.notaFiscal.findMany({
       where: {
         pedidoId: { in: familia.map((f) => f.id) },
         tipo: 'faturamento',
@@ -1465,6 +1465,16 @@ export class NfeService {
       select: { id: true, numero: true, serie: true },
       orderBy: { id: 'asc' },
     });
+    if (!futuras.length) return null;
+    // Uma venda futura DEVOLVIDA não cobra mais nada — não pode travar a cobrança
+    // da nota que vier depois. A devolução não muda o status da original (ela segue
+    // 'autorizada'), então quem diz se ainda vale é a existência da NF de devolução.
+    const devolvidas = await this.prisma.notaFiscal.findMany({
+      where: { notaRefId: { in: futuras.map((f) => f.id) }, tipo: 'devolucao_venda', status: { in: ['pendente', 'autorizada', 'simulada'] } },
+      select: { notaRefId: true },
+    });
+    const anuladas = new Set(devolvidas.map((d) => d.notaRefId));
+    return futuras.find((f) => !anuladas.has(f.id)) ?? null;
   }
 
   private refDaNota(nota: NotaFiscal): string {
@@ -2257,7 +2267,19 @@ export class NfeService {
       const bruto = it.valorUnit.mul(it.quantidade);
       const unidade = p?.unidadeComercial ?? 'UN';
       const valorUnit = Number(it.valorUnit.toFixed(2));
-      const baseItem = Number(bruto.toFixed(2));
+      // vProd do item = SÓ a mercadoria (é o que vai no totalizador vProd da NF-e).
+      const valorProdutoItem = Number(bruto.toFixed(2));
+      /**
+       * BASE DO ICMS = mercadoria + FRETE rateado.
+       *
+       * O frete cobrado do destinatário integra a base de cálculo do ICMS
+       * (LC 87/96, art. 13 §1º II "a"). Até out/2026 o sistema punha o frete só
+       * no total da nota e deixava a vBC com o valor dos produtos — a Consigaz
+       * cobrou o complemento das NFs 2727 a 2735 por causa disso, porque trava a
+       * liberação do DIFAL deles.
+       */
+      const freteItem = Number(fretePorItem[idx] ?? 0);
+      const baseItem = Number((valorProdutoItem + freteItem).toFixed(2));
       // Código do CLIENTE por tamanho (ex.: VIVARA): vai no cProd da linha daquele TAM
       // e também na descrição (xProd, respeitando o limite de 120). Sem código → mantém o nosso.
       const codsTam = (p?.codigosPorTamanho && typeof p.codigosPorTamanho === 'object') ? (p.codigosPorTamanho as Record<string, string>) : null;
@@ -2278,7 +2300,7 @@ export class NfeService {
         unidade_tributavel: unidade,
         quantidade_tributavel: it.quantidade,
         valor_unitario_tributavel: valorUnit,
-        valor_bruto: baseItem,
+        valor_bruto: valorProdutoItem,
         icms_origem: p?.origem ?? 0,
         // Frete rateado deste item — compõe o total da nota (vNF = produtos + frete).
         ...(fretePorItem[idx] && fretePorItem[idx] > 0 ? { valor_frete: fretePorItem[idx], compoe_valor_total: 1 } : {}),

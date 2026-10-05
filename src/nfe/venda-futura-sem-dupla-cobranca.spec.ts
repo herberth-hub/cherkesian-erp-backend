@@ -10,7 +10,7 @@ import { NfeService } from './nfe.service';
 type Pedido = { id: number; pedidoPaiId: number | null };
 type Nota = { id: number; pedidoId: number; tipo: string; status: string; numero: string; serie: string };
 
-function servicoCom(pedidos: Pedido[], notas: Nota[]) {
+function servicoCom(pedidos: Pedido[], notas: Nota[], devolucoes: Array<{ notaRefId: number }> = []) {
   const prisma = {
     pedido: {
       findMany: ({ where }: { where: { OR: Array<{ id?: number; pedidoPaiId?: number }> } }) => {
@@ -19,10 +19,16 @@ function servicoCom(pedidos: Pedido[], notas: Nota[]) {
       },
     },
     notaFiscal: {
-      findFirst: ({ where }: { where: { pedidoId: { in: number[] }; tipo: string; status: { in: string[] } } }) =>
-        Promise.resolve(
-          notas.find((n) => where.pedidoId.in.includes(n.pedidoId) && n.tipo === where.tipo && where.status.in.includes(n.status)) ?? null,
-        ),
+      findMany: ({ where }: { where: Record<string, { in: (number | string)[] } | string> }) => {
+        // 2ª consulta: devoluções que anulam as venda-futura encontradas.
+        if ('notaRefId' in where) {
+          const refs = (where.notaRefId as { in: number[] }).in;
+          return Promise.resolve(devolucoes.filter((d) => refs.includes(d.notaRefId)));
+        }
+        const pedidoIds = (where.pedidoId as { in: number[] }).in;
+        const status = (where.status as { in: string[] }).in;
+        return Promise.resolve(notas.filter((n) => pedidoIds.includes(n.pedidoId) && n.tipo === where.tipo && status.includes(n.status)));
+      },
     },
   };
   // só o helper é exercitado — o resto do serviço não participa deste teste
@@ -69,5 +75,29 @@ describe('venda futura — trava da cobrança em dobro', () => {
   it('nota avulsa sem pedido não trava nada', async () => {
     const s = servicoCom([], []);
     await expect(chamar(s, null, null)).resolves.toBeNull();
+  });
+
+  // Caso PV100/PV101 (out/2026): a venda futura foi DEVOLVIDA e a cobrança teve de
+  // ser refeita por nota avulsa. Se a trava ignorasse a devolução, o cliente não
+  // seria cobrado de nada.
+  it('venda futura DEVOLVIDA não trava mais a cobrança', async () => {
+    const s = servicoCom(
+      [{ id: 118, pedidoPaiId: null }],
+      [{ id: 108, pedidoId: 118, tipo: 'faturamento', status: 'autorizada', numero: '1/000167', serie: '1' }],
+      [{ notaRefId: 108 }], // devolvida
+    );
+    await expect(chamar(s, 118, null)).resolves.toBeNull();
+  });
+
+  it('com duas venda-futura, uma devolvida, a que sobrou ainda trava', async () => {
+    const s = servicoCom(
+      [{ id: 200, pedidoPaiId: null }],
+      [
+        { id: 300, pedidoId: 200, tipo: 'faturamento', status: 'autorizada', numero: '1/000300', serie: '1' },
+        { id: 301, pedidoId: 200, tipo: 'faturamento', status: 'autorizada', numero: '1/000301', serie: '1' },
+      ],
+      [{ notaRefId: 300 }],
+    );
+    await expect(chamar(s, 200, null)).resolves.toMatchObject({ numero: '1/000301' });
   });
 });
