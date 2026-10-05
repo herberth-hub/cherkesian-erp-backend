@@ -10386,7 +10386,7 @@ function labExpHTML(d, rows, dataBR, vol, total, denso){
   return `<div class="page"><div class="lab${denso||''}">
     <div class="hd"><span class="ttl">EXPEDIÇÃO</span><span class="vol">VOL ${vol}/${total}</span></div>
     <div class="pad">
-      <div class="line nf"><b>NF ${esc(d.nf||'—')}</b> &nbsp;·&nbsp; Pedido ${esc(d.pedido)} &nbsp;·&nbsp; ${esc(dataBR)}</div>
+      <div class="line nf"><b>${d.semNf&&!d.nf?'SEM NF-e':'NF '+esc(d.nf||'—')}</b> &nbsp;·&nbsp; Pedido ${esc(d.pedido)} &nbsp;·&nbsp; ${esc(dataBR)}</div>
       <div class="line destnome"><b>${esc(d.destino.nome)}</b></div>
       <div class="ender">${esc(d.destino.endereco)} · ${esc(d.destino.cidadeUf)} · CEP ${esc(d.destino.cep)} · CNPJ ${esc(d.destino.cnpj)}</div>
       <div class="codes"><img class="qr" src="${d.qr}">

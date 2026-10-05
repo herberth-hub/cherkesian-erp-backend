@@ -101,14 +101,27 @@ export class ExpedicoesService {
       orderBy: { id: 'desc' },
       select: { numero: true, status: true },
     });
+    /**
+     * Sem NF-e a etiqueta SAI, marcada como "SEM NF-e".
+     *
+     * O bloqueio antigo impedia qualquer etiqueta sem nota — e isso tornava o
+     * "despachar sem NF" impossível na prática, porque a etiqueta MASTER é
+     * justamente o que se bipa para despachar. Quem envia sem nota precisa da
+     * etiqueta para fechar a caixa e concluir a entrega.
+     *
+     * Continua bloqueado quando existe uma NF-e EM ANDAMENTO (pendente ou
+     * rejeitada): aí o caminho certo é resolver a nota, não contorná-la.
+     */
+    let semNf = false;
     if (!nfEmitida) {
       const pend = await this.prisma.notaFiscal.findFirst({ where: { expedicaoId: id }, orderBy: { id: 'desc' }, select: { status: true } });
-      const motivo = pend?.status === 'pendente'
-        ? 'a NF-e ainda está pendente de autorização na SEFAZ. Aguarde/consulte a autorização.'
-        : pend?.status === 'rejeitada' ? 'a NF-e foi rejeitada — corrija e reemita.'
-        : pend?.status === 'cancelada' ? 'a NF-e desta expedição foi cancelada.'
-        : 'nenhuma NF-e de venda foi emitida para esta expedição.';
-      throw new BadRequestException(`Etiqueta bloqueada: ${motivo} Emita a NF-e de venda antes de gerar a etiqueta de expedição.`);
+      if (pend?.status === 'pendente') {
+        throw new BadRequestException('Etiqueta bloqueada: a NF-e ainda está pendente de autorização na SEFAZ. Aguarde ou consulte a autorização.');
+      }
+      if (pend?.status === 'rejeitada') {
+        throw new BadRequestException('Etiqueta bloqueada: a NF-e foi rejeitada — corrija e reemita antes de gerar a etiqueta.');
+      }
+      semNf = true; // nenhuma nota, ou a que havia foi cancelada
     }
     const pedido = exp.pedidoId
       ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true, filial: true } })
@@ -137,6 +150,8 @@ export class ExpedicoesService {
       empresa: emp ? { nome: emp.nome, cnpj: emp.cnpj } : { nome: 'GRUPO CHERKESIAN', cnpj: null },
       numero: exp.numero,
       nf: exp.nf ?? null,
+      // Quem imprime precisa ver na etiqueta que a carga está saindo sem nota.
+      semNf,
       pedido: pedido?.numero ?? '—',
       data: new Date().toISOString(),
       codBip,
