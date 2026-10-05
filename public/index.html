@@ -10621,6 +10621,7 @@ async function formConferencia(id){
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`
       <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
+      ${c.nf?'':`<div class="card" style="background:#fdf6e9;border-color:#e8d9ae;font-size:12.5px;margin-bottom:8px">⚠️ <b>Esta expedição ainda não tem NF-e.</b> Dá para despachar assim mesmo — a mercadoria sai sem nota por aqui — e emitir a NF depois, pela linha da expedição. Só confirme que é isso mesmo que você quer.</div>`}
       <div style="margin-bottom:6px">
         <label class="fl">Por qual canal está sendo enviado? <span style="color:#c14a34">*</span></label>
         <select id="exp_canal_${id}" class="inp" style="max-width:320px">
@@ -10659,7 +10660,7 @@ async function formConferencia(id){
         <button class="btn-sm" onclick="APP.abrirScanner(function(code){APP.conferirBip(${id},code)})">📷 Câmera</button>
       </div>
       <div style="margin-bottom:6px"><button class="btn-sm" style="${window.__confDevolver?'color:#1e7a44;font-weight:700':'color:#c14a34'}" onclick="APP.confToggleDevolver(${id})">${window.__confDevolver?'✅ Voltar a conferir':'↩ Devolver peça (passei na caixa errada)'}</button></div>`}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${S.user.acesso==='total'?`<button class="btn-sm" style="color:#2b4a8b" title="Admin — editar as quantidades desta expedição (incluir a mais ou tirar)" onclick="APP.formEditarExpItens(${id})">✏️ Editar quantidades</button>`:''}${S.user.acesso==='total'&&c.conferidas>0&&c.conferidas<c.esperadas?`<button class="btn-sm" style="color:#1e7a44;font-weight:700" title="Admin — reduz a expedição ao que já foi conferido e abre a emissão da NF-e (o resto volta pro residual do pedido)" onclick="APP.faturarConferido(${id})">🧾 Faturar só o conferido</button>`:''}${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>${despachado?'':`${S.user.acesso==='total'?`<button class="btn-sm" style="color:#2b4a8b" title="Admin — editar as quantidades desta expedição (incluir a mais ou tirar)" onclick="APP.formEditarExpItens(${id})">✏️ Editar quantidades</button>`:''}${S.user.acesso==='total'&&c.conferidas>0&&c.conferidas<c.esperadas?`<button class="btn-sm" style="color:#1e7a44;font-weight:700" title="Admin — reduz a expedição ao que já foi conferido e abre a emissão da NF-e (o resto volta pro residual do pedido)" onclick="APP.faturarConferido(${id})">🧾 Faturar só o conferido</button><button class="btn-sm" style="color:#8a5a00;font-weight:700" title="Admin — reduz a expedição ao que já foi conferido e vai direto para o despacho, SEM emitir NF-e (o resto volta pro residual do pedido). A NF pode ser emitida depois." onclick="APP.despacharConferidoSemNf(${id})">🚚 Despachar só o conferido (sem NF)</button>`:''}${c.conferidas>0?`<button class="btn-sm danger" title="Somente admin — zera a conferência e devolve as peças ao estoque p/ rebipar" onclick="APP.zerarConferencia(${id})">🔄 Zerar conferência</button>`:''}<button class="btn-sm" style="color:#8a5a00" title="Somente admin — marca como CONFERIDA sem bipar peça a peça (não despacha; o despacho continua sendo um passo à parte p/ registrar a saída)" onclick="APP.despacharDireto(${id})">✔ Concluir conferência (sem bipar)</button>`}</div>`);
   const inp=cfEl(id,'conf_bip')||cfEl(id,'master_bip'); if(inp) setTimeout(()=>inp.focus(),50);
 }
 // Os campos da conferência têm id POR EXPEDIÇÃO (conf_bip_12, exp_canal_12...). Assim,
@@ -10675,6 +10676,22 @@ async function faturarConferido(id){
     closeModal();
     toast('Ajustado ao conferido'+(r&&r.pecas!=null?(' ('+r.pecas+' pç)'):'')+'. Emita a NF-e.','ok');
     emitirNfePrompt(id, (r&&r.pecas)||1, 0);
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
+}
+/**
+ * ADMIN: despacha SÓ o que foi conferido, sem passar pela NF-e.
+ * Mesmo ajuste do "faturar só o conferido" (o resto volta pro residual do pedido),
+ * mas em vez de abrir a emissão vai direto para o despacho. A NF-e continua
+ * disponível depois, na linha da expedição — despachar não fecha essa porta.
+ */
+async function despacharConferidoSemNf(id){
+  const ok = await uiConfirm({tipo:'warn', titulo:'Despachar só o conferido, sem NF-e?', ok:'Ajustar e ir ao despacho', cancel:'Cancelar',
+    msg:'A expedição passa a levar SÓ o que já foi conferido (bipado). O restante volta para o RESIDUAL do pedido e pode ser expedido depois.\n\nNENHUMA NF-e será emitida agora — a mercadoria sai sem nota por esta tela. Você ainda poderá emitir a NF-e depois, pela linha da expedição.\n\nAção de administrador.'});
+  if(!ok) return;
+  try{
+    const r=await api('/expedicoes/'+id+'/ajustar-conferido',{method:'POST'});
+    toast('Ajustado ao conferido'+(r&&r.pecas!=null?(' ('+r.pecas+' pç)'):'')+'. Agora escolha o canal e bipe a etiqueta master.','ok');
+    await formConferencia(id); // reabre já no bloco de despacho
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // ADMIN: editar as quantidades DESTA expedição (incluir a mais / tirar).
@@ -13813,7 +13830,7 @@ window.APP = {
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, gerarDoc,
   notifCiente, notifCienteTodas, notifImprimir,
-  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
+  emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
   cancelarNfe, nfCopiar, nfChaveCopiar, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
