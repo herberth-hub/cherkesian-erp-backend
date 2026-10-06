@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, Res, StreamableFile } from '@nestjs/common';
 import { Response } from 'express';
 import { BancosService } from './bancos.service';
 import { GerarRemessaDto, ProcessarRetornoDto } from './dto/bancos.dto';
@@ -51,10 +51,32 @@ export class BancosController {
   }
 
   /** Boleto vigente de cada título (?ids=1,2,3). */
+  /** Define como a NF será cobrada (boleto gera a remessa; transferência só marca). */
+  @Post('cobranca-da-nota')
+  definirCobranca(
+    @Body() dto: { notaFiscalId: number; forma: 'boleto' | 'transferencia'; contaBancariaId?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (dto.forma !== 'boleto' && dto.forma !== 'transferencia') {
+      throw new BadRequestException('Informe a forma: boleto ou transferencia.');
+    }
+    return this.bancos.definirCobrancaDaNota(user.empresaId, user.usuario, Number(dto.notaFiscalId), dto.forma, dto.contaBancariaId);
+  }
+
   @Get('boletos')
   boletos(@CurrentUser() user: AuthUser, @Query('ids') ids?: string) {
     const list = String(ids || '').split(',').map((s) => Number(s)).filter((n) => Number.isInteger(n) && n > 0);
     return list.length ? this.bancos.boletosPorTitulo(user.empresaId, list) : {};
+  }
+
+  /** Envia o boleto por e-mail ao pagador, com o PDF anexo. */
+  @Post('boletos/:contaReceberId/email')
+  enviarBoleto(
+    @Param('contaReceberId', ParseIntPipe) contaReceberId: number,
+    @Body() dto: { email?: string; copiaPara?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bancos.enviarBoletoPorEmail(contaReceberId, user.empresaId, dto?.email, dto?.copiaPara);
   }
 
   @Get('boletos/:contaReceberId/pdf')

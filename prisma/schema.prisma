@@ -607,6 +607,12 @@ model Produto {
   tecido         String? // tecido principal
   composicao     String? // composição do tecido
   especificacoes String? @db.Text // observações de confecção / costura (texto longo)
+  // FICHA TÉCNICA (layout do cliente): projeto, revisão e os detalhes de
+  // construção que a ficha lista linha a linha (Gola, Fechamento, Punho, Barra…).
+  // Texto livre "Rótulo: valor" por linha — cada confecção nomeia do seu jeito.
+  projeto        String?
+  revisao        String?  // ex.: "02"
+  detalhes       String?  @db.Text
   observacoes    String? @db.Text // observações gerais da ficha
   fotoModelo     String? @db.Text // foto do modelo (data URI base64)
   fotoModelagem  String? @db.Text // imagem da modelagem Audaces (data URI base64)
@@ -925,6 +931,11 @@ model ContaReceber {
   ultimaCobrancaEm  DateTime? // última cobrança por e-mail enviada (régua)
   cobrancasEnviadas Int      @default(0) // nº de cobranças já disparadas
   comissaoGerada    Boolean  @default(false) // regra de comissão automática já aplicada ao quitar
+  // Como este título vai ser cobrado — definido logo após a emissão da NF.
+  //   boleto        = entra na remessa CNAB (o banco registra e cobra)
+  //   transferencia = cliente paga por PIX/TED; a régua manda os dados bancários
+  //   null          = ainda não definido (títulos anteriores a out/2026)
+  formaCobranca     String?
   boletos           Boleto[]
 }
 

@@ -4875,7 +4875,30 @@ const BOLSTATUS={gerado:['gray','gerado'],remessa:['gold','em remessa'],registra
 function bancosBoletoBtn(id){
   const b=(window.__RCBOL||{})[id]; if(!b) return '';
   const [cor,txt]=BOLSTATUS[b.status]||['gray',b.status];
-  return `<button class="btn-sm" title="Boleto nosso nº ${esc(b.nossoNumero)}-${esc(b.nossoNumeroDv||'')} · ${esc(txt)}${b.ocorrencia?' · '+esc(b.ocorrencia):''}" onclick="APP.bancosBoletoPdf(${id})">🧾 Boleto <span class="pill ${cor}" style="font-size:9px">${esc(txt)}</span></button>`;
+  return `<button class="btn-sm" title="Abrir/baixar o boleto · nosso nº ${esc(b.nossoNumero)}-${esc(b.nossoNumeroDv||'')} · ${esc(txt)}${b.ocorrencia?' · '+esc(b.ocorrencia):''}" onclick="APP.bancosBoletoPdf(${id})">🧾 Boleto <span class="pill ${cor}" style="font-size:9px">${esc(txt)}</span></button>`
+    + `<button class="btn-sm" title="Enviar o boleto por e-mail ao pagador, com o PDF anexo" onclick="APP.boletoEmail(${id})">✉ Boleto</button>`;
+}
+/** Envia o boleto por e-mail — mesmo formato do envio da NF-e. */
+function boletoEmail(contaReceberId){
+  const b=(window.__RCBOL||{})[contaReceberId]||{};
+  const sug=b.emailPagador||'';
+  openModal(`<h3>✉ Enviar boleto por e-mail</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Boleto nosso nº <b>${esc(b.nossoNumero||'—')}${b.nossoNumeroDv?'-'+esc(b.nossoNumeroDv):''}</b>. O PDF vai anexo, com a linha digitável no corpo da mensagem.</div>
+    ${field('bol_em','E-mail do pagador *','value="'+esc(sug)+'" placeholder="cliente@empresa.com.br"')}
+    ${field('bol_cc','Cópia para (opcional)','placeholder="financeiro@... (separe por vírgula)"')}
+    ${sug?'':'<div class="card" style="background:#fdf6e9;border-color:#e8d9ae;font-size:11.5px">O cliente não tem e-mail cadastrado — informe acima.</div>'}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.boletoEmailEnviar(${contaReceberId})">Enviar</button></div>`);
+}
+async function boletoEmailEnviar(contaReceberId){
+  const email=val('bol_em'); if(!email){ toast('Informe o e-mail de destino.','err'); return; }
+  const copiaPara=val('bol_cc');
+  try{
+    const r=await api('/bancos/boletos/'+contaReceberId+'/email',{method:'POST',body:{email,copiaPara:copiaPara||undefined}});
+    closeModal();
+    toast((r.simulado?'[SIMULADO] ':'')+'Boleto enviado para '+r.para+'.','ok');
+    loadRoute();
+  }catch(e){ toast('Falha ao enviar: '+(e.message||e),'err'); }
 }
 async function bancosCarregarBoletos(ids){
   if(!ids||!ids.length) return;
@@ -10409,6 +10432,48 @@ async function emitirRemessaFuturaConfirmar(expedicaoId){
     toast('NF de remessa '+n.numero+(n.status==='simulada'?' (SIMULADA)':' AUTORIZADA')+' — vinculada ao faturamento.','ok'); loadRoute();
   }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
 }
+/**
+ * COMO ESTA NOTA VAI SER COBRADA — pergunta logo depois da autorização.
+ * Boleto monta a remessa CNAB na hora; transferência só registra a escolha,
+ * e aí a régua de cobrança manda os dados bancários ao cliente.
+ */
+async function cobrancaDaNotaPrompt(notaFiscalId, numero){
+  if(!notaFiscalId) return;
+  // Sem conta a receber (bonificação, remessa, venda futura já faturada) não há o que cobrar.
+  let tits=[];
+  try{ const r=await api('/financeiro/receber'); tits=(r||[]).filter(t=>t.notaFiscalId===notaFiscalId); }catch(e){}
+  if(!tits.length) return;
+  const total=tits.reduce((s,t)=>s+(Number(t.valor)-Number(t.pago||0)),0);
+  openModal(`<h3>💰 Como cobrar a NF ${esc(numero)}?</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">${tits.length} título(s) · <b>${money(total)}</b>. A escolha fica gravada em cada título e orienta a cobrança daqui pra frente.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn-primary" style="flex:1;min-width:210px;text-align:left;padding:12px 14px;height:auto;line-height:1.35"
+        onclick="APP.cobrancaDaNota(${notaFiscalId},'boleto')">
+        🏦 <b>Boleto bancário</b><div style="font-weight:400;font-size:11.5px;opacity:.85;margin-top:3px">Gera a remessa CNAB agora. Depois é só transmitir no banco e imprimir o boleto.</div></button>
+      <button class="btn-sm" style="flex:1;min-width:210px;text-align:left;padding:12px 14px;height:auto;line-height:1.35;border-color:#cfe0ec;color:#1e5aa8"
+        onclick="APP.cobrancaDaNota(${notaFiscalId},'transferencia')">
+        💸 <b>Transferência / PIX</b><div style="font-weight:400;font-size:11.5px;opacity:.85;margin-top:3px">Sem boleto. O cliente paga na conta e a cobrança leva os dados bancários.</div></button>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Decidir depois</button></div>`);
+}
+async function cobrancaDaNota(notaFiscalId, forma){
+  try{
+    const r=await api('/bancos/cobranca-da-nota',{method:'POST',body:{notaFiscalId,forma}});
+    closeModal();
+    if(forma==='boleto'){
+      await uiAlert({tipo:'ok', titulo:'Remessa gerada', ok:'Entendi',
+        msg:(r.mensagem||'')+'\n\nNF '+r.nota+' · '+r.titulos+' título(s) · '+money(r.valor)
+          +'\n\nPróximo passo: Financeiro › Remessas / Retornos — baixe o arquivo .REM, transmita no banco e marque como enviada.'});
+    } else {
+      toast(r.mensagem||'Marcado para transferência.','ok');
+    }
+    loadRoute();
+  }catch(e){
+    // Boleto pode falhar por falta de convênio/cadastro — não perde a nota por isso.
+    await uiAlert({tipo:'err', titulo:'Não deu para gerar a cobrança', ok:'Entendi',
+      msg:(e.message||String(e))+'\n\nA nota continua emitida e o título em aberto. Dá para resolver depois em Contas a Receber.'});
+  }
+}
 async function emitirNfe(expedicaoId, transporte){
   uiSpinnerOpen({nota:'NF-e de venda · expedição'});
   try{
@@ -10420,6 +10485,9 @@ async function emitirNfe(expedicaoId, transporte){
       if(n.status==='simulada') toast('NF '+n.numero+' em MODO SIMULADO (sem valor fiscal).','err');
       else toast('NF '+n.numero+' AUTORIZADA.','ok');
       await etiquetaExpedicao(expedicaoId);
+      // Nota autorizada = conta a receber criada. Decide AQUI como ela vai ser
+      // cobrada — antes isso ficava indefinido e a decisão acontecia fora do sistema.
+      if(n.status==='autorizada') await cobrancaDaNotaPrompt(n.id, n.numero);
     } else {
       // Pendente/assíncrona: a etiqueta só libera após autorizar. Oriente a consultar.
       await uiAlert({tipo:'info', titulo:'NF '+n.numero+' enviada à SEFAZ', msg:'A nota está em processamento (assíncrona). Clique em "Emitir NF-e" na lista de notas para consultar a autorização — a etiqueta libera assim que autorizar.', ok:'Entendi'});
@@ -13878,7 +13946,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, nfCopiar, nfChaveCopiar, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, nfCopiar, nfChaveCopiar, cobrancaDaNotaPrompt, cobrancaDaNota, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,
@@ -13887,7 +13955,7 @@ window.APP = {
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
   navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
-  bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf,
+  bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf, boletoEmail, boletoEmailEnviar,
   drillAbrir, drillToggle, drillIr,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

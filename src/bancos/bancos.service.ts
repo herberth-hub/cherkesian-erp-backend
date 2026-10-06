@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { ContasReceberService } from '../financeiro/contas-receber.service';
 import {
   CedenteSantander, TituloRemessa, codigoBarrasELinha, gerarRemessaSantander240, lerRetornoSantander240,
@@ -20,7 +21,11 @@ const dig = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 @Injectable()
 export class BancosService {
   private readonly logger = new Logger(BancosService.name);
-  constructor(private readonly prisma: PrismaService, private readonly receber: ContasReceberService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly receber: ContasReceberService,
+    private readonly email: EmailService,
+  ) {}
 
   /** Contas bancárias com integração configurada (p/ o select da tela). */
   async contas(empresaId: number) {
@@ -75,6 +80,49 @@ export class BancosService {
    * CNAB 240 e grava boletos (status "remessa") + a remessa. Tudo em uma transação
    * curta (os dados já vêm lidos de fora — ver [neon-p2028]).
    */
+  /**
+   * COMO COBRAR os títulos de uma NF — decidido logo após a emissão.
+   *
+   * `boleto`        grava a escolha e já monta a remessa CNAB dos títulos;
+   * `transferencia` só grava a escolha (o cliente paga por PIX/TED e a régua
+   *                 de cobrança manda os dados bancários).
+   *
+   * Antes disso o título nascia sem saber como seria cobrado, e a decisão
+   * acabava acontecendo fora do sistema.
+   */
+  async definirCobrancaDaNota(
+    empresaId: number,
+    usuario: string,
+    notaFiscalId: number,
+    forma: 'boleto' | 'transferencia',
+    contaBancariaId?: number,
+  ) {
+    const nota = await this.prisma.notaFiscal.findFirst({ where: { id: notaFiscalId, empresaId }, select: { id: true, numero: true, filialId: true } });
+    if (!nota) throw new NotFoundException(`Nota ${notaFiscalId} não encontrada.`);
+    const titulos = await this.prisma.contaReceber.findMany({ where: { notaFiscalId, empresaId }, select: { id: true, valor: true, pago: true } });
+    if (!titulos.length) throw new BadRequestException(`A nota ${nota.numero} não gerou conta a receber — não há o que cobrar.`);
+
+    await this.prisma.contaReceber.updateMany({ where: { notaFiscalId, empresaId }, data: { formaCobranca: forma } });
+    const base = { nota: nota.numero, forma, titulos: titulos.length, valor: Number(titulos.reduce((s, t) => s + Number(t.valor) - Number(t.pago), 0).toFixed(2)) };
+
+    if (forma === 'transferencia') {
+      return { ...base, mensagem: `${titulos.length} título(s) marcado(s) para pagamento por transferência/PIX.` };
+    }
+    // Boleto: precisa de uma conta com CNAB pronto. Usa a informada ou a da filial da nota.
+    let contaId = contaBancariaId;
+    if (!contaId) {
+      const c = await this.prisma.contaBancaria.findFirst({
+        where: { empresaId, ativa: true, integracao: 'cnab', ...(nota.filialId ? { filialId: nota.filialId } : {}) },
+        orderBy: { principal: 'desc' },
+        select: { id: true },
+      });
+      if (!c) throw new BadRequestException('Nenhuma conta bancária com CNAB configurado para o CNPJ emissor desta nota. Configure em Contas bancárias ou escolha a conta.');
+      contaId = c.id;
+    }
+    const remessa = await this.gerarRemessa(empresaId, usuario, contaId, titulos.map((t) => t.id));
+    return { ...base, remessa, mensagem: `Remessa gerada com ${titulos.length} boleto(s).` };
+  }
+
   async gerarRemessa(empresaId: number, usuario: string, contaBancariaId: number, ids: number[]) {
     const conta = await this.contaPronta(contaBancariaId, empresaId);
     const ced = this.cedente(conta);
@@ -241,8 +289,20 @@ export class BancosService {
       select: { id: true, contaReceberId: true, nossoNumero: true, nossoNumeroDv: true, status: true, linhaDigitavel: true, remessaId: true, ocorrencia: true, pagoEm: true },
       orderBy: { id: 'desc' },
     });
-    const out: Record<number, (typeof bs)[number]> = {};
+    const out: Record<number, (typeof bs)[number] & { emailPagador?: string | null }> = {};
     for (const b of bs) if (!out[b.contaReceberId]) out[b.contaReceberId] = b; // o mais recente
+    // E-mail do pagador junto do boleto: a tela de envio já abre preenchida, sem
+    // precisar baixar a lista inteira de títulos só para descobrir o cliente.
+    const alvos = Object.keys(out).map(Number);
+    if (alvos.length) {
+      const titulos = await this.prisma.contaReceber.findMany({ where: { id: { in: alvos } }, select: { id: true, clienteId: true } });
+      const clientes = await this.prisma.cliente.findMany({
+        where: { id: { in: [...new Set(titulos.map((t) => t.clienteId))] } },
+        select: { id: true, email: true },
+      });
+      const porCliente = new Map(clientes.map((c) => [c.id, c.email]));
+      for (const t of titulos) if (out[t.id]) out[t.id].emailPagador = porCliente.get(t.clienteId) ?? null;
+    }
     return out;
   }
 
@@ -276,5 +336,52 @@ export class BancosService {
       valor: Number(b.valor), linhaDigitavel: b.linhaDigitavel || '', codigoBarras: b.codigoBarras || '', instrucoes: instr,
     });
     return { content: pdf, filename: `boleto-${b.nossoNumero}.pdf`, contentType: 'application/pdf' };
+  }
+
+  /**
+   * Envia o boleto por e-mail ao pagador, com o PDF anexo — mesmo padrão do
+   * envio da NF-e. Sem isso o boleto só existia para download manual, e alguém
+   * tinha que anexar e escrever o e-mail à mão.
+   */
+  async enviarBoletoPorEmail(contaReceberId: number, empresaId: number, emailInformado?: string, copiaPara?: string) {
+    const arq = await this.boletoPdf(contaReceberId, empresaId);
+    const t = await this.prisma.contaReceber.findFirst({ where: { id: contaReceberId, empresaId } });
+    if (!t) throw new NotFoundException(`Título ${contaReceberId} não encontrado.`);
+    const cli = await this.prisma.cliente.findUnique({ where: { id: t.clienteId }, select: { nome: true, email: true } });
+    const destino = (emailInformado ?? '').trim() || (cli?.email ?? '').trim();
+    if (!destino) throw new BadRequestException('Informe o e-mail de destino — o cliente não tem e-mail cadastrado.');
+
+    const b = await this.prisma.boleto.findFirst({
+      where: { empresaId, contaReceberId }, orderBy: { id: 'desc' },
+      include: { contaBancaria: { include: { filial: true } } },
+    });
+    const valor = Number(t.valor) - Number(t.pago);
+    const venc = new Date(t.vencimento).toLocaleDateString('pt-BR');
+    const emp = b?.contaBancaria?.cedenteNome || b?.contaBancaria?.filial?.nome || 'Grupo Cherkesian';
+    const texto = [
+      `Olá${cli?.nome ? ', ' + cli.nome : ''}.`,
+      '',
+      `Segue em anexo o boleto no valor de R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, com vencimento em ${venc}.`,
+      b?.linhaDigitavel ? `\nLinha digitável: ${b.linhaDigitavel}` : '',
+      b?.nossoNumero ? `Nosso número: ${b.nossoNumero}${b.nossoNumeroDv ? '-' + b.nossoNumeroDv : ''}` : '',
+      '',
+      'Qualquer dúvida, é só responder este e-mail.',
+      '',
+      emp,
+    ].filter((l) => l !== '').join('\n');
+
+    const r = await this.email.enviar({
+      para: destino,
+      cc: (copiaPara || '').trim() || undefined,
+      assunto: `Boleto ${b?.nossoNumero ?? ''} · vencimento ${venc} · ${emp}`.trim(),
+      texto,
+      remetenteNome: emp,
+      anexos: [{ filename: arq.filename, content: arq.content, contentType: arq.contentType }],
+    });
+    await this.prisma.contaReceber.update({
+      where: { id: contaReceberId },
+      data: { ultimaCobrancaEm: new Date(), cobrancasEnviadas: { increment: 1 } },
+    }).catch(() => undefined);
+    return { ...r, para: destino, boleto: b?.nossoNumero ?? null, valor, vencimento: venc };
   }
 }
