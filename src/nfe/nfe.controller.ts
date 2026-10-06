@@ -185,6 +185,20 @@ export class NfeController {
     return this.nfeService.emitirDevolucaoVenda(dto, user.empresaId, user.usuario);
   }
 
+  /**
+   * NF-e COMPLEMENTAR DE ICMS (finalidade 2) — quando a nota original destacou
+   * imposto a menos. Sempre rode antes com `simular: true` e confira a base.
+   */
+  @Post('complemento-icms')
+  @Areas('expedicao', 'receber')
+  @HttpCode(HttpStatus.CREATED)
+  complementoIcms(
+    @Body() dto: { notaFiscalId: number; naturezaOperacao?: string; observacoes?: string; simular?: boolean },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.nfeService.emitirComplementoIcms(dto, user.empresaId, user.usuario);
+  }
+
   /** Cruza e corrige o CFOP das notas com o CFOP real do XML autorizado (contabilidade). */
   @Post('cfop/sincronizar')
   @Areas('expedicao', 'receber')

@@ -1487,6 +1487,7 @@ export class NfeService {
     let prefixo: string;
     if (nota.tipo === 'faturamento') prefixo = 'NFEFAT';
     else if (nota.tipo === 'devolucao_venda') prefixo = 'NFEDEVVEN';
+    else if (nota.tipo === 'complemento_icms') prefixo = 'NFECOMP';
     else if (nota.tipo === 'devolucao') prefixo = 'NFEDEV';
     else if (nota.tipo === 'remessa_futura') prefixo = 'NFEREMF';
     else if (nota.tipo === 'remessa') prefixo = nota.controleFaccao ? 'NFEREM' : 'NFEREMAV';
@@ -2000,6 +2001,163 @@ export class NfeService {
       return criada;
     }, { maxWait: 15_000, timeout: 30_000 });
     return token ? nota : { ...nota, payloadPreview: payload };
+  }
+
+  /** Lê um campo simples do XML (primeira ocorrência dentro do trecho). */
+  private xmlTag(trecho: string, tag: string): string | null {
+    const m = new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(trecho);
+    return m ? m[1] : null;
+  }
+
+  /**
+   * NF-e COMPLEMENTAR DE ICMS (finalidade 2).
+   *
+   * Usada quando a nota original destacou imposto A MENOS. O caso que motivou:
+   * o frete não entrava na base de cálculo (LC 87/96, art. 13 §1º II "a"), e a
+   * Consigaz precisava do complemento das NFs 2727 a 2735 para liberar o DIFAL.
+   *
+   * A complementar NÃO repete a mercadoria: leva valor de produto ZERO e
+   * destaca só a DIFERENÇA de base e de imposto, referenciando a chave da
+   * original. Os números saem do XML AUTORIZADO — não do cadastro interno, que
+   * nessas notas antigas nem tem o payload gravado.
+   */
+  async emitirComplementoIcms(
+    dto: { notaFiscalId: number; naturezaOperacao?: string; observacoes?: string; simular?: boolean },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const orig = await this.prisma.notaFiscal.findUnique({ where: { id: dto.notaFiscalId } });
+    if (!orig || orig.empresaId !== empresaId) throw new NotFoundException(`Nota ${dto.notaFiscalId} não encontrada.`);
+    if (orig.status !== 'autorizada') throw new BadRequestException(`Só cabe complemento sobre nota autorizada — a ${orig.numero} está "${orig.status}".`);
+    const chaveRef = digitos(orig.chave || '');
+    if (chaveRef.length !== 44) throw new BadRequestException(`A ${orig.numero} está sem chave de acesso.`);
+    const ja = await this.prisma.notaFiscal.findFirst({
+      where: { notaRefId: orig.id, tipo: 'complemento_icms', status: { in: ['pendente', 'autorizada', 'simulada'] } },
+      select: { numero: true },
+    });
+    if (ja) throw new ConflictException(`A ${orig.numero} já tem a complementar ${ja.numero}.`);
+
+    const filial = orig.filialId ? await this.prisma.filial.findUnique({ where: { id: orig.filialId } }) : null;
+    if (!filial) throw new NotFoundException('CNPJ emissor da nota original não encontrado.');
+    const token = this.tokenDaFilial(filial);
+    if (!token) throw new BadRequestException('Provedor Focus não configurado (sem token).');
+
+    // ===== O XML autorizado é a fonte: é dele que saem base, alíquota e frete por item =====
+    const arq = await this.baixarArquivosFocus(token, this.refDaNota(orig), filial.nfeAmbiente, 'xml');
+    if (!arq.xml) throw new BadRequestException(`Não consegui baixar o XML da ${orig.numero} na Focus. Tente de novo em instantes.`);
+    const xml = arq.xml.toString('utf8');
+
+    const dest = /<dest>([\s\S]*?)<\/dest>/.exec(xml)?.[1] ?? '';
+    const ender = /<enderDest>([\s\S]*?)<\/enderDest>/.exec(xml)?.[1] ?? '';
+    const dets = [...xml.matchAll(/<det nItem="(\d+)">([\s\S]*?)<\/det>/g)];
+    if (!dets.length) throw new BadRequestException(`O XML da ${orig.numero} não trouxe itens.`);
+
+    const items: Array<Record<string, unknown>> = [];
+    let baseTotal = 0;
+    let icmsTotal = 0;
+    for (const [, , bloco] of dets) {
+      const t = (k: string) => this.xmlTag(bloco, k);
+      const vFrete = Number(t('vFrete') ?? 0);
+      const pICMS = Number(t('pICMS') ?? 0);
+      if (!(vFrete > 0) || !(pICMS > 0)) continue; // item sem frete ou sem ICMS não gera complemento
+      const baseItem = Number(vFrete.toFixed(2));
+      const icmsItem = Number(((baseItem * pICMS) / 100).toFixed(2));
+      baseTotal += baseItem;
+      icmsTotal += icmsItem;
+      items.push({
+        numero_item: items.length + 1,
+        codigo_produto: (t('cProd') ?? 'ITEM').slice(0, 60),
+        descricao: (t('xProd') ?? '').slice(0, 120),
+        cfop: t('CFOP') ?? orig.cfop ?? '6101',
+        codigo_ncm: (t('NCM') ?? '').replace(/\D/g, '') || '00000000',
+        unidade_comercial: t('uCom') ?? 'UN',
+        quantidade_comercial: Number(t('qCom') ?? 1),
+        valor_unitario_comercial: 0,
+        unidade_tributavel: t('uTrib') ?? t('uCom') ?? 'UN',
+        quantidade_tributavel: Number(t('qTrib') ?? t('qCom') ?? 1),
+        valor_unitario_tributavel: 0,
+        // Complementar de imposto: a mercadoria NÃO é refaturada.
+        valor_bruto: 0,
+        icms_origem: Number(t('orig') ?? 0),
+        icms_situacao_tributaria: t('CST') ?? '00',
+        icms_modalidade_base_calculo: Number(t('modBC') ?? 3),
+        icms_base_calculo: baseItem,
+        icms_aliquota: pICMS,
+        icms_valor: icmsItem,
+        pis_situacao_tributaria: '07',
+        cofins_situacao_tributaria: '07',
+      });
+    }
+    if (!items.length) throw new BadRequestException(`A ${orig.numero} não tem frete com ICMS a complementar.`);
+
+    const serie = filial.nfeSerie;
+    const numeroSeq = filial.nfeProximoNumero;
+    const numeroNota = `${serie}/${String(numeroSeq).padStart(6, '0')}`;
+    const ie = digitos(this.xmlTag(dest, 'IE') ?? '');
+    const payload: Record<string, unknown> = {
+      natureza_operacao: (dto.naturezaOperacao?.trim() || 'Complemento de ICMS').slice(0, 60),
+      data_emissao: new Date().toISOString(),
+      tipo_documento: 1, // saída
+      finalidade_emissao: 2, // 2 = NF-e COMPLEMENTAR
+      presenca_comprador: 9,
+      modalidade_frete: 9,
+      serie,
+      numero: numeroSeq,
+      cnpj_emitente: digitos(filial.cnpj),
+      notas_referenciadas: [{ chave_nfe: chaveRef }],
+      nome_destinatario: (this.xmlTag(dest, 'xNome') ?? '').slice(0, 60),
+      cnpj_destinatario: digitos(this.xmlTag(dest, 'CNPJ') ?? ''),
+      inscricao_estadual_destinatario: ie || null,
+      indicador_inscricao_estadual_destinatario: ie ? 1 : 9,
+      logradouro_destinatario: this.xmlTag(ender, 'xLgr'),
+      numero_destinatario: this.xmlTag(ender, 'nro'),
+      bairro_destinatario: this.xmlTag(ender, 'xBairro'),
+      municipio_destinatario: this.xmlTag(ender, 'xMun'),
+      uf_destinatario: this.xmlTag(ender, 'UF'),
+      cep_destinatario: digitos(this.xmlTag(ender, 'CEP') ?? ''),
+      valor_total: 0, // complemento de imposto não cobra mercadoria
+      informacoes_adicionais_contribuinte: [
+        `Complemento de ICMS referente a NF ${orig.numero}, chave ${chaveRef}.`,
+        'Frete nao incluido na base de calculo do ICMS na nota de origem (LC 87/96, art. 13, par. 1o, II, "a").',
+        `Base complementar R$ ${baseTotal.toFixed(2)} - ICMS complementar R$ ${icmsTotal.toFixed(2)}.`,
+        dto.observacoes?.trim() ?? '',
+      ].filter(Boolean).join(' ').slice(0, 5000),
+      items,
+    };
+
+    const resumo = {
+      notaOriginal: orig.numero,
+      chaveReferenciada: chaveRef,
+      destinatario: payload.nome_destinatario,
+      baseComplementar: Number(baseTotal.toFixed(2)),
+      icmsComplementar: Number(icmsTotal.toFixed(2)),
+      itens: items.length,
+    };
+    if (dto.simular) {
+      return { status: 'rascunho' as const, numero: numeroNota, ...resumo, payloadPreview: payload,
+        message: 'Rascunho — nada foi enviado à SEFAZ. Confira a base e o imposto antes de emitir.' };
+    }
+
+    const emissao = await this.emitirFocusNfe(token, `NFECOMP-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial);
+    if (emissao.status === 'rejeitada') {
+      return { status: 'rejeitada' as const, numero: numeroNota, motivo: emissao.motivo, provedor: emissao.provedor, ...resumo };
+    }
+    const nota = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.notaFiscal.create({
+        data: {
+          ...this.resumoFiscalPayload(payload),
+          empresaId, filialId: filial.id, pedidoId: orig.pedidoId, tipo: 'complemento_icms',
+          notaRefId: orig.id, cfop: orig.cfop,
+          numero: numeroNota, serie, chave: emissao.chave, status: emissao.status, protocolo: emissao.protocolo,
+          focusRef: emissao.ref ?? null, motivo: emissao.motivo,
+          // O "valor" da complementar é o imposto — não há mercadoria nova.
+          valor: new Prisma.Decimal(icmsTotal.toFixed(2)), provedor: emissao.provedor, emitidaPor: usuario,
+        },
+      });
+      await tx.filial.update({ where: { id: filial.id }, data: { nfeProximoNumero: numeroSeq + 1 } });
+      return criada;
+    }, { maxWait: 15_000, timeout: 30_000 });
+    return { ...nota, ...resumo };
   }
 
   private montarPayloadDevolucaoVenda(
