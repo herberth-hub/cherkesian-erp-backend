@@ -6328,7 +6328,11 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
         quantidade:l.quantidade, origem:'producao', destino, loteEntrada:'OP-'+id };
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
-      (r.pecas||[]).forEach(p=>{ p.qtdLote=l.quantidade; todas.push(p); });
+      // NÃO carimbar a quantidade do lote na etiqueta: cada etiqueta é UMA peça.
+      // Mostrava "TAM GG · 50 un" em cada uma das 50 etiquetas, como se cada
+      // etiqueta valesse 50 peças. O backend só preenche qtdLote em granel
+      // (rolo de tecido), que é o caso em que a medida faz sentido no rótulo.
+      (r.pecas||[]).forEach(p=>{ todas.push(p); });
     }
     // Marca a OP como Finalizada (fase final + 100%).
     try{ await api('/ops/'+id+'/status',{method:'PATCH',body:{status:'concluido', setorAtual:'Finalizado'}}); await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:100}}); }catch(_){}
