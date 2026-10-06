@@ -1067,16 +1067,21 @@ async function viewDashboard(c){
   const d = await api('/dashboard');
   const et = d.pedidos.porEtapa||{};
   const etTxt = Object.keys(et).length ? Object.entries(et).map(([k,v])=>k+': '+v).join(' · ') : '—';
+  // Vendedor: a API devolve só a carteira dele e OMITE os blocos da fábrica
+  // (compras, estoque de MP, tecido, remessas). A tela não pode tentar lê-los.
+  const naCarteira = !!(d.escopo && d.escopo.carteira);
   c.innerHTML = `
+    ${naCarteira?`<div class="panel" style="background:#f2f7fb;border-color:#cfe0ec;padding:9px 12px;margin-bottom:12px;font-size:12.5px">
+      👤 <b>Sua carteira</b> — este painel mostra apenas os <b>${d.escopo.clientes}</b> cliente(s) vinculados a você e os pedidos deles.</div>`:''}
     <div class="cards">
       ${kpi('Pedidos', d.pedidos.total, etTxt)}
       ${kpi('OPs ativas', d.producao.opsAtivas, d.producao.pecasEmProducao+' peças em produção')}
-      ${kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas')}
-      ${kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo')}
+      ${d.compras?kpi('Compras aguardando', d.compras.ordensAguardando, 'ordens de compra abertas'):''}
+      ${d.estoque?kpi('Estoque crítico', d.estoque.materiaisAbaixoMinimo, 'de '+d.estoque.materiaisCadastrados+' materiais abaixo do mínimo'):''}
     </div>
     ${cobrancasSec(d.cobrancasDia)}
-    ${tecidoSec(d.alertasTecido)}
-    ${remessaSec(d.remessasPendentes)}
+    ${d.alertasTecido?tecidoSec(d.alertasTecido):''}
+    ${d.remessasPendentes?remessaSec(d.remessasPendentes):''}
     ${pedidosSec(d.pedidosEntrega)}
     ${entregasSec(d.entregas)}
     ${empresasSec(d.porEmpresa)}
@@ -1091,8 +1096,8 @@ async function viewDashboard(c){
     </div>` : ''}
     <div class="sect"><h3>Cadastros</h3>
       <div class="cards">
-        ${kpi('Clientes', d.cadastros.clientes, '')}
-        ${kpi('Produtos', d.cadastros.produtos, '')}
+        ${kpi(naCarteira?'Clientes da carteira':'Clientes', d.cadastros.clientes, '')}
+        ${d.cadastros.produtos!=null?kpi('Produtos', d.cadastros.produtos, ''):''}
       </div>
     </div>
     <style>
@@ -4153,10 +4158,13 @@ async function formPedido(id, copiar){
           <input id="f_frete" class="inp" list="fretes" style="flex:1" placeholder="ex.: CIF — incluso" value="${esc(ped&&ped.frete||'')}">
           <input id="f_valfrete" class="inp" type="number" step="0.01" min="0" style="width:130px" placeholder="R$ valor" value="${ped&&ped.valorFrete&&Number(ped.valorFrete)>0?Number(ped.valorFrete):''}" oninput="APP.pedTotais()">
         </div><datalist id="fretes"><option value="CIF — por conta do Grupo Cherkesian (incluso)"><option value="FOB — por conta do cliente"><option value="Frete a combinar"></datalist></div></div>
-    <div class="mrow" style="margin-top:6px"><label class="fl">📎 Anexo da ordem de compra do cliente (PDF ou imagem)</label>
+    <div class="mrow" style="margin-top:6px${S.user.acesso==='vendedor'?';border:1px solid #e8d9ae;background:#fdfaf0;border-radius:8px;padding:10px 12px':''}">
+      <label class="fl">📎 Anexo da ordem de compra do cliente (PDF ou imagem)${S.user.acesso==='vendedor'?' <span style="color:#c14a34">*</span>':''}</label>
       <div id="ped_oc_pv" style="margin:4px 0">${pedOcThumb(ped)}</div>
       <input type="file" id="f_oc_file" accept="application/pdf,image/*" onchange="APP.pedOcSel(this)" style="font-size:12px">
-      <div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo da OC no pedido (máx. ~9 MB) — uso interno.</div></div>
+      ${S.user.acesso==='vendedor'
+        ? `<div style="font-size:11.5px;margin-top:4px;color:#8a5a00"><b>Obrigatório.</b> Anexe a ordem de compra do cliente ou o <b>print da conversa</b> em que ele solicitou — é a dupla checagem da diretoria.</div>`
+        : `<div class="muted" style="font-size:11px;margin-top:2px">Guarda o arquivo da OC no pedido (máx. ~9 MB) — uso interno.</div>`}</div>
     ${pedEntregaBoxHtml()}
     <div class="mrow" style="margin-top:6px"><label style="font-size:12.5px;cursor:pointer"><input type="checkbox" id="f_bonif" ${ped&&ped.bonificacao?'checked':''}> <b>🎁 Pedido de bonificação</b> <span class="muted">— sem conta a receber; a NF sai como <b>remessa de bonificação</b> (CFOP 5910/6910), não gera cobrança</span></label>
       ${id?`<div style="margin-top:4px"><button type="button" class="btn-sm" onclick="APP.pedBonificar(${id})">🎁 Aplicar bonificação agora</button> <span class="muted" style="font-size:10.5px">muda só a bonificação (não mexe nas quantidades já expedidas)</span></div>`:''}</div>
@@ -4600,6 +4608,13 @@ async function savePedido(id){
   body.comissaoComImposto = (val('f_combase_p')==='bruto');
   if(window.__PEDOC && window.__PEDOC.data){ body.ocArquivo=window.__PEDOC.data; body.ocArquivoNome=window.__PEDOC.nome||'ordem-compra'; }
   else if(id){ body.ocArquivo=null; body.ocArquivoNome=null; } // removeu o anexo num pedido existente
+  // Vendedor não registra venda sem comprovante do pedido do cliente. O backend
+  // também barra; aqui é só para avisar antes de mandar o pedido inteiro.
+  if(S.user.acesso==='vendedor' && !body.ocArquivo){
+    toast('Anexe a ordem de compra do cliente ou o print da conversa em que ele solicitou — é obrigatório.','err');
+    const fi=$('f_oc_file'); if(fi){ fi.scrollIntoView({block:'center',behavior:'smooth'}); fi.focus(); }
+    return;
+  }
   body.instrucoesEntrega = pedEntregaLer() || {}; // {} = limpa; objeto = grava
   if(window.__pedCredAVista) body.creditoAVistaConfirmado=true; // restrição + à vista confirmado pelo colaborador
   try{
@@ -6313,6 +6328,26 @@ async function opConcluirEtiquetas(id){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'})'>Gerar etiquetas</button></div>`);
 }
+/**
+ * Depois de etiquetar com destino EXPEDIÇÃO, oferece criar a expedição.
+ * Não cria sozinho de propósito: `do-pedido` leva TODO o saldo que falta do
+ * pedido, então com outra OP ainda em produção entraria peça não fabricada.
+ */
+async function opOferecerExpedicao(pedidoId){
+  let abertas=[];
+  try{ const l=await api('/expedicoes'); abertas=(l||[]).filter(e=>e.pedidoId===pedidoId && e.conferenciaStatus!=='despachado'); }catch(e){}
+  if(abertas.length){
+    toast('Peças reservadas. A expedição '+abertas[0].numero+' já existe — confira por ela.','ok');
+    return;
+  }
+  const ok=await uiConfirm({tipo:'info', titulo:'Gerar a expedição deste pedido agora?', ok:'Gerar expedição', cancel:'Agora não',
+    msg:'As peças foram reservadas, mas a EXPEDIÇÃO ainda não existe — é ela que aparece na tela de Expedição para conferir e despachar.\n\n'
+      +'Atenção: ela nasce com TODO o saldo que falta expedir do pedido. Se ainda houver OP em produção, o que não foi fabricado entra junto — nesse caso prefira "Agora não" e use a Expedição parcial depois.'});
+  if(!ok){ toast('Beleza. Quando quiser: Pedidos › o pedido › 🚚 Expedir tudo.','ok'); return; }
+  try{ const e=await api('/expedicoes/do-pedido/'+pedidoId,{method:'POST'});
+    toast('Expedição '+e.numero+' criada · '+e.pecas+' peças. Vá em Expedição para conferir.','ok');
+  }catch(err){ toast('Falha ao criar a expedição: '+(err.message||err),'err'); }
+}
 async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
   const destino = val('oc_dest');
   const descricao = val('oc_desc').trim();
@@ -6339,6 +6374,9 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     closeModal();
     toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+') · OP finalizada.','ok');
     imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
+    // Concluir a OP reserva as peças, mas NÃO cria a expedição — e sem ela o
+    // pedido não aparece na tela de Expedição para conferir. Era o que faltava.
+    if(destino==='expedicao' && pedidoId) await opOferecerExpedicao(pedidoId);
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -13821,7 +13859,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,

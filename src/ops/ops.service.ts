@@ -459,6 +459,9 @@ export class OpsService {
     const dados = {
       op: op.numero,
       pedido: op.pedido?.numero ?? '-',
+      // O ID é o que permite reservar a peça PARA o pedido ao finalizar a OP.
+      // Sem ele a etiqueta nascia reservada e solta, sem apontar para ninguém.
+      pedidoId: op.pedidoId ?? null,
       cliente: op.pedido?.cliente?.nome ?? '-',
       produto: produto ? `${produto.codigo} · ${produto.descricao}` : '-',
       quantidade: op.quantidade,
