@@ -462,6 +462,10 @@ export class OpsService {
       // O ID é o que permite reservar a peça PARA o pedido ao finalizar a OP.
       // Sem ele a etiqueta nascia reservada e solta, sem apontar para ninguém.
       pedidoId: op.pedidoId ?? null,
+      // E o produtoId é o que a CONFERÊNCIA usa para casar a etiqueta com a linha
+      // do pedido. Sem ele a peça era recusada com "não faz parte deste pedido",
+      // mesmo sendo exatamente a peça certa (EXP-0121/PV112, out/2026).
+      produtoId: op.produtoId ?? null,
       cliente: op.pedido?.cliente?.nome ?? '-',
       produto: produto ? `${produto.codigo} · ${produto.descricao}` : '-',
       quantidade: op.quantidade,

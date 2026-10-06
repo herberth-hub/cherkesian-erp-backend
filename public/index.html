@@ -6326,7 +6326,7 @@ async function opConcluirEtiquetas(id){
     ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
     <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'})'>Gerar etiquetas</button></div>`);
+      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'}, ${d.produtoId||'null'})'>Gerar etiquetas</button></div>`);
 }
 /**
  * Depois de etiquetar com destino EXPEDIÇÃO, oferece criar a expedição.
@@ -6348,7 +6348,7 @@ async function opOferecerExpedicao(pedidoId){
     toast('Expedição '+e.numero+' criada · '+e.pecas+' peças. Vá em Expedição para conferir.','ok');
   }catch(err){ toast('Falha ao criar a expedição: '+(err.message||err),'err'); }
 }
-async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
+async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId){
   const destino = val('oc_dest');
   const descricao = val('oc_desc').trim();
   const cor = val('oc_cor').trim();
@@ -6361,6 +6361,9 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId){
     for(const l of lotes){
       const body = { tipo:'produto', descricao:descricao.slice(0,160), ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
         quantidade:l.quantidade, origem:'producao', destino, loteEntrada:'OP-'+id };
+      // Sem o produtoId a etiqueta nasce sem vínculo e a CONFERÊNCIA recusa a peça
+      // ("não faz parte deste pedido"), mesmo sendo a peça certa.
+      if(produtoId) body.produtoId = produtoId;
       if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
       // NÃO carimbar a quantidade do lote na etiqueta: cada etiqueta é UMA peça.
