@@ -255,6 +255,22 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 #navfly .flyi:hover{background:#26252d;color:#fff}
 #navfly .flyi.on{background:#d4a82a;color:#3a2f08;font-weight:700}
 #navfly .flyi svg{width:15px;height:15px;opacity:.8;flex:0 0 15px}
+/* Menu de AÇÕES das linhas de pedido. A coluna tinha 19 botões lado a lado e a
+   linha virava uma parede; aqui fica o principal da etapa + este menu. É um só
+   elemento no body (não dentro da célula) para não ser cortado pelo overflow da
+   tabela e para garantir que só exista um menu aberto por vez. */
+#pacm{display:none;position:fixed;z-index:8200;min-width:236px;max-width:300px;max-height:calc(100vh - 20px);overflow-y:auto;background:#FFFDF9;border:1px solid #E0D6B8;border-radius:10px;box-shadow:0 10px 28px rgba(60,48,12,.18);padding:5px;font-family:Inter,system-ui,sans-serif;font-size:13px}
+#pacm .pacm-h{font-size:11px;font-weight:700;color:#5a4708;padding:7px 10px 3px;border-bottom:1px solid #F0E7D0;margin-bottom:3px}
+#pacm .pacm-g{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#9A7B16;font-weight:700;padding:7px 10px 4px}
+#pacm .pacm-i{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:7px 10px;border:0;border-radius:7px;background:transparent;color:#3a3a36;font:inherit;cursor:pointer}
+#pacm .pacm-i:hover:not([disabled]),#pacm .pacm-i:focus-visible:not([disabled]){background:#F5ECD0;outline:none}
+#pacm .pacm-i[disabled]{color:#a8a49a;cursor:not-allowed}
+#pacm .pacm-i .pacm-ic{flex:0 0 17px;text-align:center;font-size:13px}
+#pacm .pacm-i.danger{color:#B3372B;font-weight:600}
+#pacm .pacm-i.danger:hover:not([disabled]){background:#fbeae7}
+#pacm .pacm-sep{height:1px;background:#E0D6B8;margin:5px 6px}
+.pacm-btn{background:#C9A227;border-color:#b08f1e;color:#3a2f08;font-weight:700}
+.pacm-btn:hover{background:#d9b23a}
 /* Camada de documento: substitui a janela nova no celular (que vira pop-up e é
    bloqueada). Ocupa a tela inteira e imprime só o conteúdo do iframe. */
 .docov{position:fixed;inset:0;z-index:9999;background:#2b2b2b;display:flex;flex-direction:column}
@@ -2063,56 +2079,160 @@ function pedProdCol(ops,ocs){
   (ocs||[]).forEach(o=>parts.push(`<span class="mono" style="font-size:11px;color:#c14a34" title="Ordem de compra">${esc(o)}</span>`));
   return parts.length?parts.join(' · '):'<span class="muted">—</span>';
 }
-function pedidoAcoes(p){
-  // Proposta pertence à fase de orçamento; após a aprovação o documento é o Pedido.
-  let b='';
-  if(p.etapa==='orcamento'){
-    b+=`<button class="btn-sm" onclick="APP.aprovarPedido(${p.id})">Aprovar</button> `;
-    b+=`<button class="btn-sm" onclick="APP.gerarDoc('proposta',${p.id})">Proposta 🖨</button> `;
-    b+=`<button class="btn-sm" style="color:#1e5aa8" title="Abrir um NOVO orçamento já preenchido com os itens e as condições deste" onclick="APP.pedidoCopiar(${p.id})">📋 Copiar</button> `;
-  } else {
-    if(['aprovado','piloto','material','compra'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarOp(${p.id})">Gerar OP</button> `;
-    if(p.producaoParcial) b+=`<button class="btn-sm" style="color:#9a5a00" title="Produzir o restante — o estoque cobria só parte" onclick="APP.gerarOp(${p.id})">⚙️ OP complementar</button> `;
-    if(p.etapa!=='expedicao'){ b+=`<button class="btn-sm" onclick="APP.pedidoExpedir(${p.id})">🚚 Expedir tudo</button> <button class="btn-sm" onclick="APP.formExpParcial(${p.id})">📦 Expedição parcial</button> `; }
-    b+=`<button class="btn-sm" onclick="APP.gerarDoc('pedido',${p.id})">Pedido 🖨</button> `;
-    b+=`<button class="btn-sm" style="color:#1e5aa8" title="Abrir um NOVO pedido já preenchido com os itens e as condições deste" onclick="APP.pedidoCopiar(${p.id})">📋 Copiar</button> `;
-    b+=`<button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Simples Faturamento (venda p/ entrega futura): cobra o pedido cheio e permite entregas parciais depois" onclick="APP.formFaturamento(${p.id},${Number(p.valorTotal)||0},${Number(p.valorFrete)||0})">🧾 NF Faturamento</button> `;
-    if(['producao','expedicao'].includes(p.etapa)) b+=`<button class="btn-sm" onclick="APP.gerarDoc('plano_corte',${p.id})">🧵 Plano de Corte</button> `;
-  }
-  // Editar/Excluir liberados até a produção começar (antes de gerar OP).
-  if(['orcamento','aprovado','piloto'].includes(p.etapa)){
-    b+=`<button class="btn-sm" onclick="APP.formPedido(${p.id})">Editar</button> `;
-    b+=`<button class="btn-sm danger" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
-  }
-  // Pedido CANCELADO também pode ser excluído (o backend só barra se a produção
-  // começou de fato). Sem isso ele só saía pela seleção em massa.
-  else if(p.etapa==='cancelado'){
-    b+=`<button class="btn-sm danger" title="Excluir o pedido cancelado (só passa se nenhuma OP tiver começado)" onclick="APP.excluirPedido(${p.id},'${esc(p.numero)}')">Excluir</button> `;
-  }
-  // Retificar: pedido já em produção/expedição — edição segura (preserva o expedido).
-  if(['parcial','concluido','producao','estoque','expedicao'].includes(p.etapa)){
-    b+=`<button class="btn-sm" style="color:#8a5a00" title="Retificar o pedido (preserva o que já foi expedido). Cancele a NF antes." onclick="APP.retificarPedido(${p.id})">✏️ Retificar</button> `;
-  }
-  // Parciais + Residual: só aparecem quando houve expedição/faturamento parcial (existem filhos ou etapa parcial).
-  if((p.filhos && p.filhos.length) || p.etapa==='parcial'){
-    if(p.filhos && p.filhos.length) b+=`<button class="btn-sm" style="color:#6b3fa0;border-color:#d6c8ee" title="Ver os pedidos parciais (filhos) gerados deste pedido" onclick="APP.pedParciais(${p.id})">🧩 Parciais (${p.filhos.length})</button> `;
-    b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Ver o residual — o que ainda falta expedir do pedido original" onclick="APP.pedResidual(${p.id})">📊 Residual</button> `;
-  }
-  // Observações: liberadas em qualquer etapa. Mexer no pedido inteiro depois da OP é
-  // arriscado (quantidade/preço já na linha); a observação não, e é a que muda sempre.
-  b+=`<button class="btn-sm" title="Editar as observações (fiscal e comercial) deste pedido" onclick="APP.pedObs(${p.id})">📝 Obs</button> `;
-  b+=`<button class="btn-sm" onclick="APP.formEmailDoc('${p.etapa==='orcamento'?'proposta':'pedido'}',${p.id},${p.clienteId})">✉</button> `;
-  // Anomalia direto do pedido: é aqui que o comercial está quando o cliente reclama.
-  if(canAccess('anomalias') && p.etapa!=='orcamento'){
-    const cli=esc((p.cliente?(p.cliente.fantasia||p.cliente.nome):'')||'').replace(/'/g,'&#39;');
-    b+=`<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Registrar problema ou troca deste pedido" onclick="APP.anomAbrir(${p.id},'${esc(p.numero)}','${cli}')">⚠️</button> `;
-  }
-  // Cancelar (mantém o registro) — disponível enquanto não estiver cancelado/concluído.
-  if(!['cancelado','concluido'].includes(p.etapa)){
-    b+=`<button class="btn-sm" style="color:#c14a34;border-color:#e0a99b" title="Cancelar o pedido (mantém o registro marcado como cancelado)" onclick="APP.cancelarPedido(${p.id},'${esc(p.numero)}')">🚫 Cancelar</button>`;
-  }
-  return b||'<span class="muted">—</span>';
+// ===== AÇÕES da linha de pedido: 1 botão principal da etapa + menu "⋯ Ações" =====
+// A coluna tinha 19 botões em sequência e a linha ficava ilegível. O catálogo abaixo
+// é a MESMA regra de antes, só escrita uma vez: cada ação diz quando vale (`ok`) e,
+// quando não vale, POR QUE não vale (`off`) — aí ela aparece cinza com o motivo no
+// tooltip em vez de desaparecer, que era o que fazia a pessoa achar que o sistema
+// tinha perdido a opção.
+const PED_ET_PROD=['aprovado','piloto','material','compra'];        // antes da OP
+const PED_ET_RETIF=['parcial','concluido','producao','estoque','expedicao'];
+const PED_ET_EDIT=['orcamento','aprovado','piloto'];                // antes da OP
+/** Grupos de ações do pedido, na ordem em que aparecem no menu. */
+function pedAcoesGrupos(p){
+  const et=p.etapa, orc=et==='orcamento', canc=et==='cancelado';
+  const temFilhos=!!(p.filhos&&p.filhos.length);
+  const parcial=et==='parcial';
+  const nome=(p.cliente?(p.cliente.fantasia||p.cliente.nome):'')||'';
+  const expAberta=et==='expedicao';
+  return [
+    ['EXPEDIÇÃO',[
+      {ic:'🚚',lbl:'Expedir tudo',fn:()=>pedidoExpedir(p.id),
+       off:orc?'O orçamento precisa ser aprovado antes de expedir':canc?'Pedido cancelado':expAberta?'Já existe expedição aberta deste pedido — use a tela de Expedição':null},
+      {ic:'📦',lbl:'Expedição parcial',fn:()=>formExpParcial(p.id),
+       off:orc?'O orçamento precisa ser aprovado antes de expedir':canc?'Pedido cancelado':expAberta?'Já existe expedição aberta deste pedido — use a tela de Expedição':null},
+    ]],
+    ['PRODUÇÃO',[
+      {ic:'⚙️',lbl:'Gerar OP',fn:()=>gerarOp(p.id),
+       off:PED_ET_PROD.includes(et)?null:orc?'O orçamento precisa ser aprovado antes de gerar OP':`A OP deste pedido já foi gerada (etapa ${et})`},
+      {ic:'⚙️',lbl:'OP complementar',fn:()=>gerarOp(p.id),
+       off:p.producaoParcial?null:'Só quando o estoque cobriu parte do pedido e falta produzir o resto'},
+      {ic:'🧵',lbl:'Plano de Corte',fn:()=>gerarDoc('plano_corte',p.id),
+       off:['producao','expedicao'].includes(et)?null:'O plano de corte sai quando o pedido está em produção ou expedição'},
+    ]],
+    ['DOCUMENTOS',[
+      {ic:'🖨',lbl:'Pedido (PDF)',fn:()=>gerarDoc('pedido',p.id),
+       off:orc?'Em orçamento o documento é a Proposta':null},
+      {ic:'🖨',lbl:'Proposta (PDF)',fn:()=>gerarDoc('proposta',p.id),
+       off:orc?null:'Depois da aprovação o documento é o Pedido'},
+      {ic:'🧾',lbl:'NF Faturamento',fn:()=>formFaturamento(p.id,Number(p.valorTotal)||0,Number(p.valorFrete)||0),
+       off:orc?'O orçamento precisa ser aprovado antes de faturar':canc?'Pedido cancelado':null},
+      {ic:'📋',lbl:'Copiar pedido',fn:()=>pedidoCopiar(p.id)},
+    ]],
+    ['AJUSTES',[
+      {ic:'✏️',lbl:'Retificar',fn:()=>retificarPedido(p.id),
+       off:PED_ET_RETIF.includes(et)?null:PED_ET_EDIT.includes(et)?'Antes da OP use "Editar pedido" — a retificação é para pedido já em produção':`Não há o que retificar na etapa ${et}`},
+      {ic:'📊',lbl:'Residual',fn:()=>pedResidual(p.id),
+       off:(temFilhos||parcial)?null:'Só quando houve expedição ou faturamento parcial'},
+      {ic:'🧩',lbl:`Parciais${temFilhos?' ('+p.filhos.length+')':''}`,fn:()=>pedParciais(p.id),
+       off:temFilhos?null:'Este pedido não gerou pedidos parciais'},
+      {ic:'✏️',lbl:'Editar pedido',fn:()=>formPedido(p.id),
+       off:PED_ET_EDIT.includes(et)?null:'A produção já começou — use "Retificar", que preserva o que foi expedido'},
+      {ic:'📝',lbl:'Observações',fn:()=>pedObs(p.id)},
+    ]],
+    ['COMUNICAÇÃO',[
+      {ic:'✉',lbl:'Enviar e-mail',fn:()=>formEmailDoc(orc?'proposta':'pedido',p.id,p.clienteId)},
+      // Anomalia fica OCULTA (não cinza) sem permissão: o menu não anuncia tela que a API nega.
+      ...(canAccess('anomalias')?[{ic:'⚠️',lbl:'Registrar ocorrência',fn:()=>anomAbrir(p.id,p.numero,nome),
+       off:orc?'Ocorrência é de pedido aprovado — em orçamento ainda não há o que registrar':null}]:[]),
+    ]],
+    ['__sep',[
+      {ic:'🚫',lbl:'Cancelar pedido',danger:true,fn:()=>cancelarPedido(p.id,p.numero),
+       off:canc?'Este pedido já está cancelado':et==='concluido'?'Pedido concluído não é cancelado — gere devolução da NF':null},
+      {ic:'🗑',lbl:'Excluir pedido',danger:true,fn:()=>excluirPedido(p.id,p.numero),
+       off:(PED_ET_EDIT.includes(et)||canc)?null:'Só dá para excluir antes da OP, ou depois de cancelar o pedido'},
+    ]],
+  ];
 }
+/** Botão principal da linha: a ação óbvia da etapa. */
+function pedAcaoPrincipal(p){
+  const et=p.etapa;
+  if(et==='orcamento') return {lbl:'Aprovar',fn:`APP.aprovarPedido(${p.id})`,tt:'Aprovar o orçamento e mandar para produção'};
+  if(PED_ET_PROD.includes(et)) return {lbl:'⚙️ Abrir OP',fn:`APP.gerarOp(${p.id})`,tt:'Gerar a ordem de produção e baixar o material'};
+  if(['producao','estoque','parcial'].includes(et)) return {lbl:'🚚 Expedir',fn:`APP.pedidoExpedir(${p.id})`,tt:'Expedir o que falta deste pedido'};
+  // Em 'expedicao' a expedição já está aberta (expedir de novo duplicaria); daí em
+  // diante a ação da vez é faturar.
+  if(['expedicao','concluido','faturado'].includes(et)) return {lbl:'🧾 NF Faturamento',fn:`APP.formFaturamento(${p.id},${Number(p.valorTotal)||0},${Number(p.valorFrete)||0})`,tt:'Emitir a NF de faturamento deste pedido'};
+  return null; // cancelado: sem ação principal
+}
+function pedidoAcoes(p){
+  const pr=pedAcaoPrincipal(p);
+  const principal=pr?`<button class="btn-sm" title="${esc(pr.tt)}" onclick="${pr.fn}">${pr.lbl}</button>`:'';
+  return `<div class="pedacoes" data-ped="${p.id}" style="display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:nowrap">${principal}`
+    + `<button class="btn-sm pacm-btn" id="pacmb_${p.id}" aria-haspopup="menu" aria-expanded="false"`
+    + ` title="Todas as ações deste pedido (ou clique com o botão direito na linha)" onclick="APP.pedAcoesMenu(event,${p.id})">⋯ Ações</button></div>`;
+}
+/** Abre o menu de ações ancorado no elemento clicado (ou na posição do clique direito). */
+function pedAcoesMenu(ev, id, xy){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  const p=(window.__PEDIDOS||[]).find(x=>x.id===id);
+  if(!p){ toast('Pedido não encontrado na lista — recarregue a tela.','err'); return; }
+  const btn=$('pacmb_'+id);
+  if(window.__PACM_ID===id && !xy){ pedAcoesFechar(); return; } // 2º clique fecha
+  pedAcoesFechar();
+  let m=$('pacm');
+  if(!m){ m=document.createElement('div'); m.id='pacm'; m.setAttribute('role','menu'); document.body.appendChild(m); }
+  window.__PACM_FNS=[];
+  let html=`<div class="pacm-h">${esc(p.numero)}${p.cliente?' · '+esc((p.cliente.fantasia||p.cliente.nome||'').slice(0,24)):''}</div>`;
+  for(const [grupo,itens] of pedAcoesGrupos(p)){
+    if(!itens.length) continue;
+    html += grupo==='__sep' ? '<div class="pacm-sep"></div>' : `<div class="pacm-g" role="presentation">${esc(grupo)}</div>`;
+    for(const it of itens){
+      const i=window.__PACM_FNS.push(it.fn)-1;
+      const dis=it.off?` disabled title="${esc(it.off)}"`:'';
+      html += `<button class="pacm-i${it.danger?' danger':''}" role="menuitem"${dis} onclick="APP.pedAcoesRun(${i})">`
+        + `<span class="pacm-ic">${it.ic}</span><span>${esc(it.lbl)}</span></button>`;
+    }
+  }
+  m.innerHTML=html;
+  m.style.display='block';
+  // Posição: abaixo do botão; se não couber (últimas linhas da tabela), abre para cima.
+  const r = xy ? {left:xy.x,right:xy.x,top:xy.y,bottom:xy.y} : (btn||ev.target).getBoundingClientRect();
+  const h=m.offsetHeight, w=m.offsetWidth;
+  m.style.top = (r.bottom+h+8>window.innerHeight && r.top-h-6>8) ? (r.top-h-6)+'px' : Math.min(r.bottom+6, window.innerHeight-h-8)+'px';
+  m.style.left = Math.max(8, Math.min(r.right-w, window.innerWidth-w-8))+'px';
+  window.__PACM_ID=id; window.__PACM_AT=Date.now();
+  if(btn) btn.setAttribute('aria-expanded','true');
+  const primeiro=m.querySelector('.pacm-i:not([disabled])'); if(primeiro) primeiro.focus({preventScroll:true});
+}
+function pedAcoesFechar(){
+  const m=$('pacm'); if(m) m.style.display='none';
+  if(window.__PACM_ID!=null){ const b=$('pacmb_'+window.__PACM_ID); if(b) b.setAttribute('aria-expanded','false'); }
+  window.__PACM_ID=null; window.__PACM_FNS=[];
+}
+function pedAcoesRun(i){
+  const fn=(window.__PACM_FNS||[])[i];
+  pedAcoesFechar();            // fecha ANTES: a ação costuma abrir modal/janela
+  if(typeof fn==='function') fn();
+}
+// Fecha ao clicar fora, no Esc, ao rolar a página ou redimensionar; setas navegam.
+document.addEventListener('click', e=>{ if(window.__PACM_ID!=null && !e.target.closest('#pacm') && !e.target.closest('.pacm-btn')) pedAcoesFechar(); });
+document.addEventListener('keydown', e=>{
+  if(window.__PACM_ID==null) return;
+  if(e.key==='Escape'){ const b=$('pacmb_'+window.__PACM_ID); pedAcoesFechar(); if(b) b.focus(); return; }
+  if(e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+  const its=[...document.querySelectorAll('#pacm .pacm-i:not([disabled])')];
+  if(!its.length) return;
+  e.preventDefault();
+  const at=its.indexOf(document.activeElement);
+  its[(at + (e.key==='ArrowDown'?1:its.length-1) + its.length) % its.length].focus();
+});
+// Rolar a página fecha o menu (ele é fixo e descolaria da linha). Mas rolar DENTRO
+// do próprio menu não fecha, e o scroll que o foco do 1º item provoca na abertura
+// também não — senão o menu se fechava sozinho no mesmo clique que o abriu.
+window.addEventListener('scroll', e=>{
+  if(window.__PACM_ID==null) return;
+  if(Date.now()-(window.__PACM_AT||0) < 300) return;
+  const t=e.target; if(t && t.closest && t.closest('#pacm')) return;
+  pedAcoesFechar();
+}, true);
+window.addEventListener('resize', ()=>{ if(window.__PACM_ID!=null) pedAcoesFechar(); });
+// Clique direito em qualquer ponto da linha abre o mesmo menu.
+document.addEventListener('contextmenu', e=>{
+  const tr=e.target.closest('tr'); if(!tr) return;
+  const alvo=tr.querySelector('.pedacoes[data-ped]'); if(!alvo) return;
+  pedAcoesMenu(e, Number(alvo.dataset.ped), {x:e.clientX,y:e.clientY});
+});
 
 // Canal dos pedidos PARCIAIS (filhos do desmembramento) — não polui a lista de vendas.
 async function pedParciais(id){
@@ -13922,7 +14042,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
