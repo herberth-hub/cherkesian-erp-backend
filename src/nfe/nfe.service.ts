@@ -208,7 +208,18 @@ export class NfeService {
         placaVeiculo: transportadora.placaVeiculo, ufVeiculo: transportadora.ufVeiculo, rntc: transportadora.rntc,
       } : undefined,
       bonificacao,
+      // ENTREGA de venda futura: a saída NÃO é uma venda nova. O CFOP é o de
+      // "venda originada de encomenda para entrega futura" — 5116 interno, 6116
+      // interestadual (o ajustarCfop vira o 5 em 6). Antes saía como 5101/6101
+      // (venda comum) e a contabilidade lia a mesma mercadoria como vendida duas
+      // vezes: uma no faturamento, outra na entrega.
+      ...(futura ? { cfopOverride: '5116' } : {}),
     });
+    // Referência à NF de venda futura DENTRO do XML (não só no texto das
+    // informações complementares) — é o que amarra a entrega ao faturamento
+    // para a SEFAZ e para o fisco do cliente.
+    if (futura?.chave) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: futura.chave }];
+    if (futura) (payload as Record<string, unknown>).natureza_operacao = 'Venda originada de encomenda para entrega futura';
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFE-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
@@ -1462,7 +1473,8 @@ export class NfeService {
         tipo: 'faturamento',
         status: { in: ['pendente', 'autorizada', 'simulada'] },
       },
-      select: { id: true, numero: true, serie: true },
+      // A CHAVE vem junto: a NF de entrega precisa REFERENCIAR a venda futura no XML.
+      select: { id: true, numero: true, serie: true, chave: true },
       orderBy: { id: 'asc' },
     });
     if (!futuras.length) return null;
