@@ -7957,13 +7957,16 @@ function estBuscaAplica(){
   estRenderChips();
   estRenderLista();
 }
-/** Só a área da lista (mantém o campo de busca vivo e com o cursor onde está). */
+/** Só a área da lista (mantém o campo de busca vivo e com o cursor onde está).
+ *  As views recebem a lista JÁ FILTRADA — sem o argumento elas estouram no
+ *  `for (const u of arr)` e a busca não mostrava nada, em nenhum termo. */
 function estRenderLista(){
   const E=window.__EST;
   if(E.status==='despachado') return estViewDespachadas();
-  if(E.visao==='endereco') return estViewEndereco();
-  if(E.visao==='unidades') return estViewUnidades();
-  return estViewProduto();
+  const arr=estFiltradas();
+  if(E.visao==='endereco') return estViewEndereco(arr);
+  if(E.visao==='unidades') return estViewUnidades(arr);
+  return estViewProduto(arr);
 }
 /**
  * BIPAGEM no Estoque. O leitor manda coisas muito diferentes conforme a etiqueta
@@ -7972,9 +7975,18 @@ function estRenderLista(){
  * a gente só mostra o que ele achou e POSICIONA a lista — e, quando não acha,
  * explica o motivo em vez de deixar a tela vazia sem dizer nada.
  */
+/** Palavra digitada (só letras e espaço, sem dígito) não é código de etiqueta:
+ *  nenhum código do sistema é assim — UN-/PRD-/MP-/EXP, código do cliente, caixa
+ *  e QR sempre têm número, hífen ou barra. Sem isso, dar Enter depois de digitar
+ *  "calça" caía no leitor e devolvia erro vermelho em vez de buscar. */
+function estEhTexto(s){ return /^[\p{L}\s]+$/u.test(s) && !/\d/.test(s); }
 async function estBip(){
   const lido=(val('est_q')||'').trim();
   if(!lido) return;
+  if(estEhTexto(lido)){
+    window.__ESTBIP=''; const b=$('est_bip'); if(b){ b.innerHTML=''; b.style.display='none'; }
+    window.__EST.q=lido; estBuscaAplica(); return;
+  }
   const box=$('est_bip');
   const pinta=html=>{ window.__ESTBIP=html; const b=$('est_bip'); if(b){ b.innerHTML=html; b.style.display=''; } };
   const caixa=(cor,fundo,borda,conteudo)=>`<div style="padding:10px 12px;background:${fundo};border:1px solid ${borda};border-left:4px solid ${cor};border-radius:10px;font-size:13px;line-height:1.5">${conteudo}</div>`;
