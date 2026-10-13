@@ -5973,9 +5973,13 @@ function opFaseBtn(o){
   const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
   if(!prox) return '<span class="pill green" style="font-weight:700">✓ Finalizado</span>';
   const fim = prox.nome==='Finalizado';
-  const label = fim ? '✓ Finalizar (estoque/expedição)' : '▶ '+prox.nome;
+  const r = opRestante(o);
+  // Já houve conclusão parcial: o rótulo diz o que FALTA, senão a pessoa clica
+  // achando que vai fechar a OP inteira e não entende por que ela não fechou.
+  const label = fim ? (r.feito>0 ? `✓ Finalizar (faltam ${r.falta})` : '✓ Finalizar (estoque/expedição)') : '▶ '+prox.nome;
   const cor = fim ? 'background:#1e7a44;color:#fff' : 'background:var(--gold);color:#3a2f08';
-  return `<button class="btn-sm" style="${cor};font-weight:700" title="Avançar para a próxima fase da produção" onclick='APP.opAvancarFase(${JSON.stringify(o).replace(/'/g,"&#39;")})'>${label}</button>`;
+  const tt = fim && r.feito>0 ? `${r.feito} peça(s) já etiquetada(s); faltam ${r.falta}. Dá para fechar só parte de novo.` : 'Avançar para a próxima fase da produção';
+  return `<button class="btn-sm" style="${cor};font-weight:700" title="${esc(tt)}" onclick='APP.opAvancarFase(${JSON.stringify(o).replace(/'/g,"&#39;")})'>${label}</button>`;
 }
 // Avança a OP uma fase. Ao chegar em "Finalizado", abre o popup estoque/expedição + etiqueta.
 async function opAvancarFase(o){
@@ -5994,6 +5998,34 @@ async function opAvancarFase(o){
 }
 const PIL_STATUS = ['em_desenvolvimento','enviada_ao_cliente','aprovada','aprovada_c_ajustes','reprovada'];
 function opPill(s){ const c = s==='concluido'?'green':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
+/** Quanto ainda falta concluir da OP: o CORTADO menos o já etiquetado. */
+function opRestante(o){
+  const base = (o.gradeCortada && Object.keys(o.gradeCortada).length) ? o.gradeCortada
+             : (o.gradeTamanhos && Object.keys(o.gradeTamanhos).length) ? o.gradeTamanhos : null;
+  const feito = o.gradeConcluida || {};
+  if(!base){ const f=Number(o.quantidadeConcluida||0); return { total:Number(o.quantidade||0), feito:f, falta:Math.max(0,Number(o.quantidade||0)-f), porTam:null }; }
+  const porTam={}; let total=0, falta=0;
+  for(const [t,n] of Object.entries(base)){
+    const r=Number(n)-Number(feito[t]||0);
+    total+=Number(n); if(r>0){ porTam[t]=r; falta+=r; }
+  }
+  return { total, feito: total-falta, falta, porTam };
+}
+/**
+ * Célula de QUANTIDADE. Depois de uma conclusão parcial a linha continuava
+ * mostrando só o planejado (26), sem nenhum sinal de que 6 já tinham saído
+ * etiquetadas — quem olhava a lista não sabia o que ainda faltava produzir.
+ */
+function opQtdCell(o){
+  const r = opRestante(o);
+  if(!r.feito || o.status==='concluido') return String(o.quantidade);
+  const det = r.porTam && Object.keys(r.porTam).length ? Object.entries(r.porTam).map(([t,q])=>esc(t)+': '+q).join(' · ') : '';
+  return `${o.quantidade}`
+    + `<div style="font-size:10.5px;line-height:1.35;margin-top:2px">`
+    + `<span style="color:#1e7a44;font-weight:700">✓ ${r.feito} etiquetada(s)</span>`
+    + (r.falta>0?`<div style="color:#8a5a00;font-weight:600">faltam ${r.falta}${det?' · '+det:''}</div>`:'')
+    + `</div>`;
+}
 function pilPill(s){ const c = (s==='aprovada'||s==='aprovada_c_ajustes')?'green':(s==='reprovada'?'red':(s==='enviada_ao_cliente'?'blue':'gold')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
 function ocPill(s){ const c = s==='recebida'?'green':(s==='cancelada'?'red':'gold'); return `<span class="pill ${c}">${esc(s)}</span>`; }
 function prioPill(p){ const c = p==='alta'?'red':(p==='baixa'?'gray':'gold'); return `<span class="pill ${c}">${esc(p)}</span>`; }
@@ -6050,7 +6082,7 @@ function opsKanban(arr){
   return `<div class="kanban">${cols.map((col,ci)=>{
     const items=arr.filter(col.t);
     return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4><div class="kbody">${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
-      <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${o.quantidade} pç</span></div>
+      <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${(()=>{const r=opRestante(o); return r.feito&&o.status!=='concluido' ? `${r.falta} de ${o.quantidade} pç` : `${o.quantidade} pç`;})()}</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
       ${opOsBadges(o)}
@@ -6177,7 +6209,7 @@ function opsFlat(arr, sort){
       <td><span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</td>
       <td style="min-width:150px;font-size:12.5px">${o.produtoDescricao?esc(o.produtoDescricao):'—'}${o.cor?' <span class="muted">· '+esc(o.cor)+'</span>':''}${opOsBadges(o)}</td>
       <td>${ped}</td>
-      <td>${o.quantidade}</td><td>${opPill(o.status)}</td>
+      <td>${opQtdCell(o)}</td><td>${opPill(o.status)}</td>
       <td><b>${esc(o.setorAtual||'—')}</b></td><td>${prioPill(o.prioridade)}</td>
       <td style="white-space:nowrap">${vencCel}</td>
       <td>${opAcoesHtml(o)}</td></tr>`;
@@ -6322,7 +6354,7 @@ function opsAgrupadas(arr, verFin){
     const rows=g.ops.map(o=>`<tr>
       <td><span class="mono gold">${esc(o.numero)}</span>${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</td>
       <td style="min-width:150px;font-size:12.5px">${o.produtoDescricao?esc(o.produtoDescricao):'—'}${o.cor?' <span class="muted">· '+esc(o.cor)+'</span>':''}${opOsBadges(o)}</td>
-      <td>${o.quantidade}</td><td>${opPill(o.status)}</td><td style="min-width:110px">${bar(o.progresso)}</td>
+      <td>${opQtdCell(o)}</td><td>${opPill(o.status)}</td><td style="min-width:110px">${bar(o.progresso)}</td>
       <td><b>${esc(o.setorAtual||'—')}</b></td><td>${prioPill(o.prioridade)}</td><td>${opAcoes(o)}</td></tr>`).join('');
     return `<div class="panel" style="margin-bottom:14px;overflow:hidden">${head}<div style="overflow-x:auto"><table><thead><tr><th>OP</th><th>Produto</th><th>Qtd</th><th>Status</th><th>Progresso</th><th>Fase atual</th><th>Prioridade</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }).join('');
