@@ -5979,7 +5979,17 @@ function opFaseBtn(o){
   const label = fim ? (r.feito>0 ? `✓ Finalizar (faltam ${r.falta})` : '✓ Finalizar (estoque/expedição)') : '▶ '+prox.nome;
   const cor = fim ? 'background:#1e7a44;color:#fff' : 'background:var(--gold);color:#3a2f08';
   const tt = fim && r.feito>0 ? `${r.feito} peça(s) já etiquetada(s); faltam ${r.falta}. Dá para fechar só parte de novo.` : 'Avançar para a próxima fase da produção';
-  return `<button class="btn-sm" style="${cor};font-weight:700" title="${esc(tt)}" onclick='APP.opAvancarFase(${JSON.stringify(o).replace(/'/g,"&#39;")})'>${label}</button>`;
+  const botao = `<button class="btn-sm" style="${cor};font-weight:700" title="${esc(tt)}" onclick='APP.opAvancarFase(${JSON.stringify(o).replace(/'/g,"&#39;")})'>${label}</button>`;
+  // Grade espalhada: parte já chegou ao Acabamento mas a OP ainda mostra a fase
+  // mais atrasada, então o botão principal não é o de finalizar. Sem este atalho
+  // a pessoa não tinha como etiquetar o que terminou sem caçar dentro do avanço.
+  if(fim) return botao;
+  const fases = opFases(o);
+  const noFim = fases['Acabamento'] || {};
+  const nFim = Object.values(noFim).reduce((s,q)=>s+Number(q||0),0);
+  if(!nFim) return botao;
+  const g = JSON.stringify(noFim).replace(/'/g,"&#39;");
+  return botao + ` <button class="btn-sm" style="background:#1e7a44;color:#fff;font-weight:700" title="${nFim} peça(s) já no Acabamento — gerar etiqueta só delas, sem mexer no resto" onclick='APP.opConcluirEtiquetas(${o.id}, ${g})'>✓ Etiquetar ${nFim}</button>`;
 }
 /** Onde cada tamanho está: { fase: { tam: qtd } }. Sem registro, tudo no setor atual. */
 function opFases(o){
@@ -6039,11 +6049,15 @@ function opAvancarDe(paraPreferido){
   A.de = de;
   A.naFase = A.fases[de] || {};
   const iDe = OP_FASES.findIndex(f=>f.nome===de);
-  // Destinos possíveis: toda fase DEPOIS da origem (dá para pular etapa — nem
-  // toda peça passa por estamparia). "Finalizado" sai: fechar é pela etiqueta.
-  const destinos = OP_FASES.slice(iDe+1).map(f=>f.nome).filter(n=>n!=='Finalizado');
+  // Destinos: toda fase DEPOIS da origem (dá para pular etapa — nem toda peça
+  // passa por estamparia), mais "Finalizado", que leva para as etiquetas.
+  // Sem o Finalizado aqui, quem estava em Acabamento ficava sem saída: a lista
+  // vinha vazia e não havia como etiquetar a parte que já tinha chegado ao fim,
+  // porque o botão "Finalizar" da linha só aparece com a OP INTEIRA no fim.
+  const destinos = OP_FASES.slice(iDe+1).map(f=>f.nome);
+  const rotulo = n => n==='Finalizado' ? 'Finalizado · gerar etiquetas' : n;
   const sel=$('av_para');
-  if(sel) sel.innerHTML = destinos.map(n=>`<option value="${esc(n)}"${n===(paraPreferido||destinos[0])?' selected':''}>${esc(n)}</option>`).join('');
+  if(sel) sel.innerHTML = destinos.map(n=>`<option value="${esc(n)}"${n===(paraPreferido||destinos[0])?' selected':''}>${esc(rotulo(n))}</option>`).join('');
   const tams = Object.keys(A.naFase).filter(t=>Number(A.naFase[t])>0);
   const el=$('av_linhas');
   if(el) el.innerHTML = tams.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0ebdc">
@@ -6075,6 +6089,9 @@ async function opAvancarConfirmar(){
   const grade={};
   Object.keys(A.naFase||{}).forEach(t=>{ const el=$('avq_'+t); const q=el?Math.max(0,Math.min(Number(el.value)||0,Number(A.naFase[t]))):0; if(q>0) grade[t]=q; });
   if(!Object.keys(grade).length){ toast('Informe ao menos 1 peça para avançar.','err'); return; }
+  // Finalizar não é mover de fase: é gerar etiqueta. Abre a tela de conclusão
+  // LIMITADA a estas peças, para não arrastar o que ainda está lá atrás.
+  if(para==='Finalizado'){ closeModal(); return opConcluirEtiquetas(A.id, grade); }
   try{
     const r=await api('/ops/'+A.id+'/avancar-fase',{method:'PATCH',body:{de, para, grade}});
     closeModal();
@@ -6570,10 +6587,20 @@ function formOp(o){
 
 // Ao finalizar a fabricação: gera etiqueta unitária por peça (uma por tamanho da grade)
 // e o operador escolhe se vai ESTOCAR ou ir DIRETO PRA EXPEDIÇÃO despachar pro cliente.
-async function opConcluirEtiquetas(id){
+/** `limite` restringe a conclusão a certas peças (ex.: só as que chegaram ao Acabamento). */
+async function opConcluirEtiquetas(id, limite){
   let d;
   try{ const r = await api('/ops/'+id+'/etiqueta'); d = r.dados || r; }
   catch(e){ toast(e.message,'err'); return; }
+  if(limite && Object.keys(limite).length){
+    const rest = d.gradeRestanteObj || {};
+    const corte = {};
+    for(const [t,q] of Object.entries(limite)){
+      const max = Math.min(Number(q)||0, Number(rest[t]!=null?rest[t]:q)||0);
+      if(max>0) corte[t]=max;
+    }
+    d = { ...d, gradeRestanteObj: corte };
+  }
   const descProd = (d.produto||'').split('·').slice(1).join('·').trim() || (d.produto||'').trim() || 'PRODUTO';
   const refProd = (d.produto||'').split('·')[0].trim();
   // grade "P:10, M:20" -> [[P,10],[M,20]]; se não houver, usa a quantidade total.
