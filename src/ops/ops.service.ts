@@ -467,16 +467,35 @@ export class OpsService {
     const totalBase = Object.values(base).reduce((s, n) => s + Number(n), 0);
     const completou = totalConcluido >= totalBase;
 
+    // Peça concluída sai do mapa de fases — senão continuaria contada como "em
+    // produção" em alguma etapa depois de já ter virado etiqueta.
+    const fases = op.gradeFases ? this.fasesDaOp(op) : null;
+    if (fases) {
+      for (const [t, n] of Object.entries(agora)) {
+        let falta = n;
+        // Tira primeiro das fases mais adiantadas: é de lá que a peça pronta saiu.
+        for (let i = OpsService.FASES.length - 1; i >= 0 && falta > 0; i--) {
+          const f = OpsService.FASES[i]; const g = fases[f]; if (!g || !g[t]) continue;
+          const tira = Math.min(falta, Number(g[t]));
+          g[t] = Number(g[t]) - tira; falta -= tira;
+          if (g[t] <= 0) delete g[t];
+          if (!Object.keys(g).length) delete fases[f];
+        }
+      }
+    }
+    const resumo = fases ? this.resumoDasFases(fases) : null;
+
     const atualizada = await this.prisma.oP.update({
       where: { id },
       data: {
         gradeConcluida: novo as Prisma.InputJsonValue,
         quantidadeConcluida: totalConcluido,
-        // Completou: fecha. Não completou: NÃO mexe em status nem em setorAtual —
-        // o resto da OP continua exatamente onde estava.
+        ...(fases ? { gradeFases: fases as Prisma.InputJsonValue } : {}),
+        // Completou: fecha. Não completou: NÃO mexe em status — o resto da OP
+        // continua em produção, no setor da peça mais atrasada que sobrou.
         ...(completou
           ? { status: 'concluido' as OPStatus, setorAtual: 'Finalizado', progresso: 100 }
-          : {}),
+          : (resumo && resumo.faseMaisAtrasada ? { setorAtual: resumo.faseMaisAtrasada, progresso: resumo.progresso } : {})),
       },
     });
     return {
@@ -487,6 +506,101 @@ export class OpsService {
       restante: this.restanteDaConclusao(base, novo),
       finalizada: completou,
     };
+  }
+
+  /** Fases da produção, na ordem. Igual à tela — é a mesma régua. */
+  private static readonly FASES = ['Risco CAD', 'Corte', 'Separação 1', 'Estamparia/Bordado', 'Separação 2', 'Costura', 'Acabamento'];
+  private static readonly PROG: Record<string, number> = {
+    'Risco CAD': 5, Corte: 15, 'Separação 1': 30, 'Estamparia/Bordado': 45, 'Separação 2': 60, Costura: 75, Acabamento: 90,
+  };
+
+  /** Onde cada tamanho está hoje. Sem registro por fase, tudo está em setorAtual. */
+  private fasesDaOp(op: OP): Record<string, Record<string, number>> {
+    const atual = (op.gradeFases as Record<string, Record<string, number>> | null) ?? null;
+    if (atual && Object.keys(atual).length) return JSON.parse(JSON.stringify(atual));
+    const base = this.baseDaConclusao(op);
+    const feito = (op.gradeConcluida as Record<string, number> | null) ?? {};
+    const pendente: Record<string, number> = {};
+    for (const [t, n] of Object.entries(base)) {
+      const r = Number(n) - Number(feito[t] ?? 0);
+      if (r > 0) pendente[t] = r;
+    }
+    const fase = this.faseConhecida(op.setorAtual) ?? 'Separação 1';
+    return Object.keys(pendente).length ? { [fase]: pendente } : {};
+  }
+
+  /** Normaliza o setor gravado para um nome de fase conhecido ("Separação 1 · corte parcial" → "Separação 1"). */
+  private faseConhecida(setor?: string | null): string | null {
+    const s = (setor ?? '').toLowerCase();
+    for (let i = OpsService.FASES.length - 1; i >= 0; i--) {
+      if (s.includes(OpsService.FASES[i].toLowerCase())) return OpsService.FASES[i];
+    }
+    return null;
+  }
+
+  /**
+   * Avança parte da grade para a próxima fase. Serve para priorizar um tamanho —
+   * adiantar o GG para entregar parcial — sem arrastar a grade inteira junto.
+   */
+  async avancarFaseParcial(id: number, de: string, para: string, grade: Record<string, unknown>, empresaId: number) {
+    const op = await this.findOne(id, empresaId);
+    const iDe = OpsService.FASES.indexOf(de);
+    const iPara = OpsService.FASES.indexOf(para);
+    if (iDe < 0) throw new BadRequestException(`Fase de origem desconhecida: "${de}".`);
+    if (iPara < 0) throw new BadRequestException(`Fase de destino desconhecida: "${para}".`);
+    if (iPara <= iDe) throw new BadRequestException('A fase de destino tem de vir depois da de origem.');
+
+    const fases = this.fasesDaOp(op);
+    const naOrigem = fases[de] ?? {};
+    const mover: Record<string, number> = {};
+    let soma = 0;
+    for (const [tamanho, qtd] of Object.entries(grade ?? {})) {
+      const t = String(tamanho).trim().toUpperCase();
+      const n = Number(qtd);
+      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${t}: "${qtd}".`);
+      if (n === 0) continue;
+      const tem = Number(naOrigem[t] ?? 0);
+      if (tem <= 0) throw new BadRequestException(`${t} não tem peça em "${de}".`);
+      if (n > tem) throw new BadRequestException(`${t}: há ${tem} peça(s) em "${de}", não ${n}.`);
+      mover[t] = n; soma += n;
+    }
+    if (soma <= 0) throw new BadRequestException('Informe ao menos 1 peça para avançar.');
+
+    for (const [t, n] of Object.entries(mover)) {
+      naOrigem[t] = Number(naOrigem[t]) - n;
+      if (naOrigem[t] <= 0) delete naOrigem[t];
+      fases[para] = fases[para] ?? {};
+      fases[para][t] = Number(fases[para][t] ?? 0) + n;
+    }
+    if (!Object.keys(naOrigem).length) delete fases[de]; else fases[de] = naOrigem;
+
+    const resumo = this.resumoDasFases(fases);
+    const atualizada = await this.prisma.oP.update({
+      where: { id },
+      data: {
+        gradeFases: fases as Prisma.InputJsonValue,
+        // O setor da OP passa a ser a fase MAIS ATRASADA que ainda tem peça: a
+        // ordem não está pronta enquanto a peça mais lenta não chegar lá.
+        setorAtual: resumo.faseMaisAtrasada ?? op.setorAtual,
+        progresso: resumo.progresso,
+        status: 'em_producao' as OPStatus,
+      },
+    });
+    return { ...atualizada, fases, moveu: mover, total: soma, resumo };
+  }
+
+  /** Fase mais atrasada e progresso ponderado pelas peças. */
+  private resumoDasFases(fases: Record<string, Record<string, number>>) {
+    let faseMaisAtrasada: string | null = null;
+    let pecas = 0, soma = 0;
+    for (const fase of OpsService.FASES) {
+      const g = fases[fase]; if (!g) continue;
+      const n = Object.values(g).reduce((s, x) => s + Number(x), 0);
+      if (n <= 0) continue;
+      if (!faseMaisAtrasada) faseMaisAtrasada = fase;
+      pecas += n; soma += n * (OpsService.PROG[fase] ?? 0);
+    }
+    return { faseMaisAtrasada, progresso: pecas ? Math.round(soma / pecas) : 0, pecas };
   }
 
   /** O que ainda dá para concluir: o CORTADO quando houve corte, senão o planejado. */

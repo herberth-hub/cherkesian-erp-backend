@@ -126,6 +126,17 @@ export class OpsController {
     return this.opsService.concluirParcial(id, body?.grade ?? {}, user.empresaId);
   }
 
+  /** Avança PARTE da grade de fase (priorizar um tamanho sem levar o resto junto). */
+  @Areas('pcp', 'producao')
+  @Patch(':id/avancar-fase')
+  avancarFase(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { de?: string; para?: string; grade?: Record<string, unknown> },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.avancarFaseParcial(id, String(body?.de ?? ''), String(body?.para ?? ''), body?.grade ?? {}, user.empresaId);
+  }
+
   @Patch(':id/progresso')
   updateProgresso(
     @Param('id', ParseIntPipe) id: number,

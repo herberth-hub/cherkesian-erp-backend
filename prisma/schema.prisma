@@ -823,6 +823,11 @@ model OP {
   // a OP só é finalizada quando chega no total cortado.
   gradeConcluida Json?    // quantidade já concluída/etiquetada por tamanho
   quantidadeConcluida Int @default(0) // total já concluído (soma da gradeConcluida)
+  // ONDE CADA TAMANHO ESTÁ. A OP tinha uma fase só para tudo, então priorizar um
+  // tamanho (adiantar o GG para entregar parcial) era impossível: avançar levava
+  // a grade inteira junto. Formato: { "<fase>": { "<tamanho>": qtd } }.
+  // Nulo = OP antiga/ainda não movimentada por tamanho: tudo está em setorAtual.
+  gradeFases     Json?
   lotes          Lote[]
 }
 
