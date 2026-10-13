@@ -342,6 +342,15 @@ export class OpsService {
     if (dto.status === 'concluido') {
       data.progresso = 100;
     }
+    // Forçar o setor pela tela de ajuste move a OP INTEIRA para lá — é o que a
+    // pessoa quer dizer ao escolher um setor na mão. Sem isso o mapa por tamanho
+    // ficava apontando a fase antiga e o avanço por tamanho não achava peça.
+    const faseForcada = this.faseConhecida(dto.setorAtual);
+    if (faseForcada) {
+      const op = await this.prisma.oP.findUnique({ where: { id } });
+      if (op) data.gradeFases = (this.mapaNumaFase(op, faseForcada) ?? {}) as Prisma.InputJsonValue;
+    }
+    if (dto.status === 'concluido') data.gradeFases = {} as Prisma.InputJsonValue;
     const atualizada = await this.prisma.oP.update({ where: { id }, data });
     // Ao concluir a última OP do pedido, avança o pedido para EXPEDIÇÃO (libera a NF).
     if (dto.status === 'concluido' && atualizada.pedidoId) {
@@ -375,9 +384,11 @@ export class OpsService {
         `A grade soma ${total} peças, mas a OP tem ${op.quantidade}. Ajuste as quantidades.`,
       );
     }
+    // Mexeu na grade, o mapa por tamanho envelheceu: zera para ser refeito na
+    // próxima leitura, a partir da grade nova.
     return this.prisma.oP.update({
       where: { id },
-      data: { gradeTamanhos: total > 0 ? limpa : undefined },
+      data: { gradeTamanhos: total > 0 ? limpa : undefined, ...(total > 0 ? { gradeFases: Prisma.DbNull } : {}) },
     });
   }
 
@@ -420,6 +431,10 @@ export class OpsService {
     }
     const totalExcedente = Object.values(excedente).reduce((s, n) => s + n, 0);
     const parcial = total < op.quantidade;
+    // O corte redefine QUANTAS peças existem. O mapa de fases tem de ser refeito
+    // junto, senão fica apontando a grade planejada numa fase antiga e o avanço
+    // por tamanho não acha peça nenhuma.
+    const fasesPosCorte = this.mapaNumaFase({ ...op, gradeCortada: limpa } as OP, 'Separação 1');
     const op2 = await this.prisma.oP.update({
       where: { id },
       data: {
@@ -430,6 +445,7 @@ export class OpsService {
         status: 'em_producao',
         setorAtual: parcial ? 'Separação 1 · corte parcial' : 'Separação 1',
         progresso: op.progresso < 30 ? 30 : op.progresso,
+        gradeFases: (fasesPosCorte ?? {}) as Prisma.InputJsonValue,
       },
     });
     return { ...op2, excedente, totalExcedente } as OP & { excedente: Record<string, number>; totalExcedente: number };
@@ -514,10 +530,8 @@ export class OpsService {
     'Risco CAD': 5, Corte: 15, 'Separação 1': 30, 'Estamparia/Bordado': 45, 'Separação 2': 60, Costura: 75, Acabamento: 90,
   };
 
-  /** Onde cada tamanho está hoje. Sem registro por fase, tudo está em setorAtual. */
-  private fasesDaOp(op: OP): Record<string, Record<string, number>> {
-    const atual = (op.gradeFases as Record<string, Record<string, number>> | null) ?? null;
-    if (atual && Object.keys(atual).length) return JSON.parse(JSON.stringify(atual));
+  /** O que ainda está em produção: o cortado (ou planejado) menos o já etiquetado. */
+  private pendenteDaOp(op: OP): Record<string, number> {
     const base = this.baseDaConclusao(op);
     const feito = (op.gradeConcluida as Record<string, number> | null) ?? {};
     const pendente: Record<string, number> = {};
@@ -525,7 +539,43 @@ export class OpsService {
       const r = Number(n) - Number(feito[t] ?? 0);
       if (r > 0) pendente[t] = r;
     }
+    return pendente;
+  }
+
+  /**
+   * Onde cada tamanho está hoje. Sem registro por fase, tudo está em setorAtual.
+   *
+   * O mapa é CONFERIDO contra o pendente real antes de ser usado: registrar o
+   * corte, mexer na grade ou forçar o setor pela tela de ajuste mudam a verdade
+   * da OP sem passar por aqui, e um mapa velho fazia o avanço dizer "não há peça
+   * nesta fase" numa OP cheia de peça (OP-0205: mapa em Corte com a grade
+   * planejada, OP já em Separação 1 com só 12 peças cortadas). Quando os totais
+   * por tamanho não batem, o mapa é refeito a partir do que a OP tem de fato.
+   */
+  private fasesDaOp(op: OP): Record<string, Record<string, number>> {
+    const pendente = this.pendenteDaOp(op);
+    const atual = (op.gradeFases as Record<string, Record<string, number>> | null) ?? null;
+    if (atual && Object.keys(atual).length && this.mapaConfere(atual, pendente)) {
+      return JSON.parse(JSON.stringify(atual));
+    }
     const fase = this.faseConhecida(op.setorAtual) ?? 'Separação 1';
+    return Object.keys(pendente).length ? { [fase]: pendente } : {};
+  }
+
+  /** O mapa de fases bate, tamanho a tamanho, com o que a OP ainda tem em produção? */
+  private mapaConfere(mapa: Record<string, Record<string, number>>, pendente: Record<string, number>): boolean {
+    const soma: Record<string, number> = {};
+    for (const g of Object.values(mapa)) {
+      for (const [t, n] of Object.entries(g ?? {})) if (Number(n) > 0) soma[t] = (soma[t] ?? 0) + Number(n);
+    }
+    const tams = new Set([...Object.keys(soma), ...Object.keys(pendente)]);
+    for (const t of tams) if (Number(soma[t] ?? 0) !== Number(pendente[t] ?? 0)) return false;
+    return true;
+  }
+
+  /** Mapa de fases com TUDO que está pendente numa fase só (usado quando a OP é remexida). */
+  private mapaNumaFase(op: OP, fase: string): Record<string, Record<string, number>> | null {
+    const pendente = this.pendenteDaOp(op);
     return Object.keys(pendente).length ? { [fase]: pendente } : {};
   }
 

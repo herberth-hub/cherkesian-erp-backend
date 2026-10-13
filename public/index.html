@@ -6008,31 +6008,55 @@ async function opAvancarFase(o){
  */
 function opAvancarForm(o, de, para){
   const fases = opFases(o);
-  const naFase = fases[de] || {};
-  const tams = Object.keys(naFase).filter(t=>Number(naFase[t])>0);
-  if(!tams.length){
-    toast('Não há peça em "'+de+'" para avançar.','err');
-    return;
-  }
-  window.__AVF = { id:o.id, numero:o.numero, de, para, naFase };
-  const linhas = tams.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0ebdc">
-      <b style="min-width:56px;font-size:13px">${esc(t)||'(sem tam)'}</b>
-      <input id="avq_${esc(t)}" class="inp" type="number" min="0" max="${naFase[t]}" value="${naFase[t]}" style="width:92px;padding:5px 8px" oninput="APP.opAvancarSoma()">
-      <span class="muted" style="font-size:11.5px">de ${naFase[t]} em ${esc(de)}</span>
-    </div>`).join('');
-  const total = tams.reduce((s,t)=>s+Number(naFase[t]),0);
-  // Onde está o resto da OP (outras fases) — contexto para decidir
-  const outras = Object.entries(fases).filter(([f])=>f!==de)
-    .map(([f,g])=>`${esc(f)}: ${Object.entries(g).map(([t,q])=>esc(t)+' '+q).join(', ')}`);
+  // Toda fase que tem peça pode ser a origem. Sem isso o botão só mirava a fase
+  // MAIS ATRASADA, e as peças já adiantadas ficavam presas: quem mandou o GG na
+  // frente não conseguia continuar empurrando ele sem mexer no que ficou atrás.
+  const comPeca = OP_FASES.map(f=>f.nome).filter(f=>fases[f] && Object.values(fases[f]).some(q=>Number(q)>0));
+  if(!comPeca.length){ toast('Esta OP não tem peça em produção para avançar.','err'); return; }
+  if(!comPeca.includes(de)) de = comPeca[0];
+  window.__AVF = { id:o.id, numero:o.numero, fases, comPeca,
+    produto:(o.produtoDescricao||'')+(o.cor?' · '+o.cor:'') };
   openModal(`<h3>▶ Avançar OP ${esc(o.numero)}</h3>
-    <div class="r" style="margin-bottom:6px"><b>${esc(de)}</b> → <b style="color:#1e7a44">${esc(para)}</b>${o.produtoDescricao?' · '+esc(o.produtoDescricao):''}${o.cor?' · '+esc(o.cor):''}</div>
-    <div class="muted" style="font-size:12px;margin-bottom:6px">Quantas peças de cada tamanho avançam agora? Deixe tudo para levar a grade inteira, ou reduza para <b>priorizar um tamanho</b> — o resto fica em ${esc(de)}.</div>
-    <div style="margin-bottom:8px">${linhas}
-      <div style="padding:7px 0;font-size:12.5px">Avançando: <b id="av_soma">${total}</b> de ${total}
-        <span id="av_aviso" class="muted" style="margin-left:8px"></span></div></div>
-    ${outras.length?`<div class="card" style="background:#f7f5ef;border-color:#e4ddc8;font-size:11.5px;margin-bottom:8px">Resto da OP: ${outras.join(' &nbsp;·&nbsp; ')}</div>`:''}
+    <div class="r" style="margin-bottom:8px;font-size:12.5px">${esc(window.__AVF.produto||'')}</div>
+    <div class="grid2" style="margin-bottom:4px">
+      <div><label class="fl">Avançar de</label>
+        <select id="av_de" class="inp" onchange="APP.opAvancarDe()">${comPeca.map(f=>{
+          const n=Object.values(fases[f]).reduce((s,q)=>s+Number(q),0);
+          return `<option value="${esc(f)}"${f===de?' selected':''}>${esc(f)} · ${n} pç</option>`;}).join('')}</select></div>
+      <div><label class="fl">Para</label><select id="av_para" class="inp"></select></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin:2px 0 6px">Quantas peças de cada tamanho avançam agora? Deixe tudo para levar a grade inteira, ou reduza para <b>priorizar um tamanho</b> — o resto fica onde está.</div>
+    <div id="av_linhas" style="margin-bottom:8px"></div>
+    <div id="av_resto"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.opAvancarConfirmar()">Avançar</button></div>`);
+  opAvancarDe(para);
+}
+/** Redesenha os tamanhos e os destinos quando muda a fase de origem. */
+function opAvancarDe(paraPreferido){
+  const A=window.__AVF; if(!A) return;
+  const de = val('av_de') || A.comPeca[0];
+  A.de = de;
+  A.naFase = A.fases[de] || {};
+  const iDe = OP_FASES.findIndex(f=>f.nome===de);
+  // Destinos possíveis: toda fase DEPOIS da origem (dá para pular etapa — nem
+  // toda peça passa por estamparia). "Finalizado" sai: fechar é pela etiqueta.
+  const destinos = OP_FASES.slice(iDe+1).map(f=>f.nome).filter(n=>n!=='Finalizado');
+  const sel=$('av_para');
+  if(sel) sel.innerHTML = destinos.map(n=>`<option value="${esc(n)}"${n===(paraPreferido||destinos[0])?' selected':''}>${esc(n)}</option>`).join('');
+  const tams = Object.keys(A.naFase).filter(t=>Number(A.naFase[t])>0);
+  const el=$('av_linhas');
+  if(el) el.innerHTML = tams.map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0ebdc">
+      <b style="min-width:56px;font-size:13px">${esc(t)||'(sem tam)'}</b>
+      <input id="avq_${esc(t)}" class="inp" type="number" min="0" max="${A.naFase[t]}" value="${A.naFase[t]}" style="width:92px;padding:5px 8px" oninput="APP.opAvancarSoma()">
+      <span class="muted" style="font-size:11.5px">de ${A.naFase[t]} em ${esc(de)}</span>
+    </div>`).join('')
+    + `<div style="padding:7px 0;font-size:12.5px">Avançando: <b id="av_soma">0</b> de ${tams.reduce((s,t)=>s+Number(A.naFase[t]),0)}
+        <span id="av_aviso" class="muted" style="margin-left:8px"></span></div>`;
+  const outras = Object.entries(A.fases).filter(([f])=>f!==de && Object.values(A.fases[f]||{}).some(q=>Number(q)>0))
+    .map(([f,g])=>`${esc(f)}: ${Object.entries(g).filter(([,q])=>Number(q)>0).map(([t,q])=>esc(t)+' '+q).join(', ')}`);
+  const r=$('av_resto');
+  if(r) r.innerHTML = outras.length?`<div class="card" style="background:#f7f5ef;border-color:#e4ddc8;font-size:11.5px;margin-bottom:8px">Resto da OP: ${outras.join(' &nbsp;·&nbsp; ')}</div>`:'';
   opAvancarSoma();
 }
 function opAvancarSoma(){
@@ -6046,14 +6070,16 @@ function opAvancarSoma(){
 }
 async function opAvancarConfirmar(){
   const A=window.__AVF; if(!A) return;
+  const de=val('av_de')||A.de, para=val('av_para');
+  if(!para){ toast('Escolha a fase de destino.','err'); return; }
   const grade={};
-  Object.keys(A.naFase).forEach(t=>{ const el=$('avq_'+t); const q=el?Math.max(0,Math.min(Number(el.value)||0,Number(A.naFase[t]))):0; if(q>0) grade[t]=q; });
+  Object.keys(A.naFase||{}).forEach(t=>{ const el=$('avq_'+t); const q=el?Math.max(0,Math.min(Number(el.value)||0,Number(A.naFase[t]))):0; if(q>0) grade[t]=q; });
   if(!Object.keys(grade).length){ toast('Informe ao menos 1 peça para avançar.','err'); return; }
   try{
-    const r=await api('/ops/'+A.id+'/avancar-fase',{method:'PATCH',body:{de:A.de, para:A.para, grade}});
+    const r=await api('/ops/'+A.id+'/avancar-fase',{method:'PATCH',body:{de, para, grade}});
     closeModal();
-    const fica=(r.fases&&r.fases[A.de])?Object.entries(r.fases[A.de]).map(([t,q])=>t+': '+q).join(' · '):'';
-    toast('OP '+A.numero+' · '+r.total+' peça(s) em '+A.para+(fica?' · ficam em '+A.de+': '+fica:''),'ok');
+    const fica=(r.fases&&r.fases[de])?Object.entries(r.fases[de]).map(([t,q])=>t+': '+q).join(' · '):'';
+    toast('OP '+A.numero+' · '+r.total+' peça(s) em '+para+(fica?' · ficam em '+de+': '+fica:''),'ok');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -14240,7 +14266,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opAvancarForm, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
