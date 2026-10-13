@@ -814,10 +814,15 @@ model OP {
   prioridade     Prioridade @default(media)
   gradeTamanhos  Json?    // distribuição planejada por tamanho, ex.: {"P":10,"M":20,"G":8}
   romaneioMateriais Json? // materiais do corte (BOM × qtd) c/ conferência: [{materialId,codigo,descricao,quantidade,unidade,conferido,...}]
-  gradeCortada   Json?    // quantidade REALMENTE cortada por tamanho (corte parcial se acabar tecido)
+  gradeCortada   Json?    // quantidade REALMENTE cortada por tamanho; pode passar do planejado
   quantidadeCortada Int?  // total cortado (soma da gradeCortada)
   corteParcial   Boolean  @default(false) // true quando cortou menos que o planejado
   corteObs       String?  // observação do corte (ex.: "acabou o tecido, faltou G1/G2")
+  // CONCLUSÃO PARCIAL: dá para fechar só parte da grade (etiquetar o que ficou
+  // pronto) e deixar o resto da OP na fase em que está. Acumula a cada rodada;
+  // a OP só é finalizada quando chega no total cortado.
+  gradeConcluida Json?    // quantidade já concluída/etiquetada por tamanho
+  quantidadeConcluida Int @default(0) // total já concluído (soma da gradeConcluida)
   lotes          Lote[]
 }
 

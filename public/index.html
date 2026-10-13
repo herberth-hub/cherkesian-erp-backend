@@ -6454,11 +6454,34 @@ async function opConcluirEtiquetas(id){
   } else {
     (d.grade||'').split(/[\s,;]+/).forEach(par=>{ const [t,q]=par.split(/[:=]/).map(s=>(s||'').trim()); if(t&&q&&Number(q)>0) pares.push([t.toUpperCase(),Number(q)]); });
   }
-  const totalGrade = pares.reduce((s,p)=>s+p[1],0);
-  const linhas = pares.length ? pares.map(([t,q])=>`${t}: <b>${q}</b>`).join(' &nbsp;·&nbsp; ') : `<b>${d.quantidade}</b> peças (sem grade)`;
+  // O que AINDA dá para concluir (desconta rodadas parciais anteriores).
+  const restante = d.gradeRestanteObj && Object.keys(d.gradeRestanteObj).length ? d.gradeRestanteObj : null;
+  const feito = d.gradeConcluidaObj || {};
+  const excedente = d.gradeExcedenteObj || {};
+  const paresRest = restante
+    ? Object.entries(restante).map(([t,q])=>[String(t).toUpperCase(), Number(q)]).filter(p=>p[1]>0)
+    : pares;
+  if(!paresRest.length){ toast('Esta OP já foi toda concluída.','err'); return; }
+  const totalRest = paresRest.reduce((s,p)=>s+p[1],0);
+  const jaFeito = Object.values(feito).reduce((s,q)=>s+Number(q||0),0);
+  // Uma linha por tamanho, com a quantidade EDITÁVEL: é o que permite fechar só
+  // parte da grade e deixar o resto da OP na fase em que está.
+  const linhasQtd = paresRest.map(([t,q])=>{
+    const ex = Number(excedente[t]||0);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #f0ebdc">
+      <b style="min-width:52px;font-size:13px">${esc(t)||'(sem tam)'}</b>
+      <input id="ocq_${esc(t)}" class="inp" type="number" min="0" max="${q}" value="${q}" style="width:88px;padding:5px 8px" oninput="APP.opConcluirSoma()">
+      <span class="muted" style="font-size:11.5px">de ${q} disponível(is)</span>
+      ${ex>0?`<span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9.5px" title="Peças que o corte rendeu a mais do que o pedido pediu. Vão para ESTOQUE LIVRE, sem reserva.">+${ex} excedente → estoque</span>`:''}
+    </div>`;
+  }).join('');
   openModal(`<h3>Finalizar OP ${esc(d.op)} · Etiquetas</h3>
     <div class="r" style="margin-bottom:6px"><b>Produto:</b> ${esc(descProd)}${d.cor&&d.cor!=='-'?' · Cor '+esc(d.cor):''}</div>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">Grade: ${linhas}${pares.length&&totalGrade!==d.quantidade?` <span style="color:#c0392b">(soma ${totalGrade} ≠ qtd ${d.quantidade})</span>`:''}</div>
+    ${jaFeito>0?`<div class="card" style="background:#eef7f0;border-color:#bfe0ca;font-size:11.5px;margin:-2px 0 8px">✓ Já concluído nesta OP: <b>${jaFeito}</b> peça(s) — ${Object.entries(feito).map(([t,q])=>esc(t)+': '+q).join(' · ')}. Abaixo está só o que falta.</div>`:''}
+    <div class="muted" style="font-size:12px;margin-bottom:4px"><b>Quantas peças finalizar agora?</b> Deixe o total para fechar a OP, ou reduza para concluir parcialmente — o restante continua na fase atual.</div>
+    <div style="margin-bottom:10px">${linhasQtd}
+      <div style="padding:7px 0;font-size:12.5px">Total a etiquetar agora: <b id="oc_soma">${totalRest}</b> de ${totalRest}
+        <span id="oc_aviso" class="muted" style="margin-left:8px"></span></div></div>
     <div class="mrow"><label class="fl">Destino das peças *</label>
       <select id="oc_dest" class="inp">
         <option value="estoque">📦 Estocar (endereçar depois)</option>
@@ -6469,7 +6492,21 @@ async function opConcluirEtiquetas(id){
     ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
     <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(pares)}, ${d.quantidade}, ${d.pedidoId||'null'}, ${d.produtoId||'null'})'>Gerar etiquetas</button></div>`);
+      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(paresRest)}, ${d.quantidade}, ${d.pedidoId||'null'}, ${d.produtoId||'null'}, ${JSON.stringify(d.gradeObj||{})})'>Gerar etiquetas</button></div>`);
+  opConcluirSoma();
+}
+/** Soma o que foi digitado e avisa se a conclusão vai ficar parcial. */
+function opConcluirSoma(){
+  let soma=0, total=0;
+  document.querySelectorAll('[id^="ocq_"]').forEach(i=>{
+    soma += Math.max(0, Math.min(Number(i.value)||0, Number(i.max)||0));
+    total += Number(i.max)||0;
+  });
+  const s=$('oc_soma'); if(s) s.textContent=soma;
+  const a=$('oc_aviso');
+  if(a) a.innerHTML = soma===0 ? '<span style="color:#c14a34">informe ao menos 1 peça</span>'
+    : soma<total ? '<span style="color:#8a5a00">· conclusão PARCIAL — as outras '+(total-soma)+' peça(s) ficam na fase atual</span>'
+    : '<span style="color:#1e7a44">· fecha a OP</span>';
 }
 /**
  * Depois de etiquetar com destino EXPEDIÇÃO, oferece criar a expedição.
@@ -6491,23 +6528,44 @@ async function opOferecerExpedicao(pedidoId){
     toast('Expedição '+e.numero+' criada · '+e.pecas+' peças. Vá em Expedição para conferir.','ok');
   }catch(err){ toast('Falha ao criar a expedição: '+(err.message||err),'err'); }
 }
-async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId){
+async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePedido){
   const destino = val('oc_dest');
   const descricao = val('oc_desc').trim();
   const cor = val('oc_cor').trim();
   const ref = val('oc_ref').trim();
   if(!descricao){ toast('Informe a descrição.','err'); return; }
-  const lotes = (pares && pares.length) ? pares.map(([t,q])=>({tamanho:t, quantidade:q})) : [{tamanho:'', quantidade:qtdTotal}];
+  // Lê a quantidade digitada por tamanho (conclusão parcial).
+  let lotes = [];
+  if(pares && pares.length){
+    for(const [t,max] of pares){
+      const el=$('ocq_'+t);
+      const q = el ? Math.max(0, Math.min(Number(el.value)||0, Number(max)||0)) : Number(max)||0;
+      if(q>0) lotes.push({tamanho:t, quantidade:q, maxPedido:Number((gradePedido||{})[t]||0)});
+    }
+  } else {
+    lotes = [{tamanho:'', quantidade:qtdTotal, maxPedido:qtdTotal}];
+  }
+  if(!lotes.length){ toast('Informe ao menos 1 peça para concluir.','err'); return; }
+  // Peça EXCEDENTE (o corte rendeu mais que o pedido) não pode ser reservada ao
+  // pedido: ela vira estoque livre. Quebra o lote em duas entradas quando precisa.
+  const entradas = [];
+  for(const l of lotes){
+    const doPedido = Math.min(l.quantidade, l.maxPedido || 0);
+    const extra = l.quantidade - doPedido;
+    if(doPedido>0) entradas.push({tamanho:l.tamanho, quantidade:doPedido, reservar:true});
+    if(extra>0)    entradas.push({tamanho:l.tamanho, quantidade:extra,    reservar:false});
+  }
+  const totalExtra = entradas.filter(e=>!e.reservar).reduce((s,e)=>s+e.quantidade,0);
   try{
     toast('Gerando etiquetas…','ok');
     const todas = [];
-    for(const l of lotes){
+    for(const l of entradas){
       const body = { tipo:'produto', descricao:descricao.slice(0,160), ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
-        quantidade:l.quantidade, origem:'producao', destino, loteEntrada:'OP-'+id };
+        quantidade:l.quantidade, origem:'producao', destino: l.reservar?destino:'estoque', loteEntrada:'OP-'+id };
       // Sem o produtoId a etiqueta nasce sem vínculo e a CONFERÊNCIA recusa a peça
       // ("não faz parte deste pedido"), mesmo sendo a peça certa.
       if(produtoId) body.produtoId = produtoId;
-      if(destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
+      if(l.reservar && destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
       const r = await api('/estoque/entrada',{method:'POST',body});
       // NÃO carimbar a quantidade do lote na etiqueta: cada etiqueta é UMA peça.
       // Mostrava "TAM GG · 50 un" em cada uma das 50 etiquetas, como se cada
@@ -6515,14 +6573,21 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId){
       // (rolo de tecido), que é o caso em que a medida faz sentido no rótulo.
       (r.pecas||[]).forEach(p=>{ todas.push(p); });
     }
-    // Marca a OP como Finalizada (fase final + 100%).
-    try{ await api('/ops/'+id+'/status',{method:'PATCH',body:{status:'concluido', setorAtual:'Finalizado'}}); await api('/ops/'+id+'/progresso',{method:'PATCH',body:{progresso:100}}); }catch(_){}
+    // Registra o CONCLUÍDO por tamanho. O backend só finaliza a OP quando o
+    // acumulado alcança o cortado — numa conclusão parcial ela fica onde está.
+    let fim = null;
+    const gradeFeita = {}; for(const l of lotes) gradeFeita[l.tamanho||''] = l.quantidade;
+    try{ fim = await api('/ops/'+id+'/concluir-parcial',{method:'PATCH',body:{grade:gradeFeita}}); }
+    catch(e){ toast('Etiquetas geradas, mas falhou registrar a conclusão: '+(e.message||e),'err'); }
     closeModal();
-    toast(todas.length+' etiquetas geradas ('+(destino==='expedicao'?'p/ expedição':'p/ estoque')+') · OP finalizada.','ok');
+    const falta = fim && fim.restante ? Object.entries(fim.restante).map(([t,q])=>t+': '+q).join(' · ') : '';
+    toast(todas.length+' etiqueta(s) gerada(s)'
+      + (totalExtra>0?' · '+totalExtra+' excedente(s) p/ estoque livre':'')
+      + (fim && fim.finalizada ? ' · OP finalizada.' : falta ? ' · OP segue na fase atual, faltam '+falta : ''),'ok');
     imprimirEtqUnidades(todas, {loteEntrada:'OP-'+id});
     // Concluir a OP reserva as peças, mas NÃO cria a expedição — e sem ela o
     // pedido não aparece na tela de Expedição para conferir. Era o que faltava.
-    if(destino==='expedicao' && pedidoId) await opOferecerExpedicao(pedidoId);
+    if(destino==='expedicao' && pedidoId && fim && fim.finalizada) await opOferecerExpedicao(pedidoId);
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -6683,7 +6748,7 @@ function formCorte(o){
   const prodTxt = o.produtoNome || o.produtoDescricao || (o.produtoId?('Produto #'+o.produtoId):'');
   openModal(`<h3>✂ Confirmar corte — OP ${esc(o.numero)}</h3>
     ${prodTxt?`<div style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin:-2px 0 8px;font-size:13.5px"><b>🧵 ${esc(prodTxt)}</b>${o.cor?` <span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:11px;margin-left:4px">🎨 ${esc(o.cor)}</span>`:''}${o.pedido?`<span class="muted" style="font-size:11px;margin-left:6px">${esc(o.pedido.numero||o.pedido)}</span>`:''}</div>`:''}
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe quanto foi <b>realmente cortado</b>. Se o tecido acabou, corte parcial (menos que o planejado) é permitido.</div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe quanto foi <b>realmente cortado</b> — para <b>menos</b> (acabou o tecido) ou para <b>mais</b> (tecido tubular que rendeu peça extra). O que passar do pedido vira estoque livre.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">${cels}
       <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Total cortado</label><div id="ct_tot" style="font-size:18px;font-weight:800">0</div></div>
     </div>
@@ -6700,8 +6765,14 @@ function corteTotal(){
   tams.forEach(el=>{ tot+=Number(el.value)||0; plan+=Number(el.getAttribute('data-plan'))||0; });
   const t=$('ct_tot'); if(t) t.textContent=tot;
   const av=$('ct_aviso'); if(av){
-    if(tot>0 && tot<(plan|| o.quantidade)) av.innerHTML=`<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:12px">⚠️ Corte parcial: ${tot} de ${plan||o.quantidade} peças. Os ${(plan||o.quantidade)-tot} faltantes ficam pendentes (registre o motivo abaixo).</div>`;
-    else if(tot>(plan||o.quantidade)) av.innerHTML=`<div class="card" style="background:#fde8e4;border-color:#e0a99b;color:#a33;font-size:12px">Cortado (${tot}) maior que o planejado (${plan||o.quantidade}). Ajuste.</div>`;
+    const base=plan||o.quantidade;
+    // Excedente POR TAMANHO: o encaixe pode render a mais num tamanho e a menos
+    // noutro, então somar os dois no total esconderia os dois casos.
+    const extras=[]; let somaExtra=0;
+    tams.forEach(el=>{ const d=(Number(el.value)||0)-(Number(el.getAttribute('data-plan'))||0);
+      if(d>0){ extras.push(el.id.slice(3)+': +'+d); somaExtra+=d; } });
+    if(somaExtra>0) av.innerHTML=`<div class="card" style="background:#f3e8ff;border-color:#d6c8ee;color:#5b3a8e;font-size:12px">🧵 <b>${somaExtra} peça(s) a mais</b> que o pedido (${extras.join(' · ')}). Normal em tecido tubular. Essas peças vão para <b>estoque livre</b> ao finalizar a OP — sem reserva ao pedido.${tot<base?`<div style="margin-top:4px;color:#8a5a00">E ainda faltam peças em outro(s) tamanho(s): ${tot} de ${base} no total.</div>`:''}</div>`;
+    else if(tot>0 && tot<base) av.innerHTML=`<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:12px">⚠️ Corte parcial: ${tot} de ${base} peças. Os ${base-tot} faltantes ficam pendentes (registre o motivo abaixo).</div>`;
     else av.innerHTML='';
   }
 }
@@ -6712,7 +6783,11 @@ async function saveCorte(id){
   const total=Object.values(grade).reduce((a,b)=>a+b,0);
   if(total<=0){ toast('Informe a quantidade cortada.','err'); return; }
   try{ const r=await api('/ops/'+id+'/corte',{method:'PATCH',body:{grade, obs:val('ct_obs')||undefined}});
-    closeModal(); toast(r.corteParcial?('Corte PARCIAL registrado ('+r.quantidadeCortada+'/'+r.quantidade+').'):'Corte confirmado ('+r.quantidadeCortada+' peças).', r.corteParcial?'err':'ok'); loadRoute();
+    closeModal();
+    const extra = Number(r.totalExcedente||0);
+    toast((r.corteParcial?('Corte PARCIAL registrado ('+r.quantidadeCortada+'/'+r.quantidade+').'):('Corte confirmado ('+r.quantidadeCortada+' peças).'))
+      + (extra>0?' '+extra+' peça(s) a mais vão para estoque livre ao finalizar.':''), r.corteParcial?'err':'ok');
+    loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
 
@@ -14062,7 +14137,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,

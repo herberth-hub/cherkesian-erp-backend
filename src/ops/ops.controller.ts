@@ -115,6 +115,17 @@ export class OpsController {
     return this.opsService.registrarCorte(id, body?.grade ?? {}, body?.obs, user.empresaId);
   }
 
+  /** Conclusão PARCIAL: fecha só a grade que ficou pronta; o resto segue na fase atual. */
+  @Areas('pcp', 'producao')
+  @Patch(':id/concluir-parcial')
+  concluirParcial(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { grade?: Record<string, unknown> },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.concluirParcial(id, body?.grade ?? {}, user.empresaId);
+  }
+
   @Patch(':id/progresso')
   updateProgresso(
     @Param('id', ParseIntPipe) id: number,

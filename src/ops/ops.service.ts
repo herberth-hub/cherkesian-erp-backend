@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OP, Prioridade, Prisma } from '@prisma/client';
+import { OP, OPStatus, Prioridade, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
@@ -402,11 +402,25 @@ export class OpsService {
       if (n > 0) { limpa[t] = n; total += n; }
     }
     if (total <= 0) throw new BadRequestException('Informe a quantidade cortada (ao menos 1 peça).');
-    if (total > op.quantidade) {
-      throw new BadRequestException(`Cortado (${total}) não pode passar do planejado (${op.quantidade}).`);
+    // Cortar MAIS que o planejado é normal em tecido tubular: o encaixe rende peça
+    // a mais. Antes isso era barrado e o cortador tinha de mentir a quantidade — a
+    // peça existia no chão de fábrica e não existia no sistema. Agora entra, e o
+    // excedente (o que passa do planejado em cada tamanho) vai para ESTOQUE LIVRE
+    // na conclusão, sem ser reservado ao pedido, porque não foi ele que pediu.
+    // O teto de 3x é só contra erro de digitação (260 no lugar de 26).
+    const teto = Math.max(op.quantidade * 3, op.quantidade + 50);
+    if (total > teto) {
+      throw new BadRequestException(`Cortado (${total}) muito acima do planejado (${op.quantidade}). Confira a quantidade.`);
     }
+    const planejada = (op.gradeTamanhos as Record<string, number> | null) ?? {};
+    const excedente: Record<string, number> = {};
+    for (const [t, n] of Object.entries(limpa)) {
+      const sobra = n - Number(planejada[t] ?? 0);
+      if (sobra > 0) excedente[t] = sobra;
+    }
+    const totalExcedente = Object.values(excedente).reduce((s, n) => s + n, 0);
     const parcial = total < op.quantidade;
-    return this.prisma.oP.update({
+    const op2 = await this.prisma.oP.update({
       where: { id },
       data: {
         gradeCortada: limpa as Prisma.InputJsonValue,
@@ -418,6 +432,79 @@ export class OpsService {
         progresso: op.progresso < 30 ? 30 : op.progresso,
       },
     });
+    return { ...op2, excedente, totalExcedente } as OP & { excedente: Record<string, number>; totalExcedente: number };
+  }
+
+  /**
+   * CONCLUSÃO PARCIAL: fecha só o que ficou pronto, acumulando por tamanho.
+   * A OP só vira "Finalizada" quando o concluído alcança o CORTADO (não o
+   * planejado — se o corte foi parcial, não há o que esperar das peças que nunca
+   * foram cortadas). Enquanto falta, ela fica na fase em que está.
+   */
+  async concluirParcial(id: number, grade: Record<string, unknown>, empresaId: number) {
+    const op = await this.findOne(id, empresaId);
+    const base = this.baseDaConclusao(op);
+    const jaFeito = (op.gradeConcluida as Record<string, number> | null) ?? {};
+
+    const agora: Record<string, number> = {};
+    let somaAgora = 0;
+    for (const [tamanho, qtd] of Object.entries(grade ?? {})) {
+      const t = String(tamanho).trim().toUpperCase();
+      const n = Number(qtd);
+      if (!t || t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
+      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${t}: "${qtd}".`);
+      if (n === 0) continue;
+      const restante = Number(base[t] ?? 0) - Number(jaFeito[t] ?? 0);
+      if (restante <= 0) throw new BadRequestException(`${t} já está concluído nesta OP.`);
+      if (n > restante) throw new BadRequestException(`${t}: faltam ${restante} peça(s), não ${n}.`);
+      agora[t] = n; somaAgora += n;
+    }
+    if (somaAgora <= 0) throw new BadRequestException('Informe ao menos 1 peça para concluir.');
+
+    const novo: Record<string, number> = { ...jaFeito };
+    for (const [t, n] of Object.entries(agora)) novo[t] = Number(novo[t] ?? 0) + n;
+    const totalConcluido = Object.values(novo).reduce((s, n) => s + n, 0);
+    const totalBase = Object.values(base).reduce((s, n) => s + Number(n), 0);
+    const completou = totalConcluido >= totalBase;
+
+    const atualizada = await this.prisma.oP.update({
+      where: { id },
+      data: {
+        gradeConcluida: novo as Prisma.InputJsonValue,
+        quantidadeConcluida: totalConcluido,
+        // Completou: fecha. Não completou: NÃO mexe em status nem em setorAtual —
+        // o resto da OP continua exatamente onde estava.
+        ...(completou
+          ? { status: 'concluido' as OPStatus, setorAtual: 'Finalizado', progresso: 100 }
+          : {}),
+      },
+    });
+    return {
+      ...atualizada,
+      concluidoAgora: agora,
+      totalConcluido,
+      totalBase,
+      restante: this.restanteDaConclusao(base, novo),
+      finalizada: completou,
+    };
+  }
+
+  /** O que ainda dá para concluir: o CORTADO quando houve corte, senão o planejado. */
+  private baseDaConclusao(op: OP): Record<string, number> {
+    const cortada = (op.gradeCortada as Record<string, number> | null) ?? null;
+    if (cortada && Object.keys(cortada).length) return cortada;
+    const planejada = (op.gradeTamanhos as Record<string, number> | null) ?? null;
+    if (planejada && Object.keys(planejada).length) return planejada;
+    return { '': op.quantidade }; // OP sem grade: um lote só
+  }
+
+  private restanteDaConclusao(base: Record<string, number>, feito: Record<string, number>): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [t, n] of Object.entries(base)) {
+      const r = Number(n) - Number(feito[t] ?? 0);
+      if (r > 0) out[t] = r;
+    }
+    return out;
   }
 
   async updateProgresso(id: number, dto: UpdateOpProgressoDto, empresaId: number): Promise<OP> {
@@ -448,6 +535,18 @@ export class OpsService {
     const gradeTxt = Object.keys(grade).length
       ? Object.entries(grade).map(([t, q]) => `${t}=${q}`).join('  ')
       : '-';
+    // Conclusão parcial: a tela precisa saber o que FALTA, não o total planejado,
+    // senão a 2ª rodada de etiquetas repete o que já saiu na 1ª.
+    const baseConc = this.baseDaConclusao(op);
+    const feitoConc = (op.gradeConcluida as Record<string, number> | null) ?? {};
+    const restanteConc = this.restanteDaConclusao(baseConc, feitoConc);
+    // Excedente do corte: o que passou do planejado em cada tamanho. Essas peças
+    // não são do pedido — na conclusão elas vão para estoque livre.
+    const excedenteConc: Record<string, number> = {};
+    for (const [t, n] of Object.entries(baseConc)) {
+      const sobra = Number(n) - Number(grade[t] ?? 0);
+      if (sobra > 0) excedenteConc[t] = sobra;
+    }
     // Cor: prioriza a cor da OP (veio do item do pedido), depois a cor do
     // cadastro do produto e, por último, a observação do pedido ("Cor: X").
     const corMatch = /cor\s*:\s*([^·|\n]+)/i.exec(op.pedido?.obs ?? '');
@@ -471,6 +570,12 @@ export class OpsService {
       quantidade: op.quantidade,
       grade: gradeTxt,
       gradeObj: grade,
+      // Para a tela de conclusão (parcial ou total):
+      gradeBaseObj: baseConc,            // o que existe de fato (cortado, ou planejado)
+      gradeConcluidaObj: feitoConc,      // o que já foi etiquetado em rodadas anteriores
+      gradeRestanteObj: restanteConc,    // o que ainda dá para concluir
+      gradeExcedenteObj: excedenteConc,  // peças a mais do corte (vão p/ estoque livre)
+      quantidadeConcluida: op.quantidadeConcluida ?? 0,
       cor,
       lote: loteTxt,
       destino: destino?.trim() || op.setorAtual || '-',
