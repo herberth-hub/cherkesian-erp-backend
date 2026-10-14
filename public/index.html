@@ -9924,11 +9924,18 @@ async function saveCaixas(print){
 async function imprimirEtiquetasCaixas(expId){
   let d; try{ d=await api('/expedicoes/'+expId+'/caixas/etiquetas'); }catch(e){ toast(e.message,'err'); return; }
   const pages=(d.etiquetas||[]).map(et=>{
-    const linhas=(et.conteudo||[]).map(l=>`<tr><td>${esc(l.tamanho||'ÚNICO')}</td><td>${esc(l.cor||'—')}</td><td style="text-align:right">${l.qtd}</td></tr>`).join('');
+    const conteudo=et.conteudo||[];
+    const linhas=conteudo.map(l=>`<tr><td>${esc(l.tamanho||'ÚNICO')}</td><td>${esc(l.cor||'—')}</td><td style="text-align:right">${l.qtd}</td></tr>`).join('');
+    // A etiqueta é uma página FIXA de 100×150mm. Com muitas linhas (caixa
+    // sortida) a tabela estourava a altura e empurrava o total e o código de
+    // barras para fora do papel. A fonte da tabela encolhe conforme o número
+    // de linhas, e a cor passa a quebrar em duas colunas quando aperta.
+    const n=conteudo.length;
+    const dens = n<=6 ? '' : n<=9 ? ' d2' : n<=13 ? ' d3' : n<=18 ? ' d4' : ' d5';
     return `<div class="page"><div class="cxtop"><div><div class="cxnum">CX ${et.caixaNum}/${et.totalCaixas}</div><div class="cxexp">${esc(et.expedicao)}${et.nf?(' · NF '+esc(et.nf)):''}${et.pedido?(' · '+esc(et.pedido)):''}</div></div><img class="cxqr" src="${et.qr}"></div>
       <div class="cxcli">${esc(et.cliente)} — ${esc(et.cidadeUf||'')}</div>
-      <table class="cxt"><thead><tr><th>Tam</th><th>Cor</th><th style="text-align:right">Qtd</th></tr></thead><tbody>${linhas}</tbody></table>
-      <div class="cxtot">Total da caixa: <b>${et.pecas}</b> peça(s)${et.peso?(' · '+et.peso+' kg'):''}</div>
+      <div class="cxbody"><table class="cxt${dens}"><thead><tr><th>Tam</th><th>Cor</th><th style="text-align:right">Qtd</th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <div class="cxtot">Total da caixa: <b>${et.pecas}</b> peça(s)${et.peso?(' · '+et.peso+' kg'):''}${n>6?` · ${n} itens`:''}</div>
       <img class="cxbc" src="${et.barcode}"><div class="cxcod">${esc(et.codigo)}</div></div>`;
   }).join('');
   const n=(d.etiquetas||[]).length;
@@ -9942,7 +9949,17 @@ async function imprimirEtiquetasCaixas(expId){
     .cxqr{width:24mm;height:24mm;flex:0 0 auto} .cxcli{font-size:10.5pt;font-weight:700;margin:3mm 0 2mm;border-top:1px solid #000;padding-top:2mm}
     .cxt{width:100%;border-collapse:collapse;font-size:10.5pt;table-layout:fixed} .cxt th,.cxt td{border:1px solid #999;padding:1.6mm 2mm;text-align:left;overflow:hidden} .cxt th{background:#eee;font-size:8.5pt}
     .cxt th:first-child,.cxt td:first-child{width:16mm} .cxt th:last-child,.cxt td:last-child{width:14mm;text-align:right}
-    .cxtot{font-size:10.5pt;margin-top:auto;padding-top:2mm} .cxbc{height:12mm;max-width:74mm;margin-top:1mm} .cxcod{font-family:monospace;font-weight:700;font-size:10pt}
+    /* Área da tabela: ela cede espaço, nunca o total nem o código de barras —
+       antes a tabela crescia e empurrava os dois para fora do papel. */
+    .cxbody{flex:1 1 auto;min-height:0;overflow:hidden}
+    /* Caixa sortida: quanto mais linhas, menor a fonte, para tudo caber. */
+    .cxt.d2{font-size:9pt} .cxt.d2 th,.cxt.d2 td{padding:1.1mm 1.6mm}
+    .cxt.d3{font-size:7.8pt} .cxt.d3 th,.cxt.d3 td{padding:0.8mm 1.3mm}
+    .cxt.d4{font-size:6.8pt} .cxt.d4 th,.cxt.d4 td{padding:0.5mm 1mm}
+    .cxt.d5{font-size:6pt} .cxt.d5 th,.cxt.d5 td{padding:0.3mm 0.8mm}
+    .cxt.d3 th:first-child,.cxt.d3 td:first-child,.cxt.d4 th:first-child,.cxt.d4 td:first-child,.cxt.d5 th:first-child,.cxt.d5 td:first-child{width:13mm}
+    .cxt.d3 th:last-child,.cxt.d3 td:last-child,.cxt.d4 th:last-child,.cxt.d4 td:last-child,.cxt.d5 th:last-child,.cxt.d5 td:last-child{width:11mm}
+    .cxtot{font-size:10.5pt;margin-top:2mm;padding-top:2mm;flex:0 0 auto} .cxbc{height:12mm;max-width:74mm;margin-top:1mm;flex:0 0 auto} .cxcod{font-family:monospace;font-weight:700;font-size:10pt;flex:0 0 auto}
     /* 100×150 (padrão): 1 etiqueta por página */
     body.z150mode{background:#eee} body.z150mode .wrap{display:block}
     body.z150mode .page{page-break-after:always;margin:0 auto 3mm} body.z150mode .page:last-child{page-break-after:auto}
