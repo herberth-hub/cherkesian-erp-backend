@@ -423,6 +423,17 @@ export class OpsService {
     if (total > teto) {
       throw new BadRequestException(`Cortado (${total}) muito acima do planejado (${op.quantidade}). Confira a quantidade.`);
     }
+    // Não dá para "descortar" peça que já virou etiqueta: ela existe no chão de
+    // fábrica. O corte é cumulativo — quem registra de novo informa o TOTAL.
+    const jaConcluido = (op.gradeConcluida as Record<string, number> | null) ?? {};
+    for (const [t, n] of Object.entries(jaConcluido)) {
+      const agora = Number(limpa[t] ?? 0);
+      if (agora < Number(n)) {
+        throw new BadRequestException(
+          `${t}: já há ${n} peça(s) etiquetada(s) desta OP — o corte não pode ser menor que isso. Informe o TOTAL cortado (o campo já vem com o que estava registrado).`,
+        );
+      }
+    }
     const planejada = (op.gradeTamanhos as Record<string, number> | null) ?? {};
     const excedente: Record<string, number> = {};
     for (const [t, n] of Object.entries(limpa)) {

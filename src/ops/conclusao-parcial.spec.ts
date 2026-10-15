@@ -184,3 +184,47 @@ describe('corte parcial NÃO encolhe a ordem', () => {
     await expect(svc.concluirParcial(516, { M: 10 }, 1)).rejects.toThrow(/não tem peça|faltam|já está concluído/i);
   });
 });
+
+/**
+ * Re-registrar o corte numa OP que já tem peça etiquetada.
+ *
+ * Caso OP-0037: a tela do corte listava só os tamanhos JÁ CORTADOS, então quem
+ * cortasse o resto não tinha onde informar. Com todos os tamanhos à mostra, o
+ * valor digitado é o TOTAL cortado — e não pode ser menor do que já virou
+ * etiqueta, porque essa peça existe.
+ */
+describe('corte cumulativo com peça já etiquetada', () => {
+  const COM_ETIQUETA = {
+    quantidade: 233,
+    gradeTamanhos: { G: 66, M: 80, P: 53, GG: 27, PP: 7 } as Record<string, number> | null,
+    gradeCortada: { G: 47 } as Record<string, number> | null,
+    gradeConcluida: { G: 47 } as Record<string, number> | null,
+    quantidadeConcluida: 47,
+  };
+
+  it('aceita somar os tamanhos que faltavam', async () => {
+    const { svc } = servico(COM_ETIQUETA);
+    const r = (await svc.registrarCorte(516, { G: 66, M: 80, P: 53, GG: 27, PP: 7 }, undefined, 1)) as unknown as
+      { quantidadeCortada: number; corteParcial: boolean };
+    expect(r.quantidadeCortada).toBe(233);
+    expect(r.corteParcial).toBe(false);
+  });
+
+  it('recusa corte MENOR do que já foi etiquetado', async () => {
+    const { svc } = servico(COM_ETIQUETA);
+    await expect(svc.registrarCorte(516, { G: 20, M: 80 }, undefined, 1))
+      .rejects.toThrow(/ja ha 47 peça|já há 47 peça/i);
+  });
+
+  it('recusa tambem quando o tamanho some do corte', async () => {
+    const { svc } = servico(COM_ETIQUETA);
+    await expect(svc.registrarCorte(516, { M: 80 }, undefined, 1))
+      .rejects.toThrow(/G: /);
+  });
+
+  it('OP sem nada etiquetado nao e afetada pela trava', async () => {
+    const { svc } = servico({ gradeConcluida: null, quantidadeConcluida: 0 });
+    const r = (await svc.registrarCorte(516, { G: 5 }, undefined, 1)) as unknown as { quantidadeCortada: number };
+    expect(r.quantidadeCortada).toBe(5);
+  });
+});

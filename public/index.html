@@ -6903,20 +6903,27 @@ function formCorte(o){
   window.__CORTE = o;
   const planej = (o.gradeTamanhos && Object.keys(o.gradeTamanhos).length) ? o.gradeTamanhos : null;
   const jaCort = (o.gradeCortada && Object.keys(o.gradeCortada).length) ? o.gradeCortada : null;
-  const fonte = jaCort || planej;
-  const tams = fonte ? Object.keys(fonte) : ['ÚNICO'];
+  // Os tamanhos vêm do PLANEJADO, não do que já foi cortado.
+  // Usar o cortado como fonte escondia os tamanhos ainda não cortados: na
+  // OP-0037 a tela mostrava só o G (47 de 66) e os outros quatro — M 80, P 53,
+  // GG 27, PP 7 — não tinham onde ser registrados. Quem cortou depois não tinha
+  // como informar. O já cortado continua preenchido, e o total é cumulativo.
+  const tams = [...new Set([...Object.keys(planej||{}), ...Object.keys(jaCort||{})])];
+  if(!tams.length) tams.push('ÚNICO');
   const cels = tams.map(t=>{
     const plan = planej ? (planej[t]||0) : o.quantidade;
-    const cur = jaCort ? (jaCort[t]!=null?jaCort[t]:'') : plan;
+    const cur = jaCort ? (jaCort[t]!=null?jaCort[t]:0) : plan;
+    const feito = jaCort && jaCort[t]>0;
     return `<div style="text-align:center;width:82px">
       <label class="fl" style="font-size:10px">${esc(t)} <span class="muted">(plan ${plan})</span></label>
-      <input class="inp" id="ct_${esc(t)}" data-plan="${plan}" type="number" min="0" value="${cur}" oninput="APP.corteTotal()" style="width:100%;text-align:center;padding:5px 4px;font-size:13px">
+      <input class="inp" id="ct_${esc(t)}" data-plan="${plan}" type="number" min="0" value="${cur}" oninput="APP.corteTotal()" style="width:100%;text-align:center;padding:5px 4px;font-size:13px${feito?';border-color:#bfe0ca;background:#f6fbf7':''}">
+      ${feito?`<div style="font-size:9.5px;color:#1e7a44;margin-top:2px">já cortado</div>`:''}
     </div>`;
   }).join('');
   const prodTxt = o.produtoNome || o.produtoDescricao || (o.produtoId?('Produto #'+o.produtoId):'');
   openModal(`<h3>✂ Confirmar corte — OP ${esc(o.numero)}</h3>
     ${prodTxt?`<div style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 11px;margin:-2px 0 8px;font-size:13.5px"><b>🧵 ${esc(prodTxt)}</b>${o.cor?` <span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:11px;margin-left:4px">🎨 ${esc(o.cor)}</span>`:''}${o.pedido?`<span class="muted" style="font-size:11px;margin-left:6px">${esc(o.pedido.numero||o.pedido)}</span>`:''}</div>`:''}
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe quanto foi <b>realmente cortado</b> — para <b>menos</b> (acabou o tecido) ou para <b>mais</b> (tecido tubular que rendeu peça extra). O que passar do pedido vira estoque livre.</div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Planejado: <b>${o.quantidade}</b> peça(s). Informe o <b>total já cortado</b> de cada tamanho — para <b>menos</b> (acabou o tecido) ou para <b>mais</b> (tecido tubular que rendeu peça extra). O que passar do pedido vira estoque livre.${jaCort?' <b>Os campos em verde já têm corte registrado: some o que cortou agora, não substitua.</b>':''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">${cels}
       <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Total cortado</label><div id="ct_tot" style="font-size:18px;font-weight:800">0</div></div>
     </div>
