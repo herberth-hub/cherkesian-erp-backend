@@ -91,3 +91,38 @@ describe('entrega de venda futura', () => {
     expect((payload.items as Array<{ cfop: string }>)[0].cfop).toBe('6116');
   });
 });
+
+/**
+ * A chave referenciada vai SÓ COM OS DÍGITOS.
+ *
+ * No banco a chave é gravada com o prefixo "NFe" (47 caracteres). O campo refNFe
+ * do schema da NF-e aceita exatamente 44 dígitos: mandar a chave crua derrubou a
+ * emissão da EXP-0134 com "erro_validacao_schema ... length of '47'; this exceeds
+ * the allowed maximum length of '44'".
+ */
+describe('chave da nota referenciada', () => {
+  const soDigitos = (v?: string | null) => (v ?? '').replace(/\D/g, '');
+  const montar = (chave: string | null) => {
+    const p: Record<string, unknown> = {};
+    const c = soDigitos(chave);
+    if (c.length === 44) p.notas_referenciadas = [{ chave_nfe: c }];
+    return p;
+  };
+
+  it('tira o prefixo NFe e manda 44 dígitos', () => {
+    const p = montar('NFe35260845704956000102550010000027151819202561');
+    expect(p.notas_referenciadas).toEqual([{ chave_nfe: '35260845704956000102550010000027151819202561' }]);
+    expect((p.notas_referenciadas as Array<{ chave_nfe: string }>)[0].chave_nfe).toHaveLength(44);
+  });
+
+  it('chave já sem prefixo passa igual', () => {
+    const p = montar('35260845704956000102550010000027151819202561');
+    expect((p.notas_referenciadas as Array<{ chave_nfe: string }>)[0].chave_nfe).toHaveLength(44);
+  });
+
+  it('chave incompleta NÃO vira referência (melhor sem ref do que rejeitar a nota)', () => {
+    expect(montar('NFe123').notas_referenciadas).toBeUndefined();
+    expect(montar(null).notas_referenciadas).toBeUndefined();
+    expect(montar('').notas_referenciadas).toBeUndefined();
+  });
+});

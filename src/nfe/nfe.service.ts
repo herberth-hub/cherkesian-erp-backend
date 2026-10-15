@@ -218,7 +218,11 @@ export class NfeService {
     // Referência à NF de venda futura DENTRO do XML (não só no texto das
     // informações complementares) — é o que amarra a entrega ao faturamento
     // para a SEFAZ e para o fisco do cliente.
-    if (futura?.chave) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: futura.chave }];
+    // A chave vai SÓ COM OS DÍGITOS. No banco ela é gravada com o prefixo "NFe"
+    // (47 caracteres) e o refNFe do schema aceita exatamente 44 dígitos — mandar
+    // a chave crua derrubava a emissão inteira com erro de schema na SEFAZ.
+    const chaveFutura = digitos(futura?.chave);
+    if (chaveFutura.length === 44) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: chaveFutura }];
     if (futura) (payload as Record<string, unknown>).natureza_operacao = 'Venda originada de encomenda para entrega futura';
 
     const emissao = token
@@ -453,7 +457,9 @@ export class NfeService {
       volumes: transporte?.volumes, especie: transporte?.especie, pesoLiquido: transporte?.pesoLiquido, pesoBruto: transporte?.pesoBruto,
     });
     (payload as Record<string, unknown>).natureza_operacao = 'Remessa - venda para entrega futura';
-    if (faturamento.chave) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: faturamento.chave }];
+    // Mesma regra da NF de entrega: refNFe são 44 dígitos, sem o prefixo "NFe".
+    const chaveFat = digitos(faturamento.chave);
+    if (chaveFat.length === 44) (payload as Record<string, unknown>).notas_referenciadas = [{ chave_nfe: chaveFat }];
 
     const emissao = token
       ? await this.emitirFocusNfe(token, `NFEREMF-${filial.id}-${serie}-${numeroSeq}`, payload, filial.nfeAmbiente, filial)
