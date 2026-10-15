@@ -4557,7 +4557,7 @@ function renderItens(){
         <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})"></div>
       </div>
       ${corSel}
-      <div style="font-size:11px;color:#6a675e;margin:2px 0 4px">Quantidade por tamanho${temEsp?' <span style="color:#9a7d1e">(★ = preço especial '+money(cur.precoEspecial)+')</span>':''}:</div>
+      <div style="font-size:11px;color:#6a675e;margin:2px 0 4px">Quantidade por tamanho${temEsp?' <span style="color:#9a7d1e" title="O preço especial do cadastro só entra quando a grade mistura tamanho normal com ★. Se você preencher só os ★, vale o valor unitário que digitou acima.">(★ = preço especial '+money(cur.precoEspecial)+' — só quando a grade mistura com os normais)</span>':''}:</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end">${cels}
         <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Qtd total</label><div style="font-size:16px;font-weight:700;color:#242a26" id="it_qtdlbl_${i}">0</div></div>
       </div>
@@ -4585,8 +4585,19 @@ function itemQty(i){
   lbl.textContent = soma>0?soma:manual;
   pedTotais();
 }
-// Preço unitário de um tamanho (aplica preço especial nas faixas do produto).
-function precoTamCli(p, base, tam){
+// A grade do item mistura tamanho normal com tamanho da faixa especial?
+// Só nesse caso o preço do cadastro entra nos grandes (mesma regra do backend,
+// preco-faixa.util) — numa grade de uma faixa só vale o preço digitado.
+function gradeMistaCli(p, g){
+  if(!g || !p || p.precoEspecial==null) return false;
+  const esp=tamsEspDoProduto(p); if(!esp.length) return false;
+  let e=false, n=false;
+  for(const [t,q] of Object.entries(g)){ if(!(Number(q)>0)) continue; if(esp.includes(String(t).toUpperCase())) e=true; else n=true; }
+  return e&&n;
+}
+// Preço unitário de um tamanho (aplica preço especial só na grade mista).
+function precoTamCli(p, base, tam, misto){
+  if(!misto) return base;
   const esp=tamsEspDoProduto(p);
   if(p && p.precoEspecial!=null && esp.includes(String(tam).toUpperCase())) return Number(p.precoEspecial);
   return base;
@@ -4601,7 +4612,8 @@ function pedTotais(){
     const base=Number($('it_val_'+i)?val('it_val_'+i):it.val)||Number(it.val)||0;
     const g=it.grade;
     if(g && Object.keys(g).length){
-      for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; pc+=n; vl+=precoTamCli(p,base,t)*n; }
+      const misto=gradeMistaCli(p,g);
+      for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; pc+=n; vl+=precoTamCli(p,base,t,misto)*n; }
     } else {
       const manual=Number($('it_qtd_'+i)?val('it_qtd_'+i):it.qtd)||0; pc+=manual; vl+=base*manual;
     }
@@ -4699,8 +4711,12 @@ async function savePedido(id){
     if(soma>0 && precoEsp!=null && esp.length){
       const gBase={}, gEsp={}; let qB=0,qE=0;
       for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; if(n<=0) continue; if(esp.includes(String(t).toUpperCase())){ gEsp[t]=n; qE+=n; } else { gBase[t]=n; qB+=n; } }
-      if(qB>0) addItem(gBase, base, qB);
-      if(qE>0) addItem(gEsp, precoEsp, qE);
+      // Só quebra em duas linhas quando a grade MISTURA faixas: aí o preço digitado
+      // vale para os normais e o cadastro entra nos grandes. Se a grade é de uma
+      // faixa só, essa linha JÁ é a faixa — o preço digitado é o preço dela, senão
+      // editar o valor de um item só de G1..G8 não salva nada (PV187).
+      if(qB>0 && qE>0){ addItem(gBase, base, qB); addItem(gEsp, precoEsp, qE); }
+      else addItem(g, base, soma);
     } else if(soma>0){
       addItem(g, base, soma);
     } else {

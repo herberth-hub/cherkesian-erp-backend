@@ -7,6 +7,7 @@ import {
 import { Prisma, Produto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
+import { gradeMista, precoDoTamanho, subtotalDaGrade } from '../common/utils/preco-faixa.util';
 import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
@@ -1304,12 +1305,18 @@ export class PedidosService {
       : [];
   }
 
-  /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
-  static precoTamanho(produto: Produto | null, valorUnitBase: Prisma.Decimal, tam: string): Prisma.Decimal {
-    if (produto?.precoEspecial != null && PedidosService.tamsEspeciais(produto).includes(String(tam).toUpperCase())) {
-      return new Prisma.Decimal(produto.precoEspecial);
-    }
-    return valorUnitBase;
+  /**
+   * Preço unitário de um tamanho. A faixa especial do cadastro só substitui o preço
+   * digitado quando a grade da linha MISTURA tamanho normal e especial — ver
+   * preco-faixa.util. Numa linha de uma faixa só, o preço digitado é o preço.
+   */
+  static precoTamanho(
+    produto: Produto | null,
+    valorUnitBase: Prisma.Decimal,
+    tam: string,
+    grade?: Record<string, number> | null,
+  ): Prisma.Decimal {
+    return precoDoTamanho(produto, valorUnitBase, tam, gradeMista(produto, grade ?? { [tam]: 1 }));
   }
 
   /** Subtotal do item respeitando as faixas de preço por tamanho (quando há grade). */
@@ -1319,14 +1326,7 @@ export class PedidosService {
     grade: Prisma.InputJsonValue | undefined,
     quantidade: number,
   ): Prisma.Decimal {
-    if (grade && typeof grade === 'object') {
-      let s = new Prisma.Decimal(0);
-      for (const [tam, q] of Object.entries(grade as Record<string, number>)) {
-        s = s.plus(PedidosService.precoTamanho(produto, valorUnitBase, tam).mul(Number(q) || 0));
-      }
-      return s;
-    }
-    return valorUnitBase.mul(quantidade);
+    return subtotalDaGrade(produto, valorUnitBase, grade as Record<string, number> | undefined, quantidade);
   }
 
   /** Resolve a filial emissora: a informada (validada) ou a matriz da empresa. */

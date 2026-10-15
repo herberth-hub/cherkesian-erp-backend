@@ -10,6 +10,7 @@ import { EmailService } from '../email/email.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { proximoSequencial } from '../common/utils/codigo.util';
+import { gradeMista, precoDoTamanho } from '../common/utils/preco-faixa.util';
 import {
   Pdf,
   assinaturas,
@@ -382,9 +383,10 @@ export class DocumentosService {
       const cor = i.cor ?? prod?.cor ?? null;
       // Agrupa as quantidades por PREÇO (base vs especial) — cada preço vira uma linha.
       const porPreco = new Map<string, { unit: Prisma.Decimal; q: Record<string, number> }>();
+      const misto = gradeMista(prod, grade);
       const add = (tam: string, qtd: number) => {
         if (!(qtd > 0)) return;
-        const unit = this.precoTamanho(prod, base, tam);
+        const unit = this.precoTamanho(prod, base, tam, misto);
         const key = unit.toFixed(2);
         if (!porPreco.has(key)) porPreco.set(key, { unit, q: {} });
         porPreco.get(key)!.q[tam] = (porPreco.get(key)!.q[tam] || 0) + qtd;
@@ -845,15 +847,19 @@ export class DocumentosService {
     return `${intBR},${dec}`;
   }
 
-  /** Preço unitário de um tamanho: usa precoEspecial quando o tamanho é da faixa especial. */
-  private precoTamanho(produto: Produto | null, base: Prisma.Decimal, tam: string): Prisma.Decimal {
-    const esp = produto?.tamsEspeciais
-      ? String(produto.tamsEspeciais).split(/[,;/.\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean)
-      : [];
-    if (produto?.precoEspecial != null && esp.includes(String(tam).toUpperCase())) {
-      return new Prisma.Decimal(produto.precoEspecial);
-    }
-    return base;
+  /**
+   * Preço unitário de um tamanho. Mesma regra do pedido (preco-faixa.util): o
+   * cadastro só sobrepõe o preço da linha quando a grade dela mistura tamanho
+   * normal com tamanho da faixa especial — senão o documento imprimiria um preço
+   * diferente do que está gravado no item.
+   */
+  private precoTamanho(
+    produto: Produto | null,
+    base: Prisma.Decimal,
+    tam: string,
+    misto: boolean,
+  ): Prisma.Decimal {
+    return precoDoTamanho(produto, base, tam, misto);
   }
 
   private expandirGrade(grade: string): string[] {
