@@ -10127,7 +10127,7 @@ function renderExpTable(){
       `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
-      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
     ]), arr.length?null:(done?'Nenhuma expedição concluída.':'Nada a expedir — tudo despachado ✨'));
 }
 
@@ -11137,6 +11137,73 @@ async function emitirRemessaFuturaConfirmar(expedicaoId){
  * Boleto monta a remessa CNAB na hora; transferência só registra a escolha,
  * e aí a régua de cobrança manda os dados bancários ao cliente.
  */
+// ===== Cobrança de expedição despachada SEM NF =====
+// A mercadoria saiu, não houve nota e portanto nenhum título nasceu. Aqui se
+// lança a conta a receber direto da expedição; a NF emitida depois AMARRA este
+// título em vez de criar outro (nfe.service), senão o cliente paga duas vezes.
+function expCobrancaForm(id){
+  const e=(window.__EXPS||[]).find(x=>x.id===id); if(!e){ toast('Expedição não encontrada.','err'); return; }
+  const itens=Array.isArray(e.itens)?e.itens:[];
+  const valor=itens.reduce((s,i)=>s+(Number(i.quantidade)||0)*(Number(i.valorUnit)||0),0);
+  const hoje=new Date(); const d0=new Date(hoje.getTime()-hoje.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  openModal(`<h3>💸 Lançar cobrança · ${esc(e.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">
+      ${esc(e.pedidoNumero||'—')} · ${esc(e.clienteNome||'')} · ${e.pecas||0} peça(s) despachada(s) <b>sem NF</b>.
+      ${e.pedidoFormaPagamento?('Forma do pedido: <b>'+esc(e.pedidoFormaPagamento)+'</b>.'):'O pedido está <b>sem forma de pagamento</b> — informe o prazo abaixo.'}
+    </div>
+    <div class="grid2">
+      <div><label>Valor a cobrar (R$)</label><input id="ec_valor" class="inp" type="number" step="0.01" min="0.01" value="${valor>0?valor.toFixed(2):''}" placeholder="0,00"></div>
+      <div><label>1º vencimento</label><input id="ec_venc" class="inp" type="date" value="${d0}"></div>
+      <div><label>Parcelas</label><input id="ec_parc" class="inp" type="number" min="1" max="12" value="1"></div>
+      <div><label>Forma de pagamento (opcional)</label><input id="ec_forma" class="inp" value="${esc(e.pedidoFormaPagamento||'')}" placeholder="ex.: 28/42/56 dias"></div>
+      <div style="grid-column:1/-1"><label>Como cobrar</label>
+        <select id="ec_cobrar" class="inp">
+          <option value="">Decidir depois (só lança o título)</option>
+          ${e.boletoDisponivel?'<option value="boleto">🏦 Boleto bancário — gera a remessa CNAB agora</option>':''}
+          <option value="transferencia">💸 Transferência / PIX</option>
+        </select>
+        <div class="muted" style="font-size:11px;margin-top:4px">${e.boletoDisponivel
+          ? 'Este CNPJ emissor tem convênio de cobrança — o boleto sai pela remessa do banco.'
+          : '⚠️ Boleto indisponível: só a <b>Yerevan</b> tem convênio/API no Santander. Nos outros CNPJs a cobrança é por transferência/PIX.'}</div>
+      </div>
+    </div>
+    <div class="muted" style="font-size:11.5px;margin-top:8px">
+      Com <b>prazo em dias</b> na forma de pagamento (ex.: "28/42/56 dias"), os vencimentos saem do prazo e o 1º vencimento acima é ignorado.
+      Caso contrário, as parcelas caem de 30 em 30 dias a partir do 1º vencimento.
+    </div>
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.expCobrancaSalvar(${id})">Lançar em Contas a Receber</button>
+    </div>`);
+}
+async function expCobrancaSalvar(id){
+  const valor=Number(val('ec_valor')||0);
+  if(!(valor>0)){ toast('Informe o valor a cobrar.','err'); return; }
+  const forma=(val('ec_forma')||'').trim();
+  const parcelas=Math.max(1,Math.min(12,parseInt(val('ec_parc')||'1',10)||1));
+  const cobrar=val('ec_cobrar')||'';
+  const body={valor, parcelas};
+  if(cobrar) body.cobrar=cobrar;
+  // Prazo em dias na forma manda nos vencimentos; sem prazo, vale a data escolhida.
+  if(forma) body.formaPagamento=forma;
+  if(!/\d/.test(forma)) body.vencimento=val('ec_venc')||undefined;
+  try{
+    const r=await api('/expedicoes/'+id+'/cobranca',{method:'POST',body});
+    closeModal();
+    const formaTxt = r.forma==='boleto' ? '\nCobrança: 🏦 boleto (remessa CNAB)'
+      : r.forma==='transferencia' ? '\nCobrança: 💸 transferência / PIX' : '';
+    const remTxt = r.remessa&&r.remessa.nomeArquivo
+      ? '\n\nRemessa '+r.remessa.nomeArquivo+' gerada. Próximo passo: Financeiro › Remessas / Retornos — baixe o .REM e transmita no banco.' : '';
+    const avisoTxt = r.avisoBoleto
+      ? '\n\n⚠️ O título ficou lançado, mas o boleto NÃO saiu: '+r.avisoBoleto+'\nResolva em Financeiro › Contas a Receber.' : '';
+    await uiAlert({tipo:r.avisoBoleto?'err':'ok', titulo:'Cobrança lançada', ok:'Entendi',
+      msg:r.expedicao+' ('+r.pedido+') · '+r.titulos+' título(s) · '+money(r.valor)+formaTxt
+        +'\n\nVencimento(s): '+(r.vencimentos||[]).map(v=>v.split('-').reverse().join('/')).join(', ')
+        +'\n\nJá está em Financeiro › Contas a Receber. Se a NF sair depois, ela amarra este título em vez de cobrar de novo.'
+        +remTxt+avisoTxt});
+    loadRoute();
+  }catch(e){ await uiAlert({tipo:'err', titulo:'Não deu para lançar', ok:'Entendi', msg:e.message||String(e)}); }
+}
 async function cobrancaDaNotaPrompt(notaFiscalId, numero){
   if(!notaFiscalId) return;
   // Sem conta a receber (bonificação, remessa, venda futura já faturada) não há o que cobrar.
@@ -14646,7 +14713,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, nfCopiar, nfChaveCopiar, cobrancaDaNotaPrompt, cobrancaDaNota, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, nfCopiar, nfChaveCopiar, cobrancaDaNotaPrompt, cobrancaDaNota, expCobrancaForm, expCobrancaSalvar, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

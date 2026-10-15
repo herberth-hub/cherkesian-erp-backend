@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ExpedicoesService } from './expedicoes.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { CreateExpedicaoAvulsaDto, MOTIVOS_AVULSA } from './dto/create-expedicao-avulsa.dto';
@@ -185,6 +185,24 @@ export class ExpedicoesController {
   conferirDireto(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     if (user.acesso !== 'total') throw new ForbiddenException('Somente o administrador pode concluir a conferência sem bipar.');
     return this.expedicoesService.conferirSemBip(id, user.empresaId);
+  }
+
+  /**
+   * Lança a conta a receber de uma expedição que foi despachada SEM NF.
+   * É ato financeiro: exige a área de contas a receber, não só expedição.
+   */
+  @Areas('receber')
+  @Post(':id/cobranca')
+  @HttpCode(HttpStatus.CREATED)
+  lancarCobranca(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { vencimento?: string; formaPagamento?: string; valor?: number; parcelas?: number; cobrar?: 'boleto' | 'transferencia' },
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (dto?.cobrar && dto.cobrar !== 'boleto' && dto.cobrar !== 'transferencia') {
+      throw new BadRequestException('Forma de cobrança inválida: use boleto ou transferencia.');
+    }
+    return this.expedicoesService.lancarCobranca(id, user.empresaId, user.usuario, dto ?? {});
   }
 
   /** Estorna a expedição (volta a operação pro pedido de venda p/ reexpedir/parcial). */

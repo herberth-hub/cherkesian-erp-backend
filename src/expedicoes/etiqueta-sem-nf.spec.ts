@@ -25,7 +25,7 @@ function servico(notas: Array<{ status: string }>) {
     pedido: { findUnique: () => Promise.resolve({ id: 125, numero: 'PV125', itens: [], filial: { nome: 'HC QUALITY', cnpj: '45704956000102' } }) },
     produto: { findMany: () => Promise.resolve([]) },
   };
-  return new ExpedicoesService(prisma as never);
+  return new ExpedicoesService(prisma as never, {} as never);
 }
 
 describe('etiqueta de expedição sem NF-e', () => {

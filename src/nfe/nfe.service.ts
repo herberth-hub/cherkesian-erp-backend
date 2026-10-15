@@ -272,11 +272,25 @@ export class NfeService {
       // BONIFICAÇÃO não gera cobrança — não lança a receber.
       // VENDA FUTURA já faturada idem: o título nasceu na NF de faturamento.
       if (!bonificacao && !futura) {
-        // Um título por PARCELA (duplicata) — o "A receber" reflete as parcelas, não o total.
-        for (const t of this.titulosReceber(cobranca.duplicatas, Number(valorComFrete), cobranca.primeiroVenc)) {
-          await tx.contaReceber.create({
-            data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' },
+        // A mercadoria pode ter saído ANTES da nota (despacho sem NF) e a cobrança
+        // já ter sido lançada ali — o título leva o nº da expedição em `documento`.
+        // Nesse caso a NF só AMARRA o título que existe; criar outro cobraria o
+        // cliente duas vezes pela mesma entrega. O casamento é pelo nº DESTA
+        // expedição: um pedido com várias remessas tem um título por remessa, e
+        // esta nota não pode puxar o título de outra.
+        const semNota = await this.titulosDoDespachoSemNf(tx, empresaId, exp.pedidoId, exp.numero);
+        if (semNota.length) {
+          await tx.contaReceber.updateMany({
+            where: { id: { in: semNota.map((t) => t.id) } },
+            data: { notaFiscalId: criada.id },
           });
+        } else {
+          // Um título por PARCELA (duplicata) — o "A receber" reflete as parcelas, não o total.
+          for (const t of this.titulosReceber(cobranca.duplicatas, Number(valorComFrete), cobranca.primeiroVenc)) {
+            await tx.contaReceber.create({
+              data: { empresaId, clienteId: cliente.id, pedidoId: exp.pedidoId, notaFiscalId: criada.id, valor: t.valor, vencimento: t.vencimento, status: 'a_vencer' },
+            });
+          }
         }
       }
       // Faturamento PARCIAL: gera o pedido-filho (PVxxx-N) com o faturado e abate do pai.
@@ -1564,6 +1578,28 @@ export class NfeService {
       return dups.map((d) => ({ valor: new Prisma.Decimal(Number(d.valor).toFixed(2)), vencimento: new Date(d.data_vencimento + 'T12:00:00') }));
     }
     return [{ valor: new Prisma.Decimal(Number(valorTotal).toFixed(2)), vencimento: primeiroVenc }];
+  }
+
+  /**
+   * Títulos que a EXPEDIÇÃO já lançou por ter saído sem NF (expedicoes.lancarCobranca
+   * grava o nº da expedição em `documento`). A nota emitida depois amarra ESTES e não
+   * cria outros — senão o cliente paga duas vezes pela mesma entrega.
+   *
+   * O casamento é por pedido + nº DESTA expedição, nunca só pelo pedido: sem o
+   * pedidoId o filtro pegaria todo título em aberto da empresa, e um pedido com
+   * várias remessas tem um título por remessa — esta nota não pode puxar o da outra.
+   */
+  private async titulosDoDespachoSemNf(
+    tx: { contaReceber: { findMany: (a: unknown) => Promise<Array<{ id: number }>> } },
+    empresaId: number,
+    pedidoId: number | null | undefined,
+    expedicaoNumero: string,
+  ): Promise<Array<{ id: number }>> {
+    if (!pedidoId || !expedicaoNumero) return [];
+    return tx.contaReceber.findMany({
+      where: { empresaId, pedidoId, notaFiscalId: null, documento: expedicaoNumero },
+      select: { id: true },
+    });
   }
 
   /**

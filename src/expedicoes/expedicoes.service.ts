@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Expedicao, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { BancosService } from '../bancos/bancos.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { CreateExpedicaoAvulsaDto } from './dto/create-expedicao-avulsa.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
@@ -30,7 +31,136 @@ type SelExped = {
 
 @Injectable()
 export class ExpedicoesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bancos: BancosService,
+  ) {}
+
+  /**
+   * Lança a CONTA A RECEBER de uma expedição que saiu SEM NF.
+   *
+   * O título nascia junto com a NF-e. Quem despacha sem nota — e o sistema
+   * permite — entregava a mercadoria e não deixava cobrança nenhuma: 5
+   * expedições estavam assim, R$ 10.573,22 em mercadoria fora da casa.
+   *
+   * Quando a NF for emitida depois, ela NÃO cria título novo: amarra este
+   * (ver nfe.service, emitirNfe) — senão o cliente é cobrado duas vezes.
+   */
+  async lancarCobranca(
+    id: number,
+    empresaId: number,
+    usuario: string,
+    dto: { vencimento?: string; formaPagamento?: string; valor?: number; parcelas?: number; cobrar?: 'boleto' | 'transferencia' },
+  ) {
+    const exp = await this.getExp(id, empresaId);
+    if (!exp.pedidoId) throw new BadRequestException('Expedição avulsa (sem pedido) — não há a quem cobrar.');
+    const pedido = await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, include: { itens: true } });
+    if (!pedido) throw new NotFoundException('Pedido da expedição não encontrado.');
+    if (pedido.bonificacao) {
+      throw new BadRequestException('Pedido de BONIFICAÇÃO não gera cobrança — a mercadoria é brinde/doação.');
+    }
+    if (exp.conferenciaStatus !== 'despachado' && exp.conferenciaStatus !== 'conferida') {
+      throw new BadRequestException('Lance a cobrança depois de conferir ou despachar a expedição.');
+    }
+    // Já há cobrança deste pedido? Não lança de novo.
+    const jaTem = await this.prisma.contaReceber.count({ where: { empresaId, pedidoId: pedido.id } });
+    if (jaTem) {
+      throw new ConflictException(`Este pedido já tem ${jaTem} título(s) em contas a receber — não lanço outro para não cobrar duas vezes.`);
+    }
+
+    // Valor: o do que foi REALMENTE expedido (snapshot), com o pedido como reserva.
+    const snap = (exp.itens as Array<{ quantidade: number; valorUnit: number }> | null) ?? [];
+    const doSnap = snap.reduce((s, i) => s + (Number(i.quantidade) || 0) * (Number(i.valorUnit) || 0), 0);
+    const base = Number(dto.valor ?? (doSnap > 0 ? doSnap : Number(pedido.valorTotal)));
+    if (!(base > 0)) throw new BadRequestException('Informe o valor a cobrar — não consegui calcular pelo que foi expedido.');
+
+    // Vencimento: data informada, ou prazo em dias da forma de pagamento, ou hoje.
+    const forma = (dto.formaPagamento ?? pedido.formaPagamento ?? '').trim();
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    let vencimentos: Date[] = [];
+    if (dto.vencimento) {
+      const v = new Date(dto.vencimento + (dto.vencimento.length <= 10 ? 'T12:00:00' : ''));
+      if (isNaN(v.getTime())) throw new BadRequestException(`Vencimento inválido: "${dto.vencimento}".`);
+      vencimentos = [v];
+    } else {
+      const dias = [...String(forma).replace(/\([^)]*\)/g, ' ').matchAll(/\d+/g)]
+        .map((m) => parseInt(m[0], 10)).filter((n) => n > 0 && n <= 360).sort((a, b) => a - b);
+      vencimentos = dias.length
+        ? dias.map((n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x; })
+        : [hoje];
+    }
+    // Parcelas explícitas (sem prazo na forma): divide a partir do 1º vencimento, de 30 em 30.
+    const nParc = Math.max(1, Math.min(Number(dto.parcelas ?? vencimentos.length) || 1, 12));
+    if (nParc > vencimentos.length) {
+      const base0 = vencimentos[0];
+      vencimentos = Array.from({ length: nParc }, (_, i) => { const x = new Date(base0); x.setDate(x.getDate() + i * 30); return x; });
+    }
+
+    const parcela = Number((base / vencimentos.length).toFixed(2));
+    const valores = vencimentos.map((_, i) =>
+      i === vencimentos.length - 1 ? Number((base - parcela * (vencimentos.length - 1)).toFixed(2)) : parcela);
+
+    // Boleto só existe onde há conta com CNAB homologado (hoje, o convênio
+    // Santander da Yerevan). Nos outros CNPJs a cobrança é por transferência/PIX.
+    const querBoleto = dto.cobrar === 'boleto';
+    const conta = querBoleto ? await this.contaCnabDaFilial(empresaId, pedido.filialId) : null;
+    if (querBoleto && !conta) {
+      throw new BadRequestException(
+        'Este CNPJ emissor ainda não tem conta com CNAB/convênio configurado — só a Yerevan emite boleto. Lance como transferência/PIX.',
+      );
+    }
+
+    // createMany: uma única ida ao banco (o pooler do Neon derruba transação longa).
+    const criados = await this.prisma.contaReceber.createMany({
+      data: vencimentos.map((v, i) => ({
+        empresaId, clienteId: pedido.clienteId, pedidoId: pedido.id,
+        filialId: pedido.filialId ?? undefined,
+        // Sem NF ainda: fica o número da expedição como documento de origem.
+        documento: exp.numero, notaFiscalId: null,
+        valor: new Prisma.Decimal(valores[i].toFixed(2)), vencimento: v, status: 'a_vencer' as const,
+        formaCobranca: dto.cobrar ?? undefined,
+      })),
+    });
+
+    await this.prisma.log.create({
+      data: {
+        usuario, acao: 'expedicao.cobranca.lancada',
+        detalhe: `${exp.numero} (${pedido.numero}) despachada sem NF: ${criados.count} título(s), R$ ${base.toFixed(2)}`
+          + (dto.cobrar ? ` · ${dto.cobrar}` : ''),
+        entidade: 'Expedicao', entidadeId: String(id),
+      },
+    }).catch(() => undefined);
+
+    const saida = {
+      expedicao: exp.numero, pedido: pedido.numero, titulos: criados.count, valor: base,
+      vencimentos: vencimentos.map((v) => v.toISOString().slice(0, 10)),
+      forma: dto.cobrar ?? null,
+      remessa: null as unknown, avisoBoleto: null as string | null,
+    };
+    if (!conta) return saida;
+
+    // Remessa CNAB. Se o banco/convênio recusar, os títulos JÁ estão lançados —
+    // o aviso volta junto e a remessa se resolve depois em Contas a Receber.
+    const ids = (await this.prisma.contaReceber.findMany({
+      where: { empresaId, pedidoId: pedido.id, documento: exp.numero, notaFiscalId: null },
+      select: { id: true },
+    })).map((t) => t.id);
+    try {
+      saida.remessa = await this.bancos.gerarRemessa(empresaId, usuario, conta.id, ids);
+    } catch (e) {
+      saida.avisoBoleto = e instanceof Error ? e.message : String(e);
+    }
+    return saida;
+  }
+
+  /** Conta bancária com CNAB pronto do CNPJ emissor — sem ela não há boleto. */
+  private async contaCnabDaFilial(empresaId: number, filialId: number | null) {
+    return this.prisma.contaBancaria.findFirst({
+      where: { empresaId, ativa: true, integracao: 'cnab', ...(filialId ? { filialId } : {}) },
+      orderBy: { principal: 'desc' },
+      select: { id: true, filialId: true },
+    });
+  }
 
   /** Dados da etiqueta de expedição (preenchida do pedido) + QR e código de barras. */
   // ===== Plano de embalagem por caixa (packing list + etiqueta de conteúdo) =====
@@ -183,9 +313,34 @@ export class ExpedicoesService {
     const clis = await this.prisma.cliente.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.clienteId))] } }, select: { id: true, nome: true } });
     const nome = new Map(clis.map((c) => [c.id, c.nome]));
     const pedIds = [...new Set(rows.map((r) => r.pedidoId).filter((x): x is number => !!x))];
-    const peds = pedIds.length ? await this.prisma.pedido.findMany({ where: { id: { in: pedIds } }, select: { id: true, numero: true } }) : [];
+    const peds = pedIds.length ? await this.prisma.pedido.findMany({ where: { id: { in: pedIds } }, select: { id: true, numero: true, bonificacao: true, formaPagamento: true, filialId: true } }) : [];
     const pedNum = new Map(peds.map((p) => [p.id, p.numero]));
-    return rows.map((r) => ({ ...r, clienteNome: nome.get(r.clienteId) ?? null, pedidoNumero: r.pedidoId ? pedNum.get(r.pedidoId) ?? null : null }));
+    const pedInfo = new Map(peds.map((p) => [p.id, p]));
+    // Despachar sem NF não gerava cobrança nenhuma. A lista marca quem saiu sem título
+    // para que a cobrança possa ser lançada da própria expedição.
+    const comTitulo = pedIds.length
+      ? new Set((await this.prisma.contaReceber.groupBy({ by: ['pedidoId'], where: { pedidoId: { in: pedIds } } })).map((g) => g.pedidoId))
+      : new Set<number | null>();
+    // Boleto só nos CNPJs com CNAB/convênio homologado (hoje a Yerevan, no Santander).
+    const comCnab = new Set(
+      (await this.prisma.contaBancaria.findMany({ where: { empresaId, ativa: true, integracao: 'cnab' }, select: { filialId: true } }))
+        .map((c) => c.filialId).filter((x): x is number => !!x),
+    );
+    return rows.map((r) => {
+      const pi = r.pedidoId ? pedInfo.get(r.pedidoId) : null;
+      const conferido = r.conferenciaStatus === 'despachado' || r.conferenciaStatus === 'conferida';
+      return {
+        ...r,
+        clienteNome: nome.get(r.clienteId) ?? null,
+        pedidoNumero: r.pedidoId ? pedNum.get(r.pedidoId) ?? null : null,
+        pedidoFormaPagamento: pi?.formaPagamento ?? null,
+        bonificacao: !!pi?.bonificacao,
+        temCobranca: r.pedidoId ? comTitulo.has(r.pedidoId) : false,
+        boletoDisponivel: !!pi?.filialId && comCnab.has(pi.filialId),
+        // Saiu mercadoria, não tem NF e não tem título: falta cobrar.
+        cobrancaPendente: !!r.pedidoId && conferido && !r.nf && !pi?.bonificacao && !comTitulo.has(r.pedidoId),
+      };
+    });
   }
 
   private async garantirExp(id: number, empresaId: number): Promise<Expedicao> {
