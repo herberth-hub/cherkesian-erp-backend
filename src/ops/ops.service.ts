@@ -481,7 +481,16 @@ export class OpsService {
     for (const [t, n] of Object.entries(agora)) novo[t] = Number(novo[t] ?? 0) + n;
     const totalConcluido = Object.values(novo).reduce((s, n) => s + n, 0);
     const totalBase = Object.values(base).reduce((s, n) => s + Number(n), 0);
-    const completou = totalConcluido >= totalBase;
+    // A OP fecha contra o PLANEJADO, nunca contra o cortado.
+    //
+    // Fechar contra o cortado apagava a ordem: na OP-0037 o corte registrou só
+    // {"G":47} de 233 peças planejadas; concluir esses 47 deu a OP por encerrada
+    // e 186 peças (M 80, P 53, GG 27, PP 7 e 19 G) sumiram da produção, embora o
+    // pedido ainda precisasse delas. Corte parcial diz quanto JÁ foi cortado,
+    // não quanto a ordem vale.
+    const alvo = this.alvoDaOp(op);
+    const totalAlvo = Object.values(alvo).reduce((s, n) => s + Number(n), 0);
+    const completou = totalConcluido >= totalAlvo;
 
     // Peça concluída sai do mapa de fases — senão continuaria contada como "em
     // produção" em alguma etapa depois de já ter virado etiqueta.
@@ -519,9 +528,21 @@ export class OpsService {
       concluidoAgora: agora,
       totalConcluido,
       totalBase,
-      restante: this.restanteDaConclusao(base, novo),
+      totalAlvo,
+      // O que falta PRODUZIR (contra o planejado) e o que dá para etiquetar
+      // agora (contra o cortado) são coisas diferentes quando o corte foi parcial.
+      restante: this.restanteDaConclusao(alvo, novo),
+      aEtiquetar: this.restanteDaConclusao(base, novo),
+      aCortar: this.restanteDaConclusao(alvo, base),
       finalizada: completou,
     };
+  }
+
+  /** Quanto a ORDEM vale: o planejado. É contra ele que a OP fecha. */
+  private alvoDaOp(op: OP): Record<string, number> {
+    const planejada = (op.gradeTamanhos as Record<string, number> | null) ?? null;
+    if (planejada && Object.keys(planejada).length) return planejada;
+    return { '': op.quantidade };
   }
 
   /** Fases da produção, na ordem. Igual à tela — é a mesma régua. */

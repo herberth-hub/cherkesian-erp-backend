@@ -6102,18 +6102,28 @@ async function opAvancarConfirmar(){
 }
 const PIL_STATUS = ['em_desenvolvimento','enviada_ao_cliente','aprovada','aprovada_c_ajustes','reprovada'];
 function opPill(s){ const c = s==='concluido'?'green':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
-/** Quanto ainda falta concluir da OP: o CORTADO menos o já etiquetado. */
+/**
+ * Quanto ainda falta da OP, contra o PLANEJADO.
+ *
+ * Contava contra o CORTADO, e aí corte parcial encolhia a ordem: na OP-0037 o
+ * corte registrou só {"G":47} de 233 planejadas e os outros tamanhos sumiam da
+ * lista como se tivessem sido feitos. O corte diz o que já foi cortado, não o
+ * que a ordem deve entregar.
+ */
 function opRestante(o){
-  const base = (o.gradeCortada && Object.keys(o.gradeCortada).length) ? o.gradeCortada
-             : (o.gradeTamanhos && Object.keys(o.gradeTamanhos).length) ? o.gradeTamanhos : null;
+  const alvo = (o.gradeTamanhos && Object.keys(o.gradeTamanhos).length) ? o.gradeTamanhos : null;
+  const cort = (o.gradeCortada && Object.keys(o.gradeCortada).length) ? o.gradeCortada : null;
   const feito = o.gradeConcluida || {};
-  if(!base){ const f=Number(o.quantidadeConcluida||0); return { total:Number(o.quantidade||0), feito:f, falta:Math.max(0,Number(o.quantidade||0)-f), porTam:null }; }
+  if(!alvo){ const f=Number(o.quantidadeConcluida||0); return { total:Number(o.quantidade||0), feito:f, falta:Math.max(0,Number(o.quantidade||0)-f), porTam:null, aCortar:null }; }
   const porTam={}; let total=0, falta=0;
-  for(const [t,n] of Object.entries(base)){
+  for(const [t,n] of Object.entries(alvo)){
     const r=Number(n)-Number(feito[t]||0);
     total+=Number(n); if(r>0){ porTam[t]=r; falta+=r; }
   }
-  return { total, feito: total-falta, falta, porTam };
+  // O que ainda nem foi cortado — não dá para etiquetar, mas a OP deve entregar.
+  const aCortar={};
+  if(cort){ for(const [t,n] of Object.entries(alvo)){ const d=Number(n)-Number(cort[t]||0); if(d>0) aCortar[t]=d; } }
+  return { total, feito: total-falta, falta, porTam, aCortar: Object.keys(aCortar).length?aCortar:null };
 }
 /** Quando a grade está espalhada por mais de uma fase, mostra onde cada parte está. */
 function opFasesResumo(o){
@@ -6134,10 +6144,12 @@ function opQtdCell(o){
   const r = opRestante(o);
   if(!r.feito || o.status==='concluido') return String(o.quantidade);
   const det = r.porTam && Object.keys(r.porTam).length ? Object.entries(r.porTam).map(([t,q])=>esc(t)+': '+q).join(' · ') : '';
+  const porCortar = r.aCortar ? Object.entries(r.aCortar).map(([t,q])=>esc(t)+': '+q).join(' · ') : '';
   return `${o.quantidade}`
     + `<div style="font-size:10.5px;line-height:1.35;margin-top:2px">`
     + `<span style="color:#1e7a44;font-weight:700">✓ ${r.feito} etiquetada(s)</span>`
     + (r.falta>0?`<div style="color:#8a5a00;font-weight:600">faltam ${r.falta}${det?' · '+det:''}</div>`:'')
+    + (porCortar?`<div style="color:#c14a34">✂ falta cortar: ${porCortar}</div>`:'')
     + `</div>`;
 }
 function pilPill(s){ const c = (s==='aprovada'||s==='aprovada_c_ajustes')?'green':(s==='reprovada'?'red':(s==='enviada_ao_cliente'?'blue':'gold')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
@@ -9340,17 +9352,25 @@ async function enDest(){
   const abertos=(window.__ENPEDS||[])
     .filter(p=>!['cancelado','concluido','faturado','orcamento'].includes(p.etapa))
     .sort((a,b)=>String(b.numero).localeCompare(String(a.numero),'pt-BR',{numeric:true}));
-  box.innerHTML = `<div class="mrow"><label class="fl">Pedido da expedição *</label>
-      <select id="en_pedido" class="inp">
-        <option value="">— selecione o pedido —</option>
+  box.innerHTML = `<div class="mrow"><label class="fl">Pedido da expedição <span class="muted" style="font-weight:400">(opcional — vincule quando já souber)</span></label>
+      <select id="en_pedido" class="inp" onchange="APP.enPedidoAviso()">
+        <option value="">— sem pedido definido —</option>
         ${abertos.map(p=>{
           const falta=pedFaltaExpedir(p);
           const cli=p.cliente?(p.cliente.fantasia||p.cliente.nome):'';
           return `<option value="${p.id}">${esc(p.numero)} · ${esc(String(cli).slice(0,30))} · ${esc(p.etapa)}${falta>0?' · faltam '+falta+' pç':''}</option>`;
         }).join('')}
       </select>
-      <div class="muted" style="font-size:11px;margin-top:3px">A peça nasce <b>reservada para este pedido</b>. Sem isso ela fica reservada e solta, e a conferência da expedição recusa a etiqueta.</div>
+      <div id="en_pedaviso" style="font-size:11px;margin-top:3px"></div>
     </div>`;
+  enPedidoAviso();
+}
+/** Mostra a consequência da escolha sem travar o fluxo — vincular é opcional. */
+function enPedidoAviso(){
+  const el=$('en_pedaviso'); if(!el) return;
+  el.innerHTML = val('en_pedido')
+    ? '<span style="color:#1e7a44">A peça nasce <b>reservada para este pedido</b> e já entra na conferência dele.</span>'
+    : '<span style="color:#8a5a00">Sem pedido a peça fica <b>reservada e solta</b>: não entra em nenhuma expedição até ser vinculada. Dá para vincular depois pela gaveta do estoque.</span>';
 }
 async function saveEntradaEstoque(){
   const tipo=val('en_tipo');
@@ -9373,11 +9393,11 @@ async function saveEntradaEstoque(){
   { const lt=val('en_lote'); if(lt) body.loteFornecedor=lt; }
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
   if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
-  // Expedição exige o pedido: é ele que faz a reserva apontar para alguém.
+  // Vincular o pedido é OPCIONAL: nem sempre se sabe o destino na hora da
+  // entrada. Quando vem preenchido, a peça já nasce reservada para ele.
   if(val('en_dest')==='expedicao'){
     const pid=Number(val('en_pedido')||0);
-    if(!pid){ toast('Escolha o pedido da expedição — a peça precisa saber para quem está reservada.','err'); return; }
-    body.pedidoId=pid;
+    if(pid) body.pedidoId=pid;
   }
   if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
   if(granel && !body.materialId){ toast('Selecione o material (no campo Item) para somar ao saldo.','err'); return; }
@@ -14516,7 +14536,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,

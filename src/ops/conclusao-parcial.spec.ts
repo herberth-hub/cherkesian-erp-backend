@@ -14,7 +14,7 @@ import { OpsService } from './ops.service';
 
 const OP_BASE = {
   id: 516, numero: 'OP-0209', empresaId: 1, pedidoId: 55, quantidade: 26,
-  gradeTamanhos: { G: 16, GG: 10 }, gradeCortada: null as Record<string, number> | null,
+  gradeTamanhos: { G: 16, GG: 10 } as Record<string, number> | null, gradeCortada: null as Record<string, number> | null,
   gradeConcluida: null as Record<string, number> | null, quantidadeConcluida: 0,
   status: 'em_producao', setorAtual: 'Costura', progresso: 75,
 };
@@ -76,15 +76,20 @@ describe('conclusão parcial da OP', () => {
     await expect(svc.concluirParcial(516, { G: 0 }, 1)).rejects.toThrow(/ao menos 1 peça/i);
   });
 
-  it('corte parcial manda: a base é o CORTADO, não o planejado', async () => {
-    // cortou 12 de G (faltou tecido) e 10 de GG -> a OP fecha com 22, não 26
+  it('corte parcial limita o que ETIQUETA, mas não fecha a OP', async () => {
+    // cortou 12 de G (faltou tecido) e 10 de GG, de 16+10 planejados.
+    // Este teste afirmava o contrário — que a OP fechava com 22 — e era ele que
+    // descrevia o bug da OP-0037, onde os tamanhos não cortados sumiam.
     const { svc } = servico({ gradeCortada: { G: 12, GG: 10 } });
     const r1 = await svc.concluirParcial(516, { G: 12 }, 1);
     expect(r1.finalizada).toBe(false);
-    expect(r1.restante).toEqual({ GG: 10 });
+    expect(r1.restante).toEqual({ G: 4, GG: 10 });   // contra o PLANEJADO
+    expect(r1.aEtiquetar).toEqual({ GG: 10 });        // o que já está cortado
+    expect(r1.aCortar).toEqual({ G: 4 });             // falta cortar
     const r2 = await svc.concluirParcial(516, { GG: 10 }, 1);
-    expect(r2.finalizada).toBe(true);
-    expect(r2.totalBase).toBe(22);
+    expect(r2.finalizada).toBe(false);                // ainda faltam 4 G
+    expect(r2.totalAlvo).toBe(26);
+    expect(r2.restante).toEqual({ G: 4 });
   });
 
   it('corte com peça A MAIS entra na conclusão (tecido tubular)', async () => {
@@ -127,5 +132,55 @@ describe('registro do corte', () => {
   it('barra erro de digitação (260 no lugar de 26)', async () => {
     const { svc } = servico();
     await expect(svc.registrarCorte(516, { G: 260 }, undefined, 1)).rejects.toThrow(/muito acima do planejado/i);
+  });
+});
+
+/**
+ * A OP fecha contra o PLANEJADO, nunca contra o cortado.
+ *
+ * Caso real OP-0037 (PV43): 233 peças planejadas em 5 tamanhos, corte registrado
+ * só como {"G":47}. Concluir esses 47 dava a OP por encerrada e 186 peças
+ * (M 80, P 53, GG 27, PP 7 e 19 G) sumiam da produção, embora o pedido ainda
+ * precisasse delas.
+ */
+describe('corte parcial NÃO encolhe a ordem', () => {
+  const OP_0037 = {
+    quantidade: 233,
+    gradeTamanhos: { G: 66, M: 80, P: 53, GG: 27, PP: 7 } as Record<string, number> | null,
+    gradeCortada: { G: 47 } as Record<string, number> | null,
+  };
+
+  it('concluir tudo que foi cortado NÃO finaliza a OP', async () => {
+    const { svc } = servico(OP_0037);
+    const r = await svc.concluirParcial(516, { G: 47 }, 1);
+    expect(r.finalizada).toBe(false);
+    expect(r.totalAlvo).toBe(233);
+    expect(r.totalConcluido).toBe(47);
+  });
+
+  it('o que falta é contra o PLANEJADO, com os tamanhos não cortados juntos', async () => {
+    const { svc } = servico(OP_0037);
+    const r = await svc.concluirParcial(516, { G: 47 }, 1);
+    expect(r.restante).toEqual({ G: 19, M: 80, P: 53, GG: 27, PP: 7 });
+    expect(Object.values(r.restante).reduce((s, n) => s + n, 0)).toBe(186);
+  });
+
+  it('separa o que dá para ETIQUETAR agora do que ainda falta CORTAR', async () => {
+    const { svc } = servico(OP_0037);
+    const r = await svc.concluirParcial(516, { G: 40 }, 1);
+    expect(r.aEtiquetar).toEqual({ G: 7 });                                   // do que foi cortado
+    expect(r.aCortar).toEqual({ G: 19, M: 80, P: 53, GG: 27, PP: 7 });        // nem cortado foi
+  });
+
+  it('a OP só fecha quando o concluído alcança o planejado', async () => {
+    const { svc } = servico({ ...OP_0037, gradeCortada: { G: 66, M: 80, P: 53, GG: 27, PP: 7 } });
+    const r = await svc.concluirParcial(516, { G: 66, M: 80, P: 53, GG: 27, PP: 7 }, 1);
+    expect(r.finalizada).toBe(true);
+    expect(r.status).toBe('concluido');
+  });
+
+  it('não deixa etiquetar peça que não foi cortada', async () => {
+    const { svc } = servico(OP_0037);
+    await expect(svc.concluirParcial(516, { M: 10 }, 1)).rejects.toThrow(/não tem peça|faltam|já está concluído/i);
   });
 });
