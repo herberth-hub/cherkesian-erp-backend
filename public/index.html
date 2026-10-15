@@ -8359,6 +8359,7 @@ function estRender(){
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:10px">
       <input id="est_q" class="inp" value="${esc(E.q)}" placeholder="🔎 buscar ou BIPAR: etiqueta, produto, matéria-prima, caixa ou QR  ( / )" oninput="APP.estBusca()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.estBip();}" style="flex:1;min-width:230px">
+      <button class="btn-sm" style="font-weight:700;color:#8a6a0c;border-color:#e0cf96" title="Bipar várias etiquetas em sequência e movimentar ou excluir todas de uma vez" onclick="APP.estMultiAbrir()">🧺 Bipar várias${(window.__MB&&window.__MB.itens.length)?' ('+window.__MB.itens.length+')':''}</button>
       <select class="inp" onchange="APP.estSet('col',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Coluna</option>${['A','B'].map(x=>`<option value="${x}"${E.col===x?' selected':''}>Coluna ${x}</option>`).join('')}</select>
       <select class="inp" onchange="APP.estSet('andar',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Andar</option>${[...new Set(todas.map(u=>u.andar).filter(x=>x!=null&&x!==''))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(a=>`<option value="${esc(a)}"${String(E.andar)===String(a)?' selected':''}>Andar ${esc(a)}</option>`).join('')}</select>
       ${semMetragemN?`<button class="btn-sm" onclick="APP.estToggleSemMetragem()" style="${E.semMetragem?'background:#c14a34;color:#fff;border-color:#c14a34;font-weight:700':'color:#c14a34;border-color:#e8bcae'}">Sem metragem · ${semMetragemN}</button>`:''}
@@ -8631,6 +8632,98 @@ function dwTodas(marcar){
   dwConta();
 }
 function dwSelecionadas(){ return [...document.querySelectorAll('.dwck:checked')].map(c=>c.value); }
+/* ===== BIPAGEM MÚLTIPLA =====
+   Bipar uma a uma e agir uma a uma é o gargalo do estoque: guardar um fardo ou
+   limpar etiquetas erradas custava um ciclo inteiro de tela por peça. Aqui o
+   leitor acumula as etiquetas numa cesta e a ação vai no lote todo. */
+function estMultiAbrir(){
+  window.__MB = window.__MB || { itens: [] };
+  openModal(`<h3>🧺 Bipar várias etiquetas</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Bipe uma atrás da outra — o leitor já manda Enter. Cada etiqueta entra na lista; repetida não conta duas vezes. No fim, aja sobre todas de uma vez.</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+      <input id="mb_bip" class="inp" autocomplete="off" placeholder="bipe a etiqueta (UN-…) ou digite e tecle Enter" style="flex:1"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();APP.estMultiBip();}">
+      <button class="btn-sm" onclick="APP.estMultiBip()">Adicionar</button>
+    </div>
+    <div id="mb_msg" style="font-size:12px;min-height:18px;margin-bottom:4px"></div>
+    <div id="mb_lista" style="max-height:230px;overflow-y:auto;border:1px solid #f0e7d0;border-radius:8px"></div>
+    <div id="mb_acoes" style="margin-top:10px"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.estMultiLimpar()">Limpar lista</button>
+      <button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  estMultiRender();
+  setTimeout(()=>{ const i=$('mb_bip'); if(i) i.focus(); }, 60);
+}
+async function estMultiBip(){
+  const el=$('mb_bip'); if(!el) return;
+  const lido=(el.value||'').trim();
+  el.value='';
+  if(!lido) return;
+  const msg=(txt,cor)=>{ const m=$('mb_msg'); if(m) m.innerHTML=`<span style="color:${cor}">${esc(txt)}</span>`; };
+  const MB=window.__MB;
+  if(MB.itens.some(x=>x.codigo.toUpperCase()===lido.toUpperCase())){
+    beepErro&&beepErro(); msg('⚠️ '+lido+' já está na lista.','#8a5a00'); el.focus(); return;
+  }
+  msg('🔎 lendo '+lido+'…','#6b6757');
+  let r; try{ r=await api('/estoque/resolver?codigo='+encodeURIComponent(lido)); }
+  catch(e){ beepErro&&beepErro(); msg('❌ '+(e.message||e),'#c14a34'); el.focus(); return; }
+  if(!r.achou || r.tipo!=='unidade'){
+    beepErro&&beepErro();
+    msg('❌ '+(r.motivo||'Não é etiqueta de peça (UN-…).'),'#c14a34'); el.focus(); return;
+  }
+  beepOk&&beepOk();
+  MB.itens.push(r.unidade);
+  msg('✓ '+r.unidade.codigo+' · '+String(r.unidade.descricao||'').slice(0,30)+(r.unidade.tamanho?(' · '+r.unidade.tamanho):''),'#1e7a44');
+  estMultiRender();
+  el.focus();
+}
+function estMultiRender(){
+  const MB=window.__MB||{itens:[]};
+  const box=$('mb_lista'); if(!box) return;
+  if(!MB.itens.length){
+    box.innerHTML='<div class="muted" style="padding:14px;text-align:center;font-size:12.5px">Nenhuma etiqueta bipada ainda.</div>';
+    const a=$('mb_acoes'); if(a) a.innerHTML=''; return;
+  }
+  box.innerHTML = MB.itens.map((u,i)=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 9px;border-bottom:1px solid #f6f2e6;font-size:12px">
+      <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(u.descricao||'').slice(0,30))}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · '+esc(u.tamanho):''}</span>
+      ${unidStatusPill(u.status)}${estVincPill(u)}
+      <button class="btn-sm" style="margin-left:auto;padding:1px 7px" title="Tirar da lista" onclick="APP.estMultiTirar(${i})">✕</button></div>`).join('');
+  // Conta por situação: despachada não se movimenta, reservada não se dá baixa.
+  const n=MB.itens.length;
+  const desp=MB.itens.filter(u=>u.status==='despachado').length;
+  const res=MB.itens.filter(u=>u.status==='reservado').length;
+  const a=$('mb_acoes');
+  if(a) a.innerHTML = `<div style="font-size:12.5px;margin-bottom:6px"><b>${n}</b> etiqueta(s)`
+    + (res?` · <span style="color:#8a5a00">${res} reservada(s)</span>`:'')
+    + (desp?` · <span style="color:#c14a34">${desp} já despachada(s)</span>`:'')
+    + `</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-primary" onclick="APP.estMultiMover()">📍 Movimentar as ${n}</button>
+      <button class="btn-sm" onclick="APP.estMultiReimprimir()">🏷 Reimprimir todas</button>
+      ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#c14a34;border-color:#e8bcae" onclick="APP.estMultiExcluir()">🗑 Excluir as ${n}</button>`:''}
+    </div>`;
+}
+function estMultiTirar(i){ const MB=window.__MB; if(!MB) return; MB.itens.splice(i,1); estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
+function estMultiLimpar(){ window.__MB={itens:[]}; estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
+function estMultiCods(){ return (window.__MB&&window.__MB.itens||[]).map(u=>u.codigo); }
+function estMultiMover(){ const c=estMultiCods(); if(!c.length) return; closeModal(); dwMover(c); }
+function estMultiReimprimir(){ const c=estMultiCods(); if(c.length) unBulkReimprimirCods(c); }
+async function estMultiExcluir(){
+  const MB=window.__MB; const cods=estMultiCods(); if(!cods.length) return;
+  // Intocável é só a peça JÁ BIPADA numa conferência (despachada ou com
+  // expedição atrás) — apagá-la sumiria com o rastro da entrega. Reservada
+  // pode: é separação planejada, ninguém bipou ainda.
+  const presas=MB.itens.filter(u=>u.status==='despachado'||u.expedicaoNumero);
+  const ok=await uiConfirm({tipo:'err', titulo:'Excluir '+cods.length+' etiqueta(s)?', ok:'Excluir', cancel:'Cancelar',
+    msg:'As peças somem do estoque. Não pode ser desfeito.'
+      +(presas.length?('\n\n'+presas.length+' já foram bipadas numa expedição — essas o sistema vai recusar, e o resto é excluído normalmente.'):'')});
+  if(!ok) return;
+  try{ const r=await api('/estoque/unidades/excluir',{method:'POST',body:{codigos:cods}});
+    const bloq=Number(r.bloqueadasDespachadas||0);
+    toast(r.removidas+' etiqueta(s) excluída(s)'+(bloq?' · '+bloq+' recusada(s) (já em expedição)':'')+'.', bloq?'err':'ok');
+    estMultiLimpar(); closeModal(); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 /** Pastilha do vínculo da etiqueta: para qual pedido/expedição ela está presa. */
 function estVincPill(u){
   if(u.pedidoNumero) return `<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:9.5px" title="Reservada para este pedido">🧾 ${esc(u.pedidoNumero)}</span>`;
@@ -8673,8 +8766,8 @@ async function estEnderecosOpc(){
  * e dava para mexer em 1 peça por vez, por produto+tamanho. Guardar um fardo era
  * uma bipagem por etiqueta.
  */
-async function dwMover(){
-  const cods=dwSelecionadas();
+async function dwMover(codigos){
+  const cods=(codigos&&codigos.length)?codigos:dwSelecionadas();
   if(!cods.length){ toast('Marque as etiquetas (ou use "selecionar tudo").','err'); return; }
   const o=await estEnderecosOpc();
   const opc=(arr,sel)=>arr.map(x=>`<option value="${esc(x)}"${x===sel?' selected':''}>${esc(x)}</option>`).join('');
@@ -14536,7 +14629,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
