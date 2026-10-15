@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, Produto } from '@prisma/client';
 import { NfeService } from '../nfe/nfe.service';
@@ -54,6 +55,27 @@ export class PortalService {
       return override;
     }
     throw new ForbiddenException('Área exclusiva do portal do cliente.');
+  }
+
+  /**
+   * Troca a senha do próprio comprador. Só vale para o perfil `cliente`: o admin
+   * em pré-visualização não pode trocar a senha de ninguém por aqui.
+   */
+  async trocarSenha(user: AuthUser, senhaAtual: string, novaSenha: string) {
+    if (user.acesso !== 'cliente') {
+      throw new ForbiddenException('Troca de senha disponível apenas para o acesso do Portal do Cliente.');
+    }
+    const u = await this.prisma.usuario.findUnique({ where: { id: user.sub } });
+    if (!u) throw new NotFoundException('Usuário não encontrado.');
+    const nova = String(novaSenha ?? '').trim();
+    if (!(await bcrypt.compare(String(senhaAtual ?? ''), u.senhaHash))) {
+      throw new BadRequestException('Senha atual incorreta.');
+    }
+    if (nova.length < 6) throw new BadRequestException('A nova senha precisa de ao menos 6 caracteres.');
+    if (nova === String(senhaAtual ?? '')) throw new BadRequestException('A nova senha tem de ser diferente da atual.');
+    await this.prisma.usuario.update({ where: { id: u.id }, data: { senhaHash: await bcrypt.hash(nova, 10) } });
+    await this.logs.registrar({ usuario: u.usuario, acao: 'portal.senha.trocada', detalhe: 'Trocada pelo próprio cliente.', entidade: 'Usuario', entidadeId: String(u.id) }).catch(() => undefined);
+    return { ok: true, mensagem: 'Senha alterada. Use a nova senha no próximo acesso.' };
   }
 
   private async clienteDoEscopo(user: AuthUser, override?: number) {

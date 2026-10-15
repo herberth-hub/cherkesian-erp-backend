@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Ip,
   Patch,
   Post,
 } from '@nestjs/common';
@@ -27,6 +28,17 @@ export class UsuariosController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.usuariosService.findAll(user.empresaId);
+  }
+
+  /** Manda o acesso do Portal do Cliente por e-mail, gravando a senha informada. */
+  @Post(':id/enviar-acesso')
+  enviarAcesso(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { email?: string; senha: string; copiaPara?: string },
+    @CurrentUser() user: AuthUser,
+    @Ip() ip: string,
+  ) {
+    return this.usuariosService.enviarAcessoPortal(id, user.empresaId, dto, user.usuario, ip);
   }
 
   @Get(':id')

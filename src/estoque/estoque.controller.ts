@@ -114,6 +114,32 @@ export class EstoqueController {
     return this.estoqueService.enderecar(dto, user.empresaId, user.usuario);
   }
 
+  /** Endereços já usados no armazém — alimenta os seletores (sem digitar à mão). */
+  @Areas('estoque', 'producao')
+  @Get('enderecos')
+  enderecos(@CurrentUser() user: AuthUser) {
+    return this.estoqueService.enderecosUsados(user.empresaId);
+  }
+
+  /** Endereça VÁRIAS etiquetas de uma vez (as selecionadas na gaveta). */
+  @Areas('estoque', 'producao')
+  @Post('enderecar-lote')
+  @HttpCode(HttpStatus.OK)
+  enderecarLote(
+    @Body() body: { codigos: string[]; coluna: string; andar: string; caixaMaster?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.estoqueService.enderecarVarias(body, user.empresaId, user.usuario);
+  }
+
+  /** Dá baixa em VÁRIAS etiquetas selecionadas. */
+  @Areas('estoque', 'producao')
+  @Post('saida-lote')
+  @HttpCode(HttpStatus.OK)
+  saidaLote(@Body() body: { codigos: string[]; motivo?: string }, @CurrentUser() user: AuthUser) {
+    return this.estoqueService.saidaVarias(body, user.empresaId, user.usuario);
+  }
+
   // ===== Quarentena (anomalia / estorno de cliente) =====
   @Areas('estoque', 'producao', 'expedicao')
   @Post('quarentena')

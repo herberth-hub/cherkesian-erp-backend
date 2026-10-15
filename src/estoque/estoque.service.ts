@@ -352,6 +352,116 @@ export class EstoqueService {
     return { codigo, descricao: upd.descricao, tamanho: upd.tamanho, endereco: fmt(dto.coluna, dto.andar, dto.caixaMaster), movido: jaEnderecado && mudou };
   }
 
+  /**
+   * Endereça VÁRIAS etiquetas de uma vez (as selecionadas na gaveta do estoque).
+   *
+   * Guardar um fardo era peça a peça, uma bipagem por etiqueta. Aqui o operador
+   * marca o que vai junto e manda tudo para a mesma coluna/andar numa tacada.
+   * Peça já despachada é recusada; peça reservada para uma expedição passa, mas
+   * é contada à parte no retorno — ela continua reservada, só muda de lugar.
+   */
+  async enderecarVarias(
+    dto: { codigos: string[]; coluna: string; andar: string; caixaMaster?: string },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const codigos = [...new Set((dto.codigos ?? []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    if (!codigos.length) throw new BadRequestException('Selecione ao menos uma etiqueta.');
+    if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
+    const coluna = String(dto.coluna ?? '').trim();
+    const andar = String(dto.andar ?? '').trim();
+    if (!coluna || !andar) throw new BadRequestException('Informe a coluna e o andar.');
+
+    const uns = await this.prisma.unidadeEstoque.findMany({ where: { codigo: { in: codigos }, empresaId } });
+    const achados = new Set(uns.map((u) => u.codigo));
+    const naoAchadas = codigos.filter((c) => !achados.has(c));
+    const despachadas = uns.filter((u) => u.status === 'despachado').map((u) => u.codigo);
+    const mover = uns.filter((u) => u.status !== 'despachado');
+    if (!mover.length) {
+      throw new BadRequestException('Nenhuma etiqueta pôde ser endereçada (despachadas ou inexistentes).');
+    }
+    const reservadas = mover.filter((u) => u.status === 'reservado').length;
+
+    // Uma só escrita para o lote inteiro — Neon é pooled e 500 updates em
+    // sequência estouravam o tempo da transação.
+    const r = await this.prisma.unidadeEstoque.updateMany({
+      where: { codigo: { in: mover.map((u) => u.codigo) }, empresaId },
+      data: { coluna, andar, caixaMaster: (dto.caixaMaster ?? '').trim() || null },
+    });
+    // Só o que NÃO está reservado passa a "em estoque". A reservada tem expedição
+    // atrás: mudar o status a soltaria do pedido — ela só muda de lugar.
+    const livres = mover.filter((u) => u.status !== 'reservado').map((u) => u.codigo);
+    if (livres.length) {
+      await this.prisma.unidadeEstoque.updateMany({
+        where: { codigo: { in: livres }, empresaId },
+        data: { status: 'em_estoque' },
+      });
+    }
+
+    await this.prisma.log.create({
+      data: {
+        usuario, acao: 'estoque.enderecar.lote',
+        detalhe: `${r.count} etiqueta(s) para Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`,
+        entidade: 'UnidadeEstoque',
+      },
+    }).catch(() => undefined);
+
+    return {
+      enderecadas: r.count,
+      reservadas,
+      ignoradas: { despachadas, naoAchadas },
+      endereco: `Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`,
+    };
+  }
+
+  /** Dá baixa (saída) em VÁRIAS etiquetas selecionadas. */
+  async saidaVarias(dto: { codigos: string[]; motivo?: string }, empresaId: number, usuario: string) {
+    const codigos = [...new Set((dto.codigos ?? []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    if (!codigos.length) throw new BadRequestException('Selecione ao menos uma etiqueta.');
+    if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
+    const uns = await this.prisma.unidadeEstoque.findMany({ where: { codigo: { in: codigos }, empresaId } });
+    const jaFora = uns.filter((u) => u.status === 'despachado').map((u) => u.codigo);
+    // Reservada tem expedição atrás: dar baixa por aqui some com a peça do pedido.
+    const reservadas = uns.filter((u) => u.status === 'reservado').map((u) => u.codigo);
+    if (reservadas.length) {
+      throw new BadRequestException(
+        `${reservadas.length} etiqueta(s) estão RESERVADAS para expedição e não podem sair por aqui. Use a expedição (ou devolva a peça antes). Ex.: ${reservadas.slice(0, 3).join(', ')}`,
+      );
+    }
+    const baixar = uns.filter((u) => u.status !== 'despachado');
+    if (!baixar.length) throw new BadRequestException('Nenhuma etiqueta disponível para saída.');
+    const r = await this.prisma.unidadeEstoque.updateMany({
+      where: { codigo: { in: baixar.map((u) => u.codigo) }, empresaId },
+      data: { status: 'despachado', saidaEm: new Date() },
+    });
+    await this.prisma.log.create({
+      data: {
+        usuario, acao: 'estoque.saida.lote',
+        detalhe: `${r.count} etiqueta(s) baixadas${dto.motivo ? ' · ' + dto.motivo : ''}`,
+        entidade: 'UnidadeEstoque',
+      },
+    }).catch(() => undefined);
+    return { baixadas: r.count, ignoradas: { jaForaDoEstoque: jaFora } };
+  }
+
+  /** Endereços já usados no armazém — alimenta os seletores em vez de digitar à mão. */
+  async enderecosUsados(empresaId: number) {
+    const uns = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, status: { not: 'despachado' } },
+      select: { coluna: true, andar: true, caixaMaster: true },
+    });
+    const uniq = (xs: Array<string | null>) =>
+      [...new Set(xs.map((x) => String(x ?? '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+    const mats = await this.prisma.material.findMany({ where: { empresaId }, select: { localizacao: true } });
+    return {
+      colunas: uniq(uns.map((u) => u.coluna)),
+      andares: uniq(uns.map((u) => u.andar)),
+      caixas: uniq(uns.map((u) => u.caixaMaster)),
+      localizacoesMaterial: uniq(mats.map((m) => m.localizacao)),
+    };
+  }
+
   /** Lista as unidades em estoque (com filtros simples). */
   /**
    * Lista as unidades (etiquetas) da empresa. A tela de Estoque filtra do lado do
@@ -382,10 +492,27 @@ export class EstoqueService {
         // Matéria-prima e aviamento são GRANEL: a etiqueta é um rolo/volume, então
         // o que vale é somar a quantidade (m, kg), não contar etiquetas.
         quantidade: true,
+        // Para quem a peça está reservada. Sem isto a lista dizia só "reservado",
+        // e não dava para saber de qual pedido — nem perceber que 86% das
+        // reservadas não apontam para pedido nenhum.
+        pedidoId: true, expedicaoId: true,
       },
       orderBy: { id: 'desc' },
       take: 100_000,
     });
+    // Número do pedido/expedição de cada etiqueta (2 consultas, não N).
+    const pids = [...new Set(unidades.map((u) => u.pedidoId).filter((x): x is number => x != null))];
+    const eids = [...new Set(unidades.map((u) => u.expedicaoId).filter((x): x is number => x != null))];
+    const [peds, exps] = await Promise.all([
+      pids.length ? this.prisma.pedido.findMany({ where: { id: { in: pids } }, select: { id: true, numero: true } }) : Promise.resolve([]),
+      eids.length ? this.prisma.expedicao.findMany({ where: { id: { in: eids } }, select: { id: true, numero: true } }) : Promise.resolve([]),
+    ]);
+    const numPed = new Map(peds.map((x) => [x.id, x.numero]));
+    const numExp = new Map(exps.map((x) => [x.id, x.numero]));
+    for (const u of unidades as Array<Record<string, unknown>>) {
+      u.pedidoNumero = u.pedidoId != null ? numPed.get(u.pedidoId as number) ?? null : null;
+      u.expedicaoNumero = u.expedicaoId != null ? numExp.get(u.expedicaoId as number) ?? null : null;
+    }
 
     // Código do produto/material e unidade de medida, para a tela agrupar e exibir
     // sem ter que buscar item a item.
@@ -476,6 +603,35 @@ export class EstoqueService {
       unidadeMedida: mat?.unidade ?? null,
       materialCodigo: mat?.codigo ?? null,
       saldoMaterial: mat ? Number(mat.saldo) : null,
+      // PARA ONDE FOI. "Já despachada" sem dizer para onde obriga a caçar a peça
+      // expedição por expedição. A unidade guarda o vínculo — basta mostrar.
+      ...(await this.destinoDaUnidade(un)),
+    };
+  }
+
+  /** Expedição, pedido, cliente e NF a que a etiqueta está (ou esteve) vinculada. */
+  private async destinoDaUnidade(un: { expedicaoId: number | null; pedidoId: number | null; saidaEm: Date | null }) {
+    const exp = un.expedicaoId
+      ? await this.prisma.expedicao.findUnique({
+          where: { id: un.expedicaoId },
+          select: { numero: true, nf: true, conferenciaStatus: true, pedidoId: true, clienteId: true },
+        })
+      : null;
+    const pedidoId = un.pedidoId ?? exp?.pedidoId ?? null;
+    const ped = pedidoId
+      ? await this.prisma.pedido.findUnique({ where: { id: pedidoId }, select: { numero: true, clienteId: true } })
+      : null;
+    const clienteId = ped?.clienteId ?? exp?.clienteId ?? null;
+    const cli = clienteId
+      ? await this.prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true, fantasia: true } })
+      : null;
+    return {
+      expedicaoNumero: exp?.numero ?? null,
+      expedicaoStatus: exp?.conferenciaStatus ?? null,
+      pedidoNumero: ped?.numero ?? null,
+      clienteNome: cli ? (cli.fantasia || cli.nome) : null,
+      nfNumero: exp?.nf ?? null,
+      saidaEm: un.saidaEm ?? null,
     };
   }
 

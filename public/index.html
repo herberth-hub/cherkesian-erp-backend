@@ -8244,6 +8244,7 @@ async function estBip(){
       `🏷 <b>${esc(u.codigo)}</b> · ${esc(u.descricao)}${u.cor?' · 🎨 '+esc(u.cor):''}${u.tamanho?' · tam <b>'+esc(u.tamanho)+'</b>':''}`
       +`<div style="margin-top:3px">📍 <b>${esc(u.endereco||'sem endereço')}</b> · situação: <b>${esc(u.statusLabel)}</b></div>`
       +(u.status==='despachado'?'<div style="margin-top:3px;color:#c14a34">Esta peça JÁ FOI DESPACHADA — não está mais no estoque.</div>':'')
+      +estDestinoTxt(u)
       +`<div style="margin-top:5px"><button class="btn-sm" onclick="APP.estLimparBip()">Limpar</button></div>`));
     estRender(); return;
   }
@@ -8532,7 +8533,7 @@ function estViewUnidades(arr){
         unidTipoPill(u.tipo),
         (u.itemCodigo?`<span class="mono" style="color:#8a6a0c;font-size:10.5px">${esc(u.itemCodigo)}</span> `:'')+esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):'')
           +(u.tipo!=='produto'&&u.quantidade==null?' <span class="pill red" style="font-size:9px">sem metragem</span>':''),
-        unidStatusPill(u.status),
+        unidStatusPill(u.status)+estVincPill(u),
         esc(estEnderecoTxt(u)||(u.areaMotivo?('⚠ '+u.areaMotivo):'—')),
         `<button class="btn-sm" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>`
       ]), vis.length?null:'Nenhuma unidade neste filtro.')
@@ -8600,9 +8601,9 @@ function estDrawer(chave, cor, tam){
      <div id="dw_sel" class="muted" style="font-size:11px;margin-bottom:4px"></div>
      ${arr.map(u=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #f2efe8;font-size:12px">
         <input type="checkbox" class="dwck" value="${esc(u.codigo)}" onclick="APP.dwConta()">
-        <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>${unidStatusPill(u.status)}
+        <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>${unidStatusPill(u.status)}${estVincPill(u)}
         <button class="btn-sm" style="margin-left:auto;padding:2px 8px" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">Etiqueta</button></div>`).join('')}`,
-    `<button class="btn-primary" style="flex:1" onclick="APP.estDrawerFechar();APP.formMov()">Movimentar ${arr.length} un.</button>
+    `<button class="btn-primary" style="flex:1" onclick="APP.dwMover()">📍 Movimentar selecionadas</button>
      <button class="btn-sm" onclick="APP.unBulkReimprimirCods(${JSON.stringify(arr.map(u=>u.codigo)).replace(/"/g,'&quot;')})">Reimprimir todas</button>
      ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#c14a34;border-color:#e8bcae" onclick="APP.dwExcluir()">🗑 Excluir selecionadas</button>`:''}`);
 }
@@ -8616,6 +8617,101 @@ function estDrawer(chave, cor, tam){
 function dwTodas(marcar){
   document.querySelectorAll('.dwck').forEach(c=>{ c.checked=!!marcar; });
   dwConta();
+}
+function dwSelecionadas(){ return [...document.querySelectorAll('.dwck:checked')].map(c=>c.value); }
+/** Pastilha do vínculo da etiqueta: para qual pedido/expedição ela está presa. */
+function estVincPill(u){
+  if(u.pedidoNumero) return `<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:9.5px" title="Reservada para este pedido">🧾 ${esc(u.pedidoNumero)}</span>`;
+  if(u.expedicaoNumero) return `<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:9.5px" title="Vinculada a esta expedição">📦 ${esc(u.expedicaoNumero)}</span>`;
+  if(u.status==='reservado') return `<span class="pill" style="background:#fff5e6;color:#8a5a00;border:1px solid #f0c987;font-size:9.5px" title="Reservada mas sem pedido: não entra em expedição nenhuma e a conferência recusa">⚠️ sem pedido</span>`;
+  return '';
+}
+/**
+ * Para ONDE a peça foi. Dizer só "já despachada" obrigava a caçar a etiqueta
+ * expedição por expedição para descobrir em qual pedido ela saiu.
+ */
+function estDestinoTxt(u){
+  if(!u) return '';
+  // Reservada SEM pedido é peça presa sem dono: ela não entra na conferência de
+  // expedição nenhuma ("não faz parte deste pedido") e some do pronta-entrega.
+  // Calar sobre isso é pior do que avisar.
+  if(!u.expedicaoNumero && !u.pedidoNumero){
+    if(u.status==='reservado') return `<div style="margin-top:4px;padding:6px 9px;background:#fff5e6;border:1px solid #f0c987;border-radius:7px;font-size:12px;color:#8a5a00">⚠️ <b>Reservada sem pedido vinculado</b> — esta peça não aparece em nenhuma expedição e a conferência vai recusá-la. Use <b>Movimentar selecionadas</b> para liberá-la ao estoque, ou vincule-a ao pedido certo.</div>`;
+    return '';
+  }
+  const quando = u.saidaEm ? new Date(u.saidaEm).toLocaleDateString('pt-BR') : '';
+  const partes=[];
+  if(u.expedicaoNumero) partes.push(`📦 Expedição <b>${esc(u.expedicaoNumero)}</b>${u.expedicaoStatus?' ('+esc(u.expedicaoStatus)+')':''}`);
+  if(u.pedidoNumero)    partes.push(`🧾 Pedido <b>${esc(u.pedidoNumero)}</b>`);
+  if(u.nfNumero)        partes.push(`NF <b>${esc(u.nfNumero)}</b>`);
+  if(u.clienteNome)     partes.push(esc(String(u.clienteNome).slice(0,34)));
+  if(quando)            partes.push(`saiu em ${esc(quando)}`);
+  return `<div style="margin-top:4px;padding:6px 9px;background:#fff;border:1px solid #cfe0ee;border-radius:7px;font-size:12px;color:#1e5aa8">${partes.join(' · ')}</div>`;
+}
+/** Endereços já usados no armazém (cache de 1 carga) — para os seletores. */
+async function estEnderecosOpc(){
+  if(window.__ENDOPC) return window.__ENDOPC;
+  try{ window.__ENDOPC=await api('/estoque/enderecos'); }
+  catch(e){ window.__ENDOPC={colunas:[],andares:[],caixas:[],localizacoesMaterial:[]}; }
+  return window.__ENDOPC;
+}
+/**
+ * Movimenta as etiquetas SELECIONADAS de uma vez.
+ * Antes o botão da gaveta ignorava a seleção: abria a tela de movimentação vazia
+ * e dava para mexer em 1 peça por vez, por produto+tamanho. Guardar um fardo era
+ * uma bipagem por etiqueta.
+ */
+async function dwMover(){
+  const cods=dwSelecionadas();
+  if(!cods.length){ toast('Marque as etiquetas (ou use "selecionar tudo").','err'); return; }
+  const o=await estEnderecosOpc();
+  const opc=(arr,sel)=>arr.map(x=>`<option value="${esc(x)}"${x===sel?' selected':''}>${esc(x)}</option>`).join('');
+  openModal(`<h3>📍 Movimentar ${cods.length} etiqueta(s)</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">As peças marcadas vão todas para o mesmo lugar. Peça reservada para expedição muda de lugar mas <b>continua reservada</b>.</div>
+    <div class="mrow"><label class="fl">O que fazer *</label>
+      <select id="dm_acao" class="inp" onchange="APP.dwMoverAcao()">
+        <option value="enderecar">📍 Guardar no endereço (coluna / andar)</option>
+        <option value="saida">📤 Dar baixa (saída do estoque)</option>
+      </select></div>
+    <div id="dm_end">
+      <div class="grid3">
+        <div><label class="fl">Coluna *</label><select id="dm_col" class="inp"><option value="">—</option>${opc(o.colunas)}</select></div>
+        <div><label class="fl">Andar *</label><select id="dm_and" class="inp"><option value="">—</option>${opc(o.andares)}</select></div>
+        <div><label class="fl">Caixa master</label><select id="dm_cx" class="inp"><option value="">— nenhuma —</option>${opc(o.caixas)}</select></div>
+      </div>
+      <div class="muted" style="font-size:11px;margin-top:4px">As opções são os endereços que já existem no armazém — assim ninguém digita errado.</div>
+    </div>
+    <div id="dm_sai" style="display:none">${field('dm_motivo','Motivo da baixa','placeholder="ex.: perda, amostra, uso interno"')}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick='APP.dwMoverConfirmar(${JSON.stringify(cods).replace(/'/g,"&#39;")})'>Confirmar</button></div>`);
+}
+function dwMoverAcao(){
+  const a=val('dm_acao');
+  const e=$('dm_end'), s=$('dm_sai');
+  if(e) e.style.display = a==='enderecar' ? '' : 'none';
+  if(s) s.style.display = a==='saida' ? '' : 'none';
+}
+async function dwMoverConfirmar(cods){
+  const acao=val('dm_acao');
+  try{
+    if(acao==='saida'){
+      const ok=await uiConfirm({tipo:'warn', titulo:'Dar baixa em '+cods.length+' etiqueta(s)?', ok:'Dar baixa', cancel:'Cancelar',
+        msg:'As peças saem do estoque. Etiqueta reservada para expedição é recusada — essas saem pela expedição.'});
+      if(!ok) return;
+      const r=await api('/estoque/saida-lote',{method:'POST',body:{codigos:cods, motivo:val('dm_motivo')||undefined}});
+      closeModal(); estDrawerFechar();
+      toast(r.baixadas+' etiqueta(s) baixadas do estoque.','ok'); loadRoute(); return;
+    }
+    const coluna=val('dm_col'), andar=val('dm_and');
+    if(!coluna||!andar){ toast('Escolha a coluna e o andar.','err'); return; }
+    const r=await api('/estoque/enderecar-lote',{method:'POST',body:{codigos:cods, coluna, andar, caixaMaster:val('dm_cx')||undefined}});
+    closeModal(); estDrawerFechar();
+    const ign=(r.ignoradas&&(r.ignoradas.despachadas||[]).length)||0;
+    toast(r.enderecadas+' etiqueta(s) em '+r.endereco
+      + (r.reservadas?' · '+r.reservadas+' seguem reservadas':'')
+      + (ign?' · '+ign+' ignorada(s) (já despachadas)':''),'ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 function dwSelecionadas(){
   return [...document.querySelectorAll('.dwck:checked')].map(c=>c.value);
@@ -8867,7 +8963,7 @@ function renderUnidades(){
       `<span class="mono gold">${esc(u.codigo)}</span>`,
       unidTipoPill(u.tipo),
       esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
-      unidStatusPill(u.status),
+      unidStatusPill(u.status)+estVincPill(u),
       ender,
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${acoes}</div>`
     ];
@@ -9150,6 +9246,7 @@ async function formEntradaEstoque(){
             <select id="en_un" class="inp" style="width:110px"><option value="un">un</option><option value="kg">kg</option><option value="m">metro</option><option value="cone">cone</option><option value="rolo">rolo</option><option value="pç">pç</option></select>
           </div></div>
         <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
+      <div id="en_ped" style="display:none"></div>
       <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
         <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
           <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
@@ -9223,7 +9320,38 @@ function enItemPick(id){
   const desc=$('en_desc'); if(desc&&it.descricao) desc.value=it.descricao;
   const dd=$('en_itemdd'); if(dd) dd.style.display='none';
 }
-function enDest(){ const e=$('en_end'); if(e) e.style.display = val('en_dest')==='expedicao'?'none':''; }
+/**
+ * Destino da entrada. "Ir direto p/ expedição" reserva a peça — mas reservar
+ * PARA QUEM? Sem o pedido a etiqueta nascia reservada e solta, e a conferência
+ * depois recusava a peça ("não faz parte deste pedido"). Agora o pedido é
+ * escolhido aqui, e é obrigatório nesse destino.
+ */
+async function enDest(){
+  const exped = val('en_dest')==='expedicao';
+  const e=$('en_end'); if(e) e.style.display = exped?'none':'';
+  const box=$('en_ped'); if(!box) return;
+  box.style.display = exped?'':'none';
+  if(!exped){ box.innerHTML=''; return; }
+  if(!window.__ENPEDS){
+    box.innerHTML='<div class="muted" style="font-size:12px;padding:6px 0">carregando pedidos…</div>';
+    try{ window.__ENPEDS=await api('/pedidos'); }catch(err){ window.__ENPEDS=[]; }
+  }
+  // Só pedido que ainda tem o que expedir — pedido fechado não recebe peça nova.
+  const abertos=(window.__ENPEDS||[])
+    .filter(p=>!['cancelado','concluido','faturado','orcamento'].includes(p.etapa))
+    .sort((a,b)=>String(b.numero).localeCompare(String(a.numero),'pt-BR',{numeric:true}));
+  box.innerHTML = `<div class="mrow"><label class="fl">Pedido da expedição *</label>
+      <select id="en_pedido" class="inp">
+        <option value="">— selecione o pedido —</option>
+        ${abertos.map(p=>{
+          const falta=pedFaltaExpedir(p);
+          const cli=p.cliente?(p.cliente.fantasia||p.cliente.nome):'';
+          return `<option value="${p.id}">${esc(p.numero)} · ${esc(String(cli).slice(0,30))} · ${esc(p.etapa)}${falta>0?' · faltam '+falta+' pç':''}</option>`;
+        }).join('')}
+      </select>
+      <div class="muted" style="font-size:11px;margin-top:3px">A peça nasce <b>reservada para este pedido</b>. Sem isso ela fica reservada e solta, e a conferência da expedição recusa a etiqueta.</div>
+    </div>`;
+}
 async function saveEntradaEstoque(){
   const tipo=val('en_tipo');
   if(tipo==='retalho'){
@@ -9245,12 +9373,22 @@ async function saveEntradaEstoque(){
   { const lt=val('en_lote'); if(lt) body.loteFornecedor=lt; }
   if(it){ if(tipo==='produto') body.produtoId=it.id; else body.materialId=it.id; if(!body.descricao) body.descricao=it.descricao; }
   if(val('en_dest')==='estoque'){ if(val('en_col'))body.coluna=val('en_col'); if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx'); }
+  // Expedição exige o pedido: é ele que faz a reserva apontar para alguém.
+  if(val('en_dest')==='expedicao'){
+    const pid=Number(val('en_pedido')||0);
+    if(!pid){ toast('Escolha o pedido da expedição — a peça precisa saber para quem está reservada.','err'); return; }
+    body.pedidoId=pid;
+  }
   if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
   if(granel && !body.materialId){ toast('Selecione o material (no campo Item) para somar ao saldo.','err'); return; }
   if(!body.descricao){ toast('Informe a descrição (ou selecione um item).','err'); return; }
   try{ const r=await api('/estoque/entrada',{method:'POST',body}); closeModal();
     if(r.granel){ toast('Entrada '+r.loteEntrada+' · +'+Number(r.saldoAdd).toLocaleString('pt-BR')+' '+esc(r.unidade||'')+' no saldo · '+(r.endereco||'etiqueta do rolo'),'ok'); }
-    else { toast('Entrada '+r.loteEntrada+' · '+r.total+' unidade(s) · '+(r.endereco||'sem endereço'),'ok'); }
+    else {
+      const pedTxt = body.pedidoId ? (((window.__ENPEDS||[]).find(p=>p.id===body.pedidoId)||{}).numero||'') : '';
+      toast('Entrada '+r.loteEntrada+' · '+r.total+' unidade(s) · '
+        + (pedTxt ? ('reservada(s) p/ '+pedTxt) : (r.endereco||'sem endereço')),'ok');
+    }
     imprimirEtqUnidades(r.pecas, r);
     loadRoute();
   }catch(e){ toast('Falha: '+(e.message||e),'err'); }
@@ -9513,6 +9651,7 @@ async function consultarEtiqueta(codigoDireto){
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Status</span><span class="pill ${pill}">${esc(u.statusLabel)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Endereço</span><b>${u.enderecado?esc(u.endereco):'<span style="color:#c14a34">sem endereço</span>'}</b></div>
       ${u.loteFornecedor?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Lote fornecedor</span><b>${esc(u.loteFornecedor)}</b></div>`:''}
+      ${estDestinoTxt(u)}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid #f0e7d0">${acoes}</div>
       ${nota}
     </div>`;
@@ -9564,14 +9703,44 @@ async function formMov(){
       <div id="f_tamwrap">${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}</div>
       <div><label class="fl" id="f_qtdlab">Quantidade *</label><div style="display:flex;gap:6px;align-items:center"><input id="f_qtd" class="inp" type="number" min="1" step="1" style="flex:1"><span id="f_unlbl" class="muted" style="display:none;font-weight:700"></span></div></div>
     </div>
-    ${field('f_loc','Localização (entrada)','')}
+    <div id="f_locwrap"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMov()">Confirmar</button></div>`);
+  estLocCampo();
   movAlvo();
   // O leitor de código de barras digita em QUEM ESTÁ COM O FOCO. Sem isto o foco
   // fica no primeiro campo (o select "O que movimentar") e a leitura se perde lá,
   // deixando o campo do produto vazio — parece que "não identificou".
   setTimeout(()=>{ const i=$('f_item'); if(i){ i.focus(); i.select&&i.select(); } }, 60);
+}
+/**
+ * Campo de localização do Movimentar.
+ * Era um texto livre chamado "Localização (entrada)" que o operador digitava à
+ * mão — e para PRODUTO ACABADO não fazia nada: o endereço de uma peça é
+ * coluna + andar, e o backend só usa esse campo para MATERIAL. Agora o campo é
+ * o certo para cada alvo, e com as opções que já existem no armazém.
+ */
+async function estLocCampo(){
+  const box=$('f_locwrap'); if(!box) return;
+  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const o=await estEnderecosOpc();
+  const opc=arr=>arr.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  if(isMat){
+    // Material guarda um texto livre de prateleira; oferece os já usados, mas
+    // deixa criar um novo (hoje nenhum material tem localização preenchida).
+    box.innerHTML = `<div class="mrow"><label class="fl">Localização na prateleira <span class="muted" style="font-weight:400">(só na entrada)</span></label>
+      <input id="f_loc" class="inp" list="f_locdl" autocomplete="off" placeholder="ex.: B3, Prateleira 12">
+      <datalist id="f_locdl">${opc(o.localizacoesMaterial||[])}</datalist></div>`;
+  } else {
+    // Peça acabada NÃO se endereça por aqui: o endereço mora na ETIQUETA
+    // (coluna/andar da unidade). Este caminho mexe no agregado por
+    // produto+tamanho. O campo de localização que existia aqui era texto livre e
+    // não ia parar em lugar nenhum que a tela do estoque leia.
+    box.innerHTML = `<div class="card" style="background:#f7f5ef;border-color:#e4ddc8;font-size:11.5px;margin:2px 0 0">
+      📍 <b>Para guardar peça no endereço</b>, use <b>Endereçar (bipar)</b> ou abra o produto na matriz do estoque e
+      use <b>Movimentar selecionadas</b> — ali dá para mandar várias etiquetas para a mesma coluna/andar de uma vez.
+      Esta tela ajusta a quantidade do produto, não o lugar da peça.</div>`;
+  }
 }
 function movAlvo(){
   // Trocar o alvo descarta a etiqueta bipada e libera os campos travados por ela.
@@ -9586,6 +9755,7 @@ function movAlvo(){
   window.__MOVITEMID=null;
   const inp=$('f_item'); if(inp){ inp.value=''; }
   const dd=$('f_itemdd'); if(dd) dd.style.display='none';
+  estLocCampo(); // material e produto acabado têm campos de local diferentes
   const lab=$('f_itemlab'); if(lab) lab.textContent = isMat ? (alvo==='aviamento'?'Aviamento *':'Matéria-prima *') : 'Produto *';
   const tw=$('f_tamwrap'); if(tw) tw.style.display=isMat?'none':'';
   const q=$('f_qtd'); if(q){ q.step=isMat?'0.001':'1'; q.min=isMat?'0.001':'1'; q.placeholder=isMat?'ex.: 5,90':'ex.: 10'; }
@@ -9710,7 +9880,7 @@ async function saveMov(){
   const id=Number(window.__MOVITEMID||0);
   const body={ tipo:val('f_tipo'), quantidade:Number((val('f_qtd')||'').replace(',','.')) };
   if(isMat) body.materialId=id; else { body.produtoId=id; body.tamanho=val('f_tam'); }
-  const loc=val('f_loc'); if(loc) body.localizacao=loc;
+  if(isMat){ const loc=val('f_loc'); if(loc) body.localizacao=loc; }
   if(!id){ toast('Selecione o item (digite e escolha na lista).','err'); return; }
   if(isMat){ if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; } }
   else { if(!body.tamanho||!(body.quantidade>0)){ toast('Preencha tamanho e quantidade.','err'); return; } }
@@ -10017,6 +10187,7 @@ async function viewUsuarios(c){
       u.bloqueado?'<span class="pill red">🔒 bloqueado</span>':(u.ativo?'<span class="pill green">sim</span>':'<span class="pill red">não</span>'),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick='APP.formUsuario(${JSON.stringify(u).replace(/'/g,"&#39;")})'>Editar</button>`
         + (u.bloqueado?`<button class="btn-sm" style="color:#3a8f4f;font-weight:600" onclick="APP.desbloquearUsuario(${u.id})">🔓 Desbloquear</button>`:'')
+        + (u.acesso==='cliente'?`<button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef;font-weight:600" title="Enviar o acesso do Portal por e-mail ao cliente (grava a senha informada)" onclick='APP.enviarAcessoPortal(${JSON.stringify({id:u.id,nome:u.nome,usuario:u.usuario,clienteId:u.clienteId}).replace(/'/g,"&#39;")})'>✉ Enviar acesso</button>`:'')
         + (u.acesso!=='total'?`<button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'') + `</div>`
     ]), list.length?null:'Nenhum usuário.');
 }
@@ -10067,6 +10238,35 @@ async function saveUsuario(id){
 async function removeUsuario(id){
   try{ await api('/usuarios/'+id,{method:'DELETE'}); toast('Usuário desativado.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
+}
+/**
+ * Envia o acesso do Portal ao cliente pelo próprio sistema.
+ * A senha digitada aqui é GRAVADA junto com o envio — assim o e-mail nunca sai
+ * com uma credencial que não funciona (login digitado errado ou senha antiga).
+ */
+async function enviarAcessoPortal(u){
+  let sug='';
+  if(u.clienteId){ try{ const c=await api('/clientes/'+u.clienteId); sug=c.email||''; }catch(e){} }
+  openModal(`<h3>✉ Enviar acesso do Portal</h3>
+    <div class="r" style="margin-bottom:6px"><b>${esc(u.nome||'')}</b> · login <b class="mono">${esc(u.usuario)}</b></div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">O cliente recebe o endereço do portal, o login e a senha abaixo. <b>A senha informada é gravada agora</b> — vale a partir deste envio.</div>
+    ${field('pa_em','E-mail do cliente *','value="'+esc(sug)+'" placeholder="comprador@empresa.com.br"')}
+    ${field('pa_se','Senha de acesso *','type="text" placeholder="mínimo 6 caracteres" autocomplete="off"')}
+    ${field('pa_cc','Cópia para (opcional)','placeholder="separe por vírgula"')}
+    ${sug?'':'<div class="card" style="background:#fdf6e9;border-color:#e8d9ae;font-size:11.5px">O cliente não tem e-mail cadastrado — informe acima.</div>'}
+    <div class="card" style="background:#f7f5ef;border-color:#e4ddc8;font-size:11.5px">O cliente pode trocar esta senha depois, pelo próprio portal.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.enviarAcessoPortalConfirmar(${u.id})">Enviar acesso</button></div>`);
+}
+async function enviarAcessoPortalConfirmar(id){
+  const email=val('pa_em'), senha=val('pa_se'), copiaPara=val('pa_cc');
+  if(!email){ toast('Informe o e-mail do cliente.','err'); return; }
+  if(senha.length<6){ toast('A senha precisa de ao menos 6 caracteres.','err'); return; }
+  try{
+    const r=await api('/usuarios/'+id+'/enviar-acesso',{method:'POST',body:{email,senha,copiaPara:copiaPara||undefined}});
+    closeModal();
+    toast((r.simulado?'[SIMULADO] ':'')+'Acesso enviado para '+r.para+' · login '+r.login+'.','ok');
+  }catch(e){ toast(e.message,'err'); }
 }
 async function desbloquearUsuario(id){
   if(!(await uiConfirm({tipo:'warn', titulo:'Desbloquear conta?', msg:'O usuário poderá tentar entrar novamente.', ok:'Desbloquear'}))) return;
@@ -14316,8 +14516,8 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
-  formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,

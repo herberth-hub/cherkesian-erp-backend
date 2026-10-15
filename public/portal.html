@@ -495,6 +495,7 @@ function renderShell(inner){
       +'<div class="base"><div class="k">Suporte</div>'
         +'<div class="nm">Consultor comercial</div>'
         +'<a class="em" href="mailto:contato@hcqualitycorp.com.br">contato@hcqualitycorp.com.br</a>'
+        +(S.user.acesso==='cliente'?'<button class="sair" style="margin-bottom:6px" onclick="PORTAL.formSenha()">Trocar senha</button>':'')
         +'<button class="sair" onclick="PORTAL.logout()">Sair</button></div>'
     +'</aside>'
     +'<div class="main">'
@@ -848,7 +849,52 @@ function wireLogin(){
 }
 
 // ---------- API pública (onclick) ----------
+/* ===== Trocar a própria senha =====
+   O portal só tinha a senha que o admin definiu, sem jeito de o comprador
+   fortalecer a dele — e é o login dele que assina o download de NF e o pedido
+   de reposição nos Logs. */
+function fecharSenha(){ var m=$('pw_ov'); if(m) m.remove(); }
+function formSenha(){
+  fecharSenha();
+  var d=document.createElement('div');
+  d.id='pw_ov';
+  d.setAttribute('style','position:fixed;inset:0;z-index:999;background:rgba(10,11,13,.55);display:flex;align-items:center;justify-content:center;padding:16px');
+  d.innerHTML='<div style="background:var(--surface);border-radius:14px;max-width:420px;width:100%;padding:22px 24px;box-shadow:0 18px 50px rgba(0,0,0,.28)">'
+    +'<div style="font-size:17px;font-weight:700;color:var(--text)">Trocar senha</div>'
+    +'<div style="font-size:12.5px;color:var(--text-muted);margin:6px 0 14px">A nova senha passa a valer no próximo acesso. Use ao menos 6 caracteres.</div>'
+    +'<label style="font-size:11.5px;color:var(--text-dim);font-weight:600">Senha atual</label>'
+    +'<input id="pw_a" type="password" autocomplete="current-password" style="width:100%;padding:9px 11px;margin:4px 0 10px;border:1px solid var(--rule-input);border-radius:8px;font-size:14px">'
+    +'<label style="font-size:11.5px;color:var(--text-dim);font-weight:600">Nova senha</label>'
+    +'<input id="pw_b" type="password" autocomplete="new-password" style="width:100%;padding:9px 11px;margin:4px 0 10px;border:1px solid var(--rule-input);border-radius:8px;font-size:14px">'
+    +'<label style="font-size:11.5px;color:var(--text-dim);font-weight:600">Repita a nova senha</label>'
+    +'<input id="pw_c" type="password" autocomplete="new-password" style="width:100%;padding:9px 11px;margin:4px 0 4px;border:1px solid var(--rule-input);border-radius:8px;font-size:14px">'
+    +'<div id="pw_msg" style="font-size:12.5px;min-height:18px;margin:6px 0 2px"></div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">'
+      +'<button onclick="PORTAL.fecharSenha()" style="padding:9px 14px;border:1px solid var(--rule-btn);background:#fff;border-radius:8px;cursor:pointer;font-size:13px">Cancelar</button>'
+      +'<button id="pw_ok" onclick="PORTAL.salvarSenha()" style="padding:9px 16px;border:0;background:var(--gold);color:#fff;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px">Salvar</button>'
+    +'</div></div>';
+  d.addEventListener('click', function(e){ if(e.target===d) fecharSenha(); });
+  document.body.appendChild(d);
+  var a=$('pw_a'); if(a) a.focus();
+}
+async function salvarSenha(){
+  var m=$('pw_msg'); var btn=$('pw_ok');
+  var atual=($('pw_a')||{}).value||'', nova=($('pw_b')||{}).value||'', rep=($('pw_c')||{}).value||'';
+  var erro=function(t){ m.style.color='var(--danger)'; m.textContent=t; };
+  if(!atual||!nova){ erro('Preencha a senha atual e a nova.'); return; }
+  if(nova.length<6){ erro('A nova senha precisa de ao menos 6 caracteres.'); return; }
+  if(nova!==rep){ erro('A nova senha e a repetição não conferem.'); return; }
+  btn.disabled=true; m.style.color='var(--text-muted)'; m.textContent='Salvando…';
+  try{
+    await api('/portal/senha',{method:'POST',body:{senhaAtual:atual,novaSenha:nova}});
+    m.style.color='var(--success)'; m.textContent='Senha alterada. Use a nova no próximo acesso.';
+    setTimeout(fecharSenha,1600);
+  }catch(e){ btn.disabled=false; erro(e.message||'Não foi possível trocar a senha.'); }
+}
 window.PORTAL={
+  formSenha:function(){ formSenha(); },
+  fecharSenha:function(){ fecharSenha(); },
+  salvarSenha:function(){ salvarSenha(); },
   go:function(v){ if(S.view===v) return false; S.view=v; S.dataErr=''; S.feito=null; window.location.hash=v; loadView(); return false; },
   setTab:function(t){ S.tab=t; S.dataErr=''; if((t==='consignado'&&!S.data.estoque)||(t==='disponivel'&&!S.data.contratos)){ loadView(); } else render(); },
   toggle:function(num){ S.expand[num]=!S.expand[num]; render(); },

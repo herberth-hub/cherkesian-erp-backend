@@ -27,6 +27,16 @@ import { AuthUser } from '../auth/auth.types';
 export class PortalController {
   constructor(private readonly portal: PortalService) {}
 
+  /**
+   * O cliente troca a PRÓPRIA senha. O portal nascia só com a senha que o admin
+   * definiu, sem jeito de o comprador fortalecer a dele — e é o login dele que
+   * assina o download de NF e o pedido de reposição nos Logs.
+   */
+  @Post('senha')
+  trocarSenha(@Body() dto: { senhaAtual?: string; novaSenha?: string }, @CurrentUser() user: AuthUser) {
+    return this.portal.trocarSenha(user, String(dto?.senhaAtual ?? ''), String(dto?.novaSenha ?? ''));
+  }
+
   @Get('resumo')
   resumo(@CurrentUser() user: AuthUser, @Query('clienteId') clienteId?: string) {
     return this.portal.resumo(user, clienteId ? Number(clienteId) : undefined);
