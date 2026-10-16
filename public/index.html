@@ -4864,17 +4864,29 @@ async function aprovarPedido(id){
   try{ const p=await api('/pedidos/'+id+'/aprovar',{method:'POST'}); toast('Pedido aprovado → etapa '+p.etapa+'.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
 }
+/**
+ * Produto sem ficha de consumo: a OP nasce com romaneio VAZIO e o tecido não baixa.
+ * Isso passava calado — o PV126 (Vivara) cortou 1.000 peças sem dar baixa em 1.250 m
+ * de ALFAIATARIA TWILL. O alerta trava a tela para ninguém tocar a produção sem ver.
+ */
+async function avisoSemReceita(r){
+  if(!r || !r.avisoReceita) return;
+  await uiAlert({tipo:'err', titulo:'⚠️ OP sem ficha de consumo', ok:'Entendi',
+    msg:r.avisoReceita+'\n\nA produção segue normalmente — o que NÃO acontece é a baixa do material.'});
+}
 async function gerarOp(id, parcial){
   try{
     const r = await api('/pedidos/'+id+'/gerar-op'+(parcial?'?parcial=1':''),{method:'POST'});
     if(r.status==='op_gerada'){
       const nums=(r.ops||[]).map(o=>o.numero).join(', ');
-      let msg=(r.ops&&r.ops.length>1?'OPs geradas: ':'OP gerada: ')+nums+'. Material baixado.';
+      const baixou=(r.consumo||[]).length;
+      let msg=(r.ops&&r.ops.length>1?'OPs geradas: ':'OP gerada: ')+nums+(baixou?'. Material baixado.':'.');
       if(r.revenda&&r.revenda.length) msg+=' '+r.revenda.length+' item(ns) de revenda não geram OP.';
       toast(msg,'ok');
+      await avisoSemReceita(r);
       await abrirOpsGeradas(r.ops);
     }
-    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await abrirOpsGeradas(r.ops); }
+    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await avisoSemReceita(r); await abrirOpsGeradas(r.ops); }
     else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
     else if(r.status==='aguardando_revenda'){
       const falt=(r.faltas||[]).map(f=>'• '+f.codigo+' '+f.descricao+': falta '+f.falta+' (em estoque '+f.emEstoque+' de '+f.necessario+') -> OC '+(f.ocNumero||'-')).join('\n');
@@ -14846,7 +14858,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, prodFiltrar,
+  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,

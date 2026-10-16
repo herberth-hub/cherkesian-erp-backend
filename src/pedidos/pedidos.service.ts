@@ -697,7 +697,7 @@ export class PedidosService {
    *  4. com material disponível, gera a OP, baixa o saldo e avança o pedido p/ produção.
    * Tudo numa transação.
    */
-  async gerarOp(id: number, empresaId: number, parcial = false) {
+  async gerarOp(id: number, empresaId: number, parcial = false, usuario?: string) {
     const pedido = await this.findOne(id, empresaId);
 
     // Pré-condições de estado
@@ -838,11 +838,20 @@ export class PedidosService {
     const necessarioPorMaterial = new Map<number, Prisma.Decimal>();
     const bomPorItem = new Map<number, Array<{ materialId: number; quantidade: Prisma.Decimal; porTamanho: unknown; parte: string | null }>>();
     const semMaterialDaCor: string[] = [];
+    // Produto SEM receita: a OP nasce com romaneio vazio e o tecido NUNCA baixa.
+    // Isso passava calado — foi assim que o PV126 (Vivara) cortou 1.000 peças sem
+    // dar baixa em 1.250 m de ALFAIATARIA TWILL. Agora o aviso sobe junto com as OPs.
+    const semReceita: string[] = [];
     let totalPecas = 0;
     for (const u of unidades) {
       totalPecas += u.quantidade;
       if (!u.produtoId) continue;
       const receita = await this.prisma.consumo.findMany({ where: { produtoId: u.produtoId } });
+      if (!receita.length) {
+        const pr = await this.prisma.produto.findUnique({ where: { id: u.produtoId }, select: { codigo: true, descricao: true } });
+        const rotulo = pr ? `${pr.codigo} · ${pr.descricao}` : `produto ${u.produtoId}`;
+        if (!semReceita.includes(rotulo)) semReceita.push(rotulo);
+      }
       const { linhas, faltando } = await this.resolverBom(receita, u.cor);
       bomPorItem.set(u.chave, linhas);
       for (const f of faltando) if (!semMaterialDaCor.includes(f)) semMaterialDaCor.push(f);
@@ -963,6 +972,7 @@ export class PedidosService {
 
           const res = await this.prisma.$transaction(async (tx) => {
             for (const [mid, nec] of necessarioParcial) await tx.material.update({ where: { id: mid }, data: { saldo: { decrement: nec } } });
+            await this.registrarConsumoOp(tx, empresaId, necessarioParcial, materiais, pedido.numero, usuario);
             type OpResumo = { id: number; numero: string; quantidade: number };
             const porPosicao = new Array<OpResumo | undefined>(planoParcial.length);
             for (let i = 0; i < planoParcial.length; i++) {
@@ -1003,6 +1013,11 @@ export class PedidosService {
             ops: res.ops,
             ocs: res.ocs,
             message: `Produção PARCIAL liberada: ${totalParcial} peça(s) com o estoque atual (${Math.round(ratio * 100)}%). ${res.ocs} OC(s) do restante mantida(s). Gere a OP complementar quando o material chegar.`,
+            semReceita,
+            avisoReceita: semReceita.length
+              ? `${semReceita.length === 1 ? 'Este produto não tem' : 'Estes produtos não têm'} ficha de consumo (receita) cadastrada: ${semReceita.join(' · ')}. `
+                + 'A OP sai com o romaneio de materiais VAZIO e o tecido NÃO baixa do estoque.'
+              : null,
           };
         }
         // ratio cobre 0 peça → cai no bloqueio normal abaixo.
@@ -1201,6 +1216,7 @@ export class PedidosService {
         where: { id },
         data: { etapa: 'producao', status: 'Em produção', producaoParcial: false },
       });
+      await this.registrarConsumoOp(tx, empresaId, necessarioPorMaterial, materiais, pedido.numero, usuario);
       return opsCriadas;
     }, PedidosService.TX_PRODUCAO);
 
@@ -1216,10 +1232,49 @@ export class PedidosService {
         const m = materiais.find((x) => x.id === materialId)!;
         return { material: m.codigo, descricao: m.descricao, baixado: q.toFixed(3), unidade: m.unidade };
       }),
+      semReceita,
+      avisoReceita: semReceita.length
+        ? `${semReceita.length === 1 ? 'Este produto não tem' : 'Estes produtos não têm'} ficha de consumo (receita) cadastrada: ${semReceita.join(' · ')}. `
+          + 'A OP sai com o romaneio de materiais VAZIO e o tecido NÃO baixa do estoque. '
+          + 'Cadastre o consumo em Produto › Consumo e gere a OP de novo para a baixa sair certa.'
+        : null,
     };
   }
 
   // ===== Helpers =====
+
+  /**
+   * Registra a SAÍDA do material consumido pela OP no histórico de movimentações.
+   *
+   * O saldo já era decrementado, mas sem movimento: o material ficava com um saldo
+   * que ninguém conseguia explicar nem auditar (o ALFAIATARIA TWILL do PV126 tinha
+   * saldo 1.500 e ZERO movimentos). Falha aqui não derruba a geração da OP — o
+   * consumo é o que importa; o histórico é registro.
+   */
+  private async registrarConsumoOp(
+    tx: Prisma.TransactionClient,
+    empresaId: number,
+    necessario: Map<number, Prisma.Decimal>,
+    materiais: Array<{ id: number; codigo: string; saldo: Prisma.Decimal; unidade: string }>,
+    documento: string,
+    usuario?: string,
+  ) {
+    if (!necessario.size) return;
+    const linhas = [...necessario.entries()].map(([materialId, q]) => {
+      const m = materiais.find((x) => x.id === materialId);
+      return {
+        empresaId, materialId, tipo: 'saida',
+        quantidade: new Prisma.Decimal(q.toFixed(3)),
+        unidade: m?.unidade ?? 'un',
+        // saldoApos = o saldo lido antes menos o que esta transação baixou.
+        saldoApos: new Prisma.Decimal((Number(m?.saldo ?? 0) - Number(q)).toFixed(3)),
+        origem: 'consumo_op', documento,
+        obs: 'Consumo de produção (geração de OP)',
+        criadoPor: usuario ?? null,
+      };
+    });
+    await tx.movimentoMaterial.createMany({ data: linhas }).catch(() => undefined);
+  }
 
   /**
    * Consumo total de um material para o item do pedido.

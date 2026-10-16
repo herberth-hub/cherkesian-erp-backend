@@ -107,6 +107,6 @@ export class PedidosController {
   @Post(':id/gerar-op')
   @HttpCode(HttpStatus.OK)
   gerarOp(@Param('id', ParseIntPipe) id: number, @Query('parcial') parcial: string, @CurrentUser() user: AuthUser) {
-    return this.pedidosService.gerarOp(id, user.empresaId, parcial === '1' || parcial === 'true');
+    return this.pedidosService.gerarOp(id, user.empresaId, parcial === '1' || parcial === 'true', user.usuario);
   }
 }
