@@ -8062,7 +8062,13 @@ async function gerarUnidadesMP(destino){
       const it=itens[i];
       for(const r of (L[i]||[])){
         const q=Math.min(500, Math.max(0, Math.round(Number(r.vol)||0))); if(!q) continue;
-        const body={tipo:'materia', descricao:String(it.descricao||'').slice(0,160), quantidade:q, origem:'entrada', destino};
+        // VÍNCULO COM O MATERIAL: sem ele a etiqueta nasce solta e a ficha do
+        // material diz "não tem nenhuma etiqueta" mesmo com os rolos impressos —
+        // foi o que aconteceu com 167 das 291 etiquetas de matéria-prima.
+        // `somarSaldo:false` porque a NF de entrada JÁ somou o saldo; aqui só se
+        // etiqueta o rolo (senão o saldo dobrava).
+        const body={tipo:'materia', descricao:String(it.descricao||'').slice(0,160), quantidade:q, origem:'entrada', destino, somarSaldo:false};
+        if(it.materialId) body.materialId=it.materialId;
         const lote=(r.lote||'').trim(); if(lote) body.loteFornecedor=lote;
         const res=await api('/estoque/entrada',{method:'POST',body});
         (res.pecas||[]).forEach(p=>todas.push(p));

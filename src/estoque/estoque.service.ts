@@ -223,6 +223,12 @@ export class EstoqueService {
     quantidade: number; unidadeMedida?: string; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
     qualidade?: 'primeira' | 'segunda'; defeito?: string;
+    /**
+     * A etiqueta do rolo nasce de um saldo que a NF de entrada JÁ somou.
+     * Sem isso, vincular o material passaria a somar o saldo duas vezes:
+     * uma na nota, outra aqui. Só a etiqueta é criada.
+     */
+    somarSaldo?: boolean;
   }, empresaId: number, usuario: string) {
     // Matéria-prima / aviamento entram por MEDIDA (metro/kg, decimal): somam ao saldo
     // do material e geram 1 etiqueta do rolo/volume. Produto acabado entra por PEÇA
@@ -300,7 +306,8 @@ export class EstoqueService {
     }
 
     // Matéria-prima/aviamento: soma a quantidade (metro/kg) ao saldo do material.
-    if (granel && dto.materialId) {
+    // `somarSaldo: false` = o saldo já veio da NF de entrada; aqui só se etiqueta o rolo.
+    if (granel && dto.materialId && dto.somarSaldo !== false) {
       const upd = await this.prisma.material.update({
         where: { id: dto.materialId },
         data: { saldo: { increment: new Prisma.Decimal(qtdMedida.toFixed(3)) } },
