@@ -123,11 +123,11 @@ export class PortalService {
    * `reservado` entra junto com `em_estoque`: a peça já está pronta e separada para
    * este cliente. `despachado` e `aguardando_endereco` ficam de fora.
    */
-  private async saldoPronta(empresaId: number, produtoIds: number[]) {
+  private async saldoPronta(empresaId: number, produtoIds: number[], qualidade: 'primeira' | 'segunda' = 'primeira') {
     const saldos = new Map<number, Map<string, Map<string, number>>>();
     if (!produtoIds.length) return saldos;
     const unidades = await this.prisma.unidadeEstoque.findMany({
-      where: { empresaId, produtoId: { in: produtoIds }, status: { in: ['em_estoque', 'reservado'] } },
+      where: { empresaId, produtoId: { in: produtoIds }, status: { in: ['em_estoque', 'reservado'] }, qualidade },
       select: { produtoId: true, tamanho: true, cor: true },
       take: 200_000,
     });
@@ -142,6 +142,35 @@ export class PortalService {
       saldos.set(u.produtoId, porCor);
     }
     return saldos;
+  }
+
+  /**
+   * Peças de SEGUNDA LINHA do cliente — defeito leve, vendidas à parte.
+   *
+   * Ficam FORA do saldo de pronta-entrega: o cliente vê que existem e qual é o
+   * defeito, mas elas não entram no número que ele usa para pedir. Montar uma
+   * reposição com peça de segunda sem ele saber é o erro que isto evita.
+   */
+  private async segundaLinhaPorProduto(empresaId: number, produtoIds: number[]) {
+    const mapa = new Map<number, Map<string, { tamanhos: Map<string, number>; defeitos: Set<string> }>>();
+    if (!produtoIds.length) return mapa;
+    const unidades = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, produtoId: { in: produtoIds }, status: { in: ['em_estoque', 'reservado'] }, qualidade: 'segunda' },
+      select: { produtoId: true, tamanho: true, cor: true, defeito: true },
+      take: 200_000,
+    });
+    for (const u of unidades) {
+      if (u.produtoId == null) continue;
+      const porCor = mapa.get(u.produtoId) ?? new Map<string, { tamanhos: Map<string, number>; defeitos: Set<string> }>();
+      const cor = PortalService.normCor(u.cor);
+      const bloco = porCor.get(cor) ?? { tamanhos: new Map<string, number>(), defeitos: new Set<string>() };
+      const t = String(u.tamanho || '—').toUpperCase().trim() || '—';
+      bloco.tamanhos.set(t, (bloco.tamanhos.get(t) ?? 0) + 1);
+      if (u.defeito) bloco.defeitos.add(u.defeito);
+      porCor.set(cor, bloco);
+      mapa.set(u.produtoId, porCor);
+    }
+    return mapa;
   }
 
   /**
@@ -177,7 +206,9 @@ export class PortalService {
   async estoque(user: AuthUser, override?: number) {
     const cliente = await this.clienteDoEscopo(user, override);
     const produtos = await this.produtosDoCliente(user.empresaId, cliente);
-    const saldos = await this.saldoPronta(user.empresaId, produtos.map((p) => p.id));
+    const ids = produtos.map((p) => p.id);
+    const saldos = await this.saldoPronta(user.empresaId, ids);
+    const segundas = await this.segundaLinhaPorProduto(user.empresaId, ids);
 
     const rankTam = PortalService.rankTam;
 
@@ -186,12 +217,20 @@ export class PortalService {
     const itens = produtos
       .flatMap((p) => {
         const porCor = saldos.get(p.id);
+        const porCor2 = segundas.get(p.id);
         const cores = PortalService.coresDoProduto(p.cor);
-        const linhas = porCor ? [...porCor.keys()] : [];
+        // A cor pode existir SÓ na segunda linha (toda a primeira já saiu) — a linha
+        // ainda tem de aparecer, senão a peça de segunda some da tela do cliente.
+        const linhas = [...new Set([...(porCor ? porCor.keys() : []), ...(porCor2 ? porCor2.keys() : [])])];
         // Casa a cor da etiqueta com a grafia do cadastro quando as duas existem.
         const rotulo = (norm: string) => cores.find((c) => PortalService.normCor(c) === norm) ?? (norm || p.cor) ?? null;
         return linhas.map((norm) => {
-          const tamanhos = [...(porCor!.get(norm) ?? new Map<string, number>()).entries()]
+          const tamanhos = [...(porCor?.get(norm) ?? new Map<string, number>()).entries()]
+            .map(([tamanho, saldo]) => ({ tamanho, saldo }))
+            .filter((t) => t.saldo > 0)
+            .sort((a, b) => rankTam(a.tamanho) - rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
+          const bloco2 = porCor2?.get(norm);
+          const tamanhos2 = [...(bloco2?.tamanhos ?? new Map<string, number>()).entries()]
             .map(([tamanho, saldo]) => ({ tamanho, saldo }))
             .filter((t) => t.saldo > 0)
             .sort((a, b) => rankTam(a.tamanho) - rankTam(b.tamanho) || a.tamanho.localeCompare(b.tamanho));
@@ -203,17 +242,27 @@ export class PortalService {
             setor: p.setor,
             tamanhos,
             total: tamanhos.reduce((s, t) => s + t.saldo, 0),
+            // Separado de propósito: não entra no `total` de pronta-entrega.
+            segundaLinha: tamanhos2.length
+              ? {
+                  tamanhos: tamanhos2,
+                  total: tamanhos2.reduce((s, t) => s + t.saldo, 0),
+                  defeitos: [...(bloco2?.defeitos ?? new Set<string>())].sort(),
+                }
+              : null,
           };
         });
       })
-      .filter((p) => p.total > 0)
-      .sort((a, b) => b.total - a.total);
+      .filter((p) => p.total > 0 || (p.segundaLinha?.total ?? 0) > 0)
+      .sort((a, b) => b.total - a.total || (b.segundaLinha?.total ?? 0) - (a.segundaLinha?.total ?? 0));
 
     const totalPecas = itens.reduce((s, p) => s + p.total, 0);
+    const totalSegunda = itens.reduce((s, p) => s + (p.segundaLinha?.total ?? 0), 0);
     return {
       cliente: { nome: cliente.fantasia || cliente.nome },
       totalItens: itens.length,
       totalPecas,
+      totalSegunda,
       itens,
     };
   }

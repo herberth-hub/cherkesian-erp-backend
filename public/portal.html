@@ -605,6 +605,36 @@ function viewCatalogo(){
   return help+secs.join('');
 }
 
+/**
+ * SEGUNDA LINHA — peças com defeito leve, mostradas SEPARADAS do saldo de pronta
+ * entrega. O cliente precisa saber que existem e qual é o defeito; elas não entram
+ * no número que ele usa para pedir, justamente para ninguém receber peça de
+ * segunda achando que é de primeira.
+ */
+function blocoSegunda(e){
+  if(!e || !(e.totalSegunda>0)) return '';
+  var rows=[];
+  (e.itens||[]).forEach(function(it){
+    var s=it.segundaLinha; if(!s) return;
+    (s.tamanhos||[]).forEach(function(t){
+      rows.push('<div class="trow"><div class="code">'+esc(it.codigo)+'</div>'
+        +'<div>'+esc(it.descricao)+'</div>'
+        +'<div>'+esc(it.cor||'—')+'</div>'
+        +'<div>'+esc(t.tamanho||'Único')+'</div>'
+        +'<div class="num strong">'+(t.saldo||0).toLocaleString('pt-BR')+'</div>'
+        +'<div style="font:400 12px/1.5 \'IBM Plex Mono\';color:var(--text-dim)">'+esc((s.defeitos||[]).join(' · ')||'—')+'</div></div>');
+    });
+  });
+  if(!rows.length) return '';
+  return '<div style="margin-top:38px">'
+    +'<div class="eb" style="font:500 10px/1 \'IBM Plex Mono\';letter-spacing:.14em;text-transform:uppercase;color:var(--gold)">Segunda linha</div>'
+    +'<h2 class="h1" style="font-size:20px;margin-top:8px">Peças com defeito leve · '+(e.totalSegunda||0).toLocaleString('pt-BR')+' pç</h2>'
+    +'<p class="tab-help" style="margin-top:8px">Peças que não passaram no padrão de primeira linha por um defeito leve — mancha, costura ou tom. '
+    +'<b>Não entram no saldo de pronta entrega acima</b> e só saem se você pedir expressamente. Fale com o seu contato comercial para condições.</p>'
+    +'<div class="tbl-wrap" style="margin-top:14px"><div class="tbl" style="--minw:860px;--cols:120px 1fr 140px 90px 110px 200px">'
+    +'<div class="thead"><div>SKU</div><div>Produto</div><div>Cor</div><div>Tam.</div><div class="num">Qtd.</div><div>Defeito</div></div>'
+    +rows.join('')+'</div></div></div>';
+}
 function viewEstoque(){
   var head='<h1 class="h1">Estoque</h1><div class="screen-sub">O que temos em pronta entrega para você e o seu catálogo com preços e prazos.</div>';
   var tabs='<div class="tabs">'
@@ -636,7 +666,7 @@ function viewEstoque(){
           +rows.join('')+'</div></div>'
           +'<div class="actions"><button class="btn-sec" onclick="PORTAL.exportEstoque()">Exportar em planilha</button></div>')
           : '<div class="empty">No momento não há peças em pronta entrega para você. Veja o catálogo em "Disponível para compra" — itens sem saldo entram em produção.</div>';
-        body='<p class="tab-help">Peças que mantemos em estoque, por nossa conta, para você comprar com entrega imediata. Para pedir, use <a href="#novo" onclick="return PORTAL.go(\'novo\')">Novo pedido</a>.</p>'+tabela;
+        body='<p class="tab-help">Peças que mantemos em estoque, por nossa conta, para você comprar com entrega imediata. Para pedir, use <a href="#novo" onclick="return PORTAL.go(\'novo\')">Novo pedido</a>.</p>'+tabela+blocoSegunda(e);
       }
     }
   }
@@ -937,8 +967,13 @@ async function baixarNota(ev, id, tipo){
 
 function exportEstoque(){
   var e=S.data.estoque; if(!e||!e.itens) return;
-  var linhas=[['SKU','Produto','Cor','Tamanho','Disponivel']];
-  e.itens.forEach(function(it){ (it.tamanhos||[]).forEach(function(t){ linhas.push([it.codigo,it.descricao,it.cor||'',t.tamanho||'Unico',t.saldo||0]); }); });
+  var linhas=[['SKU','Produto','Cor','Tamanho','Disponivel','Linha','Defeito']];
+  e.itens.forEach(function(it){
+    (it.tamanhos||[]).forEach(function(t){ linhas.push([it.codigo,it.descricao,it.cor||'',t.tamanho||'Unico',t.saldo||0,'Primeira','']); });
+    // A segunda linha vai na planilha marcada — nunca somada ao disponível.
+    var s=it.segundaLinha;
+    if(s) (s.tamanhos||[]).forEach(function(t){ linhas.push([it.codigo,it.descricao,it.cor||'',t.tamanho||'Unico',t.saldo||0,'Segunda',(s.defeitos||[]).join(' / ')]); });
+  });
   var csv=linhas.map(function(r){ return r.map(function(c){ var s=String(c==null?'':c); return /[",;\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; }).join(';'); }).join('\r\n');
   var blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob); var a=document.createElement('a');

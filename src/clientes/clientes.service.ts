@@ -141,14 +141,21 @@ export class ClientesService {
     const unidades = prodCliIds.length
       ? await this.prisma.unidadeEstoque.findMany({
           where: { empresaId, produtoId: { in: prodCliIds }, status: { in: ['em_estoque', 'reservado'] } },
-          select: { produtoId: true, tamanho: true, cor: true, coluna: true, andar: true, caixaMaster: true },
+          select: { produtoId: true, tamanho: true, cor: true, coluna: true, andar: true, caixaMaster: true, qualidade: true, defeito: true },
         })
       : [];
     const pmap = new Map(produtosCli.map((p) => [p.id, p]));
-    const grpEstoque = new Map<number, { total: number; tamanhos: Map<string, number>; locais: Map<string, number> }>();
+    const grpEstoque = new Map<number, { total: number; segunda: number; defeitos: Set<string>; tamanhos: Map<string, number>; locais: Map<string, number> }>();
     for (const u of unidades) {
       const pid = u.produtoId as number;
-      const g = grpEstoque.get(pid) ?? { total: 0, tamanhos: new Map(), locais: new Map() };
+      const g = grpEstoque.get(pid) ?? { total: 0, segunda: 0, defeitos: new Set<string>(), tamanhos: new Map(), locais: new Map() };
+      // Segunda linha conta à parte: o total da ficha é o que pode sair como primeira.
+      if (u.qualidade === 'segunda') {
+        g.segunda++;
+        if (u.defeito) g.defeitos.add(u.defeito);
+        grpEstoque.set(pid, g);
+        continue;
+      }
       g.total++;
       const t = (u.tamanho || '—').toUpperCase();
       g.tamanhos.set(t, (g.tamanhos.get(t) ?? 0) + 1);
@@ -160,11 +167,13 @@ export class ClientesService {
       const p = pmap.get(pid);
       return {
         codigo: p?.codigo ?? '', descricao: p?.descricao ?? '', cor: p?.cor ?? null, total: g.total,
+        segunda: g.segunda, defeitos: [...g.defeitos].sort(),
         tamanhos: [...g.tamanhos.entries()].map(([tamanho, qtd]) => ({ tamanho, qtd })),
         locais: [...g.locais.entries()].map(([local, qtd]) => ({ local, qtd })).sort((a, b) => b.qtd - a.qtd),
       };
-    }).sort((a, b) => b.total - a.total);
+    }).filter((i) => i.total > 0 || i.segunda > 0).sort((a, b) => b.total - a.total);
     const estoqueTotal = estoqueItens.reduce((s, i) => s + i.total, 0);
+    const estoqueSegunda = estoqueItens.reduce((s, i) => s + i.segunda, 0);
 
     // ===== Financeiro do cliente: a receber (aberto), recebido (pago) e vencido =====
     const hoje0 = new Date();
@@ -292,7 +301,7 @@ export class ClientesService {
       acessosPortal,
       orcamentos: { qtd: orc.length, valor: somaP(orc) },
       pedidos: { qtd: ped.length, valor: somaP(ped) },
-      estoque: { totalPecas: estoqueTotal, itens: estoqueItens },
+      estoque: { totalPecas: estoqueTotal, totalSegunda: estoqueSegunda, itens: estoqueItens },
       nfs: {
         qtd: notas.length,
         validas: notasValidas.length,

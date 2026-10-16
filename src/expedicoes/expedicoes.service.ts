@@ -940,6 +940,7 @@ export class ExpedicoesService {
       let detalhe = codigo;
       let caixasUpd: Prisma.InputJsonValue | undefined;
       let itemInfo: { descricao: string; cor: string | null; tamanho: string | null } | null = null;
+      let alerta: string | null = null;
       // Peças que esta bipagem adiciona (p/ a trava anti-excedente por tamanho/total).
       const adicoes: Array<{ descricao?: string | null; cor?: string | null; tamanho?: string | null; qtd: number }> = [];
       let boxExcluir: number | null = null;
@@ -1003,6 +1004,12 @@ export class ExpedicoesService {
           await tx.unidadeEstoque.update({ where: { id: un.id }, data: { status: 'despachado', expedicaoId: id, saidaEm: new Date() } });
           detalhe = `${codigo} (baixa estoque)`;
         }
+        // SEGUNDA LINHA: a peça conta (ela é real e está indo), mas quem está bipando
+        // tem de saber antes de fechar a caixa. Avisar vale mais do que bloquear —
+        // às vezes a venda É de segunda, e travar aqui pararia a expedição inteira.
+        if (un.qualidade === 'segunda') {
+          alerta = `⚠️ ${codigo} é peça de SEGUNDA LINHA${un.defeito ? ` (${un.defeito})` : ''}. Confirme se este pedido aceita segunda linha antes de fechar a caixa.`;
+        }
         itemInfo = { descricao: un.descricao ?? codigo, cor: un.cor ?? null, tamanho: un.tamanho ?? null };
       }
 
@@ -1052,6 +1059,7 @@ export class ExpedicoesService {
         ja: false,
         mensagem: completou ? `Conferência concluída! ${novas}/${esperadas}. Libere a etiqueta master e despache.` : `Conferido: ${detalhe}. ${novas}/${esperadas}.`,
         conferidas: novas, esperadas, status: completou ? 'conferida' : 'conferindo', completou,
+        alerta,
       };
     }, { maxWait: 15_000, timeout: 30_000 });
   }

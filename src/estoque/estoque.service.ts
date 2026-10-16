@@ -222,6 +222,7 @@ export class EstoqueService {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; unidadeMedida?: string; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
+    qualidade?: 'primeira' | 'segunda'; defeito?: string;
   }, empresaId: number, usuario: string) {
     // Matéria-prima / aviamento entram por MEDIDA (metro/kg, decimal): somam ao saldo
     // do material e geram 1 etiqueta do rolo/volume. Produto acabado entra por PEÇA
@@ -260,6 +261,13 @@ export class EstoqueService {
     }
     if (!descricao) throw new BadRequestException('Informe a descrição do item (ou selecione um produto/material).');
 
+    // Segunda linha já na entrada (ex.: o corte saiu com defeito leve e a peça
+    // nasce para o estoque de segunda). O defeito é obrigatório — é ele que
+    // explica a peça depois, na prateleira e no portal do cliente.
+    const segunda = dto.qualidade === 'segunda';
+    const defeito = (dto.defeito ?? '').trim();
+    if (segunda && !defeito) throw new BadRequestException('Informe o defeito da peça de segunda linha.');
+
     const paraExpedicao = dto.destino === 'expedicao';
     const status = paraExpedicao ? 'reservado' : (dto.coluna && dto.andar != null && dto.caixaMaster ? 'em_estoque' : 'aguardando_endereco');
     const agora = new Date();
@@ -285,6 +293,7 @@ export class EstoqueService {
           ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
           coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
           pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
+          ...(segunda ? { qualidade: 'segunda', defeito, qualidadeEm: agora, qualidadePor: usuario } : {}),
         },
       });
       criadas.push({ codigo });
@@ -308,11 +317,13 @@ export class EstoqueService {
         codigo: c.codigo, ref, refCliente, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
         loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
         endereco: this.enderecoTxt(dto) ?? '', // endereçamento na etiqueta (se já informado)
+        // Faixa de SEGUNDA LINHA na etiqueta — tem de ser lida de longe, na prateleira.
+        segundaLinha: segunda, defeito: segunda ? defeito : '',
         // No rolo/volume de matéria-prima, mostra a medida na etiqueta (ex.: 5,90 m).
         ...(granel ? { qtdLote: qtdFmt, unLote: unidadeMedida } : {}),
       });
     }
-    return { loteEntrada, total: qtd, granel, saldoAdd: granel ? qtdMedida : 0, unidade: unidadeMedida, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), pecas };
+    return { loteEntrada, total: qtd, granel, saldoAdd: granel ? qtdMedida : 0, unidade: unidadeMedida, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), qualidade: segunda ? 'segunda' : 'primeira', defeito: segunda ? defeito : null, pecas };
   }
 
   private enderecoTxt(d: { coluna?: string; andar?: string; caixaMaster?: string }): string | null {
@@ -487,6 +498,8 @@ export class EstoqueService {
       select: {
         codigo: true, descricao: true, cor: true, tamanho: true, tipo: true,
         status: true, coluna: true, andar: true, caixaMaster: true, areaMotivo: true,
+        // Segunda linha: a peça continua em estoque, mas não pode sair como primeira.
+        qualidade: true, defeito: true,
         // Agrupar por ID, não por descrição: descrição muda e não é chave.
         produtoId: true, materialId: true,
         // Matéria-prima e aviamento são GRANEL: a etiqueta é um rolo/volume, então
@@ -534,6 +547,89 @@ export class EstoqueService {
         unidadeMedida: mat?.unidade ?? null,
       };
     });
+  }
+
+  /** Defeitos leves que mandam a peça para a segunda linha. "Outro" aceita texto livre. */
+  static readonly DEFEITOS = [
+    'Mancha leve',
+    'Falha de costura',
+    'Diferença de tom',
+    'Furo/puxado no tecido',
+    'Defeito de estampa',
+    'Medida fora do padrão',
+    'Peça com reparo',
+    'Outro',
+  ] as const;
+
+  defeitos() {
+    return EstoqueService.DEFEITOS;
+  }
+
+  /**
+   * Classifica peças como SEGUNDA LINHA (defeito leve) ou devolve para primeira.
+   *
+   * Não é quarentena: a peça de segunda continua em estoque e pode ser vendida —
+   * só não pode entrar num pedido como primeira linha sem que se saiba. Por isso é
+   * um campo próprio (`qualidade`), e não um status: a mesma peça pode estar
+   * em_estoque, reservada ou despachada sendo de segunda.
+   */
+  async classificarQualidade(
+    dto: { codigos: string[]; qualidade: 'primeira' | 'segunda'; defeito?: string },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const qualidade = dto.qualidade === 'segunda' ? 'segunda' : 'primeira';
+    const codigos = [...new Set((dto.codigos ?? []).map((c) => String(c ?? '').trim()).filter(Boolean))];
+    if (!codigos.length) throw new BadRequestException('Bipe ao menos uma etiqueta.');
+    if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
+    const defeito = (dto.defeito ?? '').trim();
+    if (qualidade === 'segunda' && !defeito) {
+      throw new BadRequestException('Informe o defeito — é ele que justifica a peça ser de segunda linha.');
+    }
+
+    const uns = await this.prisma.unidadeEstoque.findMany({
+      where: { codigo: { in: codigos }, empresaId },
+      select: { id: true, codigo: true, status: true, qualidade: true, descricao: true, cor: true, tamanho: true },
+    });
+    const achados = new Set(uns.map((u) => u.codigo));
+    const naoEncontradas = codigos.filter((c) => !achados.has(c));
+    // Peça já despachada não volta: ela não está mais aqui para ser reavaliada.
+    const despachadas = uns.filter((u) => u.status === 'despachado').map((u) => u.codigo);
+    const alvos = uns.filter((u) => u.status !== 'despachado' && u.qualidade !== qualidade);
+    const jaEstavam = uns.filter((u) => u.status !== 'despachado' && u.qualidade === qualidade).map((u) => u.codigo);
+
+    if (alvos.length) {
+      await this.prisma.unidadeEstoque.updateMany({
+        where: { id: { in: alvos.map((u) => u.id) } },
+        data: {
+          qualidade,
+          defeito: qualidade === 'segunda' ? defeito : null,
+          qualidadeEm: new Date(),
+          qualidadePor: usuario,
+        },
+      });
+      await this.prisma.log.create({
+        data: {
+          usuario,
+          acao: qualidade === 'segunda' ? 'estoque.segunda_linha' : 'estoque.primeira_linha',
+          detalhe: `${alvos.length} peça(s) → ${qualidade}${qualidade === 'segunda' ? ` · ${defeito}` : ''}: ${alvos.map((u) => u.codigo).join(', ')}`,
+          entidade: 'UnidadeEstoque',
+        },
+      }).catch(() => undefined);
+    }
+
+    const partes = [`${alvos.length} peça(s) marcada(s) como ${qualidade === 'segunda' ? 'SEGUNDA LINHA' : 'primeira linha'}`];
+    if (jaEstavam.length) partes.push(`${jaEstavam.length} já estava(m) assim`);
+    if (despachadas.length) partes.push(`${despachadas.length} já despachada(s) — não alterada(s)`);
+    if (naoEncontradas.length) partes.push(`${naoEncontradas.length} não encontrada(s)`);
+    return {
+      qualidade,
+      defeito: qualidade === 'segunda' ? defeito : null,
+      alteradas: alvos.length,
+      codigos: alvos.map((u) => u.codigo),
+      jaEstavam, despachadas, naoEncontradas,
+      mensagem: partes.join(' · '),
+    };
   }
 
   /** Envia uma unidade para a QUARENTENA (anomalia / estorno de cliente). */
@@ -590,6 +686,13 @@ export class EstoqueService {
       tipo: un.tipo,
       status: un.status,
       statusLabel: statusLabel[un.status] ?? un.status,
+      // Quem bipa a peça precisa ver na hora que ela é de segunda — antes de
+      // mandá-la para um pedido como primeira.
+      qualidade: un.qualidade,
+      segundaLinha: un.qualidade === 'segunda',
+      defeito: un.defeito,
+      qualidadeEm: un.qualidadeEm,
+      qualidadePor: un.qualidadePor,
       enderecado,
       endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna ?? undefined, andar: un.andar ?? undefined, caixaMaster: un.caixaMaster ?? undefined }) : null,
       coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
@@ -702,6 +805,9 @@ export class EstoqueService {
         codigo: u.codigo, ref, refCliente, descricao: u.descricao, cor: u.cor ?? '', tamanho: u.tamanho ?? '',
         loteFornecedor: u.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
         endereco: this.enderecoTxt({ coluna: u.coluna ?? undefined, andar: u.andar ?? undefined, caixaMaster: u.caixaMaster ?? undefined }) ?? '',
+        // A reimpressão tem de sair com a MESMA marca de segunda linha — senão a
+        // peça volta para a prateleira parecendo primeira.
+        segundaLinha: u.qualidade === 'segunda', defeito: u.defeito ?? '',
         ...(u.quantidade != null ? { qtdLote: Number(u.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 3 }), unLote: (u.materialId != null ? unMat.get(u.materialId) : '') || '' } : {}),
       });
     }

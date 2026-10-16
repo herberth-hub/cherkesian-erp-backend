@@ -8278,6 +8278,7 @@ async function estBip(){
     pinta(caixa('#1e7a44','#eef7f0','#bfe0ca',
       `🏷 <b>${esc(u.codigo)}</b> · ${esc(u.descricao)}${u.cor?' · 🎨 '+esc(u.cor):''}${u.tamanho?' · tam <b>'+esc(u.tamanho)+'</b>':''}`
       +`<div style="margin-top:3px">📍 <b>${esc(u.endereco||'sem endereço')}</b> · situação: <b>${esc(u.statusLabel)}</b></div>`
+      +(u.segundaLinha?`<div style="margin-top:4px;background:#111;color:#fff;border-radius:6px;padding:3px 8px;display:inline-block;font-weight:700">⚠ SEGUNDA LINHA${u.defeito?' · '+esc(u.defeito):''}</div>`:'')
       +(u.status==='despachado'?'<div style="margin-top:3px;color:#c14a34">Esta peça JÁ FOI DESPACHADA — não está mais no estoque.</div>':'')
       +estDestinoTxt(u)
       +`<div style="margin-top:5px"><button class="btn-sm" onclick="APP.estLimparBip()">Limpar</button></div>`));
@@ -8326,8 +8327,16 @@ function estFiltradas(){
   if(E.col) arr=arr.filter(u=>u.coluna===E.col);
   if(E.andar) arr=arr.filter(u=>String(u.andar)===String(E.andar));
   if(E.semMetragem) arr=arr.filter(u=>u.tipo!=='produto' && u.quantidade==null);
-  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.itemCodigo].some(x=>bnorm(x).includes(q)));
+  // Segunda linha: ver SÓ as de segunda, ou escondê-las do estoque vendável.
+  if(E.seg==='so') arr=arr.filter(u=>u.qualidade==='segunda');
+  else if(E.seg==='sem') arr=arr.filter(u=>u.qualidade!=='segunda');
+  if(q) arr=arr.filter(u=>[u.codigo,u.descricao,u.cor,u.tamanho,u.caixaMaster,u.itemCodigo,u.defeito].some(x=>bnorm(x).includes(q)));
   return arr;
+}
+/** Alterna o filtro de segunda linha: todas → só 2ª → sem 2ª → todas. */
+function estSegFiltro(){
+  const E=window.__EST; E.seg = E.seg==='so' ? 'sem' : (E.seg==='sem' ? '' : 'so');
+  estRender();
 }
 
 /** Chips dos filtros ativos — compartilhados pelo estRender e pela busca. */
@@ -8339,6 +8348,8 @@ function estChips(){
   if(E.col) chips.push(['Coluna '+E.col,`APP.estSet('col','${E.col}')`]);
   if(E.andar) chips.push(['Andar '+E.andar,`APP.estSet('andar','${E.andar}')`]);
   if(E.semMetragem) chips.push(['Sem metragem','APP.estToggleSemMetragem()']);
+  if(E.seg==='so') chips.push(['⚠ Só segunda linha','APP.estSegFiltro()']);
+  if(E.seg==='sem') chips.push(['Sem segunda linha','APP.estSegFiltro()']);
   if(E.q) chips.push(['Busca: '+E.q,"APP.estSet('q','')"]);
   return chips;
 }
@@ -8562,14 +8573,16 @@ function estViewUnidades(arr){
       <button class="btn-sm" onclick="APP.unBulkQuarentena()">⚠ Quarentena</button>
       ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#ffb4a4" onclick="APP.unBulkExcluir()">🗑 Excluir</button>`:''}
       <button class="btn-sm" style="margin-left:auto" onclick="APP.unLimparSel()">Limpar seleção</button></div>`:'')
-    + `<div style="font-size:11.5px;color:#77746d;margin-bottom:6px"><label style="cursor:pointer"><input type="checkbox" onchange="APP.unSelAll(this.checked)"> Selecionar visíveis</label> · ${arr.length} unidade(s)</div>`
+    + `<div style="font-size:11.5px;color:#77746d;margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="cursor:pointer"><input type="checkbox" onchange="APP.unSelAll(this.checked)"> Selecionar visíveis</label> · ${arr.length} unidade(s)`
+      + `<button class="btn-sm" title="Alterna entre ver todas, só as de segunda linha e esconder as de segunda" style="${window.__EST.seg?'background:#111;color:#fff;border-color:#111':''}" onclick="APP.estSegFiltro()">${window.__EST.seg==='so'?'⚠ Só 2ª linha':(window.__EST.seg==='sem'?'Sem 2ª linha':'⚠ 2ª linha: todas')}</button></div>`
     + panelTable(['Sel','Código','Tipo','Item','Status','Endereço / Motivo','Ações'], vis.map(u=>[
         `<input type="checkbox" class="unchk" ${window.__UNSEL.has(u.codigo)?'checked':''} onchange="APP.unSel('${esc(u.codigo)}',this.checked)">`,
         `<span class="mono gold">${esc(u.codigo)}</span>`,
         unidTipoPill(u.tipo),
         (u.itemCodigo?`<span class="mono" style="color:#8a6a0c;font-size:10.5px">${esc(u.itemCodigo)}</span> `:'')+esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):'')
-          +(u.tipo!=='produto'&&u.quantidade==null?' <span class="pill red" style="font-size:9px">sem metragem</span>':''),
-        unidStatusPill(u.status)+estVincPill(u),
+          +(u.tipo!=='produto'&&u.quantidade==null?' <span class="pill red" style="font-size:9px">sem metragem</span>':'')
+          +(u.qualidade==='segunda'&&u.defeito?`<div class="muted" style="font-size:10.5px">⚠ ${esc(u.defeito)}</div>`:''),
+        unidStatusPill(u.status)+segPill(u)+estVincPill(u),
         esc(estEnderecoTxt(u)||(u.areaMotivo?('⚠ '+u.areaMotivo):'—')),
         `<button class="btn-sm" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">🖨</button>`
       ]), vis.length?null:'Nenhuma unidade neste filtro.')
@@ -8709,22 +8722,77 @@ function estMultiRender(){
   box.innerHTML = MB.itens.map((u,i)=>`<div style="display:flex;gap:8px;align-items:center;padding:6px 9px;border-bottom:1px solid #f6f2e6;font-size:12px">
       <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>
       <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(u.descricao||'').slice(0,30))}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · '+esc(u.tamanho):''}</span>
-      ${unidStatusPill(u.status)}${estVincPill(u)}
+      ${unidStatusPill(u.status)}${segPill(u)}${estVincPill(u)}
       <button class="btn-sm" style="margin-left:auto;padding:1px 7px" title="Tirar da lista" onclick="APP.estMultiTirar(${i})">✕</button></div>`).join('');
   // Conta por situação: despachada não se movimenta, reservada não se dá baixa.
   const n=MB.itens.length;
   const desp=MB.itens.filter(u=>u.status==='despachado').length;
   const res=MB.itens.filter(u=>u.status==='reservado').length;
+  const seg=MB.itens.filter(u=>u.qualidade==='segunda').length;
   const a=$('mb_acoes');
   if(a) a.innerHTML = `<div style="font-size:12.5px;margin-bottom:6px"><b>${n}</b> etiqueta(s)`
     + (res?` · <span style="color:#8a5a00">${res} reservada(s)</span>`:'')
     + (desp?` · <span style="color:#c14a34">${desp} já despachada(s)</span>`:'')
+    + (seg?` · <span style="color:#111;font-weight:700">${seg} de 2ª linha</span>`:'')
     + `</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn-primary" onclick="APP.estMultiMover()">📍 Movimentar as ${n}</button>
       <button class="btn-sm" onclick="APP.estMultiReimprimir()">🏷 Reimprimir todas</button>
+      <button class="btn-sm" style="background:#111;color:#fff;border-color:#111" title="Marcar as etiquetas bipadas como peça de segunda linha (defeito leve)" onclick="APP.estSegundaForm()">⚠ Segunda linha</button>
+      ${seg?`<button class="btn-sm" title="Devolver as de segunda linha para primeira" onclick="APP.estSegundaVoltar()">↩ Voltar p/ 1ª linha (${seg})</button>`:''}
       ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#c14a34;border-color:#e8bcae" onclick="APP.estMultiExcluir()">🗑 Excluir as ${n}</button>`:''}
     </div>`;
+}
+// Pill de SEGUNDA LINHA — preta, para não se confundir com nenhum status.
+function segPill(u){
+  if(!u||u.qualidade!=='segunda') return '';
+  const t=u.defeito?('Segunda linha · '+u.defeito):'Segunda linha (defeito leve)';
+  return `<span title="${esc(t)}" style="background:#111;color:#fff;border-radius:999px;padding:1px 8px;font-size:10.5px;font-weight:800;white-space:nowrap">⚠ 2ª LINHA</span>`;
+}
+// ===== Segunda linha: marcar as etiquetas bipadas =====
+async function estSegundaForm(){
+  const cods=estMultiCods(); if(!cods.length){ toast('Bipe as etiquetas primeiro.','err'); return; }
+  let lista=[]; try{ lista=await api('/estoque/defeitos'); }catch(e){}
+  const opts=(lista||[]).map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  openModal(`<h3>⚠ Marcar como SEGUNDA LINHA</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px"><b>${cods.length}</b> etiqueta(s) bipada(s). A peça continua no estoque e pode ser vendida —
+      só passa a sair identificada como segunda linha, aqui e no portal do cliente. Peça já despachada não é alterada.</div>
+    <div><label>Defeito *</label><select id="sg_def" class="inp" onchange="APP.estSegundaOutro()">${opts}</select></div>
+    <div id="sg_outrobox" style="display:none;margin-top:8px"><label>Qual defeito?</label><input id="sg_outro" class="inp" maxlength="80" placeholder="descreva em poucas palavras"></div>
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" style="background:#111;border-color:#111" onclick="APP.estSegundaSalvar()">Marcar as ${cods.length}</button>
+    </div>`);
+}
+function estSegundaOutro(){ const b=$('sg_outrobox'); if(b) b.style.display = (val('sg_def')==='Outro')?'':'none'; const o=$('sg_outro'); if(o&&val('sg_def')==='Outro') o.focus(); }
+async function estSegundaSalvar(){
+  const sel=val('sg_def')||'';
+  const defeito = sel==='Outro' ? (val('sg_outro')||'').trim() : sel;
+  if(!defeito){ toast('Descreva o defeito.','err'); return; }
+  await estSegundaEnviar('segunda', defeito);
+}
+async function estSegundaVoltar(){
+  const cods=(window.__MB&&window.__MB.itens||[]).filter(u=>u.qualidade==='segunda').map(u=>u.codigo);
+  if(!cods.length) return;
+  if(!await uiConfirm({titulo:'Voltar para primeira linha', msg:cods.length+' peça(s) deixarão de ser de segunda linha e o defeito será apagado. Confirma?', ok:'Voltar p/ 1ª'})) return;
+  await estSegundaEnviar('primeira', '', cods);
+}
+async function estSegundaEnviar(qualidade, defeito, codigos){
+  const cods = codigos || estMultiCods();
+  try{
+    const r=await api('/estoque/unidades/qualidade',{method:'POST',body:{codigos:cods, qualidade, defeito}});
+    closeModal();
+    toast(r.mensagem||'Pronto.','ok');
+    // Atualiza a cesta bipada para a tela refletir o que acabou de mudar.
+    const mudou=new Set(r.codigos||[]);
+    (window.__MB&&window.__MB.itens||[]).forEach(u=>{ if(mudou.has(u.codigo)){ u.qualidade=qualidade; u.defeito = qualidade==='segunda'?defeito:null; } });
+    estMultiRender();
+    if(qualidade==='segunda' && (r.alteradas||0)>0 && await uiConfirm({titulo:'Reimprimir etiquetas?', msg:'As '+r.alteradas+' peça(s) precisam da etiqueta nova, com a faixa SEGUNDA LINHA. Reimprimir agora?', ok:'Reimprimir'})){
+      unBulkReimprimirCods(r.codigos);
+    }
+    // Recarrega a lista do estoque para a pill aparecer sem sair da tela.
+    try{ window.__UNIDS_ALL = await api('/estoque/unidades'); if(window.__EST && $('estbox')) estRender(); }catch(_){}
+  }catch(e){ toast(e.message,'err'); }
 }
 function estMultiTirar(i){ const MB=window.__MB; if(!MB) return; MB.itens.splice(i,1); estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
 function estMultiLimpar(){ window.__MB={itens:[]}; estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
@@ -9090,16 +9158,20 @@ function renderUnidades(){
       `<input type="checkbox" class="unchk" ${window.__UNSEL.has(u.codigo)?'checked':''} onchange="APP.unSel('${esc(u.codigo)}',this.checked)">`,
       `<span class="mono gold">${esc(u.codigo)}</span>`,
       unidTipoPill(u.tipo),
-      esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):''),
-      unidStatusPill(u.status)+estVincPill(u),
+      esc(u.descricao)+(u.cor?' · '+esc(u.cor):'')+(u.tamanho?' · '+esc(u.tamanho):'')
+        +(u.qualidade==='segunda'&&u.defeito?`<div class="muted" style="font-size:10.5px">⚠ ${esc(u.defeito)}</div>`:''),
+      unidStatusPill(u.status)+segPill(u)+estVincPill(u),
       ender,
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${acoes}</div>`
     ];
   });
+  const E2=window.__EST||{};
+  const segLbl = E2.seg==='so' ? '⚠ Só 2ª linha' : (E2.seg==='sem' ? 'Sem 2ª linha' : '⚠ 2ª linha: todas');
   box.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <label style="font-size:12px;cursor:pointer"><input type="checkbox" id="un_all" onchange="APP.unSelAll(this.checked)"> Selecionar todos (visíveis)</label>
       <span id="un_selc" style="font-size:12px;color:#8a5a00;font-weight:700"></span>
       <button class="btn-sm" onclick="APP.unBulkReimprimir()">🖨 Reimprimir selecionadas</button>
+      <button class="btn-sm" title="Alterna entre ver todas, só as de segunda linha e esconder as de segunda" style="${E2.seg?'background:#111;color:#fff;border-color:#111':''}" onclick="APP.estSegFiltro()">${segLbl}</button>
       ${_admin?`<button class="btn-sm" style="color:#c14a34" onclick="APP.unBulkExcluir()">🗑 Excluir selecionadas</button>`:''}
     </div>
     ${area==='despachado'?`<div class="card" style="background:#f4f1ea;border-color:#d9cfb5;font-size:12.5px;margin-bottom:8px">🚚 <b>Histórico de saídas</b> — estas peças já deixaram o armazém e <b>não entram em nenhuma contagem de estoque</b>. Ficam aqui só para consulta e rastreio.</div>`:''}
@@ -9375,6 +9447,16 @@ async function formEntradaEstoque(){
           </div></div>
         <div class="mrow"><label class="fl">Destino *</label><select id="en_dest" class="inp" onchange="APP.enDest()"><option value="estoque">Estocar (endereçar)</option><option value="expedicao">Ir direto p/ expedição</option></select></div></div>
       <div id="en_ped" style="display:none"></div>
+      <div class="mrow" style="border:1px solid #e7e4dd;border-radius:8px;padding:7px 9px;background:#fbfaf7">
+        <label style="font-size:12.5px;cursor:pointer;font-weight:700"><input type="checkbox" id="en_seg" onchange="APP.enSeg()"> ⚠ Peça de <b>SEGUNDA LINHA</b> (defeito leve)</label>
+        <div class="muted" style="font-size:11px;margin-top:2px">Entra no estoque normalmente, mas sai identificada na etiqueta, na lista e no portal do cliente.</div>
+        <div id="en_segbox" style="display:none;margin-top:6px">
+          <div class="grid2">
+            <div><label>Defeito *</label><select id="en_segdef" class="inp" onchange="APP.enSegOutro()"></select></div>
+            <div id="en_segoutrobox" style="display:none"><label>Qual defeito?</label><input id="en_segoutro" class="inp" maxlength="80" placeholder="descreva em poucas palavras"></div>
+          </div>
+        </div>
+      </div>
       <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
         <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option>B</option></select></div>
           <div class="mrow"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
@@ -9388,6 +9470,22 @@ async function formEntradaEstoque(){
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" id="en_savebtn" onclick="APP.saveEntradaEstoque()">Gerar entrada + etiquetas</button></div>`);
   enTipo();
+  enCarregarDefeitos();
+}
+// Lista de defeitos vem do backend (a mesma usada na marcação em lote).
+async function enCarregarDefeitos(){
+  try{
+    const lista=await api('/estoque/defeitos');
+    const s=$('en_segdef'); if(s) s.innerHTML=(lista||[]).map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  }catch(e){}
+}
+function enSeg(){ const b=$('en_segbox'); const on=!!($('en_seg')&&$('en_seg').checked); if(b) b.style.display=on?'':'none'; }
+function enSegOutro(){ const b=$('en_segoutrobox'); if(b) b.style.display=(val('en_segdef')==='Outro')?'':'none'; }
+/** Defeito escolhido na entrada ('' quando não é segunda linha). */
+function enSegDefeito(){
+  if(!($('en_seg')&&$('en_seg').checked)) return '';
+  const sel=val('en_segdef')||'';
+  return sel==='Outro' ? (val('en_segoutro')||'').trim() : sel;
 }
 function enTipo(){
   const t=val('en_tipo');
@@ -9515,6 +9613,12 @@ async function saveEntradaEstoque(){
     const pid=Number(val('en_pedido')||0);
     if(pid) body.pedidoId=pid;
   }
+  // Segunda linha já na entrada — o defeito é obrigatório.
+  if($('en_seg') && $('en_seg').checked){
+    const def=enSegDefeito();
+    if(!def){ toast('Descreva o defeito da peça de segunda linha.','err'); return; }
+    body.qualidade='segunda'; body.defeito=def;
+  }
   if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; }
   if(granel && !body.materialId){ toast('Selecione o material (no campo Item) para somar ao saldo.','err'); return; }
   if(!body.descricao){ toast('Informe a descrição (ou selecione um item).','err'); return; }
@@ -9615,7 +9719,8 @@ function abrevEtq(d){
 function imprimirEtqUnidades(pecas, meta){
   meta = meta||{};
   const n = (pecas||[]).length;
-  const pages=(pecas||[]).map(p=>`<div class="page"><div class="ul">
+  const pages=(pecas||[]).map(p=>`<div class="page${p.segundaLinha?' seg':''}"><div class="ul">
+      ${p.segundaLinha?`<div class="ulseg">⚠ SEGUNDA LINHA${p.defeito?`<span class="ulsegd">${esc(p.defeito)}</span>`:''}</div>`:''}
       ${p.ref?`<div class="ulref">REF ${esc(p.ref)}</div>`:''}
       ${p.refCliente?`<div class="ulrefcli">COD. CLIENTE ${esc(p.refCliente)}</div>`:''}
       <div class="ulp">${esc(abrevEtq(p.descricao))}</div>
@@ -9631,6 +9736,13 @@ function imprimirEtqUnidades(pecas, meta){
     *{box-sizing:border-box} html,body{margin:0} body{font-family:Arial;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .ul{text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5mm}
     .ulref{font-size:8pt;font-weight:700;color:#333} .ulrefcli{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.2mm 0} .ulp{font-size:10pt;font-weight:800;line-height:1.05;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} .uld{font-size:8pt;color:#333} .ullote{font-size:9pt;font-weight:800;border:1.2px solid #000;border-radius:3px;padding:0 4px;margin:.3mm 0} .ulend{font-size:9pt;font-weight:800;background:#000;color:#fff;border-radius:3px;padding:0 5px;margin:.3mm 0} .ul img{max-width:100%} .ulc{font-family:'Courier New',monospace;font-weight:800;font-size:10pt}
+    /* SEGUNDA LINHA: faixa única (aviso + defeito) — tem de ser lida de longe, na
+       prateleira, sem virar a peça, e sem roubar linha das outras informações. */
+    .ulseg{font-size:10pt;font-weight:900;letter-spacing:.5px;line-height:1.1;background:#000;color:#fff;border-radius:3px;padding:.3mm 6px;width:100%}
+    .ulsegd{display:block;font-size:7.5pt;font-weight:600;letter-spacing:0;opacity:.92;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .page.seg{border:2px solid #000!important}
+    /* Com a faixa, a etiqueta tem uma linha a mais: aperta o resto p/ não estourar. */
+    .page.seg .ul{gap:.25mm} .page.seg .ulp{font-size:9pt;-webkit-line-clamp:1} .page.seg .ulref{font-size:7.5pt}
     /* Folha A4: grade de várias por página */
     body.a4mode .wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:3mm;padding:3mm}
     body.a4mode .page{border:1px solid #000;border-radius:4px;padding:2mm;break-inside:avoid}
@@ -9785,6 +9897,7 @@ async function consultarEtiqueta(codigoDireto){
       <div style="font-weight:800;font-size:14px">${esc(u.descricao)}${u.cor?' · '+esc(u.cor):''}${u.tamanho?' · TAM '+esc(u.tamanho):''}</div>
       <div class="mono gold" style="font-size:12px;margin:2px 0 8px">${esc(u.codigo)}</div>
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Status</span><span class="pill ${pill}">${esc(u.statusLabel)}</span></div>
+      ${u.segundaLinha?`<div style="background:#111;color:#fff;border-radius:8px;padding:7px 10px;margin:6px 0;font-size:12.5px"><b>⚠ SEGUNDA LINHA</b>${u.defeito?' · '+esc(u.defeito):''}${u.qualidadePor?`<div style="opacity:.75;font-size:11px;margin-top:2px">classificada por ${esc(u.qualidadePor)}${u.qualidadeEm?' em '+dfmtL(u.qualidadeEm):''}</div>`:''}</div>`:''}
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Endereço</span><b>${u.enderecado?esc(u.endereco):'<span style="color:#c14a34">sem endereço</span>'}</b></div>
       ${u.loteFornecedor?`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span class="muted">Lote fornecedor</span><b>${esc(u.loteFornecedor)}</b></div>`:''}
       ${estDestinoTxt(u)}
@@ -11686,6 +11799,9 @@ async function conferirBip(id, codigo){
     if(r.ja) beepErro(); else beepOk();
     toast((r.ja?'⚠️ ':'✅ ')+r.mensagem, r.ja?'err':'ok');
     formConferencia(id);
+    // SEGUNDA LINHA: a peça foi contada, mas quem está bipando tem de parar e ver.
+    // Um toast passa batido no meio de 50 bipes — aqui vai um alerta que trava a tela.
+    if(r.alerta){ beepErro(); await uiAlert({tipo:'err', titulo:'Peça de segunda linha', ok:'Entendi', msg:r.alerta}); }
   }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); }
   finally{ delete window.__bipBusy[key]; }
 }
@@ -14719,7 +14835,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,

@@ -140,6 +140,25 @@ export class EstoqueController {
     return this.estoqueService.saidaVarias(body, user.empresaId, user.usuario);
   }
 
+  // ===== Segunda linha (defeito leve) =====
+  /** Lista de defeitos sugeridos — a tela monta o seletor com ela. */
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('defeitos')
+  defeitos() {
+    return this.estoqueService.defeitos();
+  }
+
+  /** Marca (ou desmarca) peças já etiquetadas como SEGUNDA LINHA. */
+  @Areas('estoque', 'producao', 'expedicao')
+  @Post('unidades/qualidade')
+  @HttpCode(HttpStatus.OK)
+  classificarQualidade(
+    @Body() body: { codigos: string[]; qualidade: 'primeira' | 'segunda'; defeito?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.estoqueService.classificarQualidade(body, user.empresaId, user.usuario);
+  }
+
   // ===== Quarentena (anomalia / estorno de cliente) =====
   @Areas('estoque', 'producao', 'expedicao')
   @Post('quarentena')
