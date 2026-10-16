@@ -901,7 +901,13 @@ model Expedicao {
   // Saída SEM pedido e SEM NF (amostra, piloto, reposição, facção): o motivo fica
   // aqui e sai no romaneio — é o que justifica a mercadoria ter saído sem nota.
   motivoAvulsa   String?
-  rastreio       String?
+  rastreio       String?  // código INTERNO da casa, gerado na criação da expedição
+  // Código de rastreio DO TRANSPORTADOR (Correios, Jadlog, Zenatur...). É o que o
+  // cliente usa para acompanhar. Costuma chegar DEPOIS do despacho, então pode ser
+  // informado a qualquer momento, inclusive em expedição já concluída.
+  rastreioTransp String?
+  rastreioEm     DateTime? // quando o código do transportador foi informado
+  rastreioPor    String?
   volumes        Int      @default(1)
   pecas          Int
   loteId         Int?

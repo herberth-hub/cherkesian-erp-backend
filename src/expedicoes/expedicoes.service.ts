@@ -37,6 +37,71 @@ export class ExpedicoesService {
   ) {}
 
   /**
+   * Código de rastreio DO TRANSPORTADOR (Correios, Jadlog, Zenatur...).
+   *
+   * Separado do `rastreio` interno, que o sistema gera na criação da expedição:
+   * são coisas diferentes, e misturar faria o cliente receber um código que não
+   * existe na transportadora.
+   *
+   * Pode ser informado a QUALQUER momento, inclusive em expedição já despachada —
+   * na prática o código quase sempre chega depois que o volume sai. Vazio limpa o
+   * campo (serve para corrigir um código digitado errado).
+   */
+  async definirRastreio(id: number, empresaId: number, usuario: string, codigoRaw?: string, transportadora?: string) {
+    const exp = await this.getExp(id, empresaId);
+    const codigo = String(codigoRaw ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (codigo.length > 80) throw new BadRequestException('Código de rastreio muito longo (máx. 80 caracteres).');
+    const canal = String(transportadora ?? '').trim();
+
+    const atual = await this.prisma.expedicao.update({
+      where: { id },
+      data: {
+        rastreioTransp: codigo || null,
+        rastreioEm: codigo ? new Date() : null,
+        rastreioPor: codigo ? usuario : null,
+        ...(canal ? { transportadora: canal } : {}),
+      },
+      select: { numero: true, rastreioTransp: true, transportadora: true, rastreioEm: true },
+    });
+
+    await this.prisma.log.create({
+      data: {
+        usuario,
+        acao: codigo ? 'expedicao.rastreio.definido' : 'expedicao.rastreio.limpo',
+        detalhe: `${exp.numero}${codigo ? `: ${codigo}` : ': código removido'}${canal ? ` · ${canal}` : ''}`,
+        entidade: 'Expedicao', entidadeId: String(id),
+      },
+    }).catch(() => undefined);
+
+    return {
+      expedicao: atual.numero,
+      rastreio: atual.rastreioTransp,
+      transportadora: atual.transportadora,
+      url: ExpedicoesService.urlRastreio(atual.rastreioTransp, atual.transportadora),
+      mensagem: codigo
+        ? `Rastreio ${codigo} gravado em ${atual.numero}.`
+        : `Código de rastreio removido de ${atual.numero}.`,
+    };
+  }
+
+  /**
+   * Link de acompanhamento, quando dá para saber a transportadora pelo formato do
+   * código ou pelo canal. Fora dos casos conhecidos devolve null — melhor nenhum
+   * link do que mandar o cliente para o site errado.
+   */
+  static urlRastreio(codigo?: string | null, transportadora?: string | null): string | null {
+    const c = String(codigo ?? '').trim().toUpperCase();
+    if (!c) return null;
+    const t = String(transportadora ?? '').toUpperCase();
+    // Correios: 2 letras + 9 dígitos + 2 letras (ex.: AA123456789BR).
+    if (/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(c) || /CORREIO|SEDEX|PAC/.test(t)) {
+      return `https://rastreamento.correios.com.br/app/index.php?objeto=${encodeURIComponent(c)}`;
+    }
+    if (/JADLOG/.test(t)) return `https://www.jadlog.com.br/siteInstitucional/tracking.jad?cte=${encodeURIComponent(c)}`;
+    return null;
+  }
+
+  /**
    * Lança a CONTA A RECEBER de uma expedição que saiu SEM NF.
    *
    * O título nascia junto com a NF-e. Quem despacha sem nota — e o sistema
@@ -366,6 +431,8 @@ export class ExpedicoesService {
         clienteNome: nome.get(r.clienteId) ?? null,
         pedidoNumero: r.pedidoId ? pedNum.get(r.pedidoId) ?? null : null,
         pedidoFormaPagamento: pi?.formaPagamento ?? null,
+        // Link de acompanhamento quando dá para saber a transportadora.
+        rastreioUrl: ExpedicoesService.urlRastreio(r.rastreioTransp, r.transportadora),
         bonificacao: !!pi?.bonificacao,
         temCobranca: r.pedidoId ? comTitulo.has(r.pedidoId) : false,
         boletoDisponivel: !!pi?.filialId && comCnab.has(pi.filialId),
@@ -840,6 +907,9 @@ export class ExpedicoesService {
       codBip: String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase(), // código da etiqueta MASTER
       esperadas: exp.pecas, conferidas: exp.pecasConferidas,
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
+      transportadora: exp.transportadora,
+      rastreioTransp: exp.rastreioTransp,
+      rastreioUrl: ExpedicoesService.urlRastreio(exp.rastreioTransp, exp.transportadora),
       caixas, totalCaixas: caixas.length, caixasConferidas: caixas.filter((c) => c.conferida).length,
       grade, instrucoesEntrega,
       // A soma dos volumes tem de bater com o conferido. Quando não bate, a peça
@@ -1283,7 +1353,7 @@ export class ExpedicoesService {
   }
   static readonly CANAIS = ['BRASPRESS', 'JAMEF', 'MELHOR ENVIO', 'LUCAS MOTOBOY', 'MOTORISTA DA EMPRESA'] as const;
 
-  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false, transportadora?: string) {
+  async despachar(id: number, empresaId: number, usuario: string, codigoMaster?: string, forcar = false, transportadora?: string, rastreio?: string) {
     const exp = await this.getExp(id, empresaId);
     if (exp.conferenciaStatus === 'despachado') return { ja: true, mensagem: 'Expedição já despachada.', dataSaida: exp.dataSaida };
     // Baixa direta do admin: marca tudo conferido e pula a 2ª leitura (etiqueta master).
@@ -1317,7 +1387,9 @@ export class ExpedicoesService {
     }
 
     const now = new Date();
-    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario, transportadora: canal } });
+    // Rastreio do transportador quando ja vem na hora do despacho (costuma vir depois).
+    const cod = String(rastreio ?? '').trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 80);
+    await this.prisma.expedicao.update({ where: { id }, data: { conferenciaStatus: 'despachado', status: 'Despachado', dataSaida: now, despachadoPor: usuario, transportadora: canal, ...(cod ? { rastreioTransp: cod, rastreioEm: now, rastreioPor: usuario } : {}) } });
     // Saiu pra entrega: define a etapa do pedido conforme o que já foi expedido.
     // Só marca CONCLUÍDO quando TODOS os itens foram totalmente expedidos e não há
     // mais expedições pendentes; caso contrário fica PARCIAL (falta expedir o resto).

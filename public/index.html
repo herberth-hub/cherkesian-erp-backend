@@ -10283,6 +10283,39 @@ function renderExpedicoes(){
   renderExpTable();
 }
 function expBuscar(){ window.__EXPQ=val('exp_q')||''; renderExpTable(); }
+/** Rastreio do transportador na coluna Saída — com link quando dá para saber a transportadora. */
+function expRastreioCel(e){
+  if(!e.rastreioTransp) return '';
+  const cod=esc(e.rastreioTransp);
+  const el=e.rastreioUrl?`<a href="${esc(e.rastreioUrl)}" target="_blank" rel="noopener" style="color:#1e5aa8">${cod}</a>`:cod;
+  return `<div class="mono" style="font-size:10.5px;margin-top:2px" title="Rastreio do transportador${e.transportadora?(' · '+esc(e.transportadora)):''}">📦 ${el}</div>`;
+}
+/** Informa/corrige o código de rastreio do transportador (vale também depois de despachada). */
+async function expRastreioForm(id){
+  const e=(window.__EXPS||[]).find(x=>x.id===id); if(!e) return;
+  let canais=[]; try{ canais=await api('/expedicoes/canais-envio'); }catch(_){}
+  const opts=['<option value="">— manter —</option>'].concat((canais||[]).map(c=>{
+    const v=typeof c==='string'?c:(c.nome||c.valor||''); return `<option value="${esc(v)}" ${v===e.transportadora?'selected':''}>${esc(v)}</option>`;
+  })).join('');
+  openModal(`<h3>📦 Rastreio · ${esc(e.numero)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">${esc(e.pedidoNumero||'—')} · ${esc(e.clienteNome||'')}.
+      É o código <b>do transportador</b> (Correios, Jadlog, Zenatur…), o que o cliente usa para acompanhar — não o código interno da expedição.</div>
+    <div class="grid2">
+      <div><label>Código de rastreio</label><input id="rt_cod" class="inp" maxlength="80" value="${esc(e.rastreioTransp||'')}" placeholder="ex.: AA123456789BR"></div>
+      <div><label>Transportadora</label><select id="rt_canal" class="inp">${opts}</select></div>
+    </div>
+    <div class="muted" style="font-size:11px;margin-top:6px">Deixe o código em branco para remover (corrigir digitação errada).</div>
+    <div class="mactions">
+      <button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.expRastreioSalvar(${id})">Salvar</button>
+    </div>`);
+}
+async function expRastreioSalvar(id){
+  try{
+    const r=await api('/expedicoes/'+id+'/rastreio',{method:'POST',body:{rastreio:val('rt_cod')||'', transportadora:val('rt_canal')||''}});
+    closeModal(); toast(r.mensagem||'Rastreio gravado.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 function renderExpTable(){
   const box=$('exp_tbl'); if(!box) return;
   const nome=window.__EXPNOME||{}; const all=window.__EXPS||[]; const done=!!window.__expDone;
@@ -10296,8 +10329,8 @@ function renderExpTable(){
       `${e.pecasConferidas||0}/${e.pecas}`,
       `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
-      e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>',
-      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
+      (e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>')+expRastreioCel(e),
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button> <button class="btn-sm" title="Informar/corrigir o código de rastreio do transportador" onclick="APP.expRastreioForm(${e.id})">📦 ${e.rastreioTransp?'Rastreio ✓':'Rastreio'}</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
     ]), arr.length?null:(done?'Nenhuma expedição concluída.':'Nada a expedir — tudo despachado ✨'));
 }
 
@@ -11725,6 +11758,11 @@ async function formConferencia(id){
         </select>
         <div class="muted" style="font-size:10.5px;margin-top:3px">Obrigatório — é o registro de por onde a mercadoria saiu, e sai impresso no romaneio.</div>
       </div>
+      <div style="margin-bottom:6px">
+        <label class="fl">Código de rastreio do transportador <span class="muted">(opcional)</span></label>
+        <input id="exp_rastreio_${id}" class="inp" maxlength="80" style="max-width:320px" value="${esc(c.rastreioTransp||'')}" placeholder="ex.: AA123456789BR">
+        <div class="muted" style="font-size:10.5px;margin-top:3px">Se o código ainda não saiu, deixe em branco — dá para informar depois pelo botão <b>📦 Rastreio</b> na lista.</div>
+      </div>
       <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px">
         <div style="flex:1"><label class="fl">Bipe a etiqueta MASTER (caixa)</label><input id="master_bip_${id}" class="inp" placeholder="Etiqueta master ${esc(c.codBip||c.numero)}" onkeydown="if(event.key==='Enter')APP.despacharExp(${id})"></div>
         <button class="btn-primary" onclick="APP.despacharExp(${id})">🚚 Despachar</button>
@@ -11896,7 +11934,8 @@ async function despacharExp(id){
   if(!canal){ toast('Informe por qual canal a mercadoria está sendo enviada.','err'); const s=cfEl(id,'exp_canal'); if(s) s.focus(); return; }
   const cod=cfVal(id,'master_bip');
   if(!cod){ toast('Bipe a etiqueta MASTER da caixa para despachar.','err'); return; }
-  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal}}); toast(r.mensagem+' · '+canal,'ok'); closeModal(); loadRoute(); }
+  const rastreio=cfVal(id,'exp_rastreio')||'';
+  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal, rastreio}}); toast(r.mensagem+' · '+canal+(rastreio?(' · rastreio '+rastreio):''),'ok'); closeModal(); loadRoute(); }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){
@@ -14931,7 +14970,7 @@ window.APP = {
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
   formNfeAvulsa, nfAdd, nfDel, nfProd, nfCalc, nfPedSel, nfRemessaToggle, nfBonifToggle, nfAvulsoToggle, nfFornHint, saveNfeAvulsa, consultarNfe,
-  cancelarNfe, nfCopiar, nfChaveCopiar, cobrancaDaNotaPrompt, cobrancaDaNota, expCobrancaForm, expCobrancaSalvar, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
+  cancelarNfe, nfCopiar, nfChaveCopiar, cobrancaDaNotaPrompt, cobrancaDaNota, expCobrancaForm, expCobrancaSalvar, expRastreioForm, expRastreioSalvar, expRastreioCel, devVendaForm, devVendaRascunho, devVendaEmitir, cartaCorrecaoNfe, baixarCartaCorrecao, cartaPdfNaJanela, enviarNfeEmail, enviarNfeEmailConfirmar, excluirNfe, baixarNfeArquivo, previaNfe, nfFiltrar, nfMesFiltrar, nfFaturamentoMeses, nfEhFaturamento, nfPedidosVendaFutura, nfChaveMes, nfMesLabel, sincronizarCfop,
   saveEmpresa, testarEmailConfig, empLogoSel, empLogoDel, formProdutoFiscal, saveProdutoFiscal,
   formFilial, saveFilial, flLogoSel, flLogoDel, gerenciarContas, renderContasModal, saveConta, formContaEdit, saveContaEdit, delConta, gerenciarTransportadoras, renderTranspList, formTransp, saveTransp, delTransp, viewMercadoLivre, mlSalvarConfig, mlConectar, mlDesconectar, mlCarregarPedidos, mlImportar, mlImportarConfirmar, mlCadProd,
   viewTray, trayNova, traySalvar, trayConectar, trayDesconectar, trayRemover, trayPedidos, trayImportar, trayCategorias, trayProdutos,

@@ -693,6 +693,7 @@ function viewPedidos(){
         +'<div class="resumo">'+esc(resumoItens(p))+(p.unidade?(' · '+esc(p.unidade)):'')+(p.ordemCompraCliente?(' · OC '+esc(p.ordemCompraCliente)):'')+'</div></div>'
       +'<div class="right"><div class="val">'+(p.totalPecas||0).toLocaleString('pt-BR')+' pç</div>'
         +'<div class="prev">'+(p.etapa==='concluido'?'entregue':'previsão '+dateBR(p.prazoEntrega))+'</div></div></div>'
+      +blocoRastreio(p)
       +'<div class="trail">'+trailHTML+'</div>'
       +'<div class="foot"><button onclick="PORTAL.toggle(\''+esc(p.numero).replace(/'/g,'')+'\')">'+(open?'Ocultar itens':'Ver itens do pedido')+'</button></div>'
       +itemsHTML
@@ -701,6 +702,29 @@ function viewPedidos(){
   return head+'<div class="orders">'+cards+'</div>';
 }
 
+/**
+ * Código de rastreio do transportador — o que o cliente procura assim que o
+ * volume sai. Vira link quando dá para saber a transportadora (Correios, Jadlog).
+ */
+function blocoRastreio(p){
+  var rs=(p.rastreios||[]);
+  if(!rs.length) return '';
+  var linhas=rs.map(function(r){
+    var cod=r.url
+      ? '<a href="'+esc(r.url)+'" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline">'+esc(r.codigo)+'</a>'
+      : '<b>'+esc(r.codigo)+'</b>';
+    return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline">'
+      +'<span style="font:400 13px/1.6 \'IBM Plex Mono\'">'+cod+'</span>'
+      +'<span style="font:400 12px/1.6 \'IBM Plex Sans\';color:var(--text-faint)">'
+        +esc(r.transportadora||'transportadora não informada')
+        +(r.dataSaida?(' · saiu em '+dateBR(r.dataSaida)):'')
+        +' · '+esc(r.expedicao)
+      +'</span></div>';
+  }).join('');
+  return '<div style="margin:0 0 14px;padding:12px 14px;background:var(--surface-2,#f7f5f0);border-left:2px solid var(--gold)">'
+    +'<div style="font:500 10px/1 \'IBM Plex Mono\';letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:6px">Rastreio</div>'
+    +linhas+'</div>';
+}
 function soonBox(title,eb,txt){ return '<div class="soon-box"><div class="eb">'+esc(eb)+'</div><h3>'+esc(title)+'</h3><p>'+esc(txt)+'</p></div>'; }
 function viewNotas(){
   var head='<h1 class="h1">Notas fiscais</h1><div class="screen-sub">Consulte e baixe suas notas fiscais (PDF e XML).</div>';

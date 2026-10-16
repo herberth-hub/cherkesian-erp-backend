@@ -10,6 +10,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { EmailService } from '../email/email.service';
 import { LogsService } from '../logs/logs.service';
 import { AuthUser } from '../auth/auth.types';
+import { ExpedicoesService } from '../expedicoes/expedicoes.service';
 import { CriarPedidoPortalDto } from './dto/criar-pedido-portal.dto';
 
 /**
@@ -293,6 +294,29 @@ export class PortalService {
       orderBy: { data: 'desc' },
     });
 
+    // Rastreio do transportador por pedido — é o que o cliente procura quando o
+    // volume sai. Consulta à parte: Expedicao.pedidoId não tem relação no Prisma.
+    const rastreios = new Map<number, Array<{ expedicao: string; transportadora: string | null; codigo: string; url: string | null; dataSaida: Date | null }>>();
+    if (pedidos.length) {
+      const exps = await this.prisma.expedicao.findMany({
+        where: { pedidoId: { in: pedidos.map((p) => p.id) }, rastreioTransp: { not: null } },
+        select: { pedidoId: true, numero: true, transportadora: true, rastreioTransp: true, dataSaida: true },
+        orderBy: { id: 'desc' },
+      });
+      for (const e of exps) {
+        if (e.pedidoId == null || !e.rastreioTransp) continue;
+        const a = rastreios.get(e.pedidoId) ?? [];
+        a.push({
+          expedicao: e.numero,
+          transportadora: e.transportadora,
+          codigo: e.rastreioTransp,
+          url: ExpedicoesService.urlRastreio(e.rastreioTransp, e.transportadora),
+          dataSaida: e.dataSaida,
+        });
+        rastreios.set(e.pedidoId, a);
+      }
+    }
+
     const ETAPA: Record<string, { label: string; passo: number }> = {
       orcamento: { label: 'Aguardando validação', passo: 0 }, // só pedidos do portal chegam aqui
       aprovado: { label: 'Pedido aprovado', passo: 1 },
@@ -341,6 +365,7 @@ export class PortalService {
         atrasado,
         totalPecas,
         expedidas,
+        rastreios: rastreios.get(p.id) ?? [],
         itens: p.itens.map((i) => ({
           descricao: i.descricao,
           cor: i.cor,

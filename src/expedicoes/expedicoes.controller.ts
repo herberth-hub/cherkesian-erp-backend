@@ -153,11 +153,26 @@ export class ExpedicoesController {
     @Body('codigoMaster') codigoMaster: string,
     @Body('forcar') forcar: boolean,
     @Body('transportadora') transportadora: string,
+    @Body('rastreio') rastreio: string,
     @CurrentUser() user: AuthUser,
   ) {
     // Baixa direta (sem conferir peça a peça) só para o administrador da conta.
     const forcarAdmin = !!forcar && user.acesso === 'total';
-    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin, transportadora);
+    return this.expedicoesService.despachar(id, user.empresaId, user.usuario, codigoMaster, forcarAdmin, transportadora, rastreio);
+  }
+
+  /**
+   * Código de rastreio DO TRANSPORTADOR. Pode ser informado depois do despacho —
+   * é o que costuma acontecer. Mandar vazio limpa (corrige digitação errada).
+   */
+  @Post(':id/rastreio')
+  @HttpCode(HttpStatus.OK)
+  definirRastreio(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { rastreio?: string; transportadora?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.expedicoesService.definirRastreio(id, user.empresaId, user.usuario, body?.rastreio, body?.transportadora);
   }
 
   /** Canais de envio homologados — a expedição escolhe um na hora do despacho. */
