@@ -10337,6 +10337,9 @@ async function saveCaixas(print){
   }
   try{ const r=await api('/expedicoes/'+X.expId+'/caixas',{method:'POST',body:{caixas, permitirExcesso}});
     toast(r.totalCaixas+' caixa(s) salvas · '+r.totalPecas+' peças.','ok');
+    // Volume que não bate com a conferência é peça sumindo sem ninguém ver.
+    if(r.avisoDivergencia) await uiAlert({tipo:'err', titulo:'Volumes não batem com a conferência', ok:'Entendi',
+      msg:r.avisoDivergencia+'\n\nAs peças conferidas já saíram do estoque. Confira a montagem dos volumes antes de despachar.'});
     if(print) await imprimirEtiquetasCaixas(X.expId); else { closeModal(); loadRoute(); }
   }catch(e){ toast(e.message,'err'); }
 }
@@ -11626,6 +11629,10 @@ async function formConferencia(id){
     <div style="font-size:24px;font-weight:800">${c.conferidas} / ${c.esperadas} <span class="muted" style="font-size:13px">peças · ${pct}%</span> &nbsp; ${confPill(c.status)}</div>
     ${c.totalCaixas?`<div style="font-size:12px;color:#6a675e;margin:4px 0 2px">📦 Caixas: <b>${c.totalCaixas}</b>${c.caixasConferidas?(' · '+c.caixasConferidas+' conferida(s)'):''} ${(c.caixas||[]).map(cx=>{const tip=(cx.conteudo||[]).map(l=>[l.descricao,l.cor,l.tamanho].filter(Boolean).join(' · ')+': '+l.qtd).join(' | ')||(cx.pecas+' pç');const on=cx.conferida;const x=despachado?'':' <b style="cursor:pointer;color:#b03a2e" title="Zerar esta caixa (devolve as peças ao estoque)" onclick="APP.zerarCaixaConf('+id+','+cx.numero+')">✕</b>';return '<span class="pill" title="'+esc(tip)+'" style="font-size:10px;background:'+(on?'#e6f4ea':'#eef3ff')+';color:'+(on?'#1e7a44':'#2b4a8b')+'">CX'+cx.numero+(on?' ✓':'')+' ('+cx.pecas+' pç)'+x+'</span>';}).join(' ')}</div>`:''}
     <div style="height:12px;background:#eee;border-radius:6px;margin:8px 0;overflow:hidden"><div style="height:100%;width:${pct}%;background:#3a8f4f;transition:width .3s"></div></div>
+    ${(c.divergenciaVolumes&&c.conferidas>0)?`<div class="card" style="background:#fdecea;border-color:#e8b4ab;font-size:12.5px;margin-bottom:8px">⚠️ <b>Os volumes não batem com a conferência.</b>
+      Conferidas <b>${c.conferidas}</b> peça(s), mas os volumes somam <b>${c.pecasNosVolumes}</b>
+      (${c.divergenciaVolumes>0?('faltam <b>'+c.divergenciaVolumes+'</b> peça(s) dentro dos volumes'):('<b>'+(-c.divergenciaVolumes)+'</b> peça(s) a mais nos volumes')}).
+      As peças conferidas já saíram do estoque — é a montagem das caixas que está desencontrada. Ajuste em <b>📦 Caixas</b>.</div>`:''}
     ${confGradeHtml(c.grade)}
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`

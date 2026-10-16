@@ -174,15 +174,37 @@ export class ExpedicoesService {
 
   /** Salva o plano de caixas da expedição (substitui integralmente). */
   async salvarCaixas(id: number, empresaId: number, caixas: Array<{ conteudo?: Array<{ descricao?: string; cor?: string | null; tamanho?: string | null; qtd?: number }>; peso?: number; tipo?: string }>, permitirExcesso = false) {
-    await this.expDaEmpresa(id, empresaId);
+    const { exp } = await this.expDaEmpresa(id, empresaId);
+    // Caixas montadas por BIPAGEM guardam os códigos das peças que entraram nelas.
+    // "Montar caixas" reescrevia o array inteiro a partir do formulário e jogava
+    // esses códigos fora, junto com a marca `viaBip` — e, como as quantidades
+    // passavam a vir digitadas à mão, a soma das caixas deixava de bater com o que
+    // foi conferido. Foi assim que a EXP-0137 ficou com 200 peças conferidas e só
+    // 198 nas caixas (60 peças "M" bipadas apareciam como 58).
+    const antigas = (exp.caixas as Array<{ numero: number; codigos?: string[]; viaBip?: boolean }> | null) ?? [];
+    const porNumero = new Map(antigas.map((c) => [c.numero, c]));
     const limpas = (caixas ?? []).map((c, i) => {
+      const numero = i + 1;
+      const velha = porNumero.get(numero);
+      const codigos = velha?.codigos ?? [];
       const conteudo = (c.conteudo ?? [])
         .map((l) => ({ descricao: (l.descricao ?? '').trim(), cor: l.cor?.trim() || null, tamanho: l.tamanho?.trim() || null, qtd: Math.round(Number(l.qtd) || 0) }))
         .filter((l) => l.descricao && l.qtd > 0);
       const pecas = conteudo.reduce((s, l) => s + l.qtd, 0);
       const tipo = normTipoVolume(c.tipo);
-      return { numero: i + 1, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null, tipo };
-    }).filter((c) => c.conteudo.length);
+      return { numero, conteudo, pecas, peso: c.peso != null ? Number(c.peso) : null, tipo, codigos, viaBip: !!velha?.viaBip };
+    }).filter((c) => c.conteudo.length || c.codigos.length);
+
+    // Uma caixa com peças BIPADAS não pode ser reduzida na mão: as peças estão lá
+    // dentro e já saíram do estoque. Digitar menos do que foi bipado é a origem do
+    // sumiço — e some em silêncio, porque ninguém soma as caixas de cabeça.
+    const encolhida = limpas.find((c) => c.codigos.length > 0 && c.pecas < c.codigos.length);
+    if (encolhida) {
+      throw new BadRequestException(
+        `Volume ${encolhida.numero} tem ${encolhida.codigos.length} peça(s) bipada(s), mas foi informado ${encolhida.pecas}. `
+        + 'Para tirar peça de um volume bipado use "Devolver peça" ou "Zerar caixa" — digitar a menos faz a peça sumir da conferência.',
+      );
+    }
     // LIMITE por volume master (fardo 100 / caixa 50): por padrão avisa e bloqueia;
     // com `permitirExcesso` (exceção confirmada pelo operador) libera acima do padrão.
     const estourou = limpas.find((c) => c.pecas > limiteDoVolume(c.tipo));
@@ -191,7 +213,17 @@ export class ExpedicoesService {
     }
     await this.prisma.expedicao.update({ where: { id }, data: { caixas: limpas as unknown as Prisma.InputJsonValue } });
     const totalPecas = limpas.reduce((s, c) => s + c.pecas, 0);
-    return { caixas: limpas, totalCaixas: limpas.length, totalPecas };
+    // A soma dos volumes TEM de bater com o que foi conferido. Quando não bate, o
+    // aviso volta na resposta em vez de a diferença ficar escondida nos volumes.
+    const divergencia = exp.pecasConferidas - totalPecas;
+    return {
+      caixas: limpas, totalCaixas: limpas.length, totalPecas,
+      conferidas: exp.pecasConferidas,
+      divergencia,
+      avisoDivergencia: divergencia !== 0 && exp.pecasConferidas > 0
+        ? `Atenção: ${exp.pecasConferidas} peça(s) conferida(s) e ${totalPecas} nos volumes (${divergencia > 0 ? `faltam ${divergencia} nos volumes` : `${-divergencia} a mais nos volumes`}).`
+        : null,
+    };
   }
 
   /** Dados das etiquetas de conteúdo (uma por caixa) para impressão. */
@@ -810,6 +842,10 @@ export class ExpedicoesService {
       status: exp.conferenciaStatus, nf: exp.nf, dataSaida: exp.dataSaida,
       caixas, totalCaixas: caixas.length, caixasConferidas: caixas.filter((c) => c.conferida).length,
       grade, instrucoesEntrega,
+      // A soma dos volumes tem de bater com o conferido. Quando não bate, a peça
+      // some de dentro de um volume sem ninguém ver — a tela passa a dizer isso.
+      pecasNosVolumes: caixas.reduce((s, c) => s + (Number(c.pecas) || 0), 0),
+      divergenciaVolumes: exp.pecasConferidas - caixas.reduce((s, c) => s + (Number(c.pecas) || 0), 0),
     };
   }
 
