@@ -1018,6 +1018,11 @@ model Documento {
   id         Int      @id @default(autoincrement())
   tipo       String   // proposta, pedido, op, os_faccao, ...
   referencia String?  // id/numero do registro de origem
+  // Recorte do documento dentro da referência — hoje, os títulos escolhidos no
+  // demonstrativo de cobrança (CSV de ids). Vazio = o documento inteiro.
+  // Fica num campo próprio, e não grudado na referência, porque `referencia` é
+  // lida como número ao reimprimir o PDF.
+  filtro     String?
   numero     String
   urlPdf     String?
   geradoPor  String?

@@ -33,7 +33,7 @@ export class DocumentosController {
     @Body() dto: CreateDocumentoDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.documentosService.criar(tipo, dto.referenciaId, user);
+    return this.documentosService.criar(tipo, dto.referenciaId, user, dto.ids);
   }
 
   /** Envia o documento por e-mail com o PDF anexo (integração de e-mail). */

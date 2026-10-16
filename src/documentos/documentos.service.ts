@@ -65,15 +65,20 @@ export class DocumentosService {
   }
 
   /** Registra o documento e devolve a URL do PDF (gerado sob demanda no GET). */
-  async criar(tipo: string, referenciaId: number, user: AuthUser) {
+  async criar(tipo: string, referenciaId: number, user: AuthUser, ids?: number[]) {
     const def = this.validarTipo(tipo, user);
     await this.validarEstadoReferencia(tipo, referenciaId, user.empresaId);
+    // Recorte (hoje só a cobrança): ids ordenados e sem repetição, para que a
+    // MESMA seleção reaproveite o mesmo documento em vez de queimar um número novo.
+    const filtro = (ids ?? []).length
+      ? [...new Set((ids ?? []).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b).join(',')
+      : null;
     // Garante que a referência existe (e pertence à empresa) antes de registrar.
-    await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA');
+    await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA', filtro);
 
     // Rastreabilidade: reaproveita o documento já existente da MESMA referência
     // (não cria número novo a cada geração de PDF).
-    const jaExiste = await this.prisma.documento.findFirst({ where: { tipo, referencia: String(referenciaId) }, orderBy: { id: 'asc' } });
+    const jaExiste = await this.prisma.documento.findFirst({ where: { tipo, referencia: String(referenciaId), filtro }, orderBy: { id: 'asc' } });
     if (jaExiste) {
       const urlPdf = jaExiste.urlPdf ?? `/api/v1/documentos/${jaExiste.id}/pdf`;
       return { id: jaExiste.id, tipo, numero: jaExiste.numero, referencia: referenciaId, urlPdf };
@@ -94,6 +99,7 @@ export class DocumentosService {
       data: {
         tipo,
         referencia: String(referenciaId),
+        filtro,
         numero,
         geradoPor: user.usuario,
       },
@@ -113,6 +119,7 @@ export class DocumentosService {
       Number(documento.referencia),
       user.empresaId,
       documento.numero,
+      documento.filtro,
     );
     return { doc, numero: documento.numero };
   }
@@ -256,11 +263,17 @@ export class DocumentosService {
 
   // ===== Montagem por tipo =====
 
+  /** Ids do recorte guardado em Documento.filtro ("12,15" -> [12,15]). */
+  private static idsDoFiltro(filtro?: string | null): number[] {
+    return String(filtro ?? '').split(',').map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  }
+
   private async montarPdf(
     tipo: string,
     referenciaId: number,
     empresaId: number,
     numero: string,
+    filtro?: string | null,
   ): Promise<Pdf> {
     // Aplica o logo da empresa no cabeçalho dos documentos.
     const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
@@ -285,7 +298,7 @@ export class DocumentosService {
       case 'ficha_tecnica':
         return this.pdfFichaTecnica(referenciaId, empresaId, numero);
       case 'cobranca':
-        return this.pdfCobranca(referenciaId, empresaId, numero);
+        return this.pdfCobranca(referenciaId, empresaId, numero, DocumentosService.idsDoFiltro(filtro));
       case 'etiqueta':
         return this.pdfEtiqueta(referenciaId, empresaId, numero);
       case 'piloto':
@@ -1426,7 +1439,7 @@ export class DocumentosService {
 
   /** Demonstrativo de cobrança: títulos EM ABERTO do cliente, com o nº da NF de
    *  origem, vencimento, valor/recebido/saldo, total e a linha do PIX. */
-  private async pdfCobranca(clienteId: number, empresaId: number, numero: string): Promise<Pdf> {
+  private async pdfCobranca(clienteId: number, empresaId: number, numero: string, ids: number[] = []): Promise<Pdf> {
     const cliente = await this.prisma.cliente.findUnique({ where: { id: clienteId } });
     if (!cliente || cliente.empresaId !== empresaId) {
       throw new NotFoundException(`Cliente ${clienteId} não encontrado.`);
@@ -1435,7 +1448,18 @@ export class DocumentosService {
       where: { empresaId, clienteId },
       orderBy: { vencimento: 'asc' },
     });
-    const abertos = titulos.filter((t) => Number(t.valor) - Number(t.pago) > 0.005);
+    let abertos = titulos.filter((t) => Number(t.valor) - Number(t.pago) > 0.005);
+    // Seleção: o demonstrativo sai SÓ com os títulos escolhidos na tela. Sem
+    // seleção, continua valendo tudo o que o cliente tem em aberto.
+    if (ids.length) {
+      const escolhidos = new Set(ids);
+      const fora = ids.filter((id) => !titulos.some((t) => t.id === id));
+      if (fora.length) {
+        throw new BadRequestException(`Título(s) ${fora.join(', ')} não pertencem a ${cliente.nome}.`);
+      }
+      abertos = abertos.filter((t) => escolhidos.has(t.id));
+      if (!abertos.length) throw new BadRequestException('Os títulos selecionados já estão quitados — não há o que cobrar.');
+    }
     const nfIds = [...new Set(abertos.map((t) => t.notaFiscalId).filter((x): x is number => x != null))];
     const nfs = nfIds.length
       ? await this.prisma.notaFiscal.findMany({ where: { id: { in: nfIds } }, select: { id: true, numero: true } })

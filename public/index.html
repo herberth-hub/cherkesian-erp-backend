@@ -4997,12 +4997,12 @@ function receberFiltrar(){
   body.innerHTML = bulkBar + panelTable(
     [`<input type="checkbox" id="rc_all" title="Selecionar todos" onclick="APP.receberToggleAll(this.checked)">`,'Vencimento','Empresa','Cliente','NF / Doc.','Valor','Pago','Saldo','Status','Ações'],
     fil.map(t=>[
-      `<input type="checkbox" class="rc_chk" value="${t.id}" data-saldo="${t.saldo}" onchange="APP.receberSelCount()">`,
+      `<input type="checkbox" class="rc_chk" value="${t.id}" data-saldo="${t.saldo}" data-cliente="${t.clienteId}" onchange="APP.receberSelCount()">`,
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.receberEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(nome[t.clienteId]||('#'+t.clienteId)), (t.nfNumero?`<span class="mono" style="font-weight:700">${esc(t.nfNumero)}</span>`+(t.notaFiscalId?'':' <span class="muted" style="font-size:9px">(doc.)</span>'):'<span class="muted">—</span>'),
       money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><span id="rcbol_${t.id}">${bancosBoletoBtn(t.id)}</span>${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir cobrança deste cliente (todos os títulos em aberto)" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><span id="rcbol_${t.id}">${bancosBoletoBtn(t.id)}</span>${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir demonstrativo de cobrança: só os títulos SELECIONADOS deste cliente; sem seleção, todos os títulos em aberto dele" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
 
@@ -5113,7 +5113,23 @@ function bancosRetornoDetalheItens(itens, nome){
   openModal(`<h3>Ocorrências — ${esc(nome||'')}</h3>${panelTable(['Nosso nº','Seu nº','Ocorrência','Pago','Data','Resultado no ERP'], rows, rows.length?null:'Sem ocorrências.')}<div class="mactions"><button class="btn-sm" onclick="APP.bancosPainel()">Voltar</button></div>`, {wide:true});
 }
 // Imprime o demonstrativo de cobrança do cliente (todos os títulos em aberto, com o nº da NF).
-function imprimirCobranca(clienteId){ gerarDoc('cobranca', clienteId); }
+/**
+ * Demonstrativo de cobrança. Se houver título SELECIONADO na tela, o documento
+ * sai só com os títulos marcados DESTE cliente — era o contrário: ignorava a
+ * seleção e listava tudo o que o cliente tinha em aberto.
+ * Sem nenhuma seleção, segue valendo "todos os títulos em aberto".
+ */
+function imprimirCobranca(clienteId){
+  const sel=[...document.querySelectorAll('.rc_chk')].filter(c=>c.checked);
+  const ids=sel.filter(c=>Number(c.getAttribute('data-cliente'))===Number(clienteId)).map(c=>Number(c.value));
+  // Marcou títulos, mas nenhum é deste cliente: cobrar o cliente inteiro aqui
+  // seria uma surpresa — avisa em vez de mandar um demonstrativo inesperado.
+  if(sel.length && !ids.length){
+    toast('Os títulos selecionados são de outro cliente. Marque os deste cliente ou limpe a seleção.','err');
+    return;
+  }
+  gerarDoc('cobranca', clienteId, ids);
+}
 function receberSelCount(){
   const chks=[...document.querySelectorAll('.rc_chk')];
   const sel=chks.filter(c=>c.checked);
@@ -11086,9 +11102,11 @@ async function gerarOS(pedidoId){
     abrirPdfBlob(blob,{titulo:'📋 Ordem de Serviço · '+pedidoId, nome:'OS-'+pedidoId});
   }catch(e){ toast(e.message,'err'); }
 }
-async function gerarDoc(tipo, refId){
+async function gerarDoc(tipo, refId, ids){
   try{
-    const d = await api('/documentos/'+tipo, {method:'POST', body:{referenciaId:refId}});
+    const body={referenciaId:refId};
+    if(ids && ids.length) body.ids=ids;
+    const d = await api('/documentos/'+tipo, {method:'POST', body});
     // Cache-buster + no-store: o PDF é regenerado do banco vivo a cada geração, então
     // nunca deve vir cacheado (senão uma alteração recente — ex.: tecido da ficha — não aparece).
     const sep = d.urlPdf.indexOf('?')>=0 ? '&' : '?';
