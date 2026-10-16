@@ -1,14 +1,98 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Cliente, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
 import { AuthUser } from '../auth/auth.types';
 import { escopoCarteira } from '../common/rbac/carteira';
+import { LookupService } from '../lookup/lookup.service';
+
+/** Campos fiscais que a NF-e exige do destinatário (mesma regra do nfe.service). */
+const FALTAM_NFE: Array<[keyof Cliente, string]> = [
+  ['cnpjCpf', 'CNPJ/CPF'],
+  ['municipio', 'município'],
+  ['uf', 'UF'],
+  ['cep', 'CEP'],
+];
 
 @Injectable()
 export class ClientesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly lookup: LookupService,
+  ) {}
+
+  /**
+   * Completa o cadastro FISCAL do cliente a partir do CNPJ dele (Receita).
+   *
+   * Sem endereço fiscal a NF-e não sai — a emissão para em "Dados fiscais
+   * incompletos para emissão real: Endereço fiscal do cliente". Digitar
+   * município, UF, CEP e código IBGE à mão em cada cliente é onde nasce o IBGE
+   * trocado, e IBGE errado é rejeição na SEFAZ.
+   *
+   * Campo JÁ preenchido não é sobrescrito, salvo pedido explícito: o que alguém
+   * conferiu vale mais que uma consulta automática. A inscrição estadual não vem
+   * da Receita e continua em branco — IE não se inventa.
+   *
+   * O código IBGE do município vem pelo CEP (o lookup de CNPJ não traz).
+   */
+  async completarFiscal(id: number, empresaId: number, sobrescrever = false) {
+    const cliente = await this.prisma.cliente.findUnique({ where: { id } });
+    if (!cliente || cliente.empresaId !== empresaId) throw new NotFoundException(`Cliente ${id} não encontrado.`);
+    const doc = String(cliente.cnpjCpf ?? '').replace(/\D/g, '');
+    if (doc.length !== 14) {
+      throw new BadRequestException(
+        doc.length === 11
+          ? 'Este cliente é pessoa física (CPF) — a consulta à Receita só vale para CNPJ. Preencha o endereço fiscal à mão.'
+          : 'Cliente sem CNPJ cadastrado. Informe o CNPJ antes de buscar os dados na Receita.',
+      );
+    }
+
+    const d = await this.lookup.cnpj(doc);
+    const patch: Record<string, string> = {};
+    const preenchidos: string[] = [];
+    const por = (campo: keyof Cliente, valor: string | undefined | null, rotulo: string) => {
+      const v = String(valor ?? '').trim();
+      if (!v) return;
+      if (sobrescrever || !String(cliente[campo] ?? '').trim()) { patch[campo as string] = v; preenchidos.push(rotulo); }
+    };
+    por('logradouro', d.logradouro, 'logradouro');
+    por('numeroEndereco', d.numero, 'número');
+    por('bairro', d.bairro, 'bairro');
+    por('municipio', d.municipio, 'município');
+    por('uf', d.uf ? d.uf.toUpperCase() : '', 'UF');
+    por('cep', d.cep, 'CEP');
+    por('telefone', d.telefone, 'telefone');
+    por('email', d.email, 'e-mail');
+    if (d.municipio && d.uf) por('cidadeUf', `${d.municipio}/${d.uf}`, 'cidade/UF');
+    if (!String(cliente.nome ?? '').trim()) por('nome', d.razaoSocial, 'razão social');
+    if (!String(cliente.fantasia ?? '').trim()) por('fantasia', d.nomeFantasia, 'nome fantasia');
+
+    // Código IBGE: só o CEP devolve. É ele que a SEFAZ confere no destinatário.
+    const cep = String(patch['cep'] ?? cliente.cep ?? '').replace(/\D/g, '');
+    if (cep.length === 8 && (sobrescrever || !String(cliente.codMunicipio ?? '').trim())) {
+      const e = await this.lookup.cep(cep).catch(() => null);
+      if (e?.codMunicipio) { patch['codMunicipio'] = e.codMunicipio; preenchidos.push('código IBGE'); }
+    }
+
+    const atualizado = Object.keys(patch).length
+      ? await this.prisma.cliente.update({ where: { id }, data: patch })
+      : cliente;
+    const faltam = FALTAM_NFE.filter(([c]) => !String(atualizado[c] ?? '').trim()).map(([, r]) => r);
+
+    return {
+      cliente: atualizado,
+      preenchidos,
+      situacao: d.situacao || null,
+      faltam,
+      mensagem: preenchidos.length
+        ? `Cadastro completado pela Receita: ${preenchidos.join(', ')}.`
+        : 'Nada a completar — os dados fiscais já estavam preenchidos.',
+      avisoIe: !String(atualizado.inscricaoEstadual ?? '').trim()
+        ? 'A inscrição estadual não vem da Receita. Se o cliente for contribuinte de ICMS, preencha a IE antes de emitir.'
+        : null,
+    };
+  }
 
   /** `user` presente => aplica a carteira do vendedor (os demais perfis veem tudo). */
   async findAll(empresaId: number, user?: AuthUser) {

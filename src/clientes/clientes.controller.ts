@@ -3,10 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -24,6 +27,21 @@ export class ClientesController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.clientesService.findAll(user.empresaId, user);
+  }
+
+  /**
+   * Completa o cadastro fiscal do cliente pelo CNPJ dele (endereço, município,
+   * código IBGE, CEP). Sem isso a NF-e não sai. `?sobrescrever=1` força por cima
+   * do que já existe; o padrão só preenche o que está vazio.
+   */
+  @Post(':id/completar-fiscal')
+  @HttpCode(HttpStatus.OK)
+  completarFiscal(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('sobrescrever') sobrescrever: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.clientesService.completarFiscal(id, user.empresaId, sobrescrever === '1' || sobrescrever === 'true');
   }
 
   /** Cadastro de representantes: carteira de clientes por representante + ranking. */

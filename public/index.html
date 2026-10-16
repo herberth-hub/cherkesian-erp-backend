@@ -2749,7 +2749,12 @@ async function lookupCep(cepId, map){
     if(map._cidadeUf){ const el=$(map._cidadeUf); if(el && (d.municipio||d.uf)) el.value=(d.municipio||'')+(d.uf?'/'+d.uf:''); }
   }catch(e){}
 }
-function buscarCnpjCliente(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
+async function buscarCnpjCliente(){
+  await lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', logradouro:'f_log', numero:'f_numend', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', cep:'f_cep', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'});
+  // O lookup de CNPJ nao traz o codigo IBGE; ele vem do CEP. Sem IBGE a NF-e
+  // e rejeitada, entao a busca do CNPJ ja emenda a do CEP.
+  if((val('f_cep')||'').replace(/\D/g,'').length===8) await buscarCepCliente();
+}
 // Completa endereço + código IBGE da filial pelo CEP (essencial p/ NF-e).
 function buscarCepFilial(){ return lookupCep('fl_cep', {logradouro:'fl_log', bairro:'fl_bairro', municipio:'fl_mun', uf:'fl_uf', codMunicipio:'fl_codmun'}); }
 // Puxa os dados do CNPJ da FILIAL/CNPJ emissor. Preserva o nome/rótulo se já digitado.
@@ -2766,7 +2771,9 @@ async function buscarCnpjUnidade(i){
 }
 // Completa endereço + código IBGE de uma unidade do cliente pelo CEP.
 function buscarCepUnidade(i){ return lookupCep('cu_cep_'+i, {logradouro:'cu_log_'+i, bairro:'cu_bairro_'+i, municipio:'cu_mun_'+i, uf:'cu_uf_'+i, codMunicipio:'cu_codmun_'+i}); }
-function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', _cidadeUf:'f_cidade'}); }
+// codMunicipio (IBGE) faltava no mapa: o cadastro do cliente nunca recebia o
+// codigo do municipio, e e justamente ele que a SEFAZ confere no destinatario.
+function buscarCepCliente(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', codMunicipio:'f_codmun', _cidadeUf:'f_cidade'}); }
 function buscarCnpjForn(){ return lookupCnpj('f_cnpj', {razaoSocial:'f_nome', nomeFantasia:'f_fant', telefone:'f_tel', email:'f_email', _cidadeUf:'f_cidade'}); }
 // Completa endereço fiscal + código IBGE do fornecedor/facção pelo CEP (essencial p/ NF-e de remessa).
 function buscarCepForn(){ return lookupCep('f_cep', {logradouro:'f_log', bairro:'f_bairro', municipio:'f_mun', uf:'f_uf', codMunicipio:'f_ibge'}); }
@@ -11428,7 +11435,43 @@ async function emitirNfe(expedicaoId, transporte){
       await uiAlert({tipo:'info', titulo:'NF '+n.numero+' enviada à SEFAZ', msg:'A nota está em processamento (assíncrona). Clique em "Emitir NF-e" na lista de notas para consultar a autorização — a etiqueta libera assim que autorizar.', ok:'Entendi'});
     }
     loadRoute();
-  }catch(e){ uiSpinnerClose(); toast(e.message,'err'); }
+  }catch(e){
+    uiSpinnerClose();
+    // "Dados fiscais incompletos ... do cliente": em vez de só reclamar, oferece
+    // buscar o endereço na Receita pelo CNPJ e reemitir. Digitar município/UF/CEP
+    // e código IBGE à mão é onde nasce a rejeição na SEFAZ.
+    if(/dados fiscais incompletos/i.test(e.message||'') && /cliente/i.test(e.message||'')){
+      if(await nfeCompletarCliente(expedicaoId, e.message)) return emitirNfe(expedicaoId, transporte);
+      return;
+    }
+    toast(e.message,'err');
+  }
+}
+/**
+ * Completa o cadastro fiscal do cliente da expedição pelo CNPJ (Receita).
+ * Devolve true quando preencheu algo e dá para tentar emitir de novo.
+ */
+async function nfeCompletarCliente(expedicaoId, motivo){
+  let exp=null;
+  try{ const l=await api('/expedicoes'); exp=(l||[]).find(x=>x.id===expedicaoId); }catch(_){}
+  if(!exp||!exp.clienteId){ toast(motivo,'err'); return false; }
+  const ok = await uiConfirm({
+    titulo:'Faltam dados fiscais do cliente',
+    msg:(motivo||'')+'\n\nPosso buscar o endereço fiscal na Receita Federal pelo CNPJ do cliente e completar o cadastro agora?',
+    ok:'Buscar na Receita',
+  });
+  if(!ok) return false;
+  try{
+    const r=await api('/clientes/'+exp.clienteId+'/completar-fiscal',{method:'POST'});
+    if(r.faltam && r.faltam.length){
+      await uiAlert({tipo:'err', titulo:'Ainda falta preencher', ok:'Abrir cadastro',
+        msg:r.mensagem+'\n\nContinua faltando: '+r.faltam.join(', ')+'.\n\nComplete no cadastro do cliente e emita de novo.'});
+      return false;
+    }
+    await uiAlert({tipo:'ok', titulo:'Cadastro completado', ok:'Emitir agora',
+      msg:r.mensagem+(r.situacao?('\n\nSituação na Receita: '+r.situacao):'')+(r.avisoIe?('\n\n⚠️ '+r.avisoIe):'')});
+    return true;
+  }catch(err){ toast(err.message,'err'); return false; }
 }
 function labExpHTML(d, rows, dataBR, vol, total, denso){
   return `<div class="page"><div class="lab${denso||''}">
@@ -14861,7 +14904,7 @@ window.APP = {
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
-  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
+  closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar,
