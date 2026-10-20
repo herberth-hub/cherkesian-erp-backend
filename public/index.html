@@ -5882,6 +5882,8 @@ function resumoBancoFilial(f){
   return parts.join(' · ');
 }
 async function baixar(tipo, id, saldo){
+  // Guardado para o confirmBaixar comparar o que foi digitado com o saldo real.
+  window.__BAIXASALDO = Number(saldo)||0;
   let pixHtml='';
   if(tipo==='pagar'){
     const t=(window.__PAGS||[]).find(x=>x.id===id);
@@ -5944,7 +5946,34 @@ async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
   const j = Number(val('f_juros'))||0; if(j>0) body.juros=j;
   if(tipo==='pagar'){ const b=val('f_banco'); if(b) body.banco=b; }
-  try{ await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body}); closeModal(); toast(j>0?('Baixa registrada (+ juros '+money(j)+').'):'Baixa registrada.','ok'); loadRoute(); }
+  // Quem dá baixa tem em mãos o TOTAL pago do boleto, não a divisão entre
+  // principal e juros. Em vez de recusar e mandar fazer a conta, o sistema
+  // mostra a divisão e pergunta — o principal quita o saldo, o resto é juros.
+  const saldo = Number(window.__BAIXASALDO||0);
+  if(v && saldo>0 && Number(v) > saldo + 0.004){
+    const excedente = Math.round((Number(v)-saldo)*100)/100;
+    const jurosTotal = Math.round((excedente+j)*100)/100;
+    const pago = Math.round((Number(v)+j)*100)/100;
+    const ok = await uiConfirm({
+      titulo:'O valor passa do saldo do título',
+      msg:'Você informou '+money(Number(v))+' de principal'+(j>0?(' + '+money(j)+' de juros'):'')
+        +', mas o saldo do título é '+money(saldo)+'.\n\n'
+        +'Se o que você pagou foi o boleto cheio de '+money(pago)+', eu lanço assim:\n'
+        +'  • Principal: '+money(saldo)+' (quita o título)\n'
+        +'  • Juros/multa: '+money(jurosTotal)+'\n\n'
+        +'Confirma?',
+      ok:'Lançar assim',
+    });
+    if(!ok) return;
+    body.excedenteComoJuros = true;
+  }
+  try{
+    const r = await api('/financeiro/'+tipo+'/'+id+'/baixar',{method:'POST',body});
+    closeModal();
+    const jFinal = Number(r&&r.juros)||0;
+    toast(jFinal>0?('Baixa registrada (juros '+money(jFinal)+').'):'Baixa registrada.','ok');
+    loadRoute();
+  }
   catch(e){ toast(e.message,'err'); }
 }
 async function formComissao(id){

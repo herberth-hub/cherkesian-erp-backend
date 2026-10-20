@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsPositive, IsString, Min, MaxLength } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsPositive, IsString, Min, MaxLength } from 'class-validator';
 
 /** Baixa (pagamento). Se `valor` omitido, quita o saldo restante do título. */
 export class BaixarDto {
@@ -15,4 +15,10 @@ export class BaixarDto {
 
   /** Banco/conta de onde saiu o pagamento (só contas a pagar). */
   @IsOptional() @IsString() @MaxLength(200) banco?: string;
+
+  /**
+   * `valor` veio como o TOTAL pago (boleto de atraso) em vez do principal:
+   * o que passar do saldo entra como juros/multa, em vez de ser recusado.
+   */
+  @IsOptional() @IsBoolean() excedenteComoJuros?: boolean;
 }

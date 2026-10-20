@@ -93,7 +93,7 @@ export class FinanceiroController {
     @Body() dto: BaixarDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.receber.baixar(id, user.empresaId, dto.valor, dto.juros);
+    return this.receber.baixar(id, user.empresaId, dto.valor, dto.juros, dto.excedenteComoJuros);
   }
 
   @Areas('receber')
@@ -142,7 +142,7 @@ export class FinanceiroController {
     @Body() dto: BaixarDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.pagar.baixar(id, user.empresaId, dto.valor, dto.banco, dto.juros);
+    return this.pagar.baixar(id, user.empresaId, dto.valor, dto.banco, dto.juros, dto.excedenteComoJuros);
   }
 
   // ===== Contas recorrentes (aluguel, luz, água, internet…) =====

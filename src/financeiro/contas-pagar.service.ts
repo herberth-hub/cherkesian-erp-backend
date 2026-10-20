@@ -64,7 +64,26 @@ export class ContasPagarService {
     return this.comStatus(titulo);
   }
 
-  async baixar(id: number, empresaId: number, valorBaixa?: number, banco?: string, juros?: number): Promise<ContaPagarView> {
+  /**
+   * Baixa de título a pagar.
+   *
+   * O valor da baixa é o PRINCIPAL e não pode passar do saldo — juros/multa de
+   * atraso entram no campo próprio, senão o título fica com "pago" maior que o
+   * valor e o custo do atraso some dentro do principal.
+   *
+   * Quem paga um boleto atrasado tem em mãos o valor TOTAL pago, não a divisão.
+   * Por isso `excedenteComoJuros` existe: com ele, o que passar do saldo vira
+   * juros automaticamente em vez de ser recusado. É a mesma conta que a mensagem
+   * de erro mandava fazer na mão — só que sem o operador ter de fazê-la.
+   */
+  async baixar(
+    id: number,
+    empresaId: number,
+    valorBaixa?: number,
+    banco?: string,
+    juros?: number,
+    excedenteComoJuros = false,
+  ): Promise<ContaPagarView> {
     const titulo = await this.prisma.contaPagar.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
       throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
@@ -73,14 +92,20 @@ export class ContasPagarService {
     if (restante.lessThanOrEqualTo(0)) {
       throw new ConflictException('Título já está quitado.');
     }
-    const baixa = valorBaixa != null ? new Prisma.Decimal(valorBaixa) : restante;
-    // O valor da baixa é o PRINCIPAL (limitado ao saldo). Juros/multa entram à parte.
+    let baixa = valorBaixa != null ? new Prisma.Decimal(valorBaixa) : restante;
+    let jurosDec = juros != null && juros > 0 ? new Prisma.Decimal(juros) : new Prisma.Decimal(0);
     if (baixa.greaterThan(restante)) {
-      throw new BadRequestException(
-        `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}). Se pagou a mais por atraso, informe a diferença no campo Juros/multa.`,
-      );
+      const excedente = baixa.minus(restante);
+      if (!excedenteComoJuros) {
+        throw new BadRequestException(
+          `Valor da baixa (${baixa.toFixed(2)}) excede o saldo (${restante.toFixed(2)}) em ${excedente.toFixed(2)}. `
+          + 'O valor da baixa é só o PRINCIPAL — a diferença de atraso vai no campo Juros/multa.',
+        );
+      }
+      // Pagou o boleto cheio: o saldo quita e o resto é o custo do atraso.
+      jurosDec = jurosDec.plus(excedente);
+      baixa = restante;
     }
-    const jurosDec = juros != null && juros > 0 ? new Prisma.Decimal(juros) : new Prisma.Decimal(0);
     const novoPago = titulo.pago.plus(baixa);
     const bancoTxt = (banco || '').trim();
     const atualizado = await this.prisma.contaPagar.update({
