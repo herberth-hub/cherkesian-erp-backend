@@ -1009,6 +1009,21 @@ export class ExpedicoesService {
       const expS = espSize.get(k) ?? 0;
       const jaS = confSize.get(k) ?? 0;
       if (jaS + add > expS) {
+        // Tamanho que o pedido NÃO pede neste item, mas pede em OUTRO: quase
+        // sempre é etiqueta gerada no produto errado (dois produtos de nome
+        // parecido, tipo "GOLA CARECA" e "GOLA CARECA MC"), não excedente.
+        // Dizer isso aqui poupa caçar o motivo item por item.
+        if (expS === 0) {
+          const ondeTem = [...espSize.entries()]
+            .filter(([k2, q]) => q > 0 && k2 !== k && k2.slice(k2.lastIndexOf('|') + 1) === tam)
+            .map(([k2]) => nomeDe(k2.slice(0, k2.lastIndexOf('|'))));
+          if (ondeTem.length) {
+            throw new BadRequestException(
+              `"${nomeDe(ik)}" não tem tamanho ${tam} neste pedido — quem tem ${tam} é "${[...new Set(ondeTem)].join('" / "')}". `
+              + 'A etiqueta provavelmente foi gerada no produto errado: confira o produto da etiqueta antes de bipar.',
+            );
+          }
+        }
         throw new BadRequestException(`Tamanho ${tam} de "${nomeDe(ik)}" acima do pedido: previsto ${expS}, já conferido ${jaS}. Não bipe a mais.`);
       }
     }
