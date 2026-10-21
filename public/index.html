@@ -1928,10 +1928,16 @@ async function fornecedorSituacaoReceita(id){
 async function viewPedidos(c){
   const list = await api('/pedidos');
   window.__PEDIDOS = list;
+  window.__PEDC = c; // guardado p/ o toggle "em andamento / concluídos" redesenhar
   const canCreate = canAccess('vendas');
   const etapas = [...new Set(list.map(p=>p.etapa))];
   const filiais = [...new Set(list.map(p=>p.unidadeNome).filter(Boolean))].sort();
-  c.innerHTML = toolbar('Pedidos', canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', `<button class="btn-sm" onclick="APP.relatorio('bonificacao')" title="Relatório de bonificações (total por cliente/mês)">🎁 Bonificações</button> `+relBtn('pedidos'))
+  // Pedido CONCLUÍDO/cancelado sai da lista principal: o que importa no dia a dia
+  // é o que ainda falta produzir ou entregar. Mesmo padrão da tela de Expedições.
+  const nAberto = list.filter(p=>!pedEncerrado(p)).length;
+  const nFechado = list.length - nAberto;
+  const btnFeitos = `<button class="btn-sm" onclick="APP.pedToggleFeitos()" title="Alternar entre os pedidos em andamento e os já encerrados">${window.__pedFeitos?('📋 Em andamento ('+nAberto+')'):('✅ Concluídos ('+nFechado+')')}</button>`;
+  c.innerHTML = toolbar('Pedidos'+(window.__pedFeitos?' · concluídos':' · em andamento'), canCreate?'Novo pedido':'', canCreate?'APP.formPedido()':'', btnFeitos+` <button class="btn-sm" onclick="APP.relatorio('bonificacao')" title="Relatório de bonificações (total por cliente/mês)">🎁 Bonificações</button> `+relBtn('pedidos'))
     + `<div class="cards" id="ped_kpis" style="margin-bottom:8px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px">
       <input id="ped_q" class="inp" placeholder="🔎 Buscar: nº, cliente, filial, CNPJ, ordem de compra, valor ou NF..." oninput="APP.renderPedidos()" style="flex:1;min-width:240px">
@@ -1943,6 +1949,12 @@ async function viewPedidos(c){
   renderPedidos();
 }
 function pedToggleView(){ window.__pedKanban=!window.__pedKanban; const b=$('ped_view_btn'); if(b) b.textContent=window.__pedKanban?'☰ Lista':'🔲 Kanban'; renderPedidos(); }
+/**
+ * Pedido ENCERRADO: concluído ou cancelado — não há mais nada a produzir nem a
+ * entregar. "Faturado" NÃO entra: venda futura fatura e continua em produção.
+ */
+function pedEncerrado(p){ return p && (p.etapa==='concluido' || p.etapa==='cancelado'); }
+function pedToggleFeitos(){ window.__pedFeitos=!window.__pedFeitos; if(window.__PEDC) viewPedidos(window.__PEDC); }
 function pedidosKanban(arr){
   const COLS=[['orcamento','Orçamento'],['aprovado','Aprovado'],['producao','Produção'],['compra','Compra'],['estoque','Estoque'],['expedicao','Expedição'],['parcial','Parcial'],['concluido','Concluído']];
   const known=COLS.map(c=>c[0]);
@@ -1961,6 +1973,12 @@ function renderPedidos(){
   const list = window.__PEDIDOS||[];
   const q=bnorm(val('ped_q')), et=val('ped_etapa'), fil=val('ped_filial');
   let arr=list;
+  // Separa ENCERRADOS (concluído/cancelado) do que ainda está em andamento.
+  // Exceções, porque o contrário irrita mais que a poluição:
+  //  · escolher a etapa no select é pedir aquela etapa, encerrada ou não;
+  //  · BUSCAR é ato intencional — procura em tudo, senão vira "cadê meu pedido".
+  const soEncerrados = !!window.__pedFeitos;
+  if(!et && !q) arr = arr.filter(p=>pedEncerrado(p)===soEncerrados);
   if(et) arr=arr.filter(p=>p.etapa===et);
   if(q){
     const qn=_numBusca(q); // normaliza "7.710,00"/"7710" p/ comparar com o valor
@@ -1978,10 +1996,17 @@ function renderPedidos(){
   // O filtro 📍 é por unidade do CLIENTE, e pedido sem unidade (feito direto na matriz)
   // não casa com nenhuma — some da lista em silêncio. Avisa quantos ficaram de fora.
   let aviso='';
+  // Busca trouxe pedido do OUTRO lado do toggle: diz isso, senão parece que a
+  // aba está furada. Acontece de propósito — buscar procura em tudo.
+  if(q && !et){
+    const fora=arr.filter(p=>pedEncerrado(p)!==soEncerrados).length;
+    if(fora) aviso=`<div style="margin:0 0 8px;padding:8px 10px;background:#eef3ff;border:1px solid #bcd3ef;border-radius:8px;font-size:12.5px">
+      🔎 A busca também mostra <b>${fora}</b> pedido(s) ${soEncerrados?'<b>em andamento</b>':'já <b>encerrado(s)</b> (concluído/cancelado)'} — buscar procura em todos.</div>`;
+  }
   if(fil){
     const ocultos=arr.filter(p=>!p.unidadeNome).length;
     arr=arr.filter(p=>p.unidadeNome===fil);
-    if(ocultos) aviso=`<div style="margin:0 0 8px;padding:8px 10px;background:#fff6e0;border:1px solid #efd9a0;border-radius:8px;font-size:12.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    if(ocultos) aviso+=`<div style="margin:0 0 8px;padding:8px 10px;background:#fff6e0;border:1px solid #efd9a0;border-radius:8px;font-size:12.5px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <span>📍 Filtrando pela unidade <b>${esc(fil)}</b> — <b>${ocultos}</b> pedido(s) sem unidade (feitos direto na matriz) não aparecem aqui.</span>
       <button class="btn-sm" style="margin-left:auto" onclick="APP.pedLimparFiltros()">Limpar filtros</button></div>`;
   }
@@ -14975,7 +15000,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar,
+  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
