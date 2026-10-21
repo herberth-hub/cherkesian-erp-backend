@@ -802,6 +802,53 @@ export class ExpedicoesService {
     return exp;
   }
 
+  /**
+   * De qual expedição ABERTA esta peça é, quando ela não pertence à que está
+   * sendo conferida. Procura pelo vínculo direto da etiqueta e, na falta dele,
+   * por uma expedição em conferência que espere este produto.
+   *
+   * Devolve só o rótulo ("EXP-0141 · PV168") ou null — é informação para a
+   * mensagem de erro, não decisão: a bipagem continua recusada de qualquer jeito.
+   */
+  private async expedicaoDaPeca(
+    tx: Prisma.TransactionClient,
+    un: { produtoId: number | null; pedidoId: number | null; expedicaoId: number | null },
+    expedicaoAtual: number,
+  ): Promise<string | null> {
+    const rotulo = async (e: { numero: string; pedidoId: number | null }) => {
+      const ped = e.pedidoId ? await tx.pedido.findUnique({ where: { id: e.pedidoId }, select: { numero: true } }) : null;
+      return ped ? `${e.numero} · ${ped.numero}` : e.numero;
+    };
+    // 1) A etiqueta já aponta para uma expedição.
+    if (un.expedicaoId && un.expedicaoId !== expedicaoAtual) {
+      const e = await tx.expedicao.findUnique({ where: { id: un.expedicaoId }, select: { numero: true, pedidoId: true } });
+      if (e) return rotulo(e);
+    }
+    // 2) A etiqueta está reservada para um pedido: acha a expedição dele.
+    if (un.pedidoId) {
+      const e = await tx.expedicao.findFirst({
+        where: { pedidoId: un.pedidoId, id: { not: expedicaoAtual }, conferenciaStatus: { not: 'despachado' } },
+        select: { numero: true, pedidoId: true },
+        orderBy: { id: 'desc' },
+      });
+      if (e) return rotulo(e);
+    }
+    // 3) Sem vínculo: alguma expedição em conferência espera ESTE produto?
+    if (un.produtoId != null) {
+      const abertas = await tx.expedicao.findMany({
+        where: { id: { not: expedicaoAtual }, conferenciaStatus: { in: ['pendente', 'conferindo', 'conferida'] } },
+        select: { numero: true, pedidoId: true, itens: true },
+        orderBy: { id: 'desc' },
+        take: 40,
+      });
+      for (const e of abertas) {
+        const itens = (e.itens as Array<{ produtoId: number | null }> | null) ?? [];
+        if (itens.some((i) => i.produtoId === un.produtoId)) return rotulo(e);
+      }
+    }
+    return null;
+  }
+
   /** Normaliza o tamanho p/ casar grade x etiqueta (ex.: "G1 (FRISO VERMELHO)" -> "G1"). */
   private normTamanho(s?: string | null): string {
     return String(s ?? '').trim().toUpperCase().split(/[\s(]/)[0];
@@ -1110,7 +1157,15 @@ export class ExpedicoesService {
           const canon = (pid: number | null | undefined) => (pid == null ? null : (equivMap.get(pid) ?? pid));
           const linha = snapItens.find((it) => canon(it.produtoId) === canon(un.produtoId) && this.corCombina(it.cor, un.cor));
           if (!linha && temVinculo) {
-            throw new BadRequestException(`"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}). Não bipe peças de fora.`);
+            // Dois pedidos do MESMO cliente conferindo ao mesmo tempo é o normal
+            // aqui, e aí pegar o fardo errado é questão de tempo. Dizer DE QUAL
+            // expedição a peça é poupa procurar: foi assim que a EXP-0119 recebeu
+            // um jaleco separado para a EXP-0141.
+            const dona = await this.expedicaoDaPeca(tx, un, id);
+            throw new BadRequestException(
+              `"${un.descricao ?? codigo}${un.cor ? ' · ' + un.cor : ''}${un.tamanho ? ' · ' + un.tamanho : ''}" não faz parte deste pedido (${exp.numero}).`
+              + (dona ? ` Esta peça está separada para a ${dona}. Devolva o volume e bipe as peças desta expedição.` : ' Não bipe peças de fora.'),
+            );
           }
           // Casa o conteúdo da caixa com a linha do pedido (ou com a própria peça, se texto livre).
           const tNorm = this.normTamanho(un.tamanho);
