@@ -3238,6 +3238,115 @@ async function fotoSel(kind, el){
   catch(e){ toast('Não foi possível ler a imagem.','err'); }
 }
 function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+
+/* ===== Cores do produto, cada uma com o seu mockup =====
+ * Antes a cor era um texto solto ("AZUL ROYAL, BRANCO") e a foto era UMA só:
+ * quem montava o pedido escolhia a cor sem ver a peça naquela cor. Aqui cada
+ * cor tem a sua imagem de frente e de costas, e é ela que aparece no item do
+ * pedido, no catálogo e na OP.
+ *
+ * Diferente do resto da ficha, a cor é gravada NA HORA (tem endpoint próprio) —
+ * a imagem é pesada demais para ficar presa no "Salvar" do formulário inteiro.
+ * O aviso na tela diz isso, para ninguém achar que Cancelar desfaz.
+ */
+async function pcorCarregar(produtoId){
+  window.__PCOR = { produtoId, lista: [], ativa: null, mockups: {} };
+  if(!produtoId) return;
+  try{ window.__PCOR.lista = await api('/produtos/'+produtoId+'/cores') || []; }catch(e){ window.__PCOR.lista = []; }
+  window.__PCOR.ativa = (window.__PCOR.lista[0]||{}).id || null;
+}
+function pcorTexto(){ return (((window.__PCOR||{}).lista)||[]).map(c=>c.nome).join(', '); }
+/** Só busca o mockup da cor aberta: são base64 de ~100 KB cada. */
+async function pcorMockups(corId){
+  const P=window.__PCOR||{}; if(!corId || P.mockups[corId]) return;
+  try{
+    const cores = await api('/produtos/'+P.produtoId+'/cores?mockup=1') || [];
+    for(const c of cores) P.mockups[c.id] = { frente:c.mockupFrente||'', costas:c.mockupCostas||'' };
+  }catch(e){ P.mockups[corId] = { frente:'', costas:'' }; }
+}
+function pcorRender(){
+  const box=$('pcorbox'); if(!box) return;
+  const P=window.__PCOR||{lista:[]};
+  if(!P.produtoId){
+    box.innerHTML = `<div class="muted" style="font-size:12px">Salve o produto primeiro — as cores e os mockups são cadastrados depois, porque cada imagem fica ligada a uma cor.</div>`;
+    return;
+  }
+  const ativa=(P.lista||[]).find(c=>c.id===P.ativa)||null;
+  const mk=(P.mockups||{})[P.ativa]||{};
+  const pills=(P.lista||[]).map(c=>{
+    const on=c.id===P.ativa;
+    return `<span onclick="APP.pcorAbrir(${c.id})" style="display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;cursor:pointer;font-size:12px;border:1px solid ${on?'#1d1c1a':'#e2ddce'};background:${on?'#1d1c1a':'#fff'};color:${on?'#fff':'#1d1c1a'}">
+      <span style="width:11px;height:11px;border-radius:3px;border:1px solid #d8d4ca;background:${c.hex||corHex(c.nome)};flex:none"></span>${esc(c.nome)}
+      <b onclick="event.stopPropagation();APP.pcorRemover(${c.id})" title="Remover esta cor" style="opacity:.6;padding:0 2px">×</b></span>`;
+  }).join(' ');
+  const slot=(lado,rot,principal)=>`<div style="flex:1;min-width:120px">
+    <div style="font-size:10.5px;font-weight:700;letter-spacing:.4px;color:#77746d;margin-bottom:3px">${esc(rot)}${principal?' <span style="background:#d4a82a;color:#1d1c1a;border-radius:4px;padding:1px 5px;font-size:9px">PRINCIPAL</span>':''}</div>
+    <div style="aspect-ratio:4/5;background:#f4f2ed;border:1px dashed #d8d4ca;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+      ${mk[lado]?`<img src="${mk[lado]}" style="width:100%;height:100%;object-fit:contain">`:'<span class="muted" style="font-size:11px">sem imagem</span>'}
+    </div>
+    <div style="display:flex;gap:5px;margin-top:4px;align-items:center">
+      <input type="file" accept="image/*" onchange="APP.pcorMockupSel('${lado}',this)" style="font-size:11px;flex:1">
+      ${mk[lado]?`<button class="btn-sm" onclick="APP.pcorMockupDel('${lado}')" style="color:#c14a34">remover</button>`:''}
+    </div></div>`;
+  box.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${pills||'<span class="muted" style="font-size:12px">Nenhuma cor cadastrada.</span>'}</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <input id="pcor_nova" class="inp" style="flex:1;max-width:260px" placeholder="nova cor (ex.: AZUL ROYAL)" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.pcorAdicionar();}">
+      <button class="btn-sm" onclick="APP.pcorAdicionar()">+ Cor</button>
+    </div>
+    ${ativa?`<div style="display:flex;gap:10px;flex-wrap:wrap;max-width:420px">${slot('frente','Frente',true)}${slot('costas','Costas',false)}</div>
+      <div class="muted" style="font-size:11px;margin-top:6px">A imagem da <b>frente</b> é a que aparece no item do pedido de venda, no catálogo e na OP desta cor. Cor e mockup são salvos na hora — não dependem do botão Salvar do formulário.</div>`
+    :'<div class="muted" style="font-size:12px">Escolha ou crie uma cor para enviar o mockup dela.</div>'}`;
+}
+async function pcorAbrir(corId){
+  const P=window.__PCOR; P.ativa=corId; pcorRender();
+  await pcorMockups(corId); pcorRender();
+}
+async function pcorAdicionar(){
+  const P=window.__PCOR; if(!P||!P.produtoId) return;
+  const nome=(val('pcor_nova')||'').trim(); if(!nome){ toast('Dê um nome à cor.','err'); return; }
+  try{
+    const c=await api('/produtos/'+P.produtoId+'/cores',{method:'POST',body:{nome}});
+    P.lista.push(c); P.ativa=c.id; P.mockups[c.id]={frente:'',costas:''};
+    pcorSincronizaCampo(); pcorRender();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function pcorRemover(corId){
+  const P=window.__PCOR; const c=(P.lista||[]).find(x=>x.id===corId); if(!c) return;
+  if(!await uiConfirm({titulo:'Remover cor', msg:'Remover a cor "'+c.nome+'" deste produto? O mockup dela também sai. Pedidos já feitos nessa cor continuam como estão.', ok:'Remover', perigo:true})) return;
+  try{
+    await api('/produtos/'+P.produtoId+'/cores/'+corId,{method:'DELETE'});
+    P.lista=P.lista.filter(x=>x.id!==corId); delete P.mockups[corId];
+    if(P.ativa===corId) P.ativa=(P.lista[0]||{}).id||null;
+    pcorSincronizaCampo(); pcorRender();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function pcorMockupSel(lado, el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  const P=window.__PCOR; if(!P.ativa) return;
+  try{
+    const data=await fileToDataURL(f,1100,0.72);
+    await api('/produtos/'+P.produtoId+'/cores/'+P.ativa,{method:'PATCH',body:{['mockup'+(lado==='frente'?'Frente':'Costas')]:data}});
+    P.mockups[P.ativa]=Object.assign({}, P.mockups[P.ativa], {[lado]:data});
+    pcorRender(); toast('Mockup da cor salvo.','ok');
+  }catch(e){ toast(e.message,'err'); }
+}
+async function pcorMockupDel(lado){
+  const P=window.__PCOR; if(!P.ativa) return;
+  try{
+    await api('/produtos/'+P.produtoId+'/cores/'+P.ativa,{method:'PATCH',body:{['mockup'+(lado==='frente'?'Frente':'Costas')]:''}});
+    P.mockups[P.ativa]=Object.assign({}, P.mockups[P.ativa], {[lado]:''});
+    pcorRender();
+  }catch(e){ toast(e.message,'err'); }
+}
+/** O campo "Cor" vira espelho das cores cadastradas: dois lugares guardando a
+ *  mesma coisa é como elas divergem. Com cores, ele fica só de leitura. */
+function pcorSincronizaCampo(){
+  const el=$('f_cor'); if(!el) return;
+  const txt=pcorTexto();
+  if(((window.__PCOR||{}).lista||[]).length){ el.value=txt; el.readOnly=true; el.title='Vem das cores cadastradas abaixo.'; el.style.background='#f6f5f2'; }
+  else { el.readOnly=false; el.title=''; el.style.background=''; }
+}
 /**
  * Anexos do produto arquivados como data URI, com o nome original.
  * São três e todos seguem a mesma mecânica, então o widget é um só:
@@ -3391,6 +3500,9 @@ async function formProduto(id, prefill){
   window.__MAPADTF = { data: p.mapaDtf||'', nome: p.mapaDtfNome||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
+  // Duplicar começa sem cores: elas pertencem ao produto de origem (e os mockups
+  // junto). Quem duplicou cadastra as cores do produto novo.
+  await pcorCarregar(id || null);
   const fotoBox=(kind,lbl)=>`<div><label class="fl">${esc(lbl)}</label><div id="fpv_${kind}" style="margin:4px 0">${fotoThumb(kind)}</div><input type="file" accept="image/*" onchange="APP.fotoSel('${kind}',this)" style="font-size:12px"></div>`;
   openModal(`<style>
     .pmed{border-collapse:collapse;font-size:12px}
@@ -3406,6 +3518,8 @@ async function formProduto(id, prefill){
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
+    ${secDivisor('CORES E MOCKUPS · a imagem que aparece no pedido')}
+    <div id="pcorbox"></div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.codTamToggle()" title="Um código do cliente por tamanho (ex.: CALÇA 36 = MC0400054, 38 = MC0400055). Assim você cadastra 1 produto com vários códigos, sem duplicar por tamanho.">🏷️ Código por tamanho (código do cliente)</button><div id="f_codtam" style="display:none;margin-top:8px"></div></div>
     <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
     <div class="grid2" style="align-items:start">
@@ -3473,6 +3587,9 @@ async function formProduto(id, prefill){
   if(p.especificacoes) $('f_espec').value=p.especificacoes;
   if(p.observacoes) $('f_obs').value=p.observacoes;
   pmedRender();
+  pcorRender();
+  pcorSincronizaCampo();
+  if((window.__PCOR||{}).ativa) pcorMockups(window.__PCOR.ativa).then(pcorRender);
   tecPick();
   prodTipoToggle();
 }
@@ -3593,6 +3710,10 @@ async function saveProduto(id){
     especificacoes:val('f_espec'), observacoes:val('f_obs'),
     ncm:val('f_ncm'), cfop:val('f_cfop'), unidadeComercial:val('f_un'), cest:val('f_cest'),
     icmsCst:val('f_icst'), pisCst:val('f_piscof'), cofinsCst:val('f_piscof') };
+  // Com cores cadastradas, quem manda nelas é o cadastro de cor — o campo "Cor"
+  // é só o espelho. Mandar o texto aqui sobrescreveria o espelho com o que
+  // estava na tela antes da última cor adicionada.
+  if((((window.__PCOR||{}).lista)||[]).length) delete body.cor;
   const preco = val('f_preco'); if(preco) body.precoBase = Number(preco);
   const precoEsp = val('f_precoesp'); if(precoEsp!=='') body.precoEspecial = Number(precoEsp);
   const tamsEsp = val('f_tamsesp'); if(tamsEsp) body.tamsEspeciais = tamsEsp;
@@ -15233,6 +15354,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
+  pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
