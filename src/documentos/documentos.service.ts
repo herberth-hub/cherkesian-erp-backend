@@ -1422,28 +1422,50 @@ export class DocumentosService {
     yD += espec.length * 13.4 + 12;
 
     // ===== Tabela de medidas (largura total) =====
+    // A seção sai SEMPRE: é o que o cliente confere e assina. Sem linhas
+    // cadastradas ela aparece com os tamanhos da grade e o aviso de que as
+    // medidas são definidas na peça-piloto — melhor do que a folha de aprovação
+    // chegar sem a parte que se aprova.
     let y = Math.max(yE + 20, yD, 520);
-    if (produto.medidas.length) {
+    {
       const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
       doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(8); txt('TABELA DE MEDIDAS', M, y);
       doc.fillColor(CINZA).font('Helvetica').fontSize(7);
       doc.text('Medidas da peça pronta, em cm.', M, y, { width: LARG, align: 'right', lineBreak: false });
       y += 14;
-      const cLarg = 132, tLarg = (LARG - cLarg) / Math.max(1, tamanhos.length);
+      // Tolerância entra como coluna própria: é o limite que o cliente aceita,
+      // e sem ela a medida vira um número sem margem.
+      const temTol = produto.medidas.some((md) => String(md.tolerancia ?? '').trim());
+      const cLarg = 132, tolLarg = temTol ? 46 : 0;
+      const tLarg = (LARG - cLarg - tolLarg) / Math.max(1, tamanhos.length);
+      const xTam = (i: number) => M + cLarg + tolLarg + i * tLarg;
       doc.rect(M, y, LARG, 17).fill(ONIX);
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7); txt('MEDIDA', M + 8, y + 5.5);
-      tamanhos.forEach((t, i) => doc.text(t, M + cLarg + i * tLarg, y + 5.5, { width: tLarg, align: 'center', lineBreak: false }));
+      if (temTol) doc.text('TOL.', M + cLarg, y + 5.5, { width: tolLarg, align: 'center', lineBreak: false });
+      tamanhos.forEach((t, i) => doc.text(t, xTam(i), y + 5.5, { width: tLarg, align: 'center', lineBreak: false }));
       y += 17;
-      produto.medidas.forEach((md, i) => {
-        if (i % 2 === 0) doc.rect(M, y, LARG, 17).fill(ZEBRA);
-        doc.fillColor(ONIX).font('Helvetica').fontSize(7);
-        doc.text(md.descricao, M + 8, y + 5.5, { width: cLarg - 12, lineBreak: false, ellipsis: true });
-        tamanhos.forEach((t, j) => {
-          const v = (md.valores as Record<string, unknown> | null)?.[t];
-          doc.text(v == null || v === '' ? '—' : String(v), M + cLarg + j * tLarg, y + 5.5, { width: tLarg, align: 'center', lineBreak: false });
+      if (produto.medidas.length) {
+        produto.medidas.forEach((md, i) => {
+          if (i % 2 === 0) doc.rect(M, y, LARG, 17).fill(ZEBRA);
+          doc.fillColor(ONIX).font('Helvetica').fontSize(7);
+          doc.text(md.descricao, M + 8, y + 5.5, { width: cLarg - 12, lineBreak: false, ellipsis: true });
+          if (temTol) {
+            doc.fillColor(CINZA);
+            doc.text(String(md.tolerancia ?? '').trim() || '—', M + cLarg, y + 5.5, { width: tolLarg, align: 'center', lineBreak: false });
+            doc.fillColor(ONIX);
+          }
+          tamanhos.forEach((t, j) => {
+            const v = (md.valores as Record<string, unknown> | null)?.[t];
+            doc.text(v == null || v === '' ? '—' : String(v), xTam(j), y + 5.5, { width: tLarg, align: 'center', lineBreak: false });
+          });
+          y += 17;
         });
-        y += 17;
-      });
+      } else {
+        doc.rect(M, y, LARG, 20).fill(ZEBRA);
+        doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(7.5);
+        doc.text('Medidas a definir e aprovar na peça-piloto.', M + 8, y + 6.5, { width: LARG - 16, lineBreak: false });
+        y += 20;
+      }
       y += 12;
     }
 
