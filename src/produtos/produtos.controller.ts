@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   Patch,
@@ -24,6 +26,19 @@ export class ProdutosController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.produtosService.findAll(user.empresaId);
+  }
+
+  /**
+   * Fotos de VÁRIOS produtos, em lote, para a galeria do catálogo.
+   *
+   * A lista (`GET /produtos`) omite os base64 de propósito: 221 produtos × ~100 KB
+   * de foto seriam ~22 MB a cada abertura da tela. A galeria pede só as fotos dos
+   * cards que apareceram na rolagem, em blocos, e guarda o que já recebeu.
+   */
+  @Post('fotos')
+  @HttpCode(HttpStatus.OK)
+  fotos(@Body() body: { ids?: number[] }, @CurrentUser() user: AuthUser) {
+    return this.produtosService.fotos(body?.ids ?? [], user.empresaId);
   }
 
   @Get(':id')

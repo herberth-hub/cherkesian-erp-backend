@@ -1711,35 +1711,254 @@ async function liberarCredito(clienteId, liberar){
 async function viewProdutos(c){
   const list = await api('/produtos');
   window.__PRODLIST = list;
-  const _gruposP=[...new Set(list.map(p=>p.clienteGrupo).filter(Boolean))].sort();
-  const gFilterP = _gruposP.length? `<div style="margin:-2px 0 10px"><select id="prod_grupo" class="inp" style="width:auto" onchange="APP.prodFiltrar()"><option value="">Todos os grupos de cliente</option>${_gruposP.map(g=>'<option value="'+esc(g)+'">'+esc(g)+' ('+list.filter(p=>p.clienteGrupo===g).length+')</option>').join('')}</select></div>` : '';
-  c.innerHTML = toolbar('Catálogo de produtos', 'Novo produto', 'APP.formProduto()', `<button class="btn-sm" onclick="APP.formProdutoRevenda()">🛒 Novo produto de revenda</button> <button class="btn-sm" title="Biblioteca de desenhos + montagem de mockup/ficha técnica" onclick="APP.go('engenharia')">🧩 Engenharia de produtos</button> `+relBtn('produtos'))
-    + `<div style="margin:0 0 10px"><input id="prod_busca" class="inp" placeholder="🔍 Buscar por código, descrição, categoria, cor ou NCM…" oninput="APP.prodFiltrar()" style="max-width:520px"></div>`
-    + gFilterP
-    + `<div id="prodwrap">${prodTabela(list)}</div>`;
+  window.__PRODC = c;
+  if(!window.__PRODFOTOS) window.__PRODFOTOS = {}; // cache das fotos já buscadas
+  // Galeria x lista: a escolha de quem usa vale entre sessões.
+  if(window.__PRODVIEW==null){ try{ window.__PRODVIEW = localStorage.getItem('ck_prodview') || 'galeria'; }catch(e){ window.__PRODVIEW='galeria'; } }
+  // Grupos de cliente como PILLS, com a contagem. São 30 grupos no cadastro —
+  // mostrar todos vira um paredão, então os maiores viram pill e o resto fica
+  // num select "outros". O escolhido aparece sempre, mesmo fora do top.
+  const cont = {};
+  for(const p of list) if(p.clienteGrupo) cont[p.clienteGrupo]=(cont[p.clienteGrupo]||0)+1;
+  const ord = Object.entries(cont).sort((a,b)=>b[1]-a[1]);
+  const sel = window.__PRODGRUPO||'';
+  const topo = ord.slice(0,6).map(([g])=>g);
+  if(sel && !topo.includes(sel)) topo.push(sel);
+  const resto = ord.filter(([g])=>!topo.includes(g));
+  const pill=(g,n,on)=>`<button class="btn-sm" onclick="APP.prodGrupo('${esc(g).replace(/'/g,"\\'")}')" style="border-radius:999px;padding:6px 14px;${on?'background:#1d1c1a;color:#fff;border-color:#1d1c1a;font-weight:700':''}">${esc(g||'Todos')} <span style="opacity:.6">${n}</span></button>`;
+  const pills = pill('', list.length, !sel) + topo.map(g=>pill(g, cont[g]||0, sel===g)).join('');
+  const cats=[...new Set(list.map(p=>p.categoria).filter(Boolean))].sort();
+  const galeria = window.__PRODVIEW!=='lista';
+
+  c.innerHTML = toolbar('Produtos', 'Novo produto', 'APP.formProduto()', `<button class="btn-sm" onclick="APP.formProdutoRevenda()">Novo produto de revenda</button> <button class="btn-sm" title="Biblioteca de desenhos + montagem de mockup/ficha técnica" onclick="APP.go('engenharia')">Engenharia de produtos</button> `+relBtn('produtos'))
+    + `<div class="muted" style="font-size:12.5px;margin:-6px 0 12px">Catálogo · ${list.length} produto${list.length===1?'':'s'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${pills}
+      ${resto.length?`<select class="inp" style="width:auto;border-radius:999px;font-size:12.5px" onchange="APP.prodGrupo(this.value)"><option value="">outros grupos (${resto.length})…</option>${resto.map(([g,n])=>`<option value="${esc(g)}" ${sel===g?'selected':''}>${esc(g)} (${n})</option>`).join('')}</select>`:''}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <input id="prod_busca" class="inp" placeholder="Buscar por código, descrição, categoria, cor ou NCM…" oninput="APP.prodFiltrar()" value="${esc(window.__PRODQ||'')}" style="flex:1;min-width:240px">
+      <select id="prod_cat" class="inp" style="width:auto;font-size:13px" onchange="APP.prodFiltrar()"><option value="">Todas as categorias</option>${cats.map(x=>`<option value="${esc(x)}" ${window.__PRODCAT===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
+      <span style="display:inline-flex;border:1px solid #e7e4dd;border-radius:8px;overflow:hidden">
+        <button class="btn-sm" style="border:0;border-radius:0;${galeria?'background:#1d1c1a;color:#fff':''}" onclick="APP.prodView('galeria')">Galeria</button>
+        <button class="btn-sm" style="border:0;border-radius:0;${!galeria?'background:#1d1c1a;color:#fff':''}" onclick="APP.prodView('lista')">Lista</button>
+      </span>
+    </div>
+    <div id="prodwrap"></div>`;
+  prodFiltrar();
+}
+/** Galeria ou lista — a escolha fica guardada entre sessões. */
+function prodView(v){ window.__PRODVIEW=v; try{ localStorage.setItem('ck_prodview', v); }catch(e){} if(window.__PRODC) viewProdutos(window.__PRODC); }
+function prodGrupo(g){ window.__PRODGRUPO=g||''; if(window.__PRODC) viewProdutos(window.__PRODC); }
+/** Margem = (preço − custo) ÷ preço. Sem os dois números não há margem a mostrar. */
+function prodMargem(p){
+  const pr=Number(p.precoBase)||0, cu=Number(p.custo)||0;
+  if(!(pr>0) || !(cu>0)) return null;
+  return (pr-cu)/pr;
+}
+function prodMargemSelo(p){
+  const m=prodMargem(p); if(m==null) return '';
+  const pct=Math.round(m*100);
+  const cor = m>=0.5 ? ['#e6f4ea','#1e7a44'] : (m>=0.4 ? ['#f1f0ec','#55524c'] : ['#fdf0e2','#9a6410']);
+  return `<span class="pill" title="Margem = (preço base − custo) ÷ preço base" style="background:${cor[0]};color:${cor[1]};font-weight:700">${pct}%</span>`;
+}
+/** Menu ⋯ do card: o que não cabe nos dois botões principais. */
+function prodMais(ev, id){
+  ev.stopPropagation();
+  const itens=[
+    ['Ficha técnica', `APP.gerarDoc('ficha_tecnica',${id})`],
+    ['Fiscal', `APP.formProdutoFiscal(${id})`],
+    ['Duplicar', `APP.prodDuplicar(${id})`],
+    ['Excluir', `APP.delRec('/produtos',${id})`, '#c14a34'],
+  ];
+  menuFlutuante(ev, itens);
+}
+/** Menuzinho ancorado no clique — fecha ao clicar fora ou no Esc. */
+function menuFlutuante(ev, itens){
+  document.querySelectorAll('.menuflut').forEach(m=>m.remove());
+  const m=document.createElement('div');
+  m.className='menuflut';
+  m.style.cssText='position:fixed;z-index:120;background:#fff;border:1px solid #e7e4dd;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:5px;min-width:170px';
+  m.innerHTML=itens.map(([rot,acao,cor])=>`<div onclick="document.querySelectorAll('.menuflut').forEach(function(x){x.remove()});${acao}" style="padding:7px 11px;cursor:pointer;font-size:12.5px;border-radius:7px${cor?';color:'+cor:''}" onmouseover="this.style.background='#faf8f0'" onmouseout="this.style.background=''">${esc(rot)}</div>`).join('');
+  document.body.appendChild(m);
+  const r=m.getBoundingClientRect();
+  m.style.left=Math.max(8, Math.min(ev.clientX, innerWidth-r.width-8))+'px';
+  m.style.top=Math.max(8, Math.min(ev.clientY, innerHeight-r.height-8))+'px';
+  const fora=e=>{ if(!m.contains(e.target)){ m.remove(); document.removeEventListener('mousedown',fora); } };
+  setTimeout(()=>document.addEventListener('mousedown',fora),0);
+  document.addEventListener('keydown',function esc(e){ if(e.key==='Escape'){ m.remove(); document.removeEventListener('keydown',esc); } });
+}
+/** Abre o cadastro já preenchido com os dados de outro produto (sem o código). */
+async function prodDuplicar(id){
+  const p=(window.__PRODLIST||[]).find(x=>x.id===id);
+  if(!p) return;
+  if(!await uiConfirm({titulo:'Duplicar produto', msg:'Abrir o cadastro de um produto NOVO com os dados de "'+p.descricao+'"? O código sai em branco para você definir.', ok:'Duplicar'})) return;
+  formProduto(id, {duplicar:true});
 }
 function prodTabela(list){
   const admin = S.user.acesso==='total';
-  const cols = ['Código','Descrição','Grupo cliente','Categoria','Cor','Tecido · rende', ...(admin?['Custo']:[]), 'Preço base','NCM','Ações'];
+  const cols = ['','Produto','Grupo cliente','Categoria','Cor','Tecido · rende', ...(admin?['Custo']:[]), 'Preço base','Margem','NCM','Ações'];
   return panelTable(cols,
     list.map(p=>[
-      `<span class="mono gold">${esc(p.codigo)}</span>`, esc(p.descricao),
+      `<div style="width:56px">${prodFotoBox(p,'height:56px')}</div>`,
+      `<div style="cursor:pointer" onclick="APP.prodPainel(${p.id})"><span class="mono gold">${esc(p.codigo)}</span><div style="font-size:12px">${esc(p.descricao)}</div></div>`,
       p.clienteGrupo?`<span class="pill gray">${esc(p.clienteGrupo)}</span>${p.setor?'<div class="muted" style="font-size:10px">'+esc(p.setor)+'</div>':''}`:'<span class="muted">—</span>',
       esc(p.categoria),
       esc(p.cor||'—'),
       p.tecidoPrincipal?`<div style="font-size:11px">${esc(String(p.tecidoPrincipal).split(' - ')[0].slice(0,22))}</div>${p.rendePecas!=null?`<div style="font-size:11px;font-weight:700;color:${p.rendePecas>0?'#1e7a44':'#c14a34'}">rende ${p.rendePecas.toLocaleString('pt-BR')} pç</div>${p.consumoMedio!=null?`<div class="muted" style="font-size:9.5px">${p.consumoMedio.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})} ${esc(p.consumoUnidade||'m')}/pç</div>`:''}`:'<div class="muted" style="font-size:10px">sem consumo</div>'}`:'<span class="muted">—</span>',
       ...(admin?[p.custo!=null?`<span class="muted">${money(p.custo)}</span>`:'—']:[]),
       p.precoEspecial?`${money(p.precoBase)}<div class="muted" style="font-size:10px">esp. ${money(p.precoEspecial)}</div>`:(p.precoBase?money(p.precoBase):'—'),
+      prodMargemSelo(p)||'<span class="muted">—</span>',
       p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>',
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.formReceita(${p.id})">🧬 Receita</button><button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">📋 Ficha</button><button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">🧾 Fiscal</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formProduto(${p.id})">Editar</button><button class="btn-sm" onclick="APP.formReceita(${p.id})">Receita</button><button class="btn-sm" onclick="APP.prodMais(event,${p.id})">⋯</button></div>`
     ]), list.length?null:'Nenhum produto ainda.');
 }
+/**
+ * Painel lateral do produto: a ficha inteira sem sair do catálogo.
+ * Busca a foto cheia em separado — a lista não a traz.
+ */
+async function prodPainel(id){
+  const p=(window.__PRODLIST||[]).find(x=>x.id===id); if(!p) return;
+  const admin=S.user.acesso==='total';
+  const cor=(p.cor||'').trim();
+  const m=prodMargem(p);
+  const linha=(r,v)=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:4px 0;border-bottom:1px solid #f4f2ed"><span class="muted">${esc(r)}</span><b style="text-align:right">${v}</b></div>`;
+  const html=`<div id="prodpanel" style="position:fixed;top:0;right:0;bottom:0;width:min(480px,100%);background:#fff;border-left:1px solid #e7e4dd;box-shadow:-12px 0 32px rgba(0,0,0,.12);z-index:110;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #f0ede6">
+      <span class="mono gold">${esc(p.codigo)}</span>
+      <button class="btn-sm" style="margin-left:auto" onclick="APP.prodPainelFechar()">✕</button>
+    </div>
+    <div style="flex:1;overflow:auto;padding:14px">
+      <div id="prodpanelfoto" style="background:#f4f2ed;border-radius:10px;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;margin-bottom:12px;cursor:pointer" onclick="APP.formProduto(${p.id})"><span class="muted" style="font-size:12px">carregando…</span></div>
+      <div style="font-size:15px;font-weight:700;line-height:1.3">${esc(p.descricao)}</div>
+      <div style="display:flex;gap:7px;align-items:center;font-size:12px;color:#77746d;margin:6px 0 14px">
+        ${cor?`<span style="width:12px;height:12px;border-radius:3px;border:1px solid #d8d4ca;background:${corHex(cor)}"></span>${esc(cor)} ·`:''} ${esc(p.categoria||'—')}
+      </div>
+      <div style="background:#faf8f0;border:1px solid #efe9d8;border-radius:10px;padding:10px 12px;margin-bottom:14px">
+        ${linha('Preço base', p.precoBase?money(p.precoBase):'—')}
+        ${p.precoEspecial?linha('Preço especial', money(p.precoEspecial)):''}
+        ${admin?linha('Custo', p.custo?money(p.custo):'—'):''}
+        ${m!=null?linha('Margem', prodMargemSelo(p)):''}
+      </div>
+      ${linha('Cliente / grupo', esc(p.clienteGrupo||'—'))}
+      ${linha('Setor', esc(p.setor||'—'))}
+      ${linha('Tecido', esc(p.tecidoPrincipal||p.tecido||'—'))}
+      ${p.rendePecas!=null?linha('Rende', p.rendePecas.toLocaleString('pt-BR')+' pç'):''}
+      ${linha('NCM', p.ncm?`<span class="mono">${esc(p.ncm)}</span>`:'<span class="pill red">falta</span>')}
+      ${linha('Grade', esc(p.grade||'—'))}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid #f0ede6">
+      <button class="btn-primary" onclick="APP.formProduto(${p.id})">Editar</button>
+      <button class="btn-sm" onclick="APP.formReceita(${p.id})">Receita</button>
+      <button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">Ficha técnica</button>
+      <button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">Fiscal</button>
+      <button class="btn-sm" onclick="APP.prodDuplicar(${p.id})">Duplicar</button>
+      <button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button>
+    </div></div>`;
+  document.querySelectorAll('#prodpanel').forEach(x=>x.remove());
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.addEventListener('keydown', prodPainelEsc);
+  // Foto: usa a do cache; senão busca a cheia.
+  const box=$('prodpanelfoto');
+  let f=(window.__PRODFOTOS||{})[id];
+  if(f===undefined){
+    try{ const r=await api('/produtos/fotos',{method:'POST',body:{ids:[id]}}); Object.assign(window.__PRODFOTOS, r||{}); f=(r||{})[id]; }catch(e){ f=null; }
+  }
+  if(box) box.innerHTML = f
+    ? `<img src="${f}" alt="" style="width:100%;height:100%;object-fit:contain">`
+    : '<span class="muted" style="font-size:12px">Sem foto — clique para cadastrar</span>';
+}
+function prodPainelEsc(e){ if(e.key==='Escape') prodPainelFechar(); }
+function prodPainelFechar(){ document.querySelectorAll('#prodpanel').forEach(x=>x.remove()); document.removeEventListener('keydown', prodPainelEsc); }
 function prodFiltrar(){
-  const q=bnorm(val('prod_busca')); const g=val('prod_grupo');
+  window.__PRODQ = val('prod_busca')||'';
+  window.__PRODCAT = val('prod_cat')||'';
+  const q=bnorm(window.__PRODQ), g=window.__PRODGRUPO||'', cat=window.__PRODCAT;
   let list=(window.__PRODLIST||[]);
   if(g) list=list.filter(p=>p.clienteGrupo===g);
+  if(cat) list=list.filter(p=>p.categoria===cat);
   if(q) list=list.filter(p=> [p.codigo,p.descricao,p.categoria,p.cor,p.ncm,p.clienteGrupo,p.setor].some(x=>bnorm(x).includes(q)));
-  const w=$('prodwrap'); if(w) w.innerHTML=prodTabela(list);
+  const w=$('prodwrap'); if(!w) return;
+  if(!list.length){ w.innerHTML='<div class="card" style="text-align:center;padding:26px;color:#77746d">Nenhum produto neste filtro.</div>'; return; }
+  w.innerHTML = (window.__PRODVIEW==='lista') ? prodTabela(list) : prodGaleria(list);
+  prodFotosObservar();
+}
+/** Quadrado da foto — nasce vazio e recebe a imagem quando entra na tela. */
+function prodFotoBox(p, altura){
+  const cache=window.__PRODFOTOS||{};
+  const tem=cache[p.id];
+  const estilo=`background:#f4f2ed;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;${altura}`;
+  if(tem) return `<div style="${estilo}"><img src="${tem}" alt="" style="width:100%;height:100%;object-fit:contain"></div>`;
+  // data-foto marca os que ainda não têm imagem; o observer pede em lote.
+  return `<div class="prodfoto" data-foto="${p.id}" style="${estilo};cursor:pointer" onclick="event.stopPropagation();APP.formProduto(${p.id})" title="${tem===null?'Sem foto — clique para cadastrar':'Carregando…'}">
+    <span class="muted" style="font-size:11px">${tem===null?'Sem foto':'…'}</span></div>`;
+}
+function prodGaleria(list){
+  const cards = list.map(p=>{
+    const cor=(p.cor||'').trim();
+    return `<div class="card" style="padding:10px;cursor:pointer" onclick="APP.prodPainel(${p.id})">
+      ${prodFotoBox(p,'aspect-ratio:4/5')}
+      <div style="display:flex;gap:6px;align-items:baseline;margin-top:8px">
+        <span class="mono gold" style="font-size:11.5px;white-space:nowrap">${esc(p.codigo)}</span>
+        ${p.clienteGrupo?`<span class="muted" style="font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.clienteGrupo)}">${esc(p.clienteGrupo)}</span>`:''}
+      </div>
+      <div style="font-size:12.5px;font-weight:600;line-height:1.25;margin:3px 0 6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:31px">${esc(p.descricao)}</div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:#77746d;margin-bottom:6px">
+        ${cor?`<span style="width:11px;height:11px;border-radius:3px;border:1px solid #d8d4ca;background:${corHex(cor)};flex:none"></span>${esc(cor)}`:'<span>—</span>'}
+        <span style="margin-left:auto">${esc(p.categoria||'')}</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:6px">
+        <b style="font-size:15px">${p.precoBase?money(p.precoBase):'—'}</b>
+        ${prodMargemSelo(p)}
+      </div>
+      ${(S.user.acesso==='total'&&p.custo)?`<div class="muted" style="font-size:10.5px">custo ${money(p.custo)}</div>`:''}
+      ${p.precoEspecial?`<div class="muted" style="font-size:10.5px">especial ${money(p.precoEspecial)}</div>`:''}
+      <div style="display:flex;gap:5px;margin-top:8px" onclick="event.stopPropagation()">
+        <button class="btn-sm" style="flex:1" onclick="APP.formProduto(${p.id})">Editar</button>
+        <button class="btn-sm" style="flex:1" onclick="APP.formReceita(${p.id})">Receita</button>
+        <button class="btn-sm" onclick="APP.prodMais(event,${p.id})" title="Mais ações">⋯</button>
+      </div></div>`;
+  }).join('');
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px">${cards}</div>`;
+}
+/** Cor conhecida → swatch. Desconhecida fica cinza (melhor que inventar um tom). */
+function corHex(c){
+  const m={'preto':'#1a1a1a','branco':'#fdfdfd','bege':'#d9c9a8','cinza':'#8d8d8d','azul marinho':'#1b2a4a','azul royal':'#1e49a8','azul claro':'#8db8e0','verde bandeira':'#0d6b3d','verde musgo':'#4a5d31','vermelho':'#b32222','amarelo':'#e8c020','rosa':'#e59ab8','laranja':'#e07b2a','marrom':'#6b4a2f','roxo':'#6b3fa0'};
+  const k=bnorm(c);
+  for(const [nome,hex] of Object.entries(m)) if(k.includes(bnorm(nome))) return hex;
+  return '#cfcac0';
+}
+/**
+ * Pede as fotos dos cards que apareceram na tela, em lote.
+ * A lista do catálogo não traz base64 (seriam ~22 MB); aqui só entram as que o
+ * olho vai ver, e o que já veio fica guardado para não pedir de novo.
+ */
+function prodFotosObservar(){
+  const alvos=[...document.querySelectorAll('.prodfoto[data-foto]')];
+  if(!alvos.length) return;
+  if(window.__PRODOBS) window.__PRODOBS.disconnect();
+  const fila=new Set();
+  let timer=null;
+  const pedir=async()=>{
+    const ids=[...fila].slice(0,24); if(!ids.length) return;
+    ids.forEach(i=>fila.delete(i));
+    try{
+      const r=await api('/produtos/fotos',{method:'POST',body:{ids}});
+      Object.assign(window.__PRODFOTOS, r||{});
+      for(const id of ids){
+        const el=document.querySelector('.prodfoto[data-foto="'+id+'"]');
+        if(!el) continue;
+        const f=(r||{})[id];
+        if(f){ el.innerHTML='<img src="'+f+'" alt="" style="width:100%;height:100%;object-fit:contain">'; el.removeAttribute('data-foto'); }
+        else { el.innerHTML='<span class="muted" style="font-size:11px">Sem foto</span>'; el.removeAttribute('data-foto'); el.title='Sem foto — clique para cadastrar'; }
+      }
+    }catch(e){ /* foto é enfeite: falhar aqui não pode quebrar o catálogo */ }
+    if(fila.size) timer=setTimeout(pedir,60);
+  };
+  window.__PRODOBS=new IntersectionObserver(es=>{
+    for(const e of es) if(e.isIntersecting && e.target.dataset.foto){ fila.add(Number(e.target.dataset.foto)); window.__PRODOBS.unobserve(e.target); }
+    if(fila.size){ clearTimeout(timer); timer=setTimeout(pedir,80); }
+  },{rootMargin:'300px'});
+  alvos.forEach(a=>window.__PRODOBS.observe(a));
 }
 async function viewMateriais(c){
   const todos = await api('/materiais');
@@ -3131,6 +3350,12 @@ function cadProdDeLivre(enc, pedidoId){
 async function formProduto(id, prefill){
   let p = (!id && prefill && prefill.descricao) ? { descricao: prefill.descricao } : {};
   if(id){ try{ p = await api('/produtos/'+id); }catch(e){ toast(e.message,'err'); return; } }
+  // DUPLICAR: traz os dados do produto, mas o cadastro nasce NOVO — sem id e sem
+  // código, que é único e precisa ser definido por quem está criando.
+  if(id && prefill && prefill.duplicar){
+    p = Object.assign({}, p, { id: undefined, codigo: '', descricao: (p.descricao||'')+' (cópia)' });
+    id = null;
+  }
   // Carrega clientes p/ os seletores de grupo/cliente (padrão do produto acabado).
   if(!window.__CLILIST){ try{ window.__CLILIST=await api('/clientes'); }catch(e){ window.__CLILIST=[]; } }
   window.__GRUPOSCLI=[...new Set((window.__CLILIST||[]).map(c=>c.grupo).filter(Boolean))].sort();
@@ -15000,7 +15225,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar,
+  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,

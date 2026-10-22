@@ -14,6 +14,36 @@ import { proximoCodigo } from '../common/utils/codigo.util';
 export class ProdutosService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Teto de fotos por chamada: ~100 KB cada, então 24 já é ~2,4 MB de resposta. */
+  private static readonly FOTOS_POR_LOTE = 24;
+
+  /**
+   * Fotos (data URI) dos produtos pedidos, para a galeria do catálogo.
+   *
+   * Vem em lote e sob demanda porque `findAll` omite os base64: com 221 produtos
+   * a ~100 KB, mandar tudo junto seriam ~22 MB a cada abertura da tela. Produto
+   * sem foto volta como `null` — a galeria mostra o espaço de "sem foto" e não
+   * pergunta de novo.
+   */
+  async fotos(ids: number[], empresaId: number): Promise<Record<number, string | null>> {
+    const limpos = [...new Set((ids ?? []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))]
+      .slice(0, ProdutosService.FOTOS_POR_LOTE);
+    if (!limpos.length) return {};
+    const rows = await this.prisma.produto.findMany({
+      where: { id: { in: limpos }, empresaId },
+      select: { id: true, fotoModelo: true },
+    });
+    const out: Record<number, string | null> = {};
+    // Todos os ids pedidos voltam, mesmo sem foto: assim a tela sabe que já
+    // perguntou por aquele produto e não fica repetindo a consulta.
+    for (const id of limpos) out[id] = null;
+    for (const r of rows) {
+      const f = String(r.fotoModelo ?? '').trim();
+      out[r.id] = f.startsWith('data:image') ? f : null;
+    }
+    return out;
+  }
+
   async findAll(empresaId: number) {
     // Omite os campos base64 pesados (foto/arquivo) — a lista não precisa deles
     // e isso mantém o payload leve. Eles voltam no findOne (edição).
