@@ -136,6 +136,10 @@ export class ProdutoFichaDto extends ProdutoFiscalDto {
   /** Mapa de aplicacao DTF/bordado — imagem entra como pagina da ficha tecnica. */
   @IsOptional() @IsString() @MaxLength(12_000_000) mapaDtf?: string;
   @IsOptional() @IsString() @MaxLength(200) mapaDtfNome?: string;
+  /** Ficha técnica: projeto, revisão e detalhes de construção (linha "Rótulo: valor"). */
+  @IsOptional() @IsString() @MaxLength(200) projeto?: string;
+  @IsOptional() @IsString() @MaxLength(20) revisao?: string;
+  @IsOptional() @IsString() @MaxLength(4000) detalhes?: string;
 
   @IsOptional()
   @IsArray()

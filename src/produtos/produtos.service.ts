@@ -360,6 +360,9 @@ export class ProdutosService {
       fichaClienteNome: dto.fichaClienteNome,
       mapaDtf: dto.mapaDtf,
       mapaDtfNome: dto.mapaDtfNome,
+      projeto: dto.projeto,
+      revisao: dto.revisao,
+      detalhes: dto.detalhes,
     };
   }
 
