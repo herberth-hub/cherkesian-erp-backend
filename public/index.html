@@ -1783,9 +1783,13 @@ function menuFlutuante(ev, itens){
   const r=m.getBoundingClientRect();
   m.style.left=Math.max(8, Math.min(ev.clientX, innerWidth-r.width-8))+'px';
   m.style.top=Math.max(8, Math.min(ev.clientY, innerHeight-r.height-8))+'px';
-  const fora=e=>{ if(!m.contains(e.target)){ m.remove(); document.removeEventListener('mousedown',fora); } };
+  // Como o menu é fixo, rolar a lista o deixaria boiando longe do botão que o abriu.
+  const fechar=()=>{ m.remove(); document.removeEventListener('mousedown',fora); removeEventListener('scroll',fechar,true); document.removeEventListener('keydown',aoEsc); };
+  const fora=e=>{ if(!m.contains(e.target)) fechar(); };
+  const aoEsc=e=>{ if(e.key==='Escape') fechar(); };
   setTimeout(()=>document.addEventListener('mousedown',fora),0);
-  document.addEventListener('keydown',function esc(e){ if(e.key==='Escape'){ m.remove(); document.removeEventListener('keydown',esc); } });
+  addEventListener('scroll',fechar,true);
+  document.addEventListener('keydown',aoEsc);
 }
 /** Abre o cadastro já preenchido com os dados de outro produto (sem o código). */
 async function prodDuplicar(id){
