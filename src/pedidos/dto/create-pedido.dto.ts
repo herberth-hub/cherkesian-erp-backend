@@ -47,6 +47,13 @@ export class CreatePedidoItemDto {
   @IsString()
   @MaxLength(120)
   cor?: string;
+
+  /** Qual cor cadastrada foi escolhida — é por ela que se acha o mockup. O
+   *  texto em `cor` continua sendo o que sai na OP, na etiqueta e na NF. */
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  produtoCorId?: number;
 }
 
 export class CreatePedidoDto {

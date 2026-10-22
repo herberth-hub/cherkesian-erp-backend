@@ -211,6 +211,7 @@ export class PedidosService {
         produtoId: item.produtoId,
         descricao,
         cor: item.cor?.trim() || null,
+        produtoCorId: item.produtoCorId ?? null,
         quantidade,
         valorUnit,
         grade,
@@ -274,7 +275,7 @@ export class PedidosService {
 
     // Recalcula itens e total (mesma validação da criação).
     let valorTotal = new Prisma.Decimal(0);
-    const novos: Array<{ produtoId: number | null; descricao: string; cor: string | null; quantidade: number; valorUnit: Prisma.Decimal; grade: Prisma.InputJsonValue | null }> = [];
+    const novos: Array<{ produtoId: number | null; descricao: string; cor: string | null; produtoCorId: number | null; quantidade: number; valorUnit: Prisma.Decimal; grade: Prisma.InputJsonValue | null }> = [];
     for (const item of dto.itens) {
       let descricao = item.descricao;
       let produto: Produto | null = null;
@@ -287,7 +288,7 @@ export class PedidosService {
       const valorUnit = new Prisma.Decimal(item.valorUnit);
       const { grade, quantidade } = this.normalizarGrade(item);
       valorTotal = valorTotal.plus(this.subtotalItem(produto, valorUnit, grade, quantidade));
-      novos.push({ produtoId: item.produtoId ?? null, descricao, cor: item.cor?.trim() || null, quantidade, valorUnit, grade: (grade ?? null) as Prisma.InputJsonValue | null });
+      novos.push({ produtoId: item.produtoId ?? null, descricao, cor: item.cor?.trim() || null, produtoCorId: item.produtoCorId ?? null, quantidade, valorUnit, grade: (grade ?? null) as Prisma.InputJsonValue | null });
     }
 
     const filialId = await this.resolverFilial(empresaId, dto.filialId);

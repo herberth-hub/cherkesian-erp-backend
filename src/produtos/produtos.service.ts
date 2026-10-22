@@ -200,6 +200,10 @@ export class ProdutosService {
     const produtos = await this.prisma.produto.findMany({
       where: { empresaId },
       omit: { fotoModelo: true, fotoModelagem: true, arquivoModelagem: true, logoVetor: true, logosVetor: true, fichaCliente: true },
+      // As cores vêm junto (sem os mockups, que são base64): o item do pedido
+      // precisa do id da cor para guardar qual foi escolhida, e são ~250 linhas
+      // no total — não pesa como as imagens.
+      include: { cores: { select: { id: true, nome: true, hex: true, ordem: true }, orderBy: [{ ordem: 'asc' }, { id: 'asc' }] } },
       orderBy: { codigo: 'asc' },
     });
     // Rendimento: quantas peças o estoque de material rende (limitado pelo material

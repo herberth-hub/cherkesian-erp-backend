@@ -4601,7 +4601,7 @@ async function formPedido(id, copiar){
   const copiadoDe = copiar ? (ped && ped.numero) : null;
   if(copiar) id = null;
   PITENS = ped && ped.itens && ped.itens.length
-    ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||''}))
+    ? ped.itens.map(it=>({produtoId:it.produtoId, descTexto:(it.produtoId?'':(it.descricao||'')), qtd:it.quantidade, val:Number(it.valorUnit), grade:it.grade||null, cor:it.cor||'', produtoCorId:it.produtoCorId||null}))
     : [{}];
   const ativas = (filiais||[]).filter(f=>f.ativa!==false);
   window.__PEDENTREGA = (ped && ped.instrucoesEntrega && typeof ped.instrucoesEntrega==='object') ? ped.instrucoesEntrega : null;
@@ -4828,8 +4828,35 @@ function tamsEspDoProduto(p){
   return (p&&p.tamsEspeciais)?String(p.tamsEspeciais).split(/[,;/.\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean):[];
 }
 // Cores cadastradas do produto (separadas por "·", "|", ";" ou ","). Ex.: "2187 Verde · 9158 Cinza" ou "PRETO, CINZA, BRANCO".
+/** Cores cadastradas do produto (cada uma com id e mockup). Produto que ainda
+ *  não foi migrado cai no texto antigo, para o pedido não ficar sem cor. */
+function coresCadastradas(p){
+  if(p && Array.isArray(p.cores) && p.cores.length) return p.cores;
+  return coresDoProduto(p).map(nome=>({ id:null, nome, hex:null }));
+}
 function coresDoProduto(p){
   return (p&&p.cor)?String(p.cor).split(/\s*[·|;,]\s*/).map(s=>s.trim()).filter(Boolean):[];
+}
+/* ===== Mockup da cor no item do pedido =====
+ * O vendedor escolhia a cor sem ver a peça naquela cor. Agora o item mostra a
+ * imagem da cor selecionada. Os mockups são base64, então vêm sob demanda e em
+ * lote, como as fotos do catálogo — e ficam guardados.
+ */
+window.__MOCK = window.__MOCK || {};
+async function mockCarregar(ids){
+  const faltam=[...new Set((ids||[]).filter(id=>id && window.__MOCK[id]===undefined))].slice(0,24);
+  if(!faltam.length) return false;
+  // Marca antes de pedir, para duas chamadas seguidas não buscarem a mesma coisa.
+  faltam.forEach(id=>{ window.__MOCK[id]=null; });
+  try{
+    const r=await api('/produtos/cores/mockups',{method:'POST',body:{ids:faltam}});
+    Object.assign(window.__MOCK, r||{});
+    return true;
+  }catch(e){ return false; }
+}
+function mockDoItem(it){
+  if(it && it.produtoCorId && window.__MOCK[it.produtoCorId]) return window.__MOCK[it.produtoCorId];
+  return '';
 }
 // Mapeia o nome da cor (pt-BR, pode ter código/complemento) p/ um HEX de amostra.
 function corHex(nome){
@@ -4851,8 +4878,9 @@ function corClara(hex){ if(!hex) return true; const m=hex.replace('#',''); const
 function curProdItem(i){ return PITENS[i]&&PITENS[i].produtoId ? (window.__PROD||[]).find(p=>p.id===PITENS[i].produtoId):null; }
 // HTML dos quadradinhos de cor de um item.
 function coresSwatchHtml(i,cores,sel){
-  return cores.map((cc,ci)=>{
-    const hex=corHex(cc); const on=(sel===cc);
+  return cores.map((c,ci)=>{
+    const cc=(c&&c.nome!==undefined)?c.nome:c;
+    const hex=(c&&c.hex)||corHex(cc); const on=(sel===cc);
     const fill = hex==null?'background:repeating-linear-gradient(45deg,#eee,#eee 4px,#ddd 4px,#ddd 8px);':('background:'+hex+';');
     const brd = on?'#C9A227':'#d9d3c4';
     const chk = on?('<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:'+(corClara(hex)?'#222':'#fff')+'">✓</span>'):'';
@@ -4861,10 +4889,35 @@ function coresSwatchHtml(i,cores,sel){
       +'<span style="font-size:9px;line-height:1.15;text-align:center;color:'+(on?'#3a2f08':'#6a675e')+';font-weight:'+(on?'700':'400')+'">'+esc(cc)+'</span></button>';
   }).join('');
 }
-function itemCorPick(i,ci){
-  const cores=coresDoProduto(curProdItem(i));
-  PITENS[i].cor = (cores[ci]||'');
+async function itemCorPick(i,ci){
+  const cores=coresCadastradas(curProdItem(i));
+  const c=cores[ci]||{};
+  PITENS[i].cor = c.nome||'';
+  PITENS[i].produtoCorId = c.id||null;
   const box=$('it_cores_'+i); if(box) box.innerHTML=coresSwatchHtml(i,cores,PITENS[i].cor);
+  itemMockRender(i);
+  if(await mockCarregar([c.id])) itemMockRender(i);
+}
+/** Só a miniatura do item, sem redesenhar o card (o foco não pode pular). */
+function itemMockRender(i){
+  const box=$('it_mock_'+i); if(!box) return;
+  const img=mockDoItem(PITENS[i]);
+  box.innerHTML = img
+    ? `<img src="${img}" alt="" style="width:100%;height:100%;object-fit:contain">`
+    : `<span class="muted" style="font-size:9.5px;text-align:center;line-height:1.2">${PITENS[i].produtoCorId?'sem mockup<br>nesta cor':'escolha<br>a cor'}</span>`;
+}
+/** Duplica o item na PRÓXIMA cor do produto: é o pedido típico — a mesma peça
+ *  em três cores vira três itens, e redigitar a grade inteira é o que faz o
+ *  vendedor desistir e jogar tudo numa cor só. */
+async function itemOutraCor(i){
+  const it=PITENS[i]; const cores=coresCadastradas(curProdItem(i));
+  if(cores.length<2){ toast('Este produto só tem uma cor cadastrada.','err'); return; }
+  const usadas=new Set(PITENS.filter(x=>x.produtoId===it.produtoId).map(x=>x.cor));
+  const prox=cores.find(c=>!usadas.has(c.nome)) || cores[0];
+  const novo=Object.assign({}, it, { cor:prox.nome, produtoCorId:prox.id||null, grade: it.grade?Object.assign({},it.grade):null });
+  PITENS.splice(i+1, 0, novo);
+  renderItens();
+  if(await mockCarregar([prox.id])) renderItens();
 }
 // Resolve a entrada digitada (GRUPO › cliente › unidade) → clienteId + unidadeId + filtro de produtos.
 // Dropdown PRÓPRIO de busca de cliente (texto completo: grupo · cliente · CNPJ · unidade).
@@ -4917,9 +4970,12 @@ function renderItens(){
   $('pitens').innerHTML = PITENS.map((it,i)=>{
     const cur = it.produtoId ? prods.find(p=>p.id===it.produtoId) : null;
     const gr = it.grade || {};
-    const cores = coresDoProduto(cur);
+    const cores = coresCadastradas(cur);
     const corSel = cores.length ? `<div class="mrow" style="margin-bottom:6px"><label class="fl">Cor * <span class="muted" style="font-size:10px">(obrigatória — clique no quadradinho)</span></label>
-        <div id="it_cores_${i}" style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0">${coresSwatchHtml(i,cores,it.cor||'')}</div></div>` : '';
+        <div id="it_cores_${i}" style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0">${coresSwatchHtml(i,cores,it.cor||'')}</div>
+        ${cores.length>1?`<button type="button" class="btn-sm" style="margin-top:4px;padding:3px 9px" onclick="APP.itemOutraCor(${i})" title="Cria outro item igual, já na próxima cor">+ mesma peça em outra cor</button>`:''}</div>` : '';
+    // Miniatura do mockup da cor escolhida — o vendedor vê a peça na cor que está vendendo.
+    const mockBox = cur ? `<div id="it_mock_${i}" style="width:84px;flex:none;aspect-ratio:4/5;background:#f4f2ed;border:1px solid #e7e4dd;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden"></div>` : '';
     const tams = tamsDoProduto(cur);
     const esp = tamsEspDoProduto(cur);
     const temEsp = cur && cur.precoEspecial!=null && esp.length;
@@ -4941,7 +4997,7 @@ function renderItens(){
           ${(!cur&&(it.descTexto||''))?'<div class="muted" style="font-size:10px;margin-top:2px">✏️ Item livre (sem produto do catálogo)</div>':''}</div>
         <div style="display:flex;gap:6px"><input class="inp" id="it_val_${i}" type="number" step="0.01" placeholder="valor unit. (base)" value="${it.val||''}" oninput="APP.itemSync(${i})"></div>
       </div>
-      ${corSel}
+      <div style="display:flex;gap:10px;align-items:flex-start">${mockBox}<div style="flex:1;min-width:0">${corSel}</div></div>
       <div style="font-size:11px;color:#6a675e;margin:2px 0 4px">Quantidade por tamanho${temEsp?' <span style="color:#9a7d1e" title="O preço especial do cadastro só entra quando a grade mistura tamanho normal com ★. Se você preencher só os ★, vale o valor unitário que digitou acima.">(★ = preço especial '+money(cur.precoEspecial)+' — só quando a grade mistura com os normais)</span>':''}:</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end">${cels}
         <div style="margin-left:auto;text-align:right"><label class="fl" style="font-size:10px">Qtd total</label><div style="font-size:16px;font-weight:700;color:#242a26" id="it_qtdlbl_${i}">0</div></div>
@@ -4949,7 +5005,9 @@ function renderItens(){
       <div style="margin-top:6px;font-size:11px;color:#8a8674">Sem grade? Deixe os tamanhos vazios e informe a quantidade: <input class="inp" id="it_qtd_${i}" type="number" min="1" placeholder="qtd" value="${(it.grade&&Object.keys(it.grade).length)?'':(it.qtd||'')}" style="width:100px;display:inline-block;padding:4px 6px" oninput="APP.itemSync(${i})"></div>
     </div>`;
   }).join('');
-  PITENS.forEach((it,i)=>itemQty(i));
+  PITENS.forEach((it,i)=>{ itemQty(i); itemMockRender(i); });
+  // Busca os mockups que ainda faltam (lote único) e repinta só as miniaturas.
+  mockCarregar(PITENS.map(x=>x.produtoCorId)).then(ok=>{ if(ok) PITENS.forEach((x,i)=>itemMockRender(i)); });
 }
 function addItem(){ PITENS.push({}); renderItens(); }
 function rmItem(i){ PITENS.splice(i,1); renderItens(); }
@@ -5021,8 +5079,9 @@ function itemProd(i){
   PITENS[i].descTexto = p?'':(val('it_prod_'+i)||'').trim();
   PITENS[i].val = Number(val('it_val_'+i)) || (p&&p.precoBase?Number(p.precoBase):PITENS[i].val);
   // Ao trocar o produto, reseta a cor; auto-seleciona se o produto tiver só uma cor.
-  const cores = coresDoProduto(p);
-  PITENS[i].cor = cores.length===1 ? cores[0] : '';
+  const cores = coresCadastradas(p);
+  PITENS[i].cor = cores.length===1 ? cores[0].nome : '';
+  PITENS[i].produtoCorId = cores.length===1 ? (cores[0].id||null) : null;
   renderItens();
 }
 // Dropdown PRÓPRIO de busca de produto do item (texto completo, dentro do modal).
@@ -5084,7 +5143,7 @@ async function savePedido(id){
     const base=Number(v);
     if(!(base>0)){ toast('Item '+(i+1)+(p?(' ('+p.descricao+')'):(' "'+txt+'"'))+': informe o valor unitário.','err'); return; }
     // Cor obrigatória quando o produto (do catálogo) tem cores cadastradas.
-    const cores = coresDoProduto(p);
+    const cores = coresCadastradas(p);
     if(cores.length && !PITENS[i].cor){ toast('Item '+(i+1)+' ('+p.descricao+'): escolha a COR.','err'); return; }
     // Separa o item por FAIXA DE PREÇO: tamanhos normais (preço base) e tamanhos
     // da tabela especial (precoEspecial) viram linhas distintas — senão o especial
@@ -5092,7 +5151,10 @@ async function savePedido(id){
     const esp=tamsEspDoProduto(p);
     const precoEsp=(p&&p.precoEspecial!=null && String(p.precoEspecial)!=='')?Number(p.precoEspecial):null;
     const cor=PITENS[i].cor;
-    const addItem=(grade,valorUnit,qtd)=>{ const it={ quantidade:qtd, valorUnit }; if(p) it.produtoId=p.id; else it.descricao=txt; if(cor) it.cor=cor; if(grade) it.grade=grade; itens.push(it); };
+    // Guarda também QUAL cor cadastrada foi escolhida: é por ela que a OP e a
+    // ficha acham o mockup. O texto continua indo, porque é o que sai na NF.
+    const corId=PITENS[i].produtoCorId || (cores.find(c=>c.nome===cor)||{}).id || null;
+    const addItem=(grade,valorUnit,qtd)=>{ const it={ quantidade:qtd, valorUnit }; if(p) it.produtoId=p.id; else it.descricao=txt; if(cor) it.cor=cor; if(corId) it.produtoCorId=corId; if(grade) it.grade=grade; itens.push(it); };
     if(soma>0 && precoEsp!=null && esp.length){
       const gBase={}, gEsp={}; let qB=0,qE=0;
       for(const [t,q] of Object.entries(g)){ const n=Number(q)||0; if(n<=0) continue; if(esp.includes(String(t).toUpperCase())){ gEsp[t]=n; qE+=n; } else { gBase[t]=n; qB+=n; } }
@@ -15354,7 +15416,7 @@ window.APP = {
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
-  pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel,
+  pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
