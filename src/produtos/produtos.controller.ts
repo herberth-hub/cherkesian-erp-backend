@@ -9,10 +9,12 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ProdutosService } from './produtos.service';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import { UpdateProdutoDto } from './dto/update-produto.dto';
+import { AtualizarCorProdutoDto, CorProdutoDto } from './dto/cor-produto.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -41,9 +43,56 @@ export class ProdutosController {
     return this.produtosService.fotos(body?.ids ?? [], user.empresaId);
   }
 
+  /** Mockups de várias cores, em lote — mesma razão de `POST /produtos/fotos`. */
+  @Post('cores/mockups')
+  @HttpCode(HttpStatus.OK)
+  mockups(@Body() body: { ids?: number[] }, @CurrentUser() user: AuthUser) {
+    return this.produtosService.mockups(body?.ids ?? [], user.empresaId);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.produtosService.findOne(id, user.empresaId);
+  }
+
+  // ---------- Cores do produto (cada uma com o seu mockup) ----------
+
+  /** `?mockup=1` traz os base64; sem isso vem só nome, hex e ordem. */
+  @Get(':id/cores')
+  cores(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('mockup') mockup: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.produtosService.cores(id, user.empresaId, mockup === '1' || mockup === 'true');
+  }
+
+  @Post(':id/cores')
+  criarCor(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CorProdutoDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.produtosService.criarCor(id, user.empresaId, dto);
+  }
+
+  @Patch(':id/cores/:corId')
+  atualizarCor(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('corId', ParseIntPipe) corId: number,
+    @Body() dto: AtualizarCorProdutoDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.produtosService.atualizarCor(id, corId, user.empresaId, dto);
+  }
+
+  @Delete(':id/cores/:corId')
+  removerCor(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('corId', ParseIntPipe) corId: number,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.produtosService.removerCor(id, corId, user.empresaId);
   }
 
   /** Ficha de custo (BOM × custo do material) — base da precificação. */

@@ -44,6 +44,156 @@ export class ProdutosService {
     return out;
   }
 
+  // ---------- Cores do produto (cada uma com o seu mockup) ----------
+
+  /** Confere que o produto é da empresa antes de mexer nas cores dele. */
+  private async produtoDaEmpresa(produtoId: number, empresaId: number) {
+    const p = await this.prisma.produto.findUnique({
+      where: { id: produtoId },
+      select: { id: true, empresaId: true, cor: true },
+    });
+    if (!p || p.empresaId !== empresaId) {
+      throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
+    }
+    return p;
+  }
+
+  /** Nome da cor normalizado: sem espaço sobrando e em caixa alta, que é como o
+   *  resto do sistema (OP, etiqueta, NF) grava cor. */
+  private static nomeCor(nome: string): string {
+    const n = String(nome ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!n) throw new BadRequestException('A cor precisa de um nome.');
+    if (n.length > 60) throw new BadRequestException('Nome de cor muito longo (máx. 60).');
+    return n;
+  }
+
+  /**
+   * `Produto.cor` continua sendo o texto que sai na OP, na etiqueta e na NF, e
+   * que várias telas leem. Depois de mexer nas cores cadastradas, reescrevemos
+   * esse texto a partir delas — assim os dois nunca divergem.
+   */
+  private async espelharCorTexto(produtoId: number): Promise<string> {
+    const cores = await this.prisma.produtoCor.findMany({
+      where: { produtoId },
+      orderBy: [{ ordem: 'asc' }, { id: 'asc' }],
+      select: { nome: true },
+    });
+    const texto = cores.map((c) => c.nome).join(', ');
+    await this.prisma.produto.update({ where: { id: produtoId }, data: { cor: texto || null } });
+    return texto;
+  }
+
+  /** Cores do produto. `comMockup=false` deixa os base64 de fora (lista leve). */
+  async cores(produtoId: number, empresaId: number, comMockup = false) {
+    await this.produtoDaEmpresa(produtoId, empresaId);
+    return this.prisma.produtoCor.findMany({
+      where: { produtoId },
+      orderBy: [{ ordem: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true, nome: true, hex: true, ordem: true,
+        ...(comMockup
+          ? { mockupFrente: true, mockupCostas: true }
+          : {}),
+      },
+    });
+  }
+
+  async criarCor(produtoId: number, empresaId: number, dto: { nome: string; hex?: string }) {
+    await this.produtoDaEmpresa(produtoId, empresaId);
+    const nome = ProdutosService.nomeCor(dto.nome);
+    const ultima = await this.prisma.produtoCor.findFirst({
+      where: { produtoId },
+      orderBy: { ordem: 'desc' },
+      select: { ordem: true },
+    });
+    try {
+      const cor = await this.prisma.produtoCor.create({
+        data: { produtoId, nome, hex: dto.hex?.trim() || null, ordem: (ultima?.ordem ?? -1) + 1 },
+        select: { id: true, nome: true, hex: true, ordem: true },
+      });
+      await this.espelharCorTexto(produtoId);
+      return cor;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`O produto já tem a cor "${nome}".`);
+      }
+      throw e;
+    }
+  }
+
+  async atualizarCor(
+    produtoId: number,
+    corId: number,
+    empresaId: number,
+    dto: { nome?: string; hex?: string | null; ordem?: number; mockupFrente?: string | null; mockupCostas?: string | null },
+  ) {
+    await this.produtoDaEmpresa(produtoId, empresaId);
+    const atual = await this.prisma.produtoCor.findUnique({ where: { id: corId }, select: { produtoId: true } });
+    if (!atual || atual.produtoId !== produtoId) {
+      throw new NotFoundException(`Cor ${corId} não é deste produto.`);
+    }
+    const data: Prisma.ProdutoCorUpdateInput = {};
+    if (dto.nome !== undefined) data.nome = ProdutosService.nomeCor(dto.nome);
+    if (dto.hex !== undefined) data.hex = dto.hex?.trim() || null;
+    if (dto.ordem !== undefined) data.ordem = dto.ordem;
+    // String vazia apaga o mockup; undefined deixa como está.
+    if (dto.mockupFrente !== undefined) data.mockupFrente = ProdutosService.mockupOuNulo(dto.mockupFrente);
+    if (dto.mockupCostas !== undefined) data.mockupCostas = ProdutosService.mockupOuNulo(dto.mockupCostas);
+    try {
+      const cor = await this.prisma.produtoCor.update({
+        where: { id: corId },
+        data,
+        select: { id: true, nome: true, hex: true, ordem: true },
+      });
+      if (dto.nome !== undefined || dto.ordem !== undefined) await this.espelharCorTexto(produtoId);
+      return cor;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('O produto já tem outra cor com esse nome.');
+      }
+      throw e;
+    }
+  }
+
+  /** Só aceita imagem em data URI. Qualquer outra coisa vira nulo em vez de ir
+   *  para o banco e quebrar na hora de desenhar o PDF. */
+  private static mockupOuNulo(v: string | null | undefined): string | null {
+    const s = String(v ?? '').trim();
+    return s.startsWith('data:image') ? s : null;
+  }
+
+  async removerCor(produtoId: number, corId: number, empresaId: number) {
+    await this.produtoDaEmpresa(produtoId, empresaId);
+    const cor = await this.prisma.produtoCor.findUnique({ where: { id: corId }, select: { produtoId: true, nome: true } });
+    if (!cor || cor.produtoId !== produtoId) {
+      throw new NotFoundException(`Cor ${corId} não é deste produto.`);
+    }
+    // Pedido já feito naquela cor continua valendo: o item guarda o texto da cor,
+    // então só soltamos o vínculo em vez de apagar o histórico.
+    await this.prisma.pedidoItem.updateMany({ where: { produtoCorId: corId }, data: { produtoCorId: null } });
+    await this.prisma.produtoCor.delete({ where: { id: corId } });
+    const texto = await this.espelharCorTexto(produtoId);
+    return { ok: true, cor: cor.nome, corTexto: texto };
+  }
+
+  /**
+   * Mockups de VÁRIAS cores, em lote — mesma razão das fotos do catálogo: são
+   * base64 de ~100 KB e não cabem na lista de produtos.
+   */
+  async mockups(ids: number[], empresaId: number): Promise<Record<number, string | null>> {
+    const limpos = [...new Set((ids ?? []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0))]
+      .slice(0, ProdutosService.FOTOS_POR_LOTE);
+    if (!limpos.length) return {};
+    const rows = await this.prisma.produtoCor.findMany({
+      where: { id: { in: limpos }, produto: { empresaId } },
+      select: { id: true, mockupFrente: true },
+    });
+    const out: Record<number, string | null> = {};
+    for (const id of limpos) out[id] = null;
+    for (const r of rows) out[r.id] = ProdutosService.mockupOuNulo(r.mockupFrente);
+    return out;
+  }
+
   async findAll(empresaId: number) {
     // Omite os campos base64 pesados (foto/arquivo) — a lista não precisa deles
     // e isso mantém o payload leve. Eles voltam no findOne (edição).

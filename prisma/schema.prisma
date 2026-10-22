@@ -594,6 +594,7 @@ model Produto {
   consumo   Consumo[]
   estoque   Estoque[]
   medidas   ProdutoMedida[]
+  cores     ProdutoCor[]
 
   // ===== Ficha técnica (gerada a partir do cadastro; enviada ao cliente) =====
   referencia     String? // referência do cliente/externa (ex.: 101004966)
@@ -657,6 +658,29 @@ model ProdutoMedida { // Tabela de medidas da ficha técnica — 1 linha por med
   descricao  String   // ex.: CINTURA, COXA, ENTREPERNAS
   tolerancia String?  // ex.: 1 CM
   valores    Json     @default("{}") // { "PP": "43", "P": "47", ... } por tamanho
+}
+
+// Cor do produto COM O MOCKUP DELA. Antes a cor era um texto solto no produto
+// ("AZUL ROYAL, BRANCO") e a foto era uma só — quem montava o pedido escolhia a
+// cor sem ver a peça naquela cor. Aqui cada cor tem a sua imagem, e é ela que
+// aparece no item do pedido, no catálogo, na OP e na ficha impressa.
+// Produto.cor continua existindo como texto derivado, para não quebrar as telas
+// e os documentos que já leem aquele campo.
+model ProdutoCor {
+  id           Int     @id @default(autoincrement())
+  produtoId    Int
+  produto      Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  nome         String  // "AZUL ROYAL"
+  hex          String? // swatch opcional
+  // Imagens em data URI base64, como o resto do sistema: o Render não tem disco
+  // que sobreviva ao deploy, então arquivo gravado em pasta some no próximo build.
+  mockupFrente String? @db.Text
+  mockupCostas String? @db.Text
+  ordem        Int     @default(0)
+  criadoEm     DateTime @default(now())
+
+  @@unique([produtoId, nome])
+  @@index([produtoId])
 }
 
 model Material {
@@ -758,6 +782,9 @@ model PedidoItem {
   produtoId          Int?
   descricao          String
   cor                String?  // cor escolhida do produto (obrigatória quando o produto tem cores)
+  // Aponta para a cor cadastrada, que é quem tem o mockup. A `cor` em texto
+  // continua gravada: é o que sai na OP, na etiqueta e na NF.
+  produtoCorId       Int?
   quantidade         Int
   quantidadeExpedida Int     @default(0) // já expedido (faturamento parcial); residual = quantidade - expedida
   valorUnit          Decimal @db.Decimal(12,2)
