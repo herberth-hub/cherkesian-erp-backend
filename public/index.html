@@ -2242,7 +2242,16 @@ function renderPedidos(){
   const pecas=aprovados.reduce((s,p)=>s+(p.itens||[]).reduce((a,i)=>a+(Number(i.quantidade)||0),0),0);
   const valor=ativos.reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
   const bonif=ativos.filter(p=>p.bonificacao).reduce((s,p)=>s+(Number(p.valorTotal)||0),0);
-  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et||fil)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'aprovados (sem orçamento)') + kpi('Valor total', money(valor), 'somatório') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
+  // Atrasados: prazo vencido e pedido ainda aberto. Estava escondido dentro de
+  // cada pedido, então ninguém via quantos já passaram da data.
+  const hojeKpi=new Date(); hojeKpi.setHours(12,0,0,0);
+  const atrasados=ativos.filter(p=>{
+    if(!p.prazoEntrega || p.etapa==='concluido' || p.etapa==='cancelado') return false;
+    const iso=(p.prazoEntrega instanceof Date)?p.prazoEntrega.toISOString():String(p.prazoEntrega);
+    const d=new Date(iso.slice(0,10)+'T12:00:00');
+    return !isNaN(d) && d<hojeKpi;
+  }).length;
+  const k=$('ped_kpis'); if(k) k.innerHTML = kpi('Pedidos', arr.length, (q||et||fil)?'no filtro':'total') + kpi('Peças', pecas.toLocaleString('pt-BR'), 'aprovados (sem orçamento)') + kpi('Valor total', money(valor), 'somatório') + (atrasados>0?kpi('Prazo vencido', atrasados, 'ainda em aberto'):'') + (bonif>0?kpi('🎁 Bonificado', money(bonif), 'sem cobrança'):'');
   const tbl=$('ped_tbl'); if(!tbl) return;
   if(window.__pedKanban){ tbl.innerHTML = aviso + pedidosKanban(arr); return; }
   const bulkBar = arr.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;padding:8px 10px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
@@ -2254,7 +2263,7 @@ function renderPedidos(){
         <button class="btn-sm danger" onclick="APP.pedExcluirSel()">🗑 Excluir selecionados</button>
       </div></div>` : '';
   tbl.innerHTML = aviso + bulkBar + panelTable(
-    ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','NF-e','OP / OC','Ações'],
+    ['<input type="checkbox" id="pedallck" onclick="APP.pedToggleAll(this.checked)" title="Selecionar todos">','Número','Cliente','Empresa','Total','Etapa','Prazo','NF-e','OP / OC','Ações'],
     arr.map(p=>[
       `<input type="checkbox" class="pedck" value="${p.id}" onclick="APP.pedSelInfo()">`,
       `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}${(p.nfs||[]).some(n=>n.tipo==='faturamento'&&n.status!=='cancelada')?'<div style="margin-top:2px"><span class="pill" style="background:#eaf3ff;color:#1e5aa8;font-size:9px" title="NF de faturamento emitida (venda futura) — o pedido continua em produção até expedir">🧾 venda futura</span></div>':''}${pedRefTag(p)}`,
@@ -2262,6 +2271,7 @@ function renderPedidos(){
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
       etapaCell(p),
+      prazoCell(p),
       pedNfCol(p.nfs),
       pedProdCol(p.opsNumeros, p.ocsNumeros),
       pedidoAcoes(p)
@@ -2300,6 +2310,29 @@ function pedProgresso(p){
   }).join('');
   return `<div style="display:flex;gap:2px;margin-top:5px;max-width:150px" title="Etapa ${idx+1} de ${total}: ${esc(FASES_PED[idx].lbl)}">${segs}</div>`
     +`<div style="font-size:9.5px;color:var(--muted);margin-top:2px">🔹 etapa ${idx+1}/${total} · <b>${esc(FASES_PED[idx].lbl)}</b></div>`;
+}
+/**
+ * Prazo de entrega na lista de Vendas.
+ *
+ * O prazo estava só dentro do pedido: para saber quem já venceu era preciso
+ * abrir um por um. Pedido encerrado (concluído/cancelado) mostra a data sem
+ * cobrança — vencer depois de entregue não é atraso.
+ */
+function prazoCell(p){
+  if(!p.prazoEntrega) return '<span class="muted">—</span>';
+  // A API manda ISO ("2026-10-30T..."), mas aceita Date também: String(Date) não
+  // é ISO e cortar os 10 primeiros caracteres daria uma data inválida.
+  const iso = (p.prazoEntrega instanceof Date) ? p.prazoEntrega.toISOString() : String(p.prazoEntrega);
+  const d=new Date(iso.slice(0,10)+'T12:00:00');
+  if(isNaN(d)) return '<span class="muted">—</span>';
+  const txt=d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  const encerrado = p.etapa==='concluido'||p.etapa==='cancelado';
+  if(encerrado) return `<span class="muted" style="font-size:12px">${txt}</span>`;
+  const hoje=new Date(); hoje.setHours(12,0,0,0);
+  const dias=Math.round((d-hoje)/86400000);
+  if(dias<0) return `<div style="font-size:12px;color:#c14a34;font-weight:700">${txt}</div><div style="font-size:10px;color:#c14a34">atrasado ${Math.abs(dias)} d</div>`;
+  if(dias<=3) return `<div style="font-size:12px;color:#9a5a00;font-weight:700">${txt}</div><div style="font-size:10px;color:#9a5a00">${dias===0?'é hoje':'faltam '+dias+' d'}</div>`;
+  return `<div style="font-size:12px">${txt}</div><div style="font-size:10px;color:var(--muted)">faltam ${dias} d</div>`;
 }
 // Célula de etapa: pill + trilha do processo. 'parcial' vira pill âmbar clicável mostrando o que falta expedir.
 function etapaCell(p){
