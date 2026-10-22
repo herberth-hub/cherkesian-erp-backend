@@ -26,6 +26,7 @@ import {
   money,
   novaEtiqueta,
   novoDocumento,
+  novoDocumentoLimpo,
   rodapeGrupo,
   secao,
   tabela,
@@ -45,7 +46,11 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
   ficha_medidas: { titulo: 'Ficha de Medidas', prefixo: 'MED', area: 'medidas' },
   // Ficha técnica do produto: pode ser emitida por produção (cadastros) e comercial (vendas).
+  // Esta é a do CLIENTE — folha de aprovação, sem consumo de material.
   ficha_tecnica: { titulo: 'Ficha Técnica', prefixo: 'FT', area: ['cadastros', 'vendas'] },
+  // A da FÁBRICA, com receita, conjunto e modelagem. Fora de 'vendas' porque leva
+  // o consumo de material por peça.
+  ficha_producao: { titulo: 'Ficha de Produção', prefixo: 'FPR', area: ['cadastros', 'producao'] },
   etiqueta: { titulo: 'Etiqueta de Lote', prefixo: 'ETQ', area: 'estoque' },
   piloto: { titulo: 'Ficha de Peça Piloto', prefixo: 'PIL', area: ['producao', 'vendas'] },
   piloto_ficha: { titulo: 'Ficha Técnica · Peça Piloto', prefixo: 'FTP', area: ['producao', 'vendas'] },
@@ -77,7 +82,7 @@ export class DocumentosService {
     await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA', filtro);
 
     // Rastreabilidade: reaproveita o documento já existente da MESMA referência
-    // (não cria número novo a cada geração de PDF).
+    // E do mesmo recorte (não cria número novo a cada geração de PDF).
     const jaExiste = await this.prisma.documento.findFirst({ where: { tipo, referencia: String(referenciaId), filtro }, orderBy: { id: 'asc' } });
     if (jaExiste) {
       const urlPdf = jaExiste.urlPdf ?? `/api/v1/documentos/${jaExiste.id}/pdf`;
@@ -297,6 +302,8 @@ export class DocumentosService {
         return this.pdfMedidas(referenciaId, empresaId, numero);
       case 'ficha_tecnica':
         return this.pdfFichaTecnica(referenciaId, empresaId, numero);
+      case 'ficha_producao':
+        return this.pdfFichaProducao(referenciaId, empresaId, numero);
       case 'cobranca':
         return this.pdfCobranca(referenciaId, empresaId, numero, DocumentosService.idsDoFiltro(filtro));
       case 'etiqueta':
@@ -1285,7 +1292,213 @@ export class DocumentosService {
     return doc;
   }
 
+  /**
+   * FICHA TÉCNICA no layout do cliente. Página A4 desenhada em posição absoluta
+   * (não no fluxo padrão de documento), porque o desenho é fixo: duas colunas,
+   * faixa de rodapé, títulos na cor da marca. As medidas vieram da ficha de
+   * referência aprovada.
+   */
   private async pdfFichaTecnica(produtoId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const produto = await this.prisma.produto.findUnique({
+      where: { id: produtoId },
+      include: { medidas: { orderBy: { ordem: 'asc' } } },
+    });
+    if (!produto || produto.empresaId !== empresaId) {
+      throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
+    }
+    const cliente = produto.clienteId
+      ? await this.prisma.cliente.findUnique({ where: { id: produto.clienteId }, select: { nome: true, fantasia: true } })
+      : null;
+
+    // Paleta da ficha de referência.
+    const LARANJA = '#d9692b', AZUL = '#1e88e5', ONIX = '#141414', CINZA = '#6b6b6b', ZEBRA = '#f6f6f6';
+    const doc = novoDocumentoLimpo('Ficha Técnica', numero);
+    const W = doc.page.width, H = doc.page.height;
+    const M = 34, LARG = W - M * 2;
+    const txt = (t: string, x: number, y: number, o: Record<string, unknown> = {}) => doc.text(String(t ?? ''), x, y, { lineBreak: false, ...o });
+
+    // ===== Cabeçalho (fundo branco, marca à esquerda, tagline à direita) =====
+    let logoOk = false;
+    const logo = produto.fotoModelo ? null : null; // o logo da empresa é aplicado por setLogoDoc; aqui usamos a marca textual
+    void logo;
+    if (!logoOk) {
+      doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(19);
+      txt('HC', M, 42);
+      doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(9.5);
+      txt('Q U A L I T Y   C O R P O R A T E', M + 38, 40);
+      doc.fillColor(AZUL).font('Helvetica').fontSize(6.5);
+      txt('P R O F E S S I O N A L   W O R K W E A R   &   H E A L T H', M + 38, 56);
+      logoOk = true;
+    }
+    doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7.5);
+    ['UNIFORMES', 'PROFISSIONAIS', 'E EPIS PARA', 'UM AMBIENTE', 'MAIS SEGURO.'].forEach((l, i) =>
+      doc.text(l, W - M - 150, 20 + i * 10, { width: 150, align: 'right', lineBreak: false }));
+
+    // ===== Título =====
+    doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(15);
+    txt('FICHA TÉCNICA DO PRODUTO', M, 118);
+    doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(8.5);
+    doc.text(`Ref.: ${produto.codigo}${produto.revisao ? `  |  Rev. ${produto.revisao}` : ''}`, W - M - 240, 120, { width: 240, align: 'right', lineBreak: false });
+    doc.fillColor(CINZA).font('Helvetica').fontSize(7.5);
+    doc.text(`Emissão: ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`, W - M - 240, 132, { width: 240, align: 'right', lineBreak: false });
+    doc.moveTo(M, 146).lineTo(W - M, 146).lineWidth(0.8).strokeColor(LARANJA).stroke();
+
+    // ===== Cliente / Projeto =====
+    const rot = (t: string, x: number, y: number) => { doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7.5); txt(t, x, y); };
+    const val = (t: string, x: number, y: number, larg: number) => {
+      doc.fillColor(CINZA).font('Helvetica').fontSize(9);
+      doc.text(String(t ?? '—'), x, y, { width: larg, lineBreak: false, ellipsis: true });
+    };
+    rot('CLIENTE', M, 160);
+    val(cliente?.nome ?? produto.clienteGrupo ?? produto.marca ?? '—', M, 172, 240);
+    rot('PROJETO', 286, 160);
+    val(produto.projeto ?? produto.descricao, 286, 172, W - M - 286);
+
+    // ===== Coluna esquerda: vista frontal =====
+    const COL_E = M, COL_D = 286, LARG_D = W - M - COL_D;
+    let yE = 196;
+    if (produto.fotoModelo) {
+      const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(produto.fotoModelo);
+      if (m) { try { doc.image(Buffer.from(m[1], 'base64'), COL_E, yE, { fit: [236, 300], align: 'center' }); } catch { /* imagem inválida */ } }
+      yE += 306;
+      doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(8);
+      doc.text('VISTA FRONTAL', COL_E, yE, { width: 236, align: 'center', lineBreak: false });
+    }
+
+    // ===== Coluna direita: personalização + especificações =====
+    let yD = 196;
+    const aplicacoes = Array.isArray(produto.aplicacoes)
+      ? (produto.aplicacoes as Array<{ tipo?: string; tamanho?: string; local?: string }>)
+      : [];
+    if (aplicacoes.length || produto.mapaDtf) {
+      doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(9);
+      txt('DETALHE DA PERSONALIZAÇÃO', COL_D, yD);
+      yD += 16;
+      let xTab = COL_D;
+      if (produto.mapaDtf && /^data:image\//i.test(produto.mapaDtf)) {
+        const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(produto.mapaDtf);
+        if (m) { try { doc.image(Buffer.from(m[1], 'base64'), COL_D, yD, { fit: [92, 92] }); xTab = COL_D + 100; } catch { /* ignora */ } }
+      }
+      // Só o que está cadastrado. Nada de "Logomarca 1" ou "conforme manual da
+      // marca": a ficha vai assinada pelo cliente, então não pode afirmar o que
+      // ninguém preencheu.
+      const pares: Array<[string, string]> = aplicacoes.length
+        ? aplicacoes.slice(0, 6).map((a, i): [string, string] => [
+            aplicacoes.length > 1 ? `ARTE ${i + 1}` : 'ARTE',
+            [a.tipo, a.tamanho, a.local].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || '—',
+          ])
+        : [['MAPA', produto.mapaDtfNome ?? 'anexado ao produto']];
+      pares.forEach(([r, v], i) => {
+        const y = yD + i * 15;
+        doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(6.5); txt(r, xTab, y);
+        doc.fillColor(LARANJA).font('Helvetica').fontSize(7.5);
+        doc.text(v, xTab + 50, y - 1, { width: W - M - (xTab + 50), lineBreak: false, ellipsis: true });
+      });
+      yD += 15 * pares.length + 14;
+    }
+
+    // Especificações da peça (tabela zebrada de duas colunas)
+    const espec: Array<[string, string]> = [['Peça', produto.descricao], ['Cor', produto.cor ?? '—']];
+    if (produto.modelagem) espec.push(['Modelagem', produto.modelagem]);
+    for (const l of String(produto.detalhes ?? '').split('\n')) {
+      const t = l.trim(); if (!t) continue;
+      const i = t.indexOf(':');
+      espec.push(i > 0 ? [t.slice(0, i).trim(), t.slice(i + 1).trim()] : ['—', t]);
+    }
+    if (produto.tecido) espec.push(['Tecido', produto.tecido]);
+    if (produto.composicao) espec.push(['Composição', produto.composicao]);
+    if (produto.grade) espec.push(['Grade', produto.grade]);
+
+    doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(9);
+    txt('ESPECIFICAÇÕES DA PEÇA', COL_D, yD);
+    yD += 14;
+    espec.forEach(([r, v], i) => {
+      const y = yD + i * 13.4;
+      if (i % 2 === 0) doc.rect(COL_D, y - 2, LARG_D, 13.4).fill(ZEBRA);
+      doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7); txt(r, COL_D + 8, y + 1.5);
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7);
+      doc.text(v, COL_D + 68, y + 1.5, { width: LARG_D - 76, lineBreak: false, ellipsis: true });
+    });
+    yD += espec.length * 13.4 + 12;
+
+    // ===== Tabela de medidas (largura total) =====
+    let y = Math.max(yE + 20, yD, 520);
+    if (produto.medidas.length) {
+      const tamanhos = this.tamanhosDaFicha(produto.grade, produto.medidas);
+      doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(8); txt('TABELA DE MEDIDAS', M, y);
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7);
+      doc.text('Medidas da peça pronta, em cm.', M, y, { width: LARG, align: 'right', lineBreak: false });
+      y += 14;
+      const cLarg = 132, tLarg = (LARG - cLarg) / Math.max(1, tamanhos.length);
+      doc.rect(M, y, LARG, 17).fill(ONIX);
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7); txt('MEDIDA', M + 8, y + 5.5);
+      tamanhos.forEach((t, i) => doc.text(t, M + cLarg + i * tLarg, y + 5.5, { width: tLarg, align: 'center', lineBreak: false }));
+      y += 17;
+      produto.medidas.forEach((md, i) => {
+        if (i % 2 === 0) doc.rect(M, y, LARG, 17).fill(ZEBRA);
+        doc.fillColor(ONIX).font('Helvetica').fontSize(7);
+        doc.text(md.descricao, M + 8, y + 5.5, { width: cLarg - 12, lineBreak: false, ellipsis: true });
+        tamanhos.forEach((t, j) => {
+          const v = (md.valores as Record<string, unknown> | null)?.[t];
+          doc.text(v == null || v === '' ? '—' : String(v), M + cLarg + j * tLarg, y + 5.5, { width: tLarg, align: 'center', lineBreak: false });
+        });
+        y += 17;
+      });
+      y += 12;
+    }
+
+    // ===== Observações =====
+    const obs = [produto.especificacoes, produto.observacoes].filter((x) => String(x ?? '').trim()).join('\n');
+    const notas = [
+      obs,
+      'Imagem ilustrativa. Tonalidade final conforme amostra física aprovada.',
+    ].filter(Boolean).join('\n');
+    doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(8); txt('OBSERVAÇÕES', M, y);
+    y += 12;
+    doc.fillColor(ONIX).font('Helvetica').fontSize(7.5);
+    doc.text(notas, M, y, { width: LARG });
+    y = Math.max(doc.y + 14, y + 30);
+
+    // ===== Aprovação do cliente =====
+    const yAp = Math.min(y, H - 130);
+    doc.rect(M, yAp, 132, 18).fill(ONIX);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7.5); txt('APROVAÇÃO DO CLIENTE', M + 10, yAp + 5.5);
+    let xo = M + 152;
+    for (const o of ['Aprovado', 'Aprovado com ajustes', 'Reprovado']) {
+      doc.rect(xo, yAp + 4, 9, 9).lineWidth(0.8).strokeColor(ONIX).stroke();
+      doc.fillColor(ONIX).font('Helvetica').fontSize(8); txt(o, xo + 13, yAp + 6);
+      xo += 13 + doc.widthOfString(o) + 26;
+    }
+    const yl = yAp + 52, lw = (LARG - 32) / 3;
+    ['Nome', 'Assinatura', 'Data'].forEach((r, i) => {
+      const xi = M + i * (lw + 16);
+      doc.moveTo(xi, yl).lineTo(xi + lw, yl).lineWidth(0.8).strokeColor('#bdbdbd').stroke();
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7); txt(r, xi, yl + 5);
+    });
+
+    // ===== Rodapé =====
+    doc.rect(0, H - 52, W, 52).fill(ONIX);
+    doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(8);
+    txt('hcqualitycorp.com.br', M + 10, H - 33);
+    doc.fillColor('#ffffff').font('Helvetica').fontSize(8);
+    doc.text('(11) 97620-8741', 0, H - 33, { width: W, align: 'center', lineBreak: false });
+    doc.fillColor('#bdbdbd');
+    doc.text('contato@hcqualitycorp.com.br', W - M - 220, H - 33, { width: 220, align: 'right', lineBreak: false });
+    doc.fillColor('#8a8a8a').fontSize(6.5);
+    doc.text('Q U A L I D A D E   |   S E G U R A N Ç A   |   C O N F O R T O', 0, H - 18, { width: W, align: 'center', lineBreak: false });
+
+    return doc;
+  }
+
+  /**
+   * FICHA DE PRODUÇÃO — a que fica na fábrica.
+   *
+   * Separada da ficha do cliente de propósito: esta carrega o que a produção
+   * precisa e o cliente não deve receber (consumo de material por peça, família
+   * de tecido, composição do conjunto) e o que não cabe numa folha de aprovação
+   * (modelagem do Audaces, mapa de aplicação em página inteira).
+   */
+  private async pdfFichaProducao(produtoId: number, empresaId: number, numero: string): Promise<Pdf> {
     const produto = await this.prisma.produto.findUnique({
       where: { id: produtoId },
       include: { medidas: { orderBy: { ordem: 'asc' } } },
@@ -1298,7 +1511,7 @@ export class DocumentosService {
       include: { material: true },
     });
 
-    const doc = novoDocumento('Ficha Técnica', numero);
+    const doc = novoDocumento('Ficha de Produção', numero);
 
     secao(doc, 'Identificação');
     camposDuplos(doc, [
@@ -1306,14 +1519,16 @@ export class DocumentosService {
       ['Referência', produto.referencia ?? '—'],
       ['Descrição', produto.descricao],
       ['Grupo', produto.grupo ?? produto.categoria],
-      ['Marca / cliente', produto.marca ?? '—'],
+      ['Marca / cliente', produto.marca ?? produto.clienteGrupo ?? '—'],
       ['Linha', produto.linha ?? '—'],
       ['Cor', produto.cor ?? '—'],
       ['Grade', produto.grade ?? '—'],
       ['Tecido', produto.tecido ?? '—'],
       ['Composição', produto.composicao ?? '—'],
       ['Modelagem (Audaces)', produto.modelagem ?? '—'],
-      // Preço NÃO entra na ficha técnica: este documento vai para o cliente (só dados técnicos).
+      ['Projeto', produto.projeto ?? '—'],
+      ['Revisão', produto.revisao ?? '—'],
+      // Preço NÃO entra: ficha técnica, não comercial.
     ]);
 
     if (produto.fotoModelo) {
@@ -1324,6 +1539,26 @@ export class DocumentosService {
     if (produto.especificacoes?.trim()) {
       secao(doc, 'Especificações de confecção / costura');
       textoBloco(doc, produto.especificacoes);
+    }
+
+    // Detalhes de construção (mesmo campo que vira a tabela da ficha do cliente).
+    const detalhes = String(produto.detalhes ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (detalhes.length) {
+      secao(doc, 'Detalhes de construção', 28 + detalhes.length * 22);
+      tabela(
+        doc,
+        [
+          { titulo: 'Item', largura: 150 },
+          { titulo: 'Especificação', largura: 345 },
+        ],
+        detalhes.map((l) => {
+          const i = l.indexOf(':');
+          return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : ['—', l];
+        }),
+      );
     }
 
     // Composição do conjunto (peças componentes) definida na Receita técnica.
@@ -1367,7 +1602,7 @@ export class DocumentosService {
       );
     }
 
-    // MAPA DE APLICAÇÃO DTF — vai junto da ficha, que é o que chega na mão de quem
+    // MAPA DE APLICAÇÃO DTF — em página inteira, que é o que chega na mão de quem
     // aplica. A tabela acima diz o tamanho; o mapa diz ONDE cada arte entra na peça,
     // e sem ele o setor de DTF tem que adivinhar o posicionamento.
     if (produto.mapaDtf) {
@@ -1402,6 +1637,13 @@ export class DocumentosService {
           };
         }),
       );
+    } else {
+      // Dizer que falta é melhor do que entregar a ficha sem a seção e deixar a
+      // costura medir no olho.
+      secao(doc, 'Tabela de medidas');
+      doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9)
+        .text('Sem tabela de medidas cadastrada — preencha no cadastro do produto, aba Ficha técnica.', 50, doc.y, { width: doc.page.width - 100 });
+      doc.fillColor('#222222').font('Helvetica').fontSize(10);
     }
 
     if (bom.length) {
@@ -1433,7 +1675,7 @@ export class DocumentosService {
       textoBloco(doc, produto.observacoes);
     }
 
-    assinaturas(doc, 'GRUPO CHERKESIAN — Modelagem/PCP', `${produto.marca ?? 'Cliente'} — Aprovado`);
+    assinaturas(doc, 'GRUPO CHERKESIAN — Modelagem/PCP', 'Produção — Conferido');
     return doc;
   }
 

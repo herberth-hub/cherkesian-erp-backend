@@ -1765,7 +1765,9 @@ function prodMargemSelo(p){
 function prodMais(ev, id){
   ev.stopPropagation();
   const itens=[
-    ['Ficha técnica', `APP.gerarDoc('ficha_tecnica',${id})`],
+    // Duas fichas: a do cliente (aprovação, sem consumo) e a da fábrica.
+    ['Ficha técnica · cliente', `APP.gerarDoc('ficha_tecnica',${id})`],
+    ['Ficha de produção', `APP.gerarDoc('ficha_producao',${id})`],
     ['Fiscal', `APP.formProdutoFiscal(${id})`],
     ['Duplicar', `APP.prodDuplicar(${id})`],
     ['Excluir', `APP.delRec('/produtos',${id})`, '#c14a34'],
@@ -1853,7 +1855,8 @@ async function prodPainel(id){
     <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid #f0ede6">
       <button class="btn-primary" onclick="APP.formProduto(${p.id})">Editar</button>
       <button class="btn-sm" onclick="APP.formReceita(${p.id})">Receita</button>
-      <button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})">Ficha técnica</button>
+      <button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${p.id})" title="Folha de aprovação do cliente — sem consumo de material">Ficha · cliente</button>
+      <button class="btn-sm" onclick="APP.gerarDoc('ficha_producao',${p.id})" title="Ficha da fábrica — receita, conjunto, modelagem e mapa de aplicação">Ficha · produção</button>
       <button class="btn-sm" onclick="APP.formProdutoFiscal(${p.id})">Fiscal</button>
       <button class="btn-sm" onclick="APP.prodDuplicar(${p.id})">Duplicar</button>
       <button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/produtos',${p.id})">Excluir</button>
@@ -11402,7 +11405,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){

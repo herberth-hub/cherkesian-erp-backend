@@ -49,6 +49,18 @@ export function novoDocumento(titulo: string, numero: string): Pdf {
   return doc;
 }
 
+/**
+ * Documento A4 SEM o timbre padrão — para páginas desenhadas em posição
+ * absoluta, como a ficha técnica no layout do cliente, que tem cabeçalho e
+ * rodapé próprios.
+ */
+export function novoDocumentoLimpo(titulo: string, numero: string): Pdf {
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+  doc.info.Title = `${titulo} ${numero}`.trim();
+  doc.info.Author = 'Grupo Cherkesian';
+  return doc;
+}
+
 function cabecalho(doc: Pdf, titulo: string, numero: string): void {
   const w = doc.page.width;
   // Faixa ônix
