@@ -3542,19 +3542,36 @@ async function formProduto(id, prefill){
     .pmed th{background:#faf6ea;color:#9a7d1e;font-size:10px;padding:4px 5px;text-align:center;border:1px solid #eee4c8;white-space:nowrap}
     .pmed td{padding:2px 3px;border:1px solid #efece1}
     .inp.sm{padding:5px 6px;font-size:12px;width:100%}
+    /* Abas da ficha: quebram em mais de uma linha em vez de rolar na horizontal. */
+    .fabas{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+    .faba-bt{padding:5px 11px;border-radius:999px;border:1px solid #e2ddce;background:#fff;color:#1d1c1a;font-size:12px;cursor:pointer;white-space:nowrap}
+    .faba-bt.on{background:#1d1c1a;border-color:#1d1c1a;color:#fff;font-weight:600}
+    .faba{display:none}
+    .faba.on{display:block}
+    @media(max-width:860px){ .fichacols{flex-direction:column} .fichacols>.fichaesq{width:auto !important} }
   </style>
     <h3>${id?'Editar':'Novo'} produto — ficha técnica</h3>
-    ${secDivisor('IDENTIFICAÇÃO')}
+    <div class="fichacols" style="display:flex;gap:14px;align-items:flex-start">
+      <div class="fichaesq" style="width:320px;flex:none;background:#faf9f6;border:1px solid #e7e4dd;border-radius:10px;padding:11px 12px">
+        <div style="font-size:11.5px;font-weight:700;letter-spacing:.4px;color:#77746d;margin-bottom:7px">CORES E MOCKUPS</div>
+        <div id="pcorbox"></div>
+      </div>
+      <div style="flex:1;min-width:0">
+      <div class="fabas">${[['geral','Geral'],['custo','Custo e consumo'],['embalagem','Embalagem'],['cliente','Cliente e venda'],['ficha','Ficha técnica'],['medidas','Medidas'],['arquivos','Arquivos'],['fiscal','Fiscal']].map(([k,r],i)=>`<button type="button" class="faba-bt${i===0?' on':''}" data-bt="${k}" onclick="APP.prodAba('${k}')">${r}</button>`).join('')}</div>
+    <div class="faba on" data-aba="geral">
     <div class="mrow" style="background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 10px;margin:0 0 8px"><label class="fl" style="font-weight:700">Tipo do produto *</label>
       <select id="p_tipo" class="inp" onchange="APP.prodTipoToggle()"><option value="producao"${(p.tipo||'producao')==='producao'?' selected':''}>🏭 Produção própria (gera OP · usa tecido/consumo)</option><option value="revenda"${p.tipo==='revenda'?' selected':''}>🛒 Revenda (comprado pronto — não gera OP)</option></select>
       <div id="f_tiporev" class="muted" style="font-size:11px;margin-top:4px;display:none">🛒 Revenda: preencha custo de compra, preço de venda e NCM. Tecido/consumo/peso não se aplicam.</div></div>
     <div class="grid2">${field('f_cat','Categoria * (ex.: Calça)','value="'+esc(p.categoria||'')+'"')}${field('f_desc','Descrição *','value="'+esc(p.descricao||'')+'"')}</div>
     <div class="grid3">${field('f_ref','Referência (cliente)','value="'+esc(p.referencia||'')+'"')}${field('f_marca','Marca / cliente','value="'+esc(p.marca||'')+'"')}${field('f_linha','Linha','value="'+esc(p.linha||'')+'"')}</div>
     <div class="grid3">${field('f_grupo','Grupo','value="'+esc(p.grupo||'')+'"')}${field('f_cor','Cor','value="'+esc(p.cor||'')+'"')}${field('f_grade','Grade (ex.: PP ao G4)','value="'+esc(p.grade||'')+'"')}</div>
-    ${secDivisor('CORES E MOCKUPS · a imagem que aparece no pedido')}
-    <div id="pcorbox"></div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.codTamToggle()" title="Um código do cliente por tamanho (ex.: CALÇA 36 = MC0400054, 38 = MC0400055). Assim você cadastra 1 produto com vários códigos, sem duplicar por tamanho.">🏷️ Código por tamanho (código do cliente)</button><div id="f_codtam" style="display:none;margin-top:8px"></div></div>
-    <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'"')}</div>
+    ${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
+    ${field('f_model','Modelagem (Audaces) — ex.: 3174 - N 7005-000AA','value="'+esc(p.modelagem||'')+'"')}
+    ${id?'':'<div class="muted" style="font-size:11px;margin:-2px 0 6px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
+    </div><div class="faba" data-aba="custo">
+    <div class="grid2">${field('f_custo','Custo unitário (R$)','type="number" step="0.01" value="'+(p.custo!=null?p.custo:'')+'" placeholder="ex.: 19.80 (compra/revenda)" oninput="APP.prodMargemLive()"')}${field('f_preco','Preço base venda (R$)','type="number" step="0.01" value="'+(p.precoBase!=null?p.precoBase:'')+'" oninput="APP.prodMargemLive()"')}</div>
+    <div id="f_margem" style="margin:-2px 0 8px"></div>
     <div class="grid2" style="align-items:start">
       <div class="mrow" style="position:relative"><label class="fl">Tecido principal <span class="muted">(homologado do estoque)</span></label>
         <input id="f_tec" class="inp" value="${esc(tecInit)}" placeholder="digite p/ escolher o tecido (mostra a cor)" oninput="APP.tecDD()" onfocus="APP.tecDD()" onblur="APP.tecDDHide()" autocomplete="off">
@@ -3565,6 +3582,7 @@ async function formProduto(id, prefill){
         <div style="display:flex;gap:6px"><input id="f_teccons" class="inp" type="number" step="0.001" min="0" value="${__tecCons}" placeholder="ex.: 1.80" oninput="APP.tecPick()" style="flex:1"><input id="f_tecun" class="inp" value="${esc(__tecUn)}" style="width:64px" placeholder="m/kg"></div></div>
     </div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.tecTamToggle()" title="Consumo diferente por tamanho (uma calça G4 gasta mais que uma PP)">📏 Consumo por tamanho (PP…G8)</button><div id="f_tectam" style="display:none;margin-top:8px"></div></div>
+    </div><div class="faba" data-aba="embalagem">
     ${secDivisor('PESO E EMBALAGEM (peso líquido/bruto e volumes no pedido/NF)')}
     <div class="grid3">
       ${field('f_peso','Peso unitário (kg)','type="number" step="0.001" min="0" value="'+(p.pesoUnitario!=null?p.pesoUnitario:'')+'" placeholder="ex.: 0.380"')}
@@ -3577,9 +3595,7 @@ async function formProduto(id, prefill){
       <div class="mrow"><label class="fl">&nbsp;</label><button type="button" class="btn-sm" onclick="APP.formEmbalagens()">📦 Gerenciar embalagens</button></div>
     </div>
     <div class="mrow" style="margin-top:2px"><button type="button" class="btn-sm" onclick="APP.pesoTamToggle()" title="Peso diferente por tamanho (um G8 pesa mais que um PP)">⚖️ Peso por tamanho (PP…G8)</button><div id="f_pesotam" style="display:none;margin-top:8px"></div></div>
-    ${field('f_comp','Composição','value="'+esc(p.composicao||'')+'"')}
-    ${field('f_model','Modelagem (Audaces) — ex.: 3174 - N 7005-000AA','value="'+esc(p.modelagem||'')+'"')}
-    ${id?'':'<div class="muted" style="font-size:11px;margin:-2px 0 6px">O código PRD-CAT-0000 é gerado automaticamente.</div>'}
+    </div><div class="faba" data-aba="cliente">
     ${secDivisor('CLIENTE / VENDA')}
     <div class="grid3">
       <div class="mrow"><label class="fl">Grupo de cliente</label><input id="f_cligrupo" class="inp" list="grupoclientes" value="${esc(p.clienteGrupo||'')}" placeholder="ex.: SANTA CASA DE SBC"><datalist id="grupoclientes">${(window.__GRUPOSCLI||[]).map(g=>'<option value="'+esc(g)+'">').join('')}</datalist></div>
@@ -3590,15 +3606,20 @@ async function formProduto(id, prefill){
     <div class="mrow"><label class="fl">Equivalente a <span class="muted">(expedição — código diferente, mesma peça)</span></label>
       <select id="f_equiv" class="inp"><option value="">— nenhum —</option>${(window.__PRODLIST||[]).filter(x=>x.id!==p.id).map(x=>'<option value="'+x.id+'"'+(p.equivalenteId===x.id?' selected':'')+'>'+esc(x.codigo+' · '+(x.descricao||''))+'</option>').join('')}</select>
       <div class="muted" style="font-size:11px;margin-top:2px">Use quando a etiqueta física tem um código (ex.: CAL-003) e o pedido tem outro (ex.: CAL-004). A conferência da expedição passa a reconhecer as peças deste produto como sendo do <b>produto principal</b> escolhido, e dá baixa no pedido.</div></div>
+    </div><div class="faba" data-aba="ficha">
     ${secDivisor('FICHA TÉCNICA DO CLIENTE')}
     <div class="grid2">${field('f_projeto','Projeto (sai no topo da ficha)','value="'+esc(p.projeto||'')+'" placeholder="ex.: Uniformes Delphos — Camisa Social Feminina"')}${field('f_revisao','Revisão','value="'+esc(p.revisao||'')+'" placeholder="ex.: 02"')}</div>
     ${taField('f_detalhes','Detalhes de construção — uma linha por item, no formato "Rótulo: valor"','',6, p.detalhes ? '' : 'Gola: Colarinho social\nFechamento: Abotoamento frontal, 7 botões\nBolso: 1 bolso chapa, cantos chanfrados\nPunho: Social, 7 cm\nBarra: Barra lenço')}
     <div class="muted" style="font-size:11px;margin:-4px 0 8px">Cada linha vira uma linha da tabela ESPECIFICAÇÕES DA PEÇA na ficha técnica.</div>
     ${secDivisor('ESPECIFICAÇÕES DE CONFECÇÃO / COSTURA')}
     ${taField('f_espec','Costura, acabamentos, bolsos, tabelas de zíper/elástico...','',6, p.especificacoes? '' : 'Descreva a confecção como na ficha técnica do cliente.')}
+    ${secDivisor('OBSERVAÇÕES')}
+    ${taField('f_obs','Observações gerais da ficha','',3)}
+    </div><div class="faba" data-aba="medidas">
     ${secDivisor('TABELA DE MEDIDAS')}
     <div class="grid2" style="align-items:end">${field('f_tam','Tamanhos (colunas)','value="'+esc((window.__PMEDT||[]).join(', '))+'"')}<div class="mrow"><button class="btn-sm" onclick="APP.pmedApplySizes()">Aplicar tamanhos</button> <button class="btn-sm" onclick="APP.pmedAdd()">+ linha</button></div></div>
     <div id="pmedbox"></div>
+    </div><div class="faba" data-aba="arquivos">
     ${secDivisor('FOTOS')}
     <div class="grid2">${fotoBox('modelo','Foto do modelo')}${fotoBox('modelagem','Foto da modelagem (imagem)')}</div>
     ${secDivisor('ANEXOS DO PRODUTO')}
@@ -3608,23 +3629,52 @@ async function formProduto(id, prefill){
     </div>
     ${anexoBox('dtf','📐 Mapa de aplicação (DTF / bordado)','Onde cada arte entra na peça, com as medidas. Se for IMAGEM (.png/.jpg), sai impresso junto da ficha técnica do produto. Em PDF, fica anexado mas não entra na página.')}
     ${anexoBox('modelagem','📁 Arquivo de modelagem (Audaces · .adsx / .zip)','Guarda o arquivo original da modelagem no produto (máx. ~9 MB). Depois é só baixar aqui.')}
+    </div><div class="faba" data-aba="fiscal">
     ${secDivisor('DADOS FISCAIS (NF-e) · valide com a contabilidade')}
     <div class="grid2">${field('f_ncm','NCM (8 dígitos)','value="'+esc(p.ncm||'')+'" placeholder="ex.: 61099000"')}${field('f_cfop','CFOP (ex.: 5101)','value="'+esc(p.cfop||'')+'"')}</div>
     <div class="grid3">${field('f_orig','Origem (0-8)','type="number" min="0" max="8" value="'+(p.origem??0)+'"')}${field('f_un','Unidade','value="'+esc(p.unidadeComercial||'UN')+'"')}${field('f_cest','CEST (se houver)','value="'+esc(p.cest||'')+'"')}</div>
     <div class="grid3">${field('f_icst','ICMS CST/CSOSN','value="'+esc(p.icmsCst||'')+'" placeholder="00 ou 102"')}${field('f_ialq','ICMS alíq. (%)','type="number" step="0.01" value="'+(p.icmsAliquota??'')+'"')}${field('f_piscof','PIS/COFINS CST','value="'+esc(p.pisCst||'01')+'"')}</div>
-    ${secDivisor('OBSERVAÇÕES')}
-    ${taField('f_obs','Observações gerais da ficha','',3)}
-    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveProduto(${id||0})">Salvar</button></div>`);
+    </div></div></div>
+    <div class="mactions">${id?`<button class="btn-sm" onclick="APP.gerarDoc('ficha_tecnica',${id})">Imprimir ficha</button>`:''}<button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.saveProduto(${id||0})">Salvar</button></div>`, {wide:true});
   // preenche os textareas (evita problemas de escape em multilinha no template)
   if(p.especificacoes) $('f_espec').value=p.especificacoes;
   if(p.observacoes) $('f_obs').value=p.observacoes;
   pmedRender();
+  prodMargemLive();
   pcorRender();
   pcorSincronizaCampo();
   if((window.__PCOR||{}).ativa) pcorMockups(window.__PCOR.ativa).then(pcorRender);
   tecPick();
   prodTipoToggle();
+}
+/**
+ * Abas da ficha técnica.
+ *
+ * Os campos de TODAS as abas continuam no DOM — só a exibição muda. É o que
+ * permite o salvamento continuar lendo os ~40 campos de uma vez, sem a tela
+ * precisar saber em qual aba cada um está.
+ */
+function prodAba(nome){
+  document.querySelectorAll('.faba').forEach(d=>d.classList.toggle('on', d.dataset.aba===nome));
+  document.querySelectorAll('.faba-bt').forEach(b=>b.classList.toggle('on', b.dataset.bt===nome));
+}
+/** Abre a aba que contém um campo — usado quando a validação aponta um erro
+ *  numa aba fechada (senão o foco ia para um campo invisível). */
+function prodAbaDoCampo(idCampo){
+  const el=$(idCampo); if(!el) return;
+  const painel=el.closest('.faba'); if(painel && painel.dataset.aba) prodAba(painel.dataset.aba);
+}
+/** Margem = (preço − custo) ÷ preço, calculada enquanto se digita. */
+function prodMargemLive(){
+  const box=$('f_margem'); if(!box) return;
+  const custo=Number(val('f_custo')), preco=Number(val('f_preco'));
+  if(!(preco>0)){ box.innerHTML=''; return; }
+  if(!(custo>0)){ box.innerHTML='<span class="muted" style="font-size:11.5px">Informe o custo para ver a margem.</span>'; return; }
+  const m=(preco-custo)/preco;
+  const pct=Math.round(m*100);
+  const cor = m>=0.5?'#1e7a44' : (m>=0.4?'#6a675e':'#9a5a00');
+  box.innerHTML=`<span style="font-size:11.5px;color:${cor}">Margem <b>${pct}%</b> · ganho de ${money(preco-custo)} por peça${m<0.4?' — abaixo de 40%':''}</span>`;
 }
 // Mostra a dica de revenda conforme o Tipo do produto.
 function prodTipoToggle(){ const rev=$('p_tipo')&&val('p_tipo')==='revenda'; const h=$('f_tiporev'); if(h) h.style.display=rev?'':'none'; }
@@ -3775,8 +3825,10 @@ async function saveProduto(id){
   const orig = val('f_orig'); if(orig!=='') body.origem = Number(orig);
   const ialq = val('f_ialq'); if(ialq) body.icmsAliquota = Number(ialq);
   if(!body.categoria||!body.descricao){
-    const alvo = !body.categoria ? $('f_cat') : $('f_desc');
-    toast('Preencha '+(!body.categoria?'a Categoria':'a Descrição')+' — campo obrigatório no topo da ficha.','err');
+    const idAlvo = !body.categoria ? 'f_cat' : 'f_desc';
+    prodAbaDoCampo(idAlvo); // o campo pode estar numa aba fechada
+    const alvo = $(idAlvo);
+    toast('Preencha '+(!body.categoria?'a Categoria':'a Descrição')+' — campo obrigatório na aba Geral.','err');
     if(alvo){ try{ alvo.scrollIntoView({behavior:'smooth',block:'center'}); }catch(_){} try{ alvo.focus(); }catch(_){} const o=alvo.style.boxShadow; alvo.style.boxShadow='0 0 0 3px #c14a34'; setTimeout(()=>{ alvo.style.boxShadow=o; },1800); }
     return;
   }
@@ -15509,6 +15561,7 @@ window.APP = {
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
+  prodAba, prodMargemLive,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
