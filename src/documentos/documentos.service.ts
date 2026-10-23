@@ -1375,9 +1375,19 @@ export class DocumentosService {
       txt('DETALHE DA PERSONALIZAÇÃO', COL_D, yD);
       yD += 16;
       let xTab = COL_D;
+      // Altura ocupada pela miniatura do mapa. Sem guardar isto, o avanço abaixo
+      // contava só as linhas de texto e a seção seguinte era desenhada POR CIMA
+      // da imagem (com 3 artes, 59 px de texto contra 92 px de imagem).
+      let hMapa = 0;
       if (produto.mapaDtf && /^data:image\//i.test(produto.mapaDtf)) {
         const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(produto.mapaDtf);
-        if (m) { try { doc.image(Buffer.from(m[1], 'base64'), COL_D, yD, { fit: [92, 92] }); xTab = COL_D + 100; } catch { /* ignora */ } }
+        if (m) {
+          try {
+            doc.image(Buffer.from(m[1], 'base64'), COL_D, yD, { fit: [92, 92] });
+            xTab = COL_D + 100;
+            hMapa = 92;
+          } catch { /* ignora */ }
+        }
       }
       // Só o que está cadastrado. Nada de "Logomarca 1" ou "conforme manual da
       // marca": a ficha vai assinada pelo cliente, então não pode afirmar o que
@@ -1394,7 +1404,8 @@ export class DocumentosService {
         doc.fillColor(LARANJA).font('Helvetica').fontSize(7.5);
         doc.text(v, xTab + 50, y - 1, { width: W - M - (xTab + 50), lineBreak: false, ellipsis: true });
       });
-      yD += 15 * pares.length + 14;
+      // Desce pelo que for mais alto: o texto das artes ou a miniatura do mapa.
+      yD += Math.max(15 * pares.length, hMapa) + 14;
     }
 
     // Especificações da peça (tabela zebrada de duas colunas)
@@ -1445,7 +1456,14 @@ export class DocumentosService {
       tamanhos.forEach((t, i) => doc.text(t, xTam(i), y + 5.5, { width: tLarg, align: 'center', lineBreak: false }));
       y += 17;
       if (produto.medidas.length) {
-        produto.medidas.forEach((md, i) => {
+        // A ficha do cliente é UMA folha: o bloco de aprovação fica preso ao pé
+        // da página, então linha que não couber antes dele seria desenhada por
+        // baixo da assinatura. Melhor cortar e dizer quantas ficaram de fora.
+        const yLimite = H - 130 - 26; // sobra para OBSERVAÇÕES antes da aprovação
+        const cabem = Math.max(1, Math.floor((yLimite - y) / 17));
+        const linhas = produto.medidas.slice(0, cabem);
+        const sobraram = produto.medidas.length - linhas.length;
+        linhas.forEach((md, i) => {
           if (i % 2 === 0) doc.rect(M, y, LARG, 17).fill(ZEBRA);
           doc.fillColor(ONIX).font('Helvetica').fontSize(7);
           doc.text(md.descricao, M + 8, y + 5.5, { width: cLarg - 12, lineBreak: false, ellipsis: true });
@@ -1460,6 +1478,11 @@ export class DocumentosService {
           });
           y += 17;
         });
+        if (sobraram > 0) {
+          doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(7);
+          doc.text(`+ ${sobraram} medida(s) na ficha de produção.`, M + 8, y + 2, { width: LARG - 16, lineBreak: false });
+          y += 12;
+        }
       } else {
         doc.rect(M, y, LARG, 20).fill(ZEBRA);
         doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(7.5);
