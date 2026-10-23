@@ -3261,16 +3261,23 @@ function fileToDataURL(file, maxDim, quality){
   });
 }
 function fotoThumb(kind){
-  const u=(window.__FOTO||{})[kind];
-  if(u) return `<img src="${u}" style="max-height:96px;max-width:100%;border:1px solid #e2ddce;border-radius:8px;display:block"><a onclick="APP.fotoDel('${kind}')" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a>`;
-  return `<span class="muted" style="font-size:12px">Nenhuma imagem selecionada.</span>`;
+  const guardado=(window.__FOTO||{})[kind];
+  if(!guardado) return `<span class="muted" style="font-size:12px">Nenhuma imagem selecionada.</span>`;
+  // Anexo no bucket não pode ir direto no src: usa o link assinado que a API mandou.
+  const src = String(guardado).startsWith('arq:') ? ((window.__FOTOURL||{})[kind]||'') : guardado;
+  if(!src) return `<span class="muted" style="font-size:12px">Imagem arquivada (link indisponível).</span>`;
+  return `<img src="${src}" style="max-height:96px;max-width:100%;border:1px solid #e2ddce;border-radius:8px;display:block"><a onclick="APP.fotoDel('${kind}')" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a>`;
 }
 async function fotoSel(kind, el){
   const f=el.files&&el.files[0]; if(!f) return;
-  try{ window.__FOTO[kind]=await fileToDataURL(f,1100,0.72); $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+  try{
+    window.__FOTO[kind]=await fileToDataURL(f,1100,0.72);
+    (window.__FOTOURL=window.__FOTOURL||{})[kind]=''; // imagem nova: o link antigo não vale mais
+    $('fpv_'+kind).innerHTML=fotoThumb(kind);
+  }
   catch(e){ toast('Não foi possível ler a imagem.','err'); }
 }
-function fotoDel(kind){ window.__FOTO[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
+function fotoDel(kind){ window.__FOTO[kind]=''; (window.__FOTOURL=window.__FOTOURL||{})[kind]=''; $('fpv_'+kind).innerHTML=fotoThumb(kind); }
 
 /* ===== Cores do produto, cada uma com o seu mockup =====
  * Antes a cor era um texto solto ("AZUL ROYAL, BRANCO") e a foto era UMA só:
@@ -3525,7 +3532,11 @@ async function formProduto(id, prefill){
     if(c){ __tecMat=matDe(c.materialId); __tecCons=Number(c.quantidade)||''; __tecUn=c.unidade||'m'; window.__tecPorTam=(c.porTamanho&&typeof c.porTamanho==='object')?Object.assign({},c.porTamanho):{}; }
   } }catch(_){} }
   const tecInit = __tecMat ? (__tecMat.descricao+(__tecMat.cor?' · 🎨 '+__tecMat.cor:'')+' · '+__tecMat.codigo) : (p.tecido||'');
+  // __FOTO guarda o que será GRAVADO (data URI novo ou a referência `arq:` que
+  // veio); __FOTOURL guarda só o link de exibição. Separar os dois é o que
+  // impede o save de regravar um link por cima da referência do anexo.
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
+  window.__FOTOURL = { modelo: p.fotoModeloUrl||'', modelagem: p.fotoModelagemUrl||'' };
   window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
   // Lista de logos; cai no campo antigo quando o produto e anterior a mudanca.
   window.__LOGOVET = Array.isArray(p.logosVetor) && p.logosVetor.length ? p.logosVetor : (p.logoVetor ? [{ data:p.logoVetor, nome:p.logoVetorNome||'logo' }] : []);

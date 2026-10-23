@@ -97,16 +97,22 @@ export class ProdutosService {
   /** Cores do produto. `comMockup=false` deixa os base64 de fora (lista leve). */
   async cores(produtoId: number, empresaId: number, comMockup = false) {
     await this.produtoDaEmpresa(produtoId, empresaId);
-    return this.prisma.produtoCor.findMany({
+    const linhas = await this.prisma.produtoCor.findMany({
       where: { produtoId },
       orderBy: [{ ordem: 'asc' }, { id: 'asc' }],
       select: {
         id: true, nome: true, hex: true, ordem: true,
-        ...(comMockup
-          ? { mockupFrente: true, mockupCostas: true }
-          : {}),
+        ...(comMockup ? { mockupFrente: true, mockupCostas: true } : {}),
       },
     });
+    if (!comMockup) return linhas;
+    // Aqui pode virar link: a ficha só EXIBE o mockup; quem grava é o upload,
+    // que manda um data URI novo.
+    return linhas.map((c) => ({
+      ...c,
+      mockupFrente: this.imagemParaTela(c.mockupFrente),
+      mockupCostas: this.imagemParaTela(c.mockupCostas),
+    }));
   }
 
   async criarCor(produtoId: number, empresaId: number, dto: { nome: string; hex?: string }) {
@@ -147,9 +153,19 @@ export class ProdutosService {
     if (dto.nome !== undefined) data.nome = ProdutosService.nomeCor(dto.nome);
     if (dto.hex !== undefined) data.hex = dto.hex?.trim() || null;
     if (dto.ordem !== undefined) data.ordem = dto.ordem;
-    // String vazia apaga o mockup; undefined deixa como está.
-    if (dto.mockupFrente !== undefined) data.mockupFrente = ProdutosService.mockupOuNulo(dto.mockupFrente);
-    if (dto.mockupCostas !== undefined) data.mockupCostas = ProdutosService.mockupOuNulo(dto.mockupCostas);
+    // String vazia apaga o mockup; undefined deixa como está. Mockup novo vai
+    // para o bucket, e o que ele substitui sai de lá.
+    const antigo = await this.prisma.produtoCor.findUnique({
+      where: { id: corId },
+      select: { mockupFrente: true, mockupCostas: true },
+    });
+    for (const lado of ['mockupFrente', 'mockupCostas'] as const) {
+      if (dto[lado] === undefined) continue;
+      const novo = ProdutosService.mockupOuNulo(dto[lado]);
+      data[lado] = novo ? await this.arquivos.guardar(novo, 'mockups') : null;
+      const velho = antigo?.[lado] ?? null;
+      if (velho && velho !== data[lado]) await this.arquivos.remover(velho);
+    }
     try {
       const cor = await this.prisma.produtoCor.update({
         where: { id: corId },
@@ -175,10 +191,16 @@ export class ProdutosService {
 
   async removerCor(produtoId: number, corId: number, empresaId: number) {
     await this.produtoDaEmpresa(produtoId, empresaId);
-    const cor = await this.prisma.produtoCor.findUnique({ where: { id: corId }, select: { produtoId: true, nome: true } });
+    const cor = await this.prisma.produtoCor.findUnique({
+      where: { id: corId },
+      select: { produtoId: true, nome: true, mockupFrente: true, mockupCostas: true },
+    });
     if (!cor || cor.produtoId !== produtoId) {
       throw new NotFoundException(`Cor ${corId} não é deste produto.`);
     }
+    // Some a cor, somem os mockups dela do bucket.
+    await this.arquivos.remover(cor.mockupFrente);
+    await this.arquivos.remover(cor.mockupCostas);
     // Pedido já feito naquela cor continua valendo: o item guarda o texto da cor,
     // então só soltamos o vínculo em vez de apagar o histórico.
     await this.prisma.pedidoItem.updateMany({ where: { produtoCorId: corId }, data: { produtoCorId: null } });
@@ -278,11 +300,21 @@ export class ProdutosService {
     if (!produto || produto.empresaId !== empresaId) {
       throw new NotFoundException(`Produto ${id} não encontrado.`);
     }
-    return produto;
+    // `fotoModelo`/`fotoModelagem` saem como estão (data URI ou `arq:…`), porque
+    // o formulário devolve esse mesmo valor no save. O link de exibição vai em
+    // campo separado — a tela usa um para mostrar e o outro para gravar.
+    return {
+      ...produto,
+      fotoModeloUrl: this.arquivos.url(produto.fotoModelo),
+      fotoModelagemUrl: this.arquivos.url(produto.fotoModelagem),
+    };
   }
 
   async create(dto: CreateProdutoDto, empresaId: number): Promise<Produto> {
     const codigo = dto.codigo?.trim() || (await this.gerarCodigo(dto.categoria, empresaId));
+    // Fora da transação de propósito: subir imagem é rede, e o Neon derruba
+    // transação que fica esperando (P2028).
+    await this.anexosParaBucket(dto);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const produto = await tx.produto.create({
@@ -373,7 +405,8 @@ export class ProdutosService {
   }
 
   async update(id: number, dto: UpdateProdutoDto, empresaId: number): Promise<Produto> {
-    await this.findOne(id, empresaId);
+    const antes = await this.findOne(id, empresaId);
+    await this.anexosParaBucket(dto, antes);
     return this.prisma.$transaction(async (tx) => {
       const produto = await tx.produto.update({
         where: { id },
@@ -500,6 +533,35 @@ export class ProdutosService {
       logoVetor: lista[0]?.data ?? null,
       logoVetorNome: lista[0]?.nome ?? null,
     };
+  }
+
+  /**
+   * Sobe para o bucket os anexos que vieram como data URI e deixa intactos os
+   * que já são referência.
+   *
+   * O formulário devolve no PATCH o mesmo valor que recebeu no GET. Por isso o
+   * `findOne` entrega a REFERÊNCIA crua (e o link de exibição num campo à
+   * parte): se devolvesse o link, o save gravaria o link por cima da
+   * referência e a foto se perderia.
+   */
+  private async anexosParaBucket(
+    dto: CreateProdutoDto | UpdateProdutoDto,
+    anterior?: { fotoModelo: string | null; fotoModelagem: string | null } | null,
+  ): Promise<void> {
+    if (!this.arquivos.ligado) return;
+    for (const campo of ['fotoModelo', 'fotoModelagem'] as const) {
+      const v = dto[campo];
+      if (v === undefined) continue;
+      const s = String(v ?? '').trim();
+      if (ArquivosService.ehReferencia(s)) continue; // já está lá, nada a fazer
+      const velho = anterior?.[campo] ?? null;
+      if (s.startsWith('data:image')) {
+        dto[campo] = await this.arquivos.guardar(s, 'produtos');
+        if (velho && velho !== dto[campo]) await this.arquivos.remover(velho);
+      } else if (!s && velho) {
+        await this.arquivos.remover(velho); // campo limpo: tira do bucket também
+      }
+    }
   }
 
   private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {
