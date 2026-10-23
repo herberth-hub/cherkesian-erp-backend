@@ -6,6 +6,7 @@
  * COB-0004 com os dois (R$ 4.692,00) — e é um documento que vai para o cliente.
  */
 import { DocumentosService } from './documentos.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 // Captura as LINHAS da tabela de títulos e o total destacado — é o conteúdo que
 // vai para o cliente, e era exatamente ele que vinha errado.
@@ -40,7 +41,7 @@ function servico() {
     empresa: { findUnique: () => Promise.resolve({ logo: null }) },
     filial: { findUnique: () => Promise.resolve(null), findFirst: () => Promise.resolve(null) },
   };
-  return new DocumentosService(prisma as never, {} as never);
+  return new DocumentosService(new ArquivosService(), prisma as never, {} as never);
 }
 
 /** Chama o montador do PDF e devolve as linhas da tabela de títulos. */
@@ -112,7 +113,7 @@ describe('numeração do documento por seleção', () => {
         update: () => Promise.resolve({}),
       },
     };
-    const svc = new DocumentosService(prisma as never, {} as never);
+    const svc = new DocumentosService(new ArquivosService(), prisma as never, {} as never);
     return { svc, criados };
   }
   const USER = { usuario: 'admin', empresaId: 1, acesso: 'total' } as never;

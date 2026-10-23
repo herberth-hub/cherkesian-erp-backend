@@ -9,10 +9,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import { UpdateProdutoDto } from './dto/update-produto.dto';
 import { proximoCodigo } from '../common/utils/codigo.util';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 @Injectable()
 export class ProdutosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly arquivos: ArquivosService,
+  ) {}
 
   /** Teto de fotos por chamada: ~100 KB cada, então 24 já é ~2,4 MB de resposta. */
   private static readonly FOTOS_POR_LOTE = 24;
@@ -37,11 +41,18 @@ export class ProdutosService {
     // Todos os ids pedidos voltam, mesmo sem foto: assim a tela sabe que já
     // perguntou por aquele produto e não fica repetindo a consulta.
     for (const id of limpos) out[id] = null;
-    for (const r of rows) {
-      const f = String(r.fotoModelo ?? '').trim();
-      out[r.id] = f.startsWith('data:image') ? f : null;
-    }
+    for (const r of rows) out[r.id] = this.imagemParaTela(r.fotoModelo);
     return out;
+  }
+
+  /**
+   * O que a tela recebe para pôr num `<img src>`: o data URI, se o anexo ainda
+   * está no banco, ou um link assinado, se já foi para o bucket.
+   */
+  private imagemParaTela(v: string | null | undefined): string | null {
+    const s: string = String(v ?? '').trim();
+    if (ArquivosService.ehReferencia(s)) return this.arquivos.url(s);
+    return s.startsWith('data:image') ? s : null;
   }
 
   // ---------- Cores do produto (cada uma com o seu mockup) ----------
@@ -190,7 +201,7 @@ export class ProdutosService {
     });
     const out: Record<number, string | null> = {};
     for (const id of limpos) out[id] = null;
-    for (const r of rows) out[r.id] = ProdutosService.mockupOuNulo(r.mockupFrente);
+    for (const r of rows) out[r.id] = this.imagemParaTela(r.mockupFrente);
     return out;
   }
 

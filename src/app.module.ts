@@ -6,6 +6,7 @@ import { BancosModule } from './bancos/bancos.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { ArquivosModule } from './arquivos/arquivos.module';
 import { AuthModule } from './auth/auth.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { ClientesModule } from './clientes/clientes.module';
@@ -80,6 +81,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
       },
     }),
     PrismaModule,
+    ArquivosModule,
     AuthModule,
     UsuariosModule,
     ClientesModule,

@@ -7,6 +7,7 @@ import {
 import { Documento, Prisma, Produto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
 import { proximoSequencial } from '../common/utils/codigo.util';
@@ -60,7 +61,24 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
 
 @Injectable()
 export class DocumentosService {
+  /**
+   * Troca as referências de bucket (`arq:…`) pelo data URI, logo depois de ler
+   * do banco. Assim todo o desenho dos PDFs continua recebendo base64 e nenhuma
+   * das dezenas de chamadas de `imagem(...)` precisou mudar.
+   */
+  private async resolverAnexos<T extends Record<string, unknown>>(alvo: T | null, campos: Array<keyof T>): Promise<T | null> {
+    if (!alvo) return alvo;
+    for (const c of campos) {
+      const v = alvo[c];
+      if (ArquivosService.ehReferencia(v)) {
+        (alvo as Record<string, unknown>)[c as string] = await this.arquivos.dataUri(v as string);
+      }
+    }
+    return alvo;
+  }
+
   constructor(
+    private readonly arquivos: ArquivosService,
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
@@ -1306,6 +1324,8 @@ export class DocumentosService {
     if (!produto || produto.empresaId !== empresaId) {
       throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
     }
+    // Anexos podem estar no bucket: traz para base64 antes de desenhar.
+    await this.resolverAnexos(produto, ['fotoModelo', 'mapaDtf']);
     const cliente = produto.clienteId
       ? await this.prisma.cliente.findUnique({ where: { id: produto.clienteId }, select: { nome: true, fantasia: true } })
       : null;
@@ -1560,6 +1580,8 @@ export class DocumentosService {
     if (!produto || produto.empresaId !== empresaId) {
       throw new NotFoundException(`Produto ${produtoId} não encontrado.`);
     }
+    // Anexos podem estar no bucket: traz para base64 antes de desenhar.
+    await this.resolverAnexos(produto, ['fotoModelo', 'fotoModelagem', 'mapaDtf']);
     const bom = await this.prisma.consumo.findMany({
       where: { produtoId },
       include: { material: true },
