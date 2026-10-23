@@ -1383,9 +1383,18 @@ export class DocumentosService {
         const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(produto.mapaDtf);
         if (m) {
           try {
-            doc.image(Buffer.from(m[1], 'base64'), COL_D, yD, { fit: [92, 92] });
+            const buf = Buffer.from(m[1], 'base64');
+            doc.image(buf, COL_D, yD, { fit: [92, 92] });
             xTab = COL_D + 100;
+            // Altura REAL depois do fit. Reservar sempre os 92 px da caixa
+            // deixava um vão branco quando o mapa é largo e baixo (a maioria).
             hMapa = 92;
+            try {
+              // openImage existe no pdfkit mas não nos tipos publicados.
+              const abrir = (doc as unknown as { openImage?: (b: Buffer) => { width?: number; height?: number } }).openImage;
+              const img = abrir ? abrir.call(doc, buf) : null;
+              if (img?.width && img?.height) hMapa = Math.min(92, (92 * img.height) / img.width);
+            } catch { /* sem as dimensões, fica a caixa inteira */ }
           } catch { /* ignora */ }
         }
       }
