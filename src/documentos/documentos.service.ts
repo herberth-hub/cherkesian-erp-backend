@@ -45,6 +45,9 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   plano_corte: { titulo: 'Plano de Corte', prefixo: 'PCT', area: 'producao' },
   pedido_compra: { titulo: 'Pedido de Compra', prefixo: 'OCD', area: 'compras' },
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
+  // Vai JUNTO com a mercadoria quando a remessa sai sem NF-e: é por ele que o
+  // cliente confere o que recebeu. Documento não fiscal — não substitui a nota.
+  declaracao_conteudo: { titulo: 'Declaração de Conteúdo', prefixo: 'DEC', area: 'expedicao' },
   ficha_medidas: { titulo: 'Ficha de Medidas', prefixo: 'MED', area: 'medidas' },
   // Ficha técnica do produto: pode ser emitida por produção (cadastros) e comercial (vendas).
   // Esta é a do CLIENTE — folha de aprovação, sem consumo de material.
@@ -316,6 +319,8 @@ export class DocumentosService {
         return this.pdfCompra(referenciaId, empresaId, numero);
       case 'romaneio':
         return this.pdfRomaneio(referenciaId, empresaId, numero);
+      case 'declaracao_conteudo':
+        return this.pdfDeclaracaoConteudo(referenciaId, empresaId, numero);
       case 'ficha_medidas':
         return this.pdfMedidas(referenciaId, empresaId, numero);
       case 'ficha_tecnica':
@@ -1106,6 +1111,143 @@ export class DocumentosService {
 
     assinaturas(doc, `${filialCompra?.nome ?? 'GRUPO CHERKESIAN'} — Compras`, `${oc.fornecedor.nome} — De acordo`);
     rodapeGrupo(doc);
+    return doc;
+  }
+
+  /**
+   * DECLARAÇÃO DE CONTEÚDO — o papel que viaja com a mercadoria quando a
+   * remessa sai sem NF-e.
+   *
+   * O romaneio não serve para isso: ele é documento de SEPARAÇÃO, com "já
+   * expedido / falta" e instrução para quem monta a caixa. Quem recebe quer
+   * saber o que veio nesta entrega. Aqui vão emitente, destinatário, volumes,
+   * os itens com a grade de tamanhos e o canhoto de recebimento.
+   *
+   * Não leva valores: documento sem NF que declara preço vira discussão fiscal,
+   * e o que o cliente precisa conferir é a contagem.
+   */
+  private async pdfDeclaracaoConteudo(expId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const exp = await this.prisma.expedicao.findUnique({ where: { id: expId } });
+    if (!exp) throw new NotFoundException(`Expedição ${expId} não encontrada.`);
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: exp.clienteId } });
+    if (!cliente || cliente.empresaId !== empresaId) {
+      throw new NotFoundException(`Expedição ${expId} não encontrada.`);
+    }
+    const pedido = exp.pedidoId
+      ? await this.prisma.pedido.findUnique({ where: { id: exp.pedidoId }, select: { numero: true, filialId: true, ordemCompraCliente: true } })
+      : null;
+    // Emitente: a filial do pedido; sem ela, a matriz.
+    const filial = pedido?.filialId
+      ? await this.prisma.filial.findUnique({ where: { id: pedido.filialId } })
+      : await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, orderBy: { id: 'asc' } });
+    if (filial?.logo) setLogoDoc(filial.logo);
+
+    const doc = novoDocumento('Declaração de Conteúdo', numero);
+
+    // O CNPJ da filial é gravado só com dígitos; num papel que vai ao cliente
+    // ele precisa sair com máscara, como o do destinatário.
+    const cnpjBonito = (v: string | null | undefined): string => {
+      const d = String(v ?? '').replace(/\D/g, '');
+      if (d.length !== 14) return String(v ?? '—') || '—';
+      return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+    };
+    const enderecoDe = (f: typeof filial): string => {
+      if (!f) return '—';
+      const rua = [f.logradouro, f.numeroEndereco].filter(Boolean).join(', ');
+      const resto = [f.bairro, f.municipio && f.uf ? `${f.municipio}/${f.uf}` : f.municipio ?? f.uf, f.cep].filter(Boolean).join(' · ');
+      return [rua, resto].filter(Boolean).join(' — ') || '—';
+    };
+
+    secao(doc, 'Emitente');
+    camposDuplos(doc, [
+      ['Razão social', filial?.nomeFantasia || filial?.nome || 'Grupo Cherkesian'],
+      ['CNPJ', cnpjBonito(filial?.cnpj)],
+      ['Inscrição estadual', filial?.inscricaoEstadual ?? '—'],
+      ['Endereço', enderecoDe(filial)],
+      ['Telefone', filial?.telefone ?? '—'],
+    ]);
+
+    secao(doc, 'Destinatário');
+    camposDuplos(doc, [
+      ['Cliente', cliente.nome],
+      ['CNPJ/CPF', cliente.cnpjCpf ?? '—'],
+      ['Endereço de entrega', exp.endereco ?? '—'],
+      ['Cidade/UF · CEP', `${exp.cidadeUf ?? '—'} · ${exp.cep ?? '—'}`],
+    ]);
+
+    secao(doc, 'Dados da remessa');
+    camposDuplos(doc, [
+      ['Expedição', exp.numero],
+      ['Data da saída', dataBR(exp.data)],
+      ['Pedido de origem', pedido?.numero ?? '—'],
+      ['Ordem de compra', pedido?.ordemCompraCliente ?? '—'],
+      ['Volumes', String(exp.volumes)],
+      ['Total de peças', String(exp.pecas)],
+      ['Transporte', exp.transportadora ?? '—'],
+      ['Rastreio', exp.rastreioTransp || exp.rastreio || '—'],
+    ]);
+
+    // Itens DESTA remessa (snapshot). Sem snapshot, não inventa: avisa.
+    const snap = exp.itens as Array<{ descricao: string; cor?: string | null; quantidade: number; grade?: Record<string, number> | null }> | null;
+    if (snap && snap.length) {
+      const ESCADA = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'ÚNICO'];
+      const presentes = new Set<string>();
+      for (const i of snap) {
+        const g = i.grade ?? null;
+        if (g && Object.keys(g).length) Object.entries(g).forEach(([t, q]) => { if (Number(q) > 0) presentes.add(t.toUpperCase()); });
+        else presentes.add('ÚNICO');
+      }
+      const tamanhos = ESCADA.filter((s) => presentes.has(s)).concat([...presentes].filter((s) => !ESCADA.includes(s)));
+      const totPorTam: Record<string, number> = {};
+      let total = 0;
+      const linhas = snap.map((i, idx) => {
+        const g = i.grade ?? null;
+        const q: Record<string, number> = {};
+        const add = (t: string, v: number) => { if (v > 0) { q[t] = (q[t] ?? 0) + v; totPorTam[t] = (totPorTam[t] ?? 0) + v; total += v; } };
+        if (g && Object.keys(g).length) Object.entries(g).forEach(([t, v]) => add(t.toUpperCase(), Number(v) || 0));
+        else add('ÚNICO', Number(i.quantidade) || 0);
+        const grade = tamanhos.map((t) => (q[t] ? `${t}: ${q[t]}` : null)).filter(Boolean).join(' · ');
+        return [
+          String(idx + 1).padStart(2, '0'),
+          i.descricao,
+          i.cor ?? '—',
+          grade || '—',
+          String(Object.values(q).reduce((s, n) => s + n, 0)),
+        ];
+      });
+      secao(doc, `Conteúdo da remessa · ${total} peça(s)`, 30 + linhas.length * 22);
+      tabela(
+        doc,
+        [
+          { titulo: '#', largura: 28 },
+          { titulo: 'Descrição', largura: 190 },
+          { titulo: 'Cor', largura: 80 },
+          { titulo: 'Tamanhos', largura: 145 },
+          { titulo: 'Qtd', largura: 52, alinhamento: 'right' },
+        ],
+        linhas,
+      );
+      doc.moveDown(0.4);
+      doc.fillColor('#242a26').font('Helvetica-Bold').fontSize(10)
+        .text(`Total: ${total} peça(s) em ${exp.volumes} volume(s).`, 50, doc.y, { width: doc.page.width - 100 });
+      doc.font('Helvetica').fontSize(10);
+    } else {
+      secao(doc, 'Conteúdo da remessa');
+      doc.fillColor('#9a5a00').font('Helvetica-Bold').fontSize(9)
+        .text(`${exp.pecas} peça(s) em ${exp.volumes} volume(s). Os itens desta expedição não foram detalhados no sistema.`, 50, doc.y, { width: doc.page.width - 100 });
+      doc.fillColor('#242a26').font('Helvetica').fontSize(10);
+    }
+
+    secao(doc, 'Observações');
+    textoBloco(
+      doc,
+      'Este documento acompanha a mercadoria apenas para conferência do conteúdo pelo destinatário. '
+      + 'NÃO é documento fiscal e não substitui a Nota Fiscal Eletrônica.'
+      + (exp.nf ? '' : ' A NF-e desta remessa será emitida e enviada separadamente.')
+      + ' Confira as peças no recebimento e comunique qualquer divergência ao emitente.',
+    );
+
+    assinaturas(doc, `${filial?.nomeFantasia || filial?.nome || 'Emitente'} — Expedição`, `${cliente.nome} — Recebido em ___/___/____`);
     return doc;
   }
 

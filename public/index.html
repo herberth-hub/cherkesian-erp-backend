@@ -10954,7 +10954,7 @@ function renderExpTable(){
       `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       (e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>')+expRastreioCel(e),
-      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button> <button class="btn-sm" title="Informar/corrigir o código de rastreio do transportador" onclick="APP.expRastreioForm(${e.id})">📦 ${e.rastreioTransp?'Rastreio ✓':'Rastreio'}</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
+      `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button> <button class="btn-sm"${e.nf?'':' style="color:#8a5a00;font-weight:700"'} title="${e.nf?'Declaração do conteúdo desta remessa (conferência do cliente)':'Sai sem NF — este é o papel que vai com a carga para o cliente conferir'}" onclick="APP.gerarDoc('declaracao_conteudo',${e.id})">📄 Declaração</button> <button class="btn-sm" title="Informar/corrigir o código de rastreio do transportador" onclick="APP.expRastreioForm(${e.id})">📦 ${e.rastreioTransp?'Rastreio ✓':'Rastreio'}</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
     ]), arr.length?null:(done?'Nenhuma expedição concluída.':'Nada a expedir — tudo despachado ✨'));
 }
 
@@ -11743,7 +11743,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', declaracao_conteudo:'Declaração de Conteúdo', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
@@ -12373,7 +12373,8 @@ async function formConferencia(id){
     ${despachado?`<div class="card" style="background:#e8f5ea;border-color:#bfe0c4;font-size:13px"><b>✅ Mercadoria despachada</b> em <b>${c.dataSaida?dfmtL(c.dataSaida):'—'}</b> · NF ${esc(c.nf||'—')}</div>`
       : conferida?`
       <div class="card" style="background:#eef6ff;border-color:#bcd8f5;font-size:13px;margin-bottom:8px"><b>✅ Peças conferidas (${c.conferidas}/${c.esperadas}).</b> 2ª leitura: bipe a <b>etiqueta MASTER</b> da caixa (<b>${esc(c.numero)}</b>) para registrar a saída.</div>
-      ${c.nf?'':`<div class="card" style="background:#fdf6e9;border-color:#e8d9ae;font-size:12.5px;margin-bottom:8px">⚠️ <b>Esta expedição ainda não tem NF-e.</b> Dá para despachar assim mesmo — a mercadoria sai sem nota por aqui — e emitir a NF depois, pela linha da expedição. Só confirme que é isso mesmo que você quer.</div>`}
+      <input type="hidden" id="exp_tem_nf_${id}" value="${c.nf?'1':''}">
+      ${c.nf?'':`<div class="card" style="background:#fdf6e9;border-color:#e8d9ae;font-size:12.5px;margin-bottom:8px">⚠️ <b>Esta expedição ainda não tem NF-e.</b> Dá para despachar assim mesmo — a mercadoria sai sem nota por aqui — e emitir a NF depois, pela linha da expedição. Ao despachar, a <b>Declaração de Conteúdo</b> abre para impressão: é o papel que vai com a carga para o cliente conferir o que recebeu.</div>`}
       <div style="margin-bottom:6px">
         <label class="fl">Por qual canal está sendo enviado? <span style="color:#c14a34">*</span></label>
         <select id="exp_canal_${id}" class="inp" style="max-width:320px">
@@ -12559,7 +12560,16 @@ async function despacharExp(id){
   const cod=cfVal(id,'master_bip');
   if(!cod){ toast('Bipe a etiqueta MASTER da caixa para despachar.','err'); return; }
   const rastreio=cfVal(id,'exp_rastreio')||'';
-  try{ const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal, rastreio}}); toast(r.mensagem+' · '+canal+(rastreio?(' · rastreio '+rastreio):''),'ok'); closeModal(); loadRoute(); }
+  const semNf = !cfVal(id,'exp_tem_nf');
+  try{
+    const r=await api('/expedicoes/'+id+'/despachar',{method:'POST',body:{codigoMaster:cod, transportadora:canal, rastreio}});
+    toast(r.mensagem+' · '+canal+(rastreio?(' · rastreio '+rastreio):''),'ok');
+    closeModal(); loadRoute();
+    // Saiu sem nota: a mercadoria precisa viajar com algum papel que diga o que
+    // vai dentro. Abre a declaração já na impressão, em vez de depender de
+    // alguém lembrar de buscá-la na lista.
+    if(semNf) setTimeout(()=>gerarDoc('declaracao_conteudo', id), 400);
+  }
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function formEmailDoc(tipo, refId, clienteId){
