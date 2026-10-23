@@ -8,6 +8,7 @@
  * (a conferência estava certa) mas sumia de dentro do volume, em silêncio.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 const COD = (n: number) => `UN-20261015-${String(n).padStart(6, '0')}`;
 
@@ -22,7 +23,7 @@ function servico(caixasAtuais: Caixa[], pecasConferidas = 0) {
     },
     cliente: { findUnique: () => Promise.resolve({ id: 9, empresaId: 1 }) },
   };
-  return { svc: new ExpedicoesService(prisma as never, {} as never), gravado };
+  return { svc: new ExpedicoesService(prisma as never, {} as never, new ArquivosService()), gravado };
 }
 
 const linha = (tam: string, qtd: number) => ({ descricao: 'CALCA MASCULINO ESCRITORIO - VIVARA', cor: 'PRETO', tamanho: tam, qtd });

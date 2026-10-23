@@ -9,6 +9,7 @@
  * da peça é que era trabalho.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 type Exp = { id: number; numero: string; pedidoId: number | null; conferenciaStatus?: string; itens?: Array<{ produtoId: number | null }> };
 
@@ -35,7 +36,7 @@ function tx() {
 }
 
 const achar = (un: { produtoId: number | null; pedidoId: number | null; expedicaoId: number | null }) =>
-  (new ExpedicoesService({} as never, {} as never) as unknown as {
+  (new ExpedicoesService({} as never, {} as never, new ArquivosService()) as unknown as {
     expedicaoDaPeca: (tx: unknown, un: unknown, atual: number) => Promise<string | null>;
   }).expedicaoDaPeca(tx(), un, 119);
 

@@ -7,6 +7,7 @@ import {
 import { Expedicao, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { BancosService } from '../bancos/bancos.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { CreateExpedicaoAvulsaDto } from './dto/create-expedicao-avulsa.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
@@ -34,6 +35,7 @@ export class ExpedicoesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bancos: BancosService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   /**
@@ -456,15 +458,23 @@ export class ExpedicoesService {
     const s = (img ?? '').trim();
     if (!/^data:image\/[a-zA-Z+]+;base64,/.test(s)) throw new BadRequestException('Envie uma imagem (foto do canhoto).');
     if (s.length > 8_000_000) throw new BadRequestException('Imagem muito grande. Tire a foto com resolução menor (máx ~6 MB).');
-    await this.prisma.expedicao.update({ where: { id }, data: { canhotoImg: s, canhotoEm: new Date() } });
+    // Com bucket configurado a foto vai para lá e a coluna guarda só a
+    // referência; sem bucket, `guardar` devolve o próprio data URI.
+    const guardado = await this.arquivos.guardar(s, 'canhotos');
+    const anterior = (await this.garantirExp(id, empresaId)).canhotoImg;
+    await this.prisma.expedicao.update({ where: { id }, data: { canhotoImg: guardado, canhotoEm: new Date() } });
+    // Trocou o canhoto: o antigo no bucket não serve mais a ninguém.
+    if (anterior && anterior !== guardado) await this.arquivos.remover(anterior);
     return { ok: true, canhotoEm: new Date() };
   }
 
-  /** Retorna a foto do canhoto arquivado. */
+  /** Retorna a foto do canhoto arquivado.
+   *  Devolve sempre data URI: a tela escreve a imagem numa janela nova, onde um
+   *  caminho relativo não resolveria de forma confiável. */
   async getCanhoto(id: number, empresaId: number) {
     const exp = await this.garantirExp(id, empresaId);
     if (!exp.canhotoImg) throw new NotFoundException('Nenhum canhoto arquivado para esta expedição.');
-    return { img: exp.canhotoImg, canhotoEm: exp.canhotoEm };
+    return { img: await this.arquivos.dataUri(exp.canhotoImg), canhotoEm: exp.canhotoEm };
   }
 
   async create(dto: CreateExpedicaoDto, empresaId: number): Promise<Expedicao> {

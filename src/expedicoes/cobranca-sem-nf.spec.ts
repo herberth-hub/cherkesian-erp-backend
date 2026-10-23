@@ -7,6 +7,7 @@
  * expedição, com as travas que impedem cobrar duas vezes ou cobrar brinde.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 type Criado = { valor: { toFixed: (n: number) => string }; vencimento: Date; documento: string; pedidoId: number; notaFiscalId: number | null };
 
@@ -52,7 +53,7 @@ function servico(over: {
       return Promise.resolve({ nomeArquivo: 'CB2610151.REM', boletos: ids.length });
     },
   };
-  return { svc: new ExpedicoesService(prisma as never, bancos as never), criados, remessas };
+  return { svc: new ExpedicoesService(prisma as never, bancos as never, new ArquivosService()), criados, remessas };
 }
 
 const soma = (c: Criado[]) => c.reduce((s, t) => s + Number(t.valor.toFixed(2)), 0);

@@ -9,6 +9,7 @@
  * para o lado errado.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 type Linha = { descricao: string; cor: string | null; quantidade: number; grade: Record<string, number> };
 
@@ -20,7 +21,7 @@ const ITENS: Linha[] = [
 
 function servico(itens: Linha[] = ITENS, caixas: unknown[] = []) {
   const tx = { expedicao: { findUnique: () => Promise.resolve({ itens, caixas }) } };
-  const svc = new ExpedicoesService({} as never, {} as never);
+  const svc = new ExpedicoesService({} as never, {} as never, new ArquivosService());
   return (adicoes: Array<{ descricao: string; cor: string | null; tamanho: string; qtd: number }>) =>
     (svc as unknown as {
       travaExcedente: (tx: unknown, exp: unknown, a: unknown[], b: number | null) => Promise<void>;

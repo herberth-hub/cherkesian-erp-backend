@@ -7,6 +7,7 @@
  * rejeitada) — aí o certo é resolver a nota.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 const EXP = { id: 110, numero: 'EXP-0110', clienteId: 9, pedidoId: 125, nf: null, itens: null, loteId: null, volumes: 1 };
 const CLIENTE = { id: 9, empresaId: 1, nome: 'FMA PLASTICOS LTDA', logradouro: 'R X', cidadeUf: 'Barueri/SP', cep: '06400000', cnpjCpf: '00000000000191' };
@@ -25,7 +26,7 @@ function servico(notas: Array<{ status: string }>) {
     pedido: { findUnique: () => Promise.resolve({ id: 125, numero: 'PV125', itens: [], filial: { nome: 'HC QUALITY', cnpj: '45704956000102' } }) },
     produto: { findMany: () => Promise.resolve([]) },
   };
-  return new ExpedicoesService(prisma as never, {} as never);
+  return new ExpedicoesService(prisma as never, {} as never, new ArquivosService());
 }
 
 describe('etiqueta de expedição sem NF-e', () => {

@@ -7,6 +7,7 @@
  * despacho: tem de poder ser informado em expedição já concluída.
  */
 import { ExpedicoesService } from './expedicoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 const EXP = { id: 135, numero: 'EXP-0135', clienteId: 9, conferenciaStatus: 'despachado', transportadora: 'CORREIOS' };
 
@@ -28,7 +29,7 @@ function servico(exp: Partial<typeof EXP> = {}) {
     cliente: { findUnique: () => Promise.resolve({ id: 9, empresaId: 1 }) },
     log: { create: () => Promise.resolve({}) },
   };
-  return { svc: new ExpedicoesService(prisma as never, {} as never), gravado };
+  return { svc: new ExpedicoesService(prisma as never, {} as never, new ArquivosService()), gravado };
 }
 
 describe('rastreio do transportador', () => {
