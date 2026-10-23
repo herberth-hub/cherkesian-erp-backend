@@ -39,6 +39,17 @@ services:
       # E-mail que recebe o aviso de cada pedido enviado pelo Portal do Cliente.
       - key: PORTAL_AVISO_EMAIL
         value: contato@hcqualitycorp.com.br
+      # --- Anexos fora do banco (bucket S3-compatível: Cloudflare R2) ---
+      # Sem as quatro, o sistema guarda tudo em base64 no banco, como antes.
+      # O endpoint carrega o ID da conta Cloudflare, então também não é versionado.
+      - key: ARQUIVOS_ENDPOINT
+        sync: false
+      - key: ARQUIVOS_CHAVE
+        sync: false
+      - key: ARQUIVOS_SEGREDO
+        sync: false
+      - key: ARQUIVOS_BUCKET
+        value: cherkesian-anexos
       # Opcional: restrinja o CORS ao domínio do frontend em produção
       # - key: CORS_ORIGIN
       #   value: https://seu-frontend.com
