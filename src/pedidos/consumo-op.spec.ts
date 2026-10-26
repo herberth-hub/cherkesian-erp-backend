@@ -9,6 +9,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { PedidosService } from './pedidos.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 const D = (n: number) => new Prisma.Decimal(n);
 
@@ -17,7 +18,7 @@ type Mov = { materialId: number; tipo: string; quantidade: Prisma.Decimal; saldo
 function servico() {
   const movs: Mov[] = [];
   const tx = { movimentoMaterial: { createMany: ({ data }: { data: Mov[] }) => { movs.push(...data); return Promise.resolve({ count: data.length }); } } };
-  const svc = new PedidosService({} as never, {} as never, {} as never);
+  const svc = new PedidosService({} as never, {} as never, {} as never, new ArquivosService());
   return { svc, tx, movs };
 }
 

@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { escopoCarteira } from '../common/rbac/carteira';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuthUser } from '../auth/auth.types';
 import { Area } from '../common/rbac/acesso.config';
 import { proximoSequencial } from '../common/utils/codigo.util';
@@ -77,6 +78,7 @@ export class AnomaliasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificacoes: NotificacoesService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   private quem(user: AuthUser) {
@@ -177,7 +179,7 @@ export class AnomaliasService {
             tipo: 'abertura',
             para: 'aberta',
             texto: dto.descricao.trim(),
-            anexo: dto.anexo ?? null,
+            anexo: dto.anexo ? await this.arquivos.guardar(dto.anexo, 'anomalias') : null,
             anexoNome: dto.anexoNome ?? null,
             usuario: this.quem(user),
           },
@@ -393,7 +395,7 @@ export class AnomaliasService {
         anomaliaId: id,
         tipo: dto.anexo ? 'anexo' : 'comentario',
         texto: texto || null,
-        anexo: dto.anexo ?? null,
+        anexo: dto.anexo ? await this.arquivos.guardar(dto.anexo, 'anomalias') : null,
         anexoNome: dto.anexoNome ?? null,
         usuario: this.quem(user),
       },
@@ -417,12 +419,13 @@ export class AnomaliasService {
       select: { anexo: true, anexoNome: true },
     });
     if (!ev?.anexo) throw new NotFoundException('Anexo não encontrado.');
-    const m = /^data:([^;]+);base64,(.*)$/s.exec(ev.anexo);
-    if (!m) throw new BadRequestException('Anexo em formato inesperado.');
+    // Pode estar no bucket; a rota continua entregando os bytes, autenticada.
+    const a = await this.arquivos.bytes(ev.anexo);
+    if (!a) throw new BadRequestException('Anexo em formato inesperado.');
     return {
-      contentType: m[1],
+      contentType: a.tipo,
       filename: ev.anexoNome || 'anexo',
-      content: Buffer.from(m[2], 'base64'),
+      content: a.bytes,
     };
   }
 

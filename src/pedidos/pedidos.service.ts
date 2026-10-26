@@ -11,6 +11,7 @@ import { gradeMista, precoDoTamanho, subtotalDaGrade } from '../common/utils/pre
 import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { AuthUser } from '../auth/auth.types';
 import { ehVendedor, escopoCarteira } from '../common/rbac/carteira';
 
@@ -20,6 +21,7 @@ export class PedidosService {
     private readonly prisma: PrismaService,
     private readonly credito: CreditoService,
     private readonly notificacoes: NotificacoesService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string; user?: AuthUser }) {
@@ -115,7 +117,9 @@ export class PedidosService {
     if (!pedido || pedido.empresaId !== empresaId) {
       throw new NotFoundException(`Pedido ${id} não encontrado.`);
     }
-    return pedido;
+    // `ocArquivo` sai cru (data URI ou `arq:…`), porque o formulário devolve
+    // esse mesmo valor no save; o link de exibição vai à parte.
+    return { ...pedido, ocArquivoUrl: this.arquivos.url(pedido.ocArquivo) };
   }
 
   /**
@@ -221,6 +225,8 @@ export class PedidosService {
     const numero = await this.gerarNumeroPedido(empresaId);
     const filialId = await this.resolverFilial(empresaId, dto.filialId);
 
+    // Anexo da OC vai para o bucket antes de gravar (fora de transação: é rede).
+    if (dto.ocArquivo) dto.ocArquivo = await this.arquivos.guardar(dto.ocArquivo, 'ordens-compra');
     const pedido = await this.prisma.pedido.create({
       data: {
         empresaId,

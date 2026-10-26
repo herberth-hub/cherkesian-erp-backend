@@ -3547,10 +3547,10 @@ async function formProduto(id, prefill){
   // impede o save de regravar um link por cima da referência do anexo.
   window.__FOTO = { modelo: p.fotoModelo||'', modelagem: p.fotoModelagem||'' };
   window.__FOTOURL = { modelo: p.fotoModeloUrl||'', modelagem: p.fotoModelagemUrl||'' };
-  window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'' };
+  window.__ARQMOD = { data: p.arquivoModelagem||'', nome: p.arquivoModelagemNome||'', url: p.arquivoModelagemUrl||'' };
   // Lista de logos; cai no campo antigo quando o produto e anterior a mudanca.
   window.__LOGOVET = Array.isArray(p.logosVetor) && p.logosVetor.length ? p.logosVetor : (p.logoVetor ? [{ data:p.logoVetor, nome:p.logoVetorNome||'logo' }] : []);
-  window.__FICHACLI = { data: p.fichaCliente||'', nome: p.fichaClienteNome||'' };
+  window.__FICHACLI = { data: p.fichaCliente||'', nome: p.fichaClienteNome||'', url: p.fichaClienteUrl||'' };
   window.__MAPADTF = { data: p.mapaDtf||'', nome: p.mapaDtfNome||'', url: p.mapaDtfUrl||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
@@ -4859,12 +4859,14 @@ async function pedPrefillCliente(){
 }
 function pedComis(){ if(typeof pedTotais==='function') pedTotais(); }
 // ----- Anexo da ordem de compra do cliente no pedido -----
-function pedOcThumb(ped){ window.__PEDOC = (ped&&ped.ocArquivo)?{data:ped.ocArquivo, nome:ped.ocArquivoNome||'ordem-compra'}:null; return pedOcRender(); }
+function pedOcThumb(ped){ window.__PEDOC = (ped&&ped.ocArquivo)?{data:ped.ocArquivo, nome:ped.ocArquivoNome||'ordem-compra', url:ped.ocArquivoUrl||''}:null; return pedOcRender(); }
 function pedOcRender(){
   const oc=window.__PEDOC;
   if(!oc||!oc.data) return '<span class="muted" style="font-size:12px">Nenhum arquivo anexado.</span>';
-  const isImg=/^data:image\//.test(oc.data);
-  const preview = isImg?`<img src="${oc.data}" style="max-height:90px;border:1px solid #e0d9c4;border-radius:6px">`:`<span style="font-size:26px">📄</span>`;
+  // Arquivo no bucket: a referência não serve de src, usa o link assinado.
+  const src = String(oc.data).startsWith('arq:') ? (oc.url||'') : oc.data;
+  const isImg = /^data:image\//.test(oc.data) || (!!oc.url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(oc.url));
+  const preview = (isImg && src)?`<img src="${src}" style="max-height:90px;border:1px solid #e0d9c4;border-radius:6px">`:`<span style="font-size:26px">📄</span>`;
   return `<div style="display:flex;align-items:center;gap:10px">${preview}<div><div style="font-size:12px;font-weight:700">${esc(oc.nome||'OC')}</div>
     <button type="button" class="btn-sm" onclick="APP.pedOcAbrir()">Abrir</button>
     <button type="button" class="btn-sm" style="color:#c14a34" onclick="APP.pedOcDel()">Remover</button></div></div>`;
@@ -4878,7 +4880,17 @@ function pedOcSel(inp){
   fr.readAsDataURL(f);
 }
 function pedOcDel(){ window.__PEDOC=null; const pv=$('ped_oc_pv'); if(pv) pv.innerHTML=pedOcRender(); const fi=$('f_oc_file'); if(fi) fi.value=''; pedPendRender(); }
-function pedOcAbrir(){ const oc=window.__PEDOC; if(!oc||!oc.data) return; const w=abrirJanelaDoc(oc.nome||'Ordem de compra'); w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+oc.data+'" style="width:100%;height:100vh;border:0"></iframe>'); w.document.close(); }
+function pedOcAbrir(){
+  const oc=window.__PEDOC; if(!oc||!oc.data) return;
+  // No bucket, o src tem de ser o link assinado ABSOLUTO: a janela nova é
+  // about:blank e um caminho relativo não resolve lá dentro.
+  const noBucket=String(oc.data).startsWith('arq:');
+  const src = noBucket ? (oc.url ? location.origin+oc.url : '') : oc.data;
+  if(!src){ toast('Não consegui montar o link do arquivo da OC.','err'); return; }
+  const w=abrirJanelaDoc(oc.nome||'Ordem de compra');
+  w.document.write('<title>'+esc(oc.nome||'OC')+'</title><iframe src="'+src+'" style="width:100%;height:100vh;border:0"></iframe>');
+  w.document.close();
+}
 // ===== Instruções de ENTREGA / ETIQUETAGEM (padrão por cliente) =====
 const PED_ENTREGA_INSTR_PADRAO =
 `Todos os volumes devem estar identificados com:

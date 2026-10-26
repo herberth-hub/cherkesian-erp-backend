@@ -308,6 +308,11 @@ export class ProdutosService {
       fotoModeloUrl: this.arquivos.url(produto.fotoModelo),
       fotoModelagemUrl: this.arquivos.url(produto.fotoModelagem),
       mapaDtfUrl: this.arquivos.url(produto.mapaDtf),
+      fichaClienteUrl: this.arquivos.url(produto.fichaCliente),
+      arquivoModelagemUrl: this.arquivos.url(produto.arquivoModelagem),
+      // Cada logo leva o seu link; o `data` continua sendo o que volta no save.
+      logosVetor: ((produto.logosVetor ?? []) as Array<{ data?: string; nome?: string }>)
+        .map((l) => ({ ...l, url: this.arquivos.url(l?.data) })),
     };
   }
 
@@ -547,25 +552,60 @@ export class ProdutosService {
    */
   private async anexosParaBucket(
     dto: CreateProdutoDto | UpdateProdutoDto,
-    anterior?: { fotoModelo: string | null; fotoModelagem: string | null; mapaDtf: string | null } | null,
+    anterior?: Record<string, unknown> | null,
   ): Promise<void> {
     if (!this.arquivos.ligado) return;
     // mapaDtf entra aqui porque é o anexo mais pesado do produto (há mapas de
     // 2,5 MB): deixá-lo fora fazia a coluna voltar a encher sozinha a cada
     // produto novo, mesmo depois de migrada.
-    for (const campo of ['fotoModelo', 'fotoModelagem', 'mapaDtf'] as const) {
+    // Pasta por tipo de anexo, para o balde ficar legível. Ficha do cliente e
+    // arquivo de modelagem NÃO são imagem (PDF, .adsx, .zip), por isso o teste
+    // é `data:` e não `data:image` — com o teste antigo eles nunca subiriam.
+    const PASTAS: Record<string, string> = {
+      fotoModelo: 'produtos',
+      fotoModelagem: 'modelagens',
+      mapaDtf: 'mapas',
+      fichaCliente: 'fichas-cliente',
+      arquivoModelagem: 'modelagens',
+    };
+    for (const campo of ['fotoModelo', 'fotoModelagem', 'mapaDtf', 'fichaCliente', 'arquivoModelagem'] as const) {
       const v = dto[campo];
       if (v === undefined) continue;
       const s = String(v ?? '').trim();
       if (ArquivosService.ehReferencia(s)) continue; // já está lá, nada a fazer
-      const velho = anterior?.[campo] ?? null;
-      if (s.startsWith('data:image')) {
-        dto[campo] = await this.arquivos.guardar(s, 'produtos');
+      const velho = (anterior?.[campo] ?? null) as string | null;
+      if (s.startsWith('data:')) {
+        dto[campo] = await this.arquivos.guardar(s, PASTAS[campo]);
         if (velho && velho !== dto[campo]) await this.arquivos.remover(velho);
       } else if (!s && velho) {
         await this.arquivos.remover(velho); // campo limpo: tira do bucket também
       }
     }
+    await this.logosParaBucket(dto, anterior);
+  }
+
+  /**
+   * Logos vetorizados: lista Json `[{data,nome}]`, então o anexo fica dentro do
+   * Json e não numa coluna própria. Cada item vira `arq:…` do mesmo jeito.
+   */
+  private async logosParaBucket(
+    dto: CreateProdutoDto | UpdateProdutoDto,
+    anterior?: Record<string, unknown> | null,
+  ): Promise<void> {
+    if (dto.logosVetor === undefined) return;
+    const lista = (dto.logosVetor ?? []) as Array<{ data?: string; nome?: string }>;
+    const antes = new Set(
+      ((anterior?.logosVetor ?? []) as Array<{ data?: string }>)
+        .map((l) => String(l?.data ?? ''))
+        .filter((d) => ArquivosService.ehReferencia(d)),
+    );
+    for (const item of lista) {
+      const s = String(item?.data ?? '').trim();
+      if (!s || ArquivosService.ehReferencia(s)) { antes.delete(s); continue; }
+      if (s.startsWith('data:')) item.data = await this.arquivos.guardar(s, 'logos');
+    }
+    // O que estava na lista e saiu dela não serve mais a ninguém.
+    for (const orfao of antes) await this.arquivos.remover(orfao);
   }
 
   private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {
