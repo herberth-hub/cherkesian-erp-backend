@@ -7,9 +7,10 @@
  */
 import { EstoqueService } from './estoque.service';
 
-const UN = (codigo: string, status: string) => ({ codigo, status, empresaId: 1, descricao: 'Calça', tamanho: 'P' });
+const UN = (codigo: string, status: string, expedicaoId: number | null = null, pedidoId: number | null = null) =>
+  ({ codigo, status, empresaId: 1, descricao: 'Calça', tamanho: 'P', expedicaoId, pedidoId });
 
-function servico(unidades: Array<ReturnType<typeof UN>>) {
+function servico(unidades: Array<ReturnType<typeof UN>>, expedicoesAbertas: Array<{ id: number; numero: string }> = []) {
   const updates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
   const prisma = {
     unidadeEstoque: {
@@ -22,6 +23,12 @@ function servico(unidades: Array<ReturnType<typeof UN>>) {
       },
     },
     material: { findMany: () => Promise.resolve([]) },
+    // Só as expedições ABERTAS passadas ao helper existem para a consulta.
+    expedicao: {
+      findMany: ({ where }: { where: { id: { in: number[] } } }) =>
+        Promise.resolve(expedicoesAbertas.filter((e) => where.id.in.includes(e.id))),
+    },
+    pedido: { findMany: () => Promise.resolve([{ numero: 'PV54' }]) },
     log: { create: () => Promise.resolve({}) },
   };
   return { svc: new EstoqueService(prisma as never), updates };
@@ -82,9 +89,33 @@ describe('baixa em lote', () => {
     expect(updates[0].data).toMatchObject({ status: 'despachado' });
   });
 
-  it('RECUSA o lote inteiro se houver peça reservada — ela some do pedido', async () => {
-    const { svc } = servico([UN('UN-1', 'em_estoque'), UN('UN-2', 'reservado')]);
-    await expect(svc.saidaVarias({ codigos: ['UN-1', 'UN-2'] }, 1, 'h')).rejects.toThrow(/RESERVADAS para expedição/i);
+  it('RECUSA quando a reservada está numa expedição ABERTA — ela some do romaneio', async () => {
+    const { svc } = servico(
+      [UN('UN-1', 'em_estoque'), UN('UN-2', 'reservado', 7)],
+      [{ id: 7, numero: 'EXP-0099' }],
+    );
+    await expect(svc.saidaVarias({ codigos: ['UN-1', 'UN-2'] }, 1, 'h')).rejects.toThrow(/EXP-0099/);
+  });
+
+  /**
+   * Reservada SEM expedição aberta é sobra de reserva (OP que etiquetou para
+   * expedição, expedição estornada, pedido que nunca gerou remessa). O
+   * bloqueio antigo olhava só o status e mandava "use a expedição" mesmo sem
+   * expedição nenhuma — nos dados reais isso valia para as 2.749 reservadas,
+   * e a peça ficava presa para sempre.
+   */
+  it('BAIXA a reservada que não tem expedição aberta segurando ela', async () => {
+    const { svc, updates } = servico([UN('UN-1', 'reservado', null, 54)]);
+    const r = await svc.saidaVarias({ codigos: ['UN-1'], motivo: 'saiu com outra etiqueta' }, 1, 'h');
+    expect(r.baixadas).toBe(1);
+    expect(r.reservadasBaixadas).toBe(1);
+    expect(updates[0].data).toMatchObject({ status: 'despachado' });
+  });
+
+  it('expedição já DESPACHADA não segura mais a peça', async () => {
+    const { svc } = servico([UN('UN-1', 'reservado', 7)], []); // 7 não está entre as abertas
+    const r = await svc.saidaVarias({ codigos: ['UN-1'] }, 1, 'h');
+    expect(r.baixadas).toBe(1);
   });
 
   it('despachada não baixa de novo', async () => {

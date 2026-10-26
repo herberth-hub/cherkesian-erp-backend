@@ -439,11 +439,32 @@ export class EstoqueService {
     if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
     const uns = await this.prisma.unidadeEstoque.findMany({ where: { codigo: { in: codigos }, empresaId } });
     const jaFora = uns.filter((u) => u.status === 'despachado').map((u) => u.codigo);
-    // Reservada tem expedição atrás: dar baixa por aqui some com a peça do pedido.
-    const reservadas = uns.filter((u) => u.status === 'reservado').map((u) => u.codigo);
-    if (reservadas.length) {
+    /**
+     * Peça RESERVADA só é intocável quando há uma expedição ABERTA segurando
+     * ela: dar baixa no meio de uma conferência some com a peça do romaneio.
+     *
+     * Reservada sem expedição aberta é outra coisa — é sobra de reserva que
+     * ficou pelo caminho (OP que etiquetou para expedição, expedição estornada,
+     * pedido que nunca gerou remessa). O bloqueio antigo olhava só o status e
+     * mandava "use a expedição" mesmo quando não existia expedição nenhuma:
+     * nos dados reais, das 2.749 reservadas NENHUMA tinha expedição, então o
+     * caminho sugerido não existia para nenhuma delas e a peça ficava presa
+     * para sempre.
+     */
+    const reservadas = uns.filter((u) => u.status === 'reservado');
+    const expIds = [...new Set(reservadas.map((u) => u.expedicaoId).filter((x): x is number => x != null))];
+    const expAbertas = expIds.length
+      ? await this.prisma.expedicao.findMany({
+          where: { id: { in: expIds }, status: { notIn: ['Despachado', 'Cancelada'] } },
+          select: { id: true, numero: true },
+        })
+      : [];
+    const presasPorExp = new Set(expAbertas.map((e) => e.id));
+    const presas = reservadas.filter((u) => u.expedicaoId != null && presasPorExp.has(u.expedicaoId));
+    if (presas.length) {
+      const nums = [...new Set(expAbertas.map((e) => e.numero))].slice(0, 3).join(', ');
       throw new BadRequestException(
-        `${reservadas.length} etiqueta(s) estão RESERVADAS para expedição e não podem sair por aqui. Use a expedição (ou devolva a peça antes). Ex.: ${reservadas.slice(0, 3).join(', ')}`,
+        `${presas.length} etiqueta(s) estão em expedição ABERTA (${nums}) e não podem sair por aqui — conclua ou estorne a expedição. Ex.: ${presas.slice(0, 3).map((u) => u.codigo).join(', ')}`,
       );
     }
     const baixar = uns.filter((u) => u.status !== 'despachado');
@@ -452,14 +473,25 @@ export class EstoqueService {
       where: { codigo: { in: baixar.map((u) => u.codigo) }, empresaId },
       data: { status: 'despachado', saidaEm: new Date() },
     });
+    // Baixa de peça RESERVADA fica explícita na trilha, com o pedido que a
+    // reservava: é a saída que mais precisa de explicação depois.
+    const soltas = baixar.filter((u) => u.status === 'reservado');
+    let detalheReserva = '';
+    if (soltas.length) {
+      const pedIds = [...new Set(soltas.map((u) => u.pedidoId).filter((x): x is number => x != null))];
+      const peds = pedIds.length
+        ? await this.prisma.pedido.findMany({ where: { id: { in: pedIds } }, select: { numero: true } })
+        : [];
+      detalheReserva = ` · ${soltas.length} estavam RESERVADAS${peds.length ? ' (' + peds.map((p) => p.numero).join(', ') + ')' : ''}`;
+    }
     await this.prisma.log.create({
       data: {
         usuario, acao: 'estoque.saida.lote',
-        detalhe: `${r.count} etiqueta(s) baixadas${dto.motivo ? ' · ' + dto.motivo : ''}`,
+        detalhe: `${r.count} etiqueta(s) baixadas${dto.motivo ? ' · ' + dto.motivo : ''}${detalheReserva}`,
         entidade: 'UnidadeEstoque',
       },
     }).catch(() => undefined);
-    return { baixadas: r.count, ignoradas: { jaForaDoEstoque: jaFora } };
+    return { baixadas: r.count, reservadasBaixadas: soltas.length, ignoradas: { jaForaDoEstoque: jaFora } };
   }
 
   /** Endereços já usados no armazém — alimenta os seletores em vez de digitar à mão. */
