@@ -2570,10 +2570,20 @@ async function formExpParcial(pedidoId){
   const itens = ped.itens||[];
   // Estoque disponível (não despachado) dos produtos vendidos.
   const pids=[...new Set(itens.map(it=>it.produtoId).filter(Boolean))];
-  let disp=[]; if(pids.length){ try{ disp=await api('/estoque/disponivel?produtos='+pids.join(',')); }catch(_){ disp=[]; } }
+  // `pronta-entrega` em vez de `disponivel`: além da quantidade, traz O ENDEREÇO e
+  // as ETIQUETAS — é isso que a expedição precisa para ir buscar a peça na prateleira,
+  // sem gerar etiqueta nova. Peça reservada a OUTRO pedido e segunda linha não entram.
+  let disp=[]; if(pids.length){
+    try{ disp=(await api('/estoque/pronta-entrega?produtos='+pids.join(',')+'&pedido='+pedidoId)).map(d=>({...d, quantidade:d.separavel})); }
+    catch(_){ try{ disp=await api('/estoque/disponivel?produtos='+pids.join(',')); }catch(_e){ disp=[]; } }
+  }
+  _expDisp = disp;
   // Disponível DESTE item = estoque do produto NA COR selecionada, por tamanho.
   const itemDisp=(it)=>{ const byTam={}, tips={}; let total=0;
-    (disp||[]).forEach(d=>{ if(d.produtoId!==it.produtoId) return; if(!corMatch(it.cor,d.cor)) return; const t=normTam(d.tamanho); byTam[t]=(byTam[t]||0)+d.quantidade; total+=d.quantidade; if(d.cor){ (tips[t]=tips[t]||[]).push(d.cor+': '+d.quantidade); } });
+    (disp||[]).forEach(d=>{ if(d.produtoId!==it.produtoId) return; if(!corMatch(it.cor,d.cor)) return; const t=normTam(d.tamanho); byTam[t]=(byTam[t]||0)+d.quantidade; total+=d.quantidade;
+      if(d.cor){ (tips[t]=tips[t]||[]).push(d.cor+': '+d.quantidade); }
+      (d.locais||[]).forEach(l=>(tips[t]=tips[t]||[]).push('📍 '+l.endereco+' → '+l.quantidade));
+    });
     return { byTam, total, tips };
   };
   const estColor=(avail,res)=> avail<=0?'#b03a2e':(avail<res?'#9a5a00':'#1e7a44');
@@ -2590,7 +2600,7 @@ async function formExpParcial(pedidoId){
         const ec = estColor(avail,res);
         return `<div style="display:inline-flex;flex-direction:column;align-items:center;margin:0 10px 8px 0">
           <span style="font-size:9px;letter-spacing:.5px;color:#6b6b72;text-transform:uppercase">${esc(t)} · resid ${res}</span>
-          <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expg" data-item="${it.id}" data-tam="${esc(t)}" style="width:56px;text-align:center;padding:4px;margin-top:2px;${res>0?'':'background:#f2f2f2'}">
+          <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expg" data-item="${it.id}" data-tam="${esc(t)}" data-prod="${it.produtoId||''}" data-cor="${esc(it.cor||'')}" style="width:56px;text-align:center;padding:4px;margin-top:2px;${res>0?'':'background:#f2f2f2'}">
           <span title="${esc((dd.tips[normTam(t)]||[]).join(' · ')||'sem estoque nesta cor')}" style="font-size:9px;margin-top:2px;font-weight:700;color:${ec}">📦 ${avail}</span>
         </div>`;
       }).join('');
@@ -2603,16 +2613,90 @@ async function formExpParcial(pedidoId){
     const avail = dd.total; const val0=Math.min(res>0?res:0, avail); const ec=estColor(avail,res);
     return `<div style="padding:10px 12px;border:1px solid #e7e3d8;border-radius:8px;margin-bottom:8px;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:12px">
       <div><div style="font-weight:700;font-size:13px">${esc(nomeProdLimpo(it.descricao))}${corTag(it)}</div><div class="muted" style="font-size:11px">Residual: ${res} de ${it.quantidade} · <span style="font-weight:700;color:${ec}">📦 estoque ${avail}</span></div></div>
-      <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expq" data-item="${it.id}" style="width:74px;text-align:center;padding:5px"></div>`;
+      <input type="number" min="0" max="${res}" value="${val0}" data-disp="${avail}" ${res>0?'':'disabled'} class="expq" data-item="${it.id}" data-prod="${it.produtoId||''}" data-cor="${esc(it.cor||'')}" style="width:74px;text-align:center;padding:5px"></div>`;
   }).join('');
   const temEstoque=(disp||[]).length>0;
   openModal(`<h3>📦 Expedição parcial · <span class="mono gold">${esc(ped.numero)}</span></h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 10px">Preenchi com o <b>estoque disponível</b> (📦) de cada tamanho — mas você pode <b>digitar manualmente</b> a quantidade que quiser enviar (até o residual), <b>mesmo sem estoque registrado</b>. O que sobrar fica em <b>residual em aberto</b>. <span style="color:#1e7a44">verde = tem tudo</span> · <span style="color:#9a5a00">âmbar = parcial</span> · <span style="color:#b03a2e">vermelho = sem estoque</span>.</div>
-    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">${temEstoque?`<button class="btn-sm" onclick="APP.expUsarEstoque()" title="Preencher cada tamanho com o que há em estoque (limitado ao residual)">⚡ Preencher com o estoque</button>`:''}<button class="btn-sm" onclick="APP.expUsarResidual()" title="Preencher cada tamanho com TUDO que falta do pedido (independe do estoque)">📋 Preencher com o residual</button><button class="btn-sm" onclick="APP.expZerar()">Zerar tudo</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">${temEstoque?`<button class="btn-sm" onclick="APP.expUsarEstoque()" title="Preencher cada tamanho com o que há em estoque (limitado ao residual)">⚡ Preencher com o estoque</button>`:''}<button class="btn-sm" onclick="APP.expUsarResidual()" title="Preencher cada tamanho com TUDO que falta do pedido (independe do estoque)">📋 Preencher com o residual</button><button class="btn-sm" onclick="APP.expZerar()">Zerar tudo</button>${temEstoque?`<button class="btn-sm" onclick="APP.expListaSeparacao('${esc(ped.numero)}')" title="Imprimir quais etiquetas retirar e em que endereço">🧾 Lista de separação</button>`:''}</div>
     <div style="max-height:50vh;overflow:auto">${cards||'<div class="muted">Pedido sem itens.</div>'}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveExpParcial(${pedidoId})">Gerar expedição parcial</button></div>`);
 }
+/**
+ * Estoque pronto do pedido aberto na expedição parcial (produto·cor·tamanho →
+ * quantidade, endereços e etiquetas). Guardado aqui porque a lista de separação
+ * é montada depois, a partir do que foi digitado na tela.
+ */
+let _expDisp = [];
+
+/**
+ * LISTA DE SEPARAÇÃO: diz qual etiqueta retirar e de qual endereço, na ordem do
+ * armazém (uma volta só por coluna/andar), para as quantidades digitadas.
+ *
+ * Essas peças já têm etiqueta — a separação é retirar e bipar, não etiquetar de
+ * novo. Se o endereço estiver vazio na prateleira, não separe: a peça volta para
+ * a OP, que continua cobrindo o pedido inteiro.
+ */
+function expListaSeparacao(numeroPedido){
+  const pedidos = [];
+  document.querySelectorAll('.expg,.expq').forEach(inp=>{
+    const q = Number(inp.value||0); if(q<=0) return;
+    const prod = Number(inp.dataset.prod||0); if(!prod) return;
+    pedidos.push({ prod, cor: inp.dataset.cor||'', tam: inp.dataset.tam||'', q });
+  });
+  if(!pedidos.length){ toast('Digite as quantidades que vai separar primeiro.','err'); return; }
+
+  // Cada etiqueta só pode ser indicada uma vez, mesmo que dois itens do pedido
+  // caiam no mesmo produto+cor+tamanho.
+  const usadas = new Set();
+  const porEndereco = {}; let semEtiqueta = 0;
+  pedidos.forEach(p=>{
+    const linhas = (_expDisp||[]).filter(d=>d.produtoId===p.prod && corMatch(p.cor,d.cor)
+      && (!p.tam || normTam(d.tamanho)===normTam(p.tam)));
+    let faltam = p.q;
+    linhas.forEach(d=>{
+      (d.etiquetas||[]).forEach(e=>{
+        if(faltam<=0 || usadas.has(e.codigo)) return;
+        usadas.add(e.codigo); faltam--;
+        const k = e.endereco || 'sem endereço';
+        (porEndereco[k] = porEndereco[k] || []).push({ codigo: e.codigo, tam: d.tamanho||p.tam||'ÚNICO', cor: d.cor||p.cor||'' });
+      });
+    });
+    if(faltam>0) semEtiqueta += faltam;
+  });
+
+  const blocos = Object.keys(porEndereco).sort().map(end=>{
+    const its = porEndereco[end];
+    return `<div class="bloco"><div class="end">📍 ${esc(end)} <span class="qt">${its.length} peça(s)</span></div>
+      <table><thead><tr><th>✔</th><th>Etiqueta</th><th>Tam</th><th>Cor</th></tr></thead><tbody>
+      ${its.map(i=>`<tr><td class="bx">☐</td><td class="mono">${esc(i.codigo)}</td><td><b>${esc(i.tam)}</b></td><td>${esc(i.cor||'—')}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }).join('');
+
+  const w = abrirJanelaDoc('Lista de separação');
+  w.document.write(`<html><head><meta charset=utf-8><title>Lista de separação ${esc(numeroPedido||'')}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:18px;color:#181A1F}
+    h2{margin:0 0 2px;font-size:17px} .sub{color:#666;font-size:11.5px;margin-bottom:12px}
+    .bloco{border:1px solid #ddd;border-radius:8px;margin-bottom:10px;overflow:hidden;page-break-inside:avoid}
+    .end{background:#f4f1e8;padding:7px 10px;font-weight:700;font-size:12.5px}
+    .end .qt{float:right;font-weight:400;color:#666}
+    table{width:100%;border-collapse:collapse;font-size:11.5px}
+    th{text-align:left;background:#fafafa;padding:4px 10px;border-bottom:1px solid #eee;font-size:10px;text-transform:uppercase;color:#777}
+    td{padding:4px 10px;border-bottom:1px solid #f3f3f3} .bx{width:18px;font-size:14px} .mono{font-family:Consolas,monospace}
+    .av{background:#fff6e5;border:1px solid #e0a94a;border-radius:8px;padding:8px 10px;font-size:11.5px;margin-bottom:10px}
+    @media print{.noprint{display:none}}
+  </style></head><body>
+    <h2>Lista de separação${numeroPedido?' · '+esc(numeroPedido):''}</h2>
+    <div class="sub">${usadas.size} peça(s) a retirar · ${Object.keys(porEndereco).length} endereço(s) · ${new Date().toLocaleString('pt-BR')}</div>
+    ${semEtiqueta?`<div class="av"><b>${semEtiqueta} peça(s) sem etiqueta indicada.</b> Essa quantidade foi digitada acima do que o estoque tem etiquetado — ela sai da produção, não da prateleira.</div>`:''}
+    ${blocos||'<div class="av">Nada a separar: as quantidades digitadas não têm etiqueta em estoque.</div>'}
+    <div class="av">Não achou a peça no endereço? <b>Não separe</b> — devolva no sistema (gaveta do estoque) e deixe a OP produzir essa peça.</div>
+    <div class="noprint" style="margin-top:12px"><button onclick="window.print()">🖨 Imprimir</button></div>
+  </body></html>`);
+  w.document.close();
+}
+
 // Preenche cada campo com o estoque disponível (limitado ao residual = atributo max).
 function expUsarEstoque(){
   document.querySelectorAll('.expg,.expq').forEach(inp=>{ if(inp.disabled)return; const res=Number(inp.max||0); const disp=Number(inp.dataset.disp||0); inp.value=Math.min(res, disp); });
@@ -2866,6 +2950,8 @@ function _uiCss(){
   .uidlg{width:100%;max-width:400px;background:#FCFBF8;border-radius:14px;overflow:hidden;
     box-shadow:0 24px 60px rgba(0,0,0,.45);transform:translateY(8px) scale(.98);transition:transform .18s;font-family:'Inter',Arial,sans-serif}
   .uidlg-ov.on .uidlg{transform:none}
+  /* larga: p/ diálogo que mostra lista (tamanho, quantidade, endereço) e não cabe em 400px. */
+  .uidlg.larga{max-width:640px}
   .uidlg .uiacc{height:4px;background:var(--navy,#1E2C48)}
   .uidlg.ok .uiacc{background:#2E7D50} .uidlg.warn .uiacc{background:#B67C12} .uidlg.err .uiacc{background:#B23A3A} .uidlg.info .uiacc{background:#1E2C48}
   .uidlg .uiin{padding:18px 20px 16px}
@@ -2994,7 +3080,7 @@ function uiDialog(o){
     // `msg` é texto (escapado). `html` é para quando a explicação precisa de
     // lista ou destaque — quem chama é responsável por escapar o que vem de fora.
     const msg = o.html || esc(o.msg||'').replace(/\n/g,'<br>');
-    ov.innerHTML=`<div class="uidlg ${tipo}"><div class="uiacc"></div><div class="uiin">
+    ov.innerHTML=`<div class="uidlg ${tipo}${o.wide?' larga':''}"><div class="uiacc"></div><div class="uiin">
       <div class="uibrand"><span class="uigc"><b>GRUPO</b> CHERKESIAN</span></div>
       <div class="uitop"><div class="uiic">${_uiIcon(tipo)}</div>
         <div><h3>${esc(o.titulo||'')}</h3>${msg?`<p>${msg}</p>`:''}</div></div>
@@ -5519,6 +5605,36 @@ async function avisoSemReceita(r){
   await uiAlert({tipo:'err', titulo:'⚠️ OP sem ficha de consumo', ok:'Entendi',
     msg:r.avisoReceita+'\n\nA produção segue normalmente — o que NÃO acontece é a baixa do material.'});
 }
+/**
+ * Peça que JÁ ESTÁ no armazém não precisa ser produzida de novo.
+ *
+ * O aviso mostra o tamanho, quanto dá para separar e EM QUE ENDEREÇO está —
+ * e leva direto para a expedição parcial, que já vem preenchida com o estoque.
+ * Essas peças têm etiqueta: não se gera etiqueta nova para elas.
+ *
+ * É aviso, não desconto automático na OP: só quem olha a prateleira sabe se a
+ * etiqueta tem lastro (o PV54 tinha 90 etiquetas GG sem peça nenhuma atrás).
+ */
+async function avisoProntaEntrega(r, pedidoId){
+  const linhas = (r && r.prontaEntrega) || [];
+  if(!r || !r.avisoProntaEntrega || !linhas.length) return false;
+  const total = linhas.reduce((s,l)=>s+Number(l.separar||0),0);
+  const corpo = linhas.map(l=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid #eee6d6">
+    <div style="flex:0 0 46px;text-align:center"><span class="pill" style="background:#1e2c4812;color:#1E2C48;font-weight:800;font-size:11px">${esc(l.tamanho||'ÚNICO')}</span></div>
+    <div style="min-width:0;flex:1">
+      <div style="font-size:12px;font-weight:700;color:#181A1F">${esc(nomeProdLimpo(l.item))}${l.cor?` <span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:9.5px">🎨 ${esc(l.cor)}</span>`:''}</div>
+      <div style="font-size:11px;color:#6E6F76;margin-top:2px">falta expedir <b>${l.falta}</b> · já em estoque <b style="color:#1e7a44">${l.separar}</b>${l.emEstoque>l.separar?` <span class="muted">(há ${l.emEstoque} na prateleira)</span>`:''}</div>
+      <div style="font-size:10.5px;color:#9a5a00;margin-top:2px">📍 ${(l.locais||[]).map(x=>esc(x.endereco)+' → '+x.quantidade).join(' · ')||'sem endereço registrado'}</div>
+    </div></div>`).join('');
+  const ok = await uiDialog({tipo:'warn', wide:true, titulo:'📦 '+total+' peça(s) já estão no armazém',
+    ok:'📦 Separar do estoque agora', cancel:'Produzir tudo mesmo assim',
+    html:`<div style="font-size:12.5px;color:#6E6F76;line-height:1.5">${esc(r.avisoProntaEntrega)}</div>
+      <div style="margin-top:8px;max-height:40vh;overflow:auto">${corpo}</div>
+      <div style="font-size:10.5px;color:#6E6F76;margin-top:8px">Essas peças <b>já têm etiqueta</b> — é só retirar no endereço e bipar na expedição. O que não estiver na prateleira continua coberto pela OP.</div>`});
+  if(!ok) return false;
+  await formExpParcial(pedidoId);
+  return true; // já abriu a separação — não empilha a impressão da OP em cima
+}
 async function gerarOp(id, parcial){
   try{
     const r = await api('/pedidos/'+id+'/gerar-op'+(parcial?'?parcial=1':''),{method:'POST'});
@@ -5529,9 +5645,10 @@ async function gerarOp(id, parcial){
       if(r.revenda&&r.revenda.length) msg+=' '+r.revenda.length+' item(ns) de revenda não geram OP.';
       toast(msg,'ok');
       await avisoSemReceita(r);
+      if(await avisoProntaEntrega(r, id)) return;
       await abrirOpsGeradas(r.ops);
     }
-    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await avisoSemReceita(r); await abrirOpsGeradas(r.ops); }
+    else if(r.status==='op_parcial'){ toast('⚙️ '+r.message,'ok'); await avisoSemReceita(r); if(await avisoProntaEntrega(r, id)) return; await abrirOpsGeradas(r.ops); }
     else if(r.status==='sem_producao') toast(r.message||'Pedido só de revenda — nenhuma OP.','ok');
     else if(r.status==='aguardando_revenda'){
       const falt=(r.faltas||[]).map(f=>'• '+f.codigo+' '+f.descricao+': falta '+f.falta+' (em estoque '+f.emEstoque+' de '+f.necessario+') -> OC '+(f.ocNumero||'-')).join('\n');
@@ -6959,8 +7076,34 @@ function opAbrirCard(id){
     <div style="margin-top:8px"><div class="fl">Fase atual</div><b>${esc(o.setorAtual||'—')}</b> ${bar(o.progresso)}</div>
     ${o.osGeradas&&o.osGeradas.length?`<div style="margin-top:8px"><div class="fl">OS geradas</div>${opOsBadges(o)}</div>`:''}
     ${gradeHtml}
+    <div id="op_pe"></div>
     ${acoes}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+  opProntaEntrega(o);
+}
+/**
+ * Sugestão de separação dentro da OP: o que ela vai produzir e JÁ EXISTE
+ * etiquetado no armazém, com o endereço de cada peça.
+ *
+ * Carrega depois de abrir o card (uma consulta só) para não atrasar o clique.
+ * Não mexe na grade da OP: a peça só sai de produção quando alguém confirma que
+ * ela está mesmo na prateleira.
+ */
+async function opProntaEntrega(o){
+  const box=$('op_pe'); if(!box || !o.produtoId) return;
+  let d=[]; try{ d=await api('/estoque/pronta-entrega?produtos='+o.produtoId+(o.pedidoId?'&pedido='+o.pedidoId:'')); }catch(_){ return; }
+  const g=(o.gradeTamanhos&&Object.keys(o.gradeTamanhos).length)?o.gradeTamanhos:null;
+  // Alvo = o que ESTA OP tem naquele tamanho; sem grade, a quantidade toda.
+  const alvo=t=>{ if(!g) return Number(o.quantidade||0); const k=Object.keys(g).find(x=>normTam(x)===normTam(t)); return k?Number(g[k]||0):0; };
+  const linhas=(d||[]).filter(x=>corMatch(o.cor,x.cor) && x.separavel>0 && alvo(x.tamanho)>0)
+    .map(x=>({ tam:x.tamanho||'ÚNICO', sep:Math.min(x.separavel, alvo(x.tamanho)), locais:x.locais||[] }));
+  if(!linhas.length) return;
+  const total=linhas.reduce((s,l)=>s+l.sep,0);
+  box.innerHTML=`<div style="margin-top:10px;border:1px solid #e0a94a;background:#fff8ea;border-radius:8px;padding:8px 10px">
+    <div style="font-size:12px;font-weight:800;color:#9a5a00">📦 ${total} pç desta OP já estão no estoque</div>
+    ${linhas.map(l=>`<div style="font-size:11px;color:#6E6F76;margin-top:3px"><b style="color:#181A1F">${esc(l.tam)}</b> · separar ${l.sep} · 📍 ${l.locais.map(x=>esc(x.endereco)+' → '+x.quantidade).join(' · ')||'sem endereço'}</div>`).join('')}
+    <div style="font-size:10.5px;color:#6E6F76;margin-top:5px">Essas peças <b>já têm etiqueta</b>: é retirar no endereço e bipar na expedição — não gere etiqueta nova. Confira na prateleira antes de deixar de produzir.</div>
+    ${o.pedidoId?`<button class="btn-sm" style="margin-top:6px" onclick="APP.closeModal();APP.formExpParcial(${o.pedidoId})">📦 Separar na expedição</button>`:''}</div>`;
 }
 function opDragOver(e){ e.preventDefault(); try{e.dataTransfer.dropEffect='move';}catch(_){} const k=e.currentTarget; if(k){k.classList.add('dragover');k.style.background='#fbf3d8';} }
 function opDragLeave(e){ const k=e.currentTarget; if(k){k.classList.remove('dragover');k.style.background='';} }
@@ -15623,7 +15766,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
+  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
   prodAba, prodMargemLive,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,

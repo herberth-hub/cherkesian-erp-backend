@@ -18,7 +18,7 @@ type Mov = { materialId: number; tipo: string; quantidade: Prisma.Decimal; saldo
 function servico() {
   const movs: Mov[] = [];
   const tx = { movimentoMaterial: { createMany: ({ data }: { data: Mov[] }) => { movs.push(...data); return Promise.resolve({ count: data.length }); } } };
-  const svc = new PedidosService({} as never, {} as never, {} as never, new ArquivosService());
+  const svc = new PedidosService({} as never, {} as never, {} as never, new ArquivosService(), { prontaEntrega: async () => [] } as never);
   return { svc, tx, movs };
 }
 

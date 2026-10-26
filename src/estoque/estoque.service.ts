@@ -33,6 +33,86 @@ export class EstoqueService {
       .map((g) => ({ produtoId: g.produtoId as number, tamanho: g.tamanho, cor: g.cor, quantidade: g._count._all }));
   }
 
+  /**
+   * PRONTA ENTREGA: o que dá para separar HOJE, por produto · cor · tamanho.
+   *
+   * `disponivelProdutos` não serve para decidir separação: ele conta tudo que
+   * não foi despachado, então soma peça já reservada para outro pedido e peça
+   * que ainda nem foi guardada. Quem vai montar a expedição precisa saber três
+   * coisas diferentes:
+   *
+   *   livre      — `em_estoque` sem dono: pode ser separada agora
+   *   doPedido   — reservada para ESTE pedido: também pode (já é dele)
+   *   deOutro    — reservada para outro pedido: existe, mas não é para pegar
+   *   semEndereco— entrou e não foi guardada: existe, mas ninguém sabe onde
+   *
+   * Vem junto ONDE cada peça está e os códigos das etiquetas — é isso que
+   * transforma "tem 11 no estoque" em "pegue estas 11, na Coluna A, Andar 2".
+   */
+  async prontaEntrega(empresaId: number, produtoIds: number[], pedidoId?: number) {
+    const ids = [...new Set((produtoIds ?? []).filter((x) => Number.isInteger(x) && x > 0))];
+    if (!ids.length) return [];
+    const uns = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, produtoId: { in: ids }, status: { not: 'despachado' } },
+      select: {
+        codigo: true, produtoId: true, cor: true, tamanho: true, status: true,
+        coluna: true, andar: true, caixaMaster: true, pedidoId: true, qualidade: true,
+      },
+      orderBy: { codigo: 'asc' },
+    });
+
+    type Linha = {
+      produtoId: number; cor: string | null; tamanho: string | null;
+      livre: number; doPedido: number; deOutro: number; semEndereco: number; segunda: number;
+      separavel: number;
+      locais: Array<{ endereco: string; quantidade: number }>;
+      etiquetas: Array<{ codigo: string; endereco: string; status: string; segunda: boolean }>;
+    };
+    const mapa = new Map<string, Linha>();
+    for (const u of uns) {
+      if (u.produtoId == null) continue;
+      const chave = `${u.produtoId}|${u.cor ?? ''}|${u.tamanho ?? ''}`;
+      let l = mapa.get(chave);
+      if (!l) {
+        l = {
+          produtoId: u.produtoId, cor: u.cor, tamanho: u.tamanho,
+          livre: 0, doPedido: 0, deOutro: 0, semEndereco: 0, segunda: 0, separavel: 0,
+          locais: [], etiquetas: [],
+        };
+        mapa.set(chave, l);
+      }
+      const endereco = u.coluna && u.andar != null
+        ? `Col ${u.coluna} · And ${u.andar}${u.caixaMaster ? ' · Cx ' + u.caixaMaster : ''}`
+        : 'sem endereço';
+      const segunda = u.qualidade === 'segunda';
+      if (segunda) l.segunda++;
+
+      let podeSeparar = false;
+      if (u.status === 'reservado') {
+        if (pedidoId && u.pedidoId === pedidoId) { l.doPedido++; podeSeparar = true; }
+        else l.deOutro++;
+      } else if (u.status === 'aguardando_endereco') {
+        l.semEndereco++;
+      } else if (u.status === 'em_estoque') {
+        // Peça em estoque reservada a outro pedido não existe; o que existe é
+        // `reservado`. Aqui `em_estoque` com pedidoId é sobra de vínculo antigo:
+        // conta como livre, porque é isso que ela é na prateleira.
+        l.livre++; podeSeparar = true;
+      }
+      // Segunda linha não entra na separação automática: ela sai só quando
+      // alguém decide mandar segunda linha para aquele cliente.
+      if (podeSeparar && !segunda) {
+        l.separavel++;
+        if (l.etiquetas.length < 200) l.etiquetas.push({ codigo: u.codigo, endereco, status: u.status, segunda });
+        const loc = l.locais.find((x) => x.endereco === endereco);
+        if (loc) loc.quantidade++; else l.locais.push({ endereco, quantidade: 1 });
+      }
+    }
+    return [...mapa.values()]
+      .map((l) => ({ ...l, locais: l.locais.sort((a, b) => b.quantidade - a.quantidade) }))
+      .sort((a, b) => a.produtoId - b.produtoId || String(a.tamanho).localeCompare(String(b.tamanho)));
+  }
+
   // ===================== LEITURA DE CÓDIGO (bipagem) =====================
   /**
    * Descobre O QUE FOI BIPADO. O leitor devolve coisas bem diferentes conforme a

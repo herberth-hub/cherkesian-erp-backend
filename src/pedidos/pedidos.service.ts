@@ -12,6 +12,7 @@ import { CreditoService } from '../credito/credito.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { ArquivosService } from '../arquivos/arquivos.service';
+import { EstoqueService } from '../estoque/estoque.service';
 import { AuthUser } from '../auth/auth.types';
 import { ehVendedor, escopoCarteira } from '../common/rbac/carteira';
 
@@ -22,6 +23,7 @@ export class PedidosService {
     private readonly credito: CreditoService,
     private readonly notificacoes: NotificacoesService,
     private readonly arquivos: ArquivosService,
+    private readonly estoque: EstoqueService,
   ) {}
 
   async findAll(empresaId: number, scope?: { vendedorId: number; usuario: string; user?: AuthUser }) {
@@ -1239,12 +1241,64 @@ export class PedidosService {
         const m = materiais.find((x) => x.id === materialId)!;
         return { material: m.codigo, descricao: m.descricao, baixado: q.toFixed(3), unidade: m.unidade };
       }),
+      // PRONTA ENTREGA: o que já está no armazém e poderia sair sem produzir.
+      // Vai como aviso, não como desconto automático: só quem olha a prateleira
+      // sabe se a etiqueta corresponde a uma peça de verdade — e corrigir uma OP
+      // encolhida por engano custa muito mais do que separar à mão.
+      ...(await this.prontaEntregaDoPedido(pedido, empresaId)),
       semReceita,
       avisoReceita: semReceita.length
         ? `${semReceita.length === 1 ? 'Este produto não tem' : 'Estes produtos não têm'} ficha de consumo (receita) cadastrada: ${semReceita.join(' · ')}. `
           + 'A OP sai com o romaneio de materiais VAZIO e o tecido NÃO baixa do estoque. '
           + 'Cadastre o consumo em Produto › Consumo e gere a OP de novo para a baixa sair certa.'
         : null,
+    };
+  }
+
+  /**
+   * Quanto do pedido já está no armazém, por item e tamanho — e onde.
+   *
+   * Serve para não mandar produzir o que já existe. Volta como aviso: a decisão
+   * de separar em vez de produzir depende de alguém confirmar que a etiqueta
+   * corresponde a uma peça na prateleira.
+   */
+  private async prontaEntregaDoPedido(
+    pedido: { id: number; itens: Array<{ id: number; produtoId: number | null; descricao: string; cor: string | null; quantidade: number; quantidadeExpedida: number; grade: unknown; gradeExpedida: unknown }> },
+    empresaId: number,
+  ) {
+    const ids = [...new Set(pedido.itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    if (!ids.length) return { prontaEntrega: [], avisoProntaEntrega: null };
+    const disp = await this.estoque.prontaEntrega(empresaId, ids, pedido.id);
+
+    const linhas: Array<{ item: string; cor: string | null; tamanho: string | null; falta: number; emEstoque: number; separar: number; locais: Array<{ endereco: string; quantidade: number }> }> = [];
+    let total = 0;
+    for (const it of pedido.itens) {
+      if (it.produtoId == null) continue;
+      const g = (it.grade as Record<string, number> | null) ?? null;
+      const e = (it.gradeExpedida as Record<string, number> | null) ?? {};
+      const porTam: Array<[string | null, number]> = g && Object.keys(g).length
+        ? Object.entries(g).map(([t, q]) => [t, Number(q) - Number(e[t] ?? 0)])
+        : [[null, it.quantidade - it.quantidadeExpedida]];
+      for (const [tam, falta] of porTam) {
+        if (falta <= 0) continue;
+        const d = disp.find((x) => x.produtoId === it.produtoId
+          && (x.cor ?? '') === (it.cor ?? '')
+          && (x.tamanho ?? '') === (tam ?? ''));
+        const emEstoque = d?.separavel ?? 0;
+        if (!emEstoque) continue;
+        const separar = Math.min(falta, emEstoque);
+        total += separar;
+        linhas.push({ item: it.descricao, cor: it.cor, tamanho: tam, falta, emEstoque, separar, locais: d?.locais ?? [] });
+      }
+    }
+    if (!total) return { prontaEntrega: [], avisoProntaEntrega: null };
+    const resumo = linhas.map((l) => `${l.tamanho ?? 'ÚNICO'}: ${l.separar}`).join(' · ');
+    return {
+      prontaEntrega: linhas,
+      avisoProntaEntrega:
+        `${total} peça(s) deste pedido JÁ ESTÃO no armazém (${resumo}) e podem ser separadas sem produzir. `
+        + 'Confira na prateleira e expeça essas antes — a OP continua cobrindo o pedido inteiro, '
+        + 'porque só quem olha a peça sabe se a etiqueta tem lastro.',
     };
   }
 

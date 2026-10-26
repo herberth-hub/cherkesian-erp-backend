@@ -42,6 +42,22 @@ export class EstoqueController {
     return this.estoqueService.disponivelProdutos(user.empresaId, ids);
   }
 
+  /**
+   * O que dá para SEPARAR hoje, com o lugar e as etiquetas.
+   * `pedido=` faz as peças já reservadas para aquele pedido contarem como dele.
+   */
+  @Areas('estoque', 'producao', 'expedicao', 'vendas')
+  @Get('pronta-entrega')
+  prontaEntrega(
+    @Query('produtos') produtos: string,
+    @Query('pedido') pedido: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const ids = (produtos ?? '').split(',').map((x) => parseInt(x.trim(), 10)).filter((x) => x > 0);
+    const pedidoId = parseInt(pedido ?? '', 10);
+    return this.estoqueService.prontaEntrega(user.empresaId, ids, pedidoId > 0 ? pedidoId : undefined);
+  }
+
   @Areas('estoque', 'producao', 'compras')
   @Post('entrada')
   @HttpCode(HttpStatus.CREATED)
