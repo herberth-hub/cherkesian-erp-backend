@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
 import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
 // O boleto (base64) NÃO vai na listagem (baixa via endpoint próprio) — só o flag temBoleto.
@@ -16,7 +17,10 @@ export type ContaPagarView = Omit<ContaPagar, 'boleto'> & { status: TituloStatus
 
 @Injectable()
 export class ContasPagarService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly arquivos: ArquivosService,
+  ) {}
 
   async findAll(empresaId: number, status?: TituloStatus): Promise<ContaPagarView[]> {
     const titulos = await this.prisma.contaPagar.findMany({
@@ -55,7 +59,9 @@ export class ContasPagarService {
         vencimento,
         valor,
         pago: 0,
-        boleto: dto.boleto || null,
+        // Boleto novo vai para o bucket; sem bucket, `guardar` devolve o próprio
+        // data URI e nada muda.
+        boleto: dto.boleto ? await this.arquivos.guardar(dto.boleto, 'boletos') : null,
         boletoNome: dto.boleto ? (dto.boletoNome || 'boleto') : null,
         status: calcularStatusTitulo(valor, new Prisma.Decimal(0), vencimento),
       },
@@ -140,6 +146,13 @@ export class ContasPagarService {
     if (valor.lessThan(t.pago)) {
       throw new BadRequestException(`O valor não pode ser menor que o já pago (${t.pago.toFixed(2)}).`);
     }
+    // Sobe o boleto novo ANTES do update, e só então apaga o anterior do
+    // bucket — se o upload falhar, o título continua com o arquivo que tinha.
+    let boletoNovo: string | null = null;
+    if (dto.boleto !== undefined) {
+      boletoNovo = dto.boleto ? await this.arquivos.guardar(dto.boleto, 'boletos') : null;
+      if (t.boleto && t.boleto !== boletoNovo) await this.arquivos.remover(t.boleto);
+    }
     const atualizado = await this.prisma.contaPagar.update({
       where: { id },
       data: {
@@ -150,8 +163,9 @@ export class ContasPagarService {
         vencimento,
         valor,
         // boleto: undefined = não mexe; '' = remove; string = substitui.
+        // Substituir ou remover tira o anterior do bucket, para não deixar lixo.
         ...(dto.boleto !== undefined
-          ? { boleto: dto.boleto || null, boletoNome: dto.boleto ? (dto.boletoNome || t.boletoNome || 'boleto') : null }
+          ? { boleto: boletoNovo, boletoNome: dto.boleto ? (dto.boletoNome || t.boletoNome || 'boleto') : null }
           : {}),
         status: calcularStatusTitulo(valor, t.pago, vencimento),
       },
@@ -165,10 +179,11 @@ export class ContasPagarService {
     const t = await this.prisma.contaPagar.findUnique({ where: { id }, select: { empresaId: true, boleto: true, boletoNome: true } });
     if (!t || t.empresaId !== empresaId) throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
     if (!t.boleto) throw new NotFoundException('Este título não tem boleto anexado.');
-    const m = /^data:([^;]+);base64,(.*)$/s.exec(t.boleto);
-    const contentType = m ? m[1] : 'application/octet-stream';
-    const b64 = m ? m[2] : t.boleto;
-    const content = Buffer.from(b64, 'base64');
+    // O arquivo pode estar no bucket. O financeiro continua entregando os bytes
+    // pela rota autenticada dele — boleto é dado de pagamento, não vai por link.
+    const anexo = await this.arquivos.bytes(t.boleto);
+    const contentType = anexo?.tipo ?? 'application/octet-stream';
+    const content = anexo?.bytes ?? Buffer.from(t.boleto, 'base64');
     const ext = contentType.includes('pdf') ? 'pdf' : /png/.test(contentType) ? 'png' : /jpe?g/.test(contentType) ? 'jpg' : 'bin';
     const filename = t.boletoNome && /\.[a-z0-9]{2,4}$/i.test(t.boletoNome) ? t.boletoNome : `boleto-${id}.${ext}`;
     return { content, contentType, filename };
@@ -180,6 +195,7 @@ export class ContasPagarService {
       throw new NotFoundException(`Título a pagar ${id} não encontrado.`);
     }
     await this.prisma.contaPagar.delete({ where: { id } });
+    await this.arquivos.remover(t.boleto); // título apagado, boleto sai do bucket
     return { removido: true, id };
   }
 

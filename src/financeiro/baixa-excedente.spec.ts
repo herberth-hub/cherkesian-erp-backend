@@ -10,6 +10,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { ContasPagarService } from './contas-pagar.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { ContasReceberService } from './contas-receber.service';
 
 const D = (n: number) => new Prisma.Decimal(n);
@@ -27,7 +28,7 @@ function pagar(over: Partial<typeof TITULO> = {}) {
       },
     },
   };
-  return { svc: new ContasPagarService(prisma as never), gravado };
+  return { svc: new ContasPagarService(prisma as never, new ArquivosService()), gravado };
 }
 
 function receber(over: Partial<typeof TITULO> = {}) {
