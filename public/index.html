@@ -2991,7 +2991,9 @@ function uiDialog(o){
     const tipo=o.tipo||'info';
     const ov=document.createElement('div'); ov.className='uidlg-ov';
     const cancelBtn = o.cancel!==false ? `<button class="uibtn ghost" data-r="0">${esc(o.cancel||'Cancelar')}</button>` : '';
-    const msg = esc(o.msg||'').replace(/\n/g,'<br>');
+    // `msg` é texto (escapado). `html` é para quando a explicação precisa de
+    // lista ou destaque — quem chama é responsável por escapar o que vem de fora.
+    const msg = o.html || esc(o.msg||'').replace(/\n/g,'<br>');
     ov.innerHTML=`<div class="uidlg ${tipo}"><div class="uiacc"></div><div class="uiin">
       <div class="uibrand"><span class="uigc"><b>GRUPO</b> CHERKESIAN</span></div>
       <div class="uitop"><div class="uiic">${_uiIcon(tipo)}</div>
@@ -5409,16 +5411,37 @@ async function pedCancelarSel(){
   if(!canc.length){ toast('Nenhum dos selecionados pode ser cancelado.','err'); return; }
   if(!(await uiConfirm({tipo:'warn', titulo:'Cancelar '+canc.length+' pedido(s)?', ok:'Cancelar pedidos', cancel:'Voltar', msg:'Os pedidos ficam marcados como CANCELADOS (registro mantido). Pedidos com NF ativa serão pulados.'}))) return;
   let ok=0; const falhas=[];
-  for(const id of canc){ try{ await api('/pedidos/'+id+'/cancelar',{method:'POST',silent:true}); ok++; }catch(e){ const p=pedById(id); falhas.push((p?p.numero:id)); } }
-  toast(ok+' pedido(s) cancelado(s)'+(falhas.length?(' · '+falhas.length+' com NF ativa (pulados): '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
+  for(const id of canc){
+    try{ await api('/pedidos/'+id+'/cancelar',{method:'POST',silent:true}); ok++; }
+    catch(e){ const p=pedById(id); falhas.push({numero:(p?p.numero:id), motivo:(e&&e.message)||'motivo não informado'}); }
+  }
+  if(!falhas.length){ toast(ok+' pedido(s) cancelado(s).','ok'); loadRoute(); return; }
+  await uiAlert({
+    tipo: ok?'warn':'err', ok:'Entendi',
+    titulo: ok ? (ok+' cancelado(s) · '+falhas.length+' não pôde(ram) ser cancelado(s)') : ('Nenhum cancelado · '+falhas.length+' bloqueado(s)'),
+    html: `<div style="font-size:12.5px;line-height:1.5">${falhas.map(f=>`<div style="padding:7px 0;border-bottom:1px solid #f0ebdc"><b class="mono gold">${esc(f.numero)}</b><div style="color:#c14a34;margin-top:2px">${esc(f.motivo)}</div></div>`).join('')}</div>`,
+  });
   loadRoute();
 }
 async function pedExcluirSel(){
   const ids=pedSelIds(); if(!ids.length){ toast('Selecione ao menos um pedido.','err'); return; }
   if(!(await uiConfirm({tipo:'err', titulo:'Excluir '+ids.length+' pedido(s)?', ok:'Excluir', cancel:'Voltar', msg:'A exclusão é permanente e só vale para pedidos SEM OP e SEM NF. Os que tiverem produção/nota serão pulados. Esta ação não pode ser desfeita.'}))) return;
   let ok=0; const falhas=[];
-  for(const id of ids){ try{ await api('/pedidos/'+id,{method:'DELETE',silent:true}); ok++; }catch(e){ const p=pedById(id); falhas.push((p?p.numero:id)); } }
-  toast(ok+' pedido(s) excluído(s)'+(falhas.length?(' · '+falhas.length+' pulado(s) (com OP/NF): '+falhas.join(', ')):'.'), falhas.length?'err':'ok');
+  // Guarda o MOTIVO de cada recusa: "pulado (com OP/NF)" não dizia o que
+  // travou nem o que fazer, e a pessoa ficava tentando de novo sem saber que
+  // era uma NF autorizada ou uma expedição já despachada.
+  for(const id of ids){
+    try{ await api('/pedidos/'+id,{method:'DELETE',silent:true}); ok++; }
+    catch(e){ const p=pedById(id); falhas.push({numero:(p?p.numero:id), motivo:(e&&e.message)||'motivo não informado'}); }
+  }
+  if(!falhas.length){ toast(ok+' pedido(s) excluído(s).','ok'); loadRoute(); return; }
+  await uiAlert({
+    tipo: ok?'warn':'err',
+    ok: 'Entendi',
+    titulo: ok ? (ok+' excluído(s) · '+falhas.length+' não pôde(ram) ser excluído(s)') : ('Nenhum pedido excluído · '+falhas.length+' bloqueado(s)'),
+    html: `<div style="font-size:12.5px;line-height:1.5">${falhas.map(f=>`<div style="padding:7px 0;border-bottom:1px solid #f0ebdc"><b class="mono gold">${esc(f.numero)}</b><div style="color:#c14a34;margin-top:2px">${esc(f.motivo)}</div></div>`).join('')}
+      <div class="muted" style="margin-top:9px">Pedido com nota autorizada, expedição despachada ou produção iniciada <b>não é apagado</b> — o registro fiscal e o estoque dependem dele. Para tirar da lista, use <b>Cancelar</b>: o pedido fica marcado como cancelado e sai de "em andamento", mantendo o histórico.</div></div>`,
+  });
   loadRoute();
 }
 async function pedBaixarSel(){
