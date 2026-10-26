@@ -3417,11 +3417,19 @@ function anexoLista(tipo){
 function anexoThumb(tipo){
   const cfg=ANEXOS[tipo]; const arr=anexoLista(tipo);
   if(!arr.length) return `<span class="muted" style="font-size:12px">${cfg.vazio}</span>`;
-  const linha=(a,i)=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 0">
+  // Anexo no bucket: `a.data` é só a referência, então o link de download usa a
+  // URL assinada que a API mandou à parte, e o tamanho não dá para calcular do
+  // data URI (não há data URI).
+  const linha=(a,i)=>{
+    const noBucket=String(a.data||'').startsWith('arq:');
+    const href=noBucket?(a.url||''):a.data;
+    return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 0">
     <span class="pill green" style="font-size:11px">${cfg.icone}${cfg.varios?' '+(i+1):''}</span>
-    <a href="${a.data}" download="${esc(a.nome||cfg.baixaComo)}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||cfg.baixaComo)}</a>
-    <span class="muted" style="font-size:10.5px">${anexoTam(a.data)}</span>
+    ${href?`<a href="${href}" download="${esc(a.nome||cfg.baixaComo)}" style="font-size:12px;color:#2b6cb0;text-decoration:underline">${esc(a.nome||cfg.baixaComo)}</a>`
+          :`<span style="font-size:12px">${esc(a.nome||cfg.baixaComo)}</span>`}
+    <span class="muted" style="font-size:10.5px">${noBucket?'arquivado':anexoTam(a.data)}</span>
     <a onclick="APP.anexoDel('${tipo}',${i})" style="cursor:pointer;color:#c14a34;font-size:11px">remover</a></div>`;
+  };
   const cab=cfg.varios&&arr.length>1?`<div class="muted" style="font-size:11px;margin-bottom:2px"><b>${arr.length}</b> logo(s) anexado(s)</div>`:'';
   return cab+arr.map(linha).join('');
 }
@@ -3543,7 +3551,7 @@ async function formProduto(id, prefill){
   // Lista de logos; cai no campo antigo quando o produto e anterior a mudanca.
   window.__LOGOVET = Array.isArray(p.logosVetor) && p.logosVetor.length ? p.logosVetor : (p.logoVetor ? [{ data:p.logoVetor, nome:p.logoVetorNome||'logo' }] : []);
   window.__FICHACLI = { data: p.fichaCliente||'', nome: p.fichaClienteNome||'' };
-  window.__MAPADTF = { data: p.mapaDtf||'', nome: p.mapaDtfNome||'' };
+  window.__MAPADTF = { data: p.mapaDtf||'', nome: p.mapaDtfNome||'', url: p.mapaDtfUrl||'' };
   window.__PMED = (p.medidas||[]).map(m=>({ descricao:m.descricao, tolerancia:m.tolerancia||'', valores:Object.assign({}, m.valores||{}) }));
   window.__PMEDT = deriveSizes(p);
   // Duplicar começa sem cores: elas pertencem ao produto de origem (e os mockups

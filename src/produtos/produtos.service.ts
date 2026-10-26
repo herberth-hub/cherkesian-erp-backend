@@ -307,6 +307,7 @@ export class ProdutosService {
       ...produto,
       fotoModeloUrl: this.arquivos.url(produto.fotoModelo),
       fotoModelagemUrl: this.arquivos.url(produto.fotoModelagem),
+      mapaDtfUrl: this.arquivos.url(produto.mapaDtf),
     };
   }
 
@@ -546,10 +547,13 @@ export class ProdutosService {
    */
   private async anexosParaBucket(
     dto: CreateProdutoDto | UpdateProdutoDto,
-    anterior?: { fotoModelo: string | null; fotoModelagem: string | null } | null,
+    anterior?: { fotoModelo: string | null; fotoModelagem: string | null; mapaDtf: string | null } | null,
   ): Promise<void> {
     if (!this.arquivos.ligado) return;
-    for (const campo of ['fotoModelo', 'fotoModelagem'] as const) {
+    // mapaDtf entra aqui porque é o anexo mais pesado do produto (há mapas de
+    // 2,5 MB): deixá-lo fora fazia a coluna voltar a encher sozinha a cada
+    // produto novo, mesmo depois de migrada.
+    for (const campo of ['fotoModelo', 'fotoModelagem', 'mapaDtf'] as const) {
       const v = dto[campo];
       if (v === undefined) continue;
       const s = String(v ?? '').trim();
