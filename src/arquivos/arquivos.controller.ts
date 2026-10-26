@@ -1,5 +1,5 @@
-import { Controller, ForbiddenException, Get, Param, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, ForbiddenException, Get, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { ArquivosService } from './arquivos.service';
 import { Public } from '../common/decorators/public.decorator';
 
@@ -15,15 +15,18 @@ export class ArquivosController {
    * API para quem já estava autenticado, com validade curta. Sem assinatura
    * válida, nada sai daqui.
    */
+  // Curinga sem nome, com o caminho em `params[0]`: este projeto roda Nest 10
+  // sobre Express 4, onde o curinga NOMEADO do Express 5 (`*chave`) não casa
+  // com nada — a rota respondia 404 e toda imagem do bucket vinha quebrada.
   @Public()
-  @Get('*chave')
+  @Get('*')
   async baixar(
-    @Param('chave') chave: string | string[],
+    @Req() req: Request,
     @Query('e') expira: string,
     @Query('a') assinatura: string,
     @Res() res: Response,
   ) {
-    const caminho = Array.isArray(chave) ? chave.join('/') : String(chave ?? '');
+    const caminho = decodeURIComponent(String((req.params as Record<string, string>)[0] ?? ''));
     if (!this.arquivos.conferirAssinatura(caminho, expira, assinatura)) {
       throw new ForbiddenException('Link do anexo inválido ou expirado.');
     }
