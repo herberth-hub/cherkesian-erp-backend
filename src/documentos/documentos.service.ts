@@ -69,6 +69,12 @@ export class DocumentosService {
    * do banco. Assim todo o desenho dos PDFs continua recebendo base64 e nenhuma
    * das dezenas de chamadas de `imagem(...)` precisou mudar.
    */
+  /** O mesmo, para uma LISTA de registros (as OPs trazem vários produtos). */
+  private async resolverAnexosLista<T extends Record<string, unknown>>(lista: T[], campos: Array<keyof T>): Promise<T[]> {
+    for (const item of lista) await this.resolverAnexos(item, campos);
+    return lista;
+  }
+
   private async resolverAnexos<T extends Record<string, unknown>>(alvo: T | null, campos: Array<keyof T>): Promise<T | null> {
     if (!alvo) return alvo;
     for (const c of campos) {
@@ -513,6 +519,7 @@ export class DocumentosService {
     const produto = op.produtoId
       ? await this.prisma.produto.findUnique({ where: { id: op.produtoId } })
       : null;
+    await this.resolverAnexos(produto, ['fotoModelo']); // foto pode estar no bucket
     const bom = op.produtoId
       ? await this.prisma.consumo.findMany({
           where: { produtoId: op.produtoId },
@@ -716,6 +723,7 @@ export class DocumentosService {
     if (!ops.length) throw new BadRequestException('Este pedido ainda não tem OP gerada.');
     const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
     const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true, fotoModelo: true } }) : [];
+    await this.resolverAnexosLista(produtos, ['fotoModelo']); // foto pode estar no bucket
     const prodMap = new Map(produtos.map((p) => [p.id, p]));
     const totalPecas = ops.reduce((s, o) => s + o.quantidade, 0);
 
@@ -799,6 +807,7 @@ export class DocumentosService {
 
     const prodIds = ops.map((o) => o.produtoId).filter((x): x is number => x != null);
     const produtos = prodIds.length ? await this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true, descricao: true, cor: true, fotoModelo: true } }) : [];
+    await this.resolverAnexosLista(produtos, ['fotoModelo']); // foto pode estar no bucket
     const prodMap = new Map(produtos.map((p) => [p.id, p]));
 
     // Recorta a grade de cada OP pelos tamanhos escolhidos e soma o total da OS.

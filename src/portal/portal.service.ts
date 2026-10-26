@@ -10,6 +10,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { EmailService } from '../email/email.service';
 import { LogsService } from '../logs/logs.service';
 import { AuthUser } from '../auth/auth.types';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { ExpedicoesService } from '../expedicoes/expedicoes.service';
 import { CriarPedidoPortalDto } from './dto/criar-pedido-portal.dto';
 
@@ -30,6 +31,7 @@ export class PortalService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly logs: LogsService,
+    private readonly arquivos: ArquivosService,
   ) {}
 
   /** Quem está assinando a ação no portal (aparece na trilha de auditoria do ERP). */
@@ -1119,9 +1121,11 @@ export class PortalService {
       (!!cliente.grupo && !!cliente.grupo.trim() && p.clienteGrupo === cliente.grupo.trim()) ||
       !!(await this.prisma.contratoItem.findFirst({ where: { produtoId, contrato: { clienteId: cliente.id, empresaId: user.empresaId } }, select: { id: true } }));
     if (!meu) throw new ForbiddenException('Produto fora do seu catálogo.');
-    const m = /^data:([^;,]+);base64,(.+)$/s.exec(p.fotoModelo || '');
-    if (!m) throw new NotFoundException('Produto sem foto.');
-    return { contentType: m[1], content: Buffer.from(m[2], 'base64') };
+    // A foto pode estar no bucket: o portal entrega os bytes ele mesmo, para o
+    // cliente continuar acessando pela rota autenticada dele.
+    const anexo = await this.arquivos.bytes(p.fotoModelo);
+    if (!anexo) throw new NotFoundException('Produto sem foto.');
+    return { contentType: anexo.tipo, content: anexo.bytes };
   }
 
   private respostaPedido(
