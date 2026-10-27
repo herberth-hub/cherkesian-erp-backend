@@ -7647,12 +7647,17 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePe
   const ref = val('oc_ref').trim();
   if(!descricao){ toast('Informe a descrição.','err'); return; }
   // Lê a quantidade digitada por tamanho (conclusão parcial).
+  // Sem grade planejada não existe "excedente": a OP inteira é do pedido. Sem
+  // isto, uma OP sem grade caía com maxPedido=0 em todo lote, as peças viravam
+  // excedente e iam para estoque LIVRE — sem reserva e sem ir pra expedição,
+  // mesmo com "Ir direto pra expedição" escolhido (OP-0214/PV165, out/2026).
+  const semGrade = !gradePedido || !Object.keys(gradePedido).length;
   let lotes = [];
   if(pares && pares.length){
     for(const [t,max] of pares){
       const el=$('ocq_'+t);
       const q = el ? Math.max(0, Math.min(Number(el.value)||0, Number(max)||0)) : Number(max)||0;
-      if(q>0) lotes.push({tamanho:t, quantidade:q, maxPedido:Number((gradePedido||{})[t]||0)});
+      if(q>0) lotes.push({tamanho:t, quantidade:q, maxPedido: semGrade ? q : Number((gradePedido||{})[t]||0)});
     }
   } else {
     lotes = [{tamanho:'', quantidade:qtdTotal, maxPedido:qtdTotal}];

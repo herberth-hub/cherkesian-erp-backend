@@ -478,12 +478,19 @@ export class OpsService {
     for (const [tamanho, qtd] of Object.entries(grade ?? {})) {
       const t = String(tamanho).trim().toUpperCase();
       const n = Number(qtd);
-      if (!t || t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
-      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${t}: "${qtd}".`);
+      // OP SEM GRADE é um lote único, e a chave desse lote é "" — é assim que
+      // `baseDaConclusao` e `gradeFases` já a representam. Recusar a chave vazia
+      // aqui travava a conclusão: na OP-0214 (PV165, 4 peças sem grade) as 4
+      // etiquetas saíram e a OP ficou "em produção" para sempre, porque o
+      // registro da conclusão era rejeitado com 'Tamanho inválido: ""'.
+      if (!t && base[''] == null) throw new BadRequestException('Informe o tamanho das peças concluídas.');
+      if (t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
+      const rot = t || 'Lote único'; // como a OP sem grade aparece nas mensagens
+      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${rot}: "${qtd}".`);
       if (n === 0) continue;
       const restante = Number(base[t] ?? 0) - Number(jaFeito[t] ?? 0);
-      if (restante <= 0) throw new BadRequestException(`${t} já está concluído nesta OP.`);
-      if (n > restante) throw new BadRequestException(`${t}: faltam ${restante} peça(s), não ${n}.`);
+      if (restante <= 0) throw new BadRequestException(`${rot} já está concluído nesta OP.`);
+      if (n > restante) throw new BadRequestException(`${rot}: faltam ${restante} peça(s), não ${n}.`);
       agora[t] = n; somaAgora += n;
     }
     if (somaAgora <= 0) throw new BadRequestException('Informe ao menos 1 peça para concluir.');

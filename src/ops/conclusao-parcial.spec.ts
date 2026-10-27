@@ -136,6 +136,50 @@ describe('registro do corte', () => {
 });
 
 /**
+ * OP SEM GRADE DE TAMANHOS — um lote só.
+ *
+ * Caso real OP-0214 (PV165, 4 peças): o item do pedido não tinha grade, então a
+ * OP nasceu sem `gradeTamanhos`. `baseDaConclusao` já representa esse lote com a
+ * chave vazia (""), e `gradeFases` gravava {"Separação 1":{"":4}} — mas a
+ * validação da conclusão recusava a chave vazia com 'Tamanho inválido: ""'.
+ * Resultado: as 4 etiquetas saíam e a OP ficava "em produção" para sempre, sem
+ * nunca entrar em Finalizadas.
+ */
+describe('OP sem grade de tamanhos (lote único)', () => {
+  const SEM_GRADE = { quantidade: 4, gradeTamanhos: null, gradeCortada: null };
+
+  it('conclui pela chave vazia e FINALIZA a OP', async () => {
+    const { svc } = servico(SEM_GRADE);
+    const r = await svc.concluirParcial(516, { '': 4 }, 1);
+    expect(r.finalizada).toBe(true);
+    expect(r.status).toBe('concluido');
+    expect(r.setorAtual).toBe('Finalizado');
+    expect(r.progresso).toBe(100);
+    expect(r.totalConcluido).toBe(4);
+    expect(r.restante).toEqual({});
+  });
+
+  it('conclusão parcial do lote único deixa a OP em produção', async () => {
+    const { svc, gravado } = servico(SEM_GRADE);
+    const r = await svc.concluirParcial(516, { '': 3 }, 1);
+    expect(r.finalizada).toBe(false);
+    expect(r.restante).toEqual({ '': 1 });
+    expect(gravado[0].status).toBeUndefined();
+  });
+
+  it('não deixa concluir mais peças do que a OP tem', async () => {
+    const { svc } = servico(SEM_GRADE);
+    await expect(svc.concluirParcial(516, { '': 5 }, 1)).rejects.toThrow(/faltam 4 peça/i);
+  });
+
+  /** A chave vazia só vale onde o lote único existe; numa OP com grade é tamanho faltando. */
+  it('OP COM grade continua exigindo o tamanho', async () => {
+    const { svc } = servico();
+    await expect(svc.concluirParcial(516, { '': 4 }, 1)).rejects.toThrow(/informe o tamanho/i);
+  });
+});
+
+/**
  * A OP fecha contra o PLANEJADO, nunca contra o cortado.
  *
  * Caso real OP-0037 (PV43): 233 peças planejadas em 5 tamanhos, corte registrado
