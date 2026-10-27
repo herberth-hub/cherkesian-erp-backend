@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "erp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:prod"],
+      "port": 3000
+    }
+  ]
+}

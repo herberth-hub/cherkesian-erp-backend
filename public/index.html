@@ -9133,12 +9133,21 @@ function unidTipoPill(t){ const m={produto:['blue','produto acabado'],materia:['
 async function viewEstoque(c){
   // Carrega uma vez e filtra tudo no cliente. /materiais entra porque material com
   // saldo e ZERO etiqueta também tem de aparecer (é o caso de todo aviamento hoje).
-  const [unidades, materiais] = await Promise.all([
+  // /produtos entra pelas CORES: a etiqueta guarda o nome da cor ("BEGE"), e o
+  // mockup é buscado por ProdutoCor.id. Sem esse mapa não dá para mostrar a peça
+  // na cor certa na matriz. A lista não traz base64, então é leve.
+  const [unidades, materiais, produtos] = await Promise.all([
     api('/estoque/unidades').catch(()=>[]),
     api('/materiais').catch(()=>[]),
+    api('/produtos').catch(()=>[]),
   ]);
   window.__UNIDS_ALL = unidades||[];
   window.__MATS_EST = materiais||[];
+  window.__ESTPROD = new Map((produtos||[]).map(p=>[p.id,p]));
+  // Os dois caches de imagem são compartilhados com o catálogo e com o pedido;
+  // quem abrir o Estoque primeiro tem de encontrá-los prontos.
+  if(!window.__PRODFOTOS) window.__PRODFOTOS = {};
+  if(!window.__MOCK) window.__MOCK = {};
   try{ const cfg=await api('/estoque/caixas/config'); window.__MASTERMAX=Number(cfg&&cfg.max)||14; window.__MASTERPOS=(cfg&&cfg.pos)||{}; }catch(_){ if(window.__MASTERMAX==null) window.__MASTERMAX=14; if(window.__MASTERPOS==null) window.__MASTERPOS={}; }
   if(!window.__EST) window.__EST={cat:'',status:'',q:'',col:'',andar:'',visao:'produto',semMetragem:false,verTudo:{}};
   c.innerHTML = toolbar('Estoque', 'Entrada (etiqueta)', 'APP.formEntradaEstoque()',
@@ -9385,6 +9394,73 @@ function estViewDespachadas(){
 // Granel: card por material com o SALDO do cadastro — a etiqueta ali é rastreio do
 // rolo, e só 3% deles têm metragem gravada; somar etiqueta daria um número falso.
 const EST_ESCADA=['PP','P','M','G','GG','G1','G2','G3','G4','G5','G6','G7','G8','ÚNICO'];
+/* ===== Fotos na visão "Por produto" do estoque =====
+ * Quem não conhece o código não reconhece "PRD-CAM-0078" — reconhece a peça.
+ * A foto do produto fica no topo do card e cada linha de cor ganha a miniatura
+ * DAQUELA cor, com o swatch no canto. Base64 é pesado, então vem sob demanda e
+ * em lote, pelos mesmos endpoints do catálogo, e o que chega fica guardado.
+ */
+function estCorId(produtoId, cor){
+  const p=(window.__ESTPROD||new Map()).get(produtoId);
+  if(!p||!p.cores||!p.cores.length) return 0;
+  const alvo=bnorm(cor);
+  const c=p.cores.find(x=>bnorm(x.nome)===alvo);
+  return c?c.id:0;
+}
+/** Caixa de imagem que nasce vazia; o observer pede e preenche. */
+function estFoto(tipo, id, estilo, extra){
+  const cache = tipo==='cor' ? (window.__MOCK||{}) : (window.__PRODFOTOS||{});
+  const img = id ? cache[id] : undefined;
+  const base=`background:#f4f2ed;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;${estilo}`;
+  if(img) return `<div style="${base};cursor:zoom-in" onclick="event.stopPropagation();APP.estLightbox('${tipo}',${id})"><img src="${img}" alt="" style="width:100%;height:100%;object-fit:contain"></div>`;
+  if(!id || img===null) return `<div style="${base}">${extra||'<span class="muted" style="font-size:10.5px">Sem foto</span>'}</div>`;
+  return `<div class="estfoto" data-tipo="${tipo}" data-id="${id}" style="${base}"><span class="muted" style="font-size:10.5px">…</span></div>`;
+}
+/** Abre o mockup/foto em tamanho grande. */
+function estLightbox(tipo, id){
+  const img = (tipo==='cor' ? (window.__MOCK||{}) : (window.__PRODFOTOS||{}))[id];
+  if(!img) return;
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:999;background:rgba(20,19,23,.86);display:flex;align-items:center;justify-content:center;padding:24px;cursor:zoom-out';
+  ov.innerHTML='<img src="'+img+'" alt="" style="max-width:96%;max-height:96%;object-fit:contain;border-radius:10px;background:#fff">';
+  const fechar=()=>{ ov.remove(); document.removeEventListener('keydown',esc); };
+  const esc=(e)=>{ if(e.key==='Escape') fechar(); };
+  ov.onclick=fechar; document.addEventListener('keydown',esc);
+  document.body.appendChild(ov);
+}
+/** Pede em lote as imagens que entraram na tela (produto e cor separados). */
+function estFotosObservar(){
+  const alvos=[...document.querySelectorAll('.estfoto[data-id]')];
+  if(!alvos.length) return;
+  if(window.__ESTOBS) window.__ESTOBS.disconnect();
+  const fila={produto:new Set(), cor:new Set()};
+  let timer=null;
+  const pintar=(tipo,id)=>{
+    const img=(tipo==='cor'?(window.__MOCK||{}):(window.__PRODFOTOS||{}))[id];
+    document.querySelectorAll('.estfoto[data-tipo="'+tipo+'"][data-id="'+id+'"]').forEach(el=>{
+      if(img){ el.innerHTML='<img src="'+img+'" alt="" style="width:100%;height:100%;object-fit:contain">'; el.style.cursor='zoom-in'; el.onclick=(ev)=>{ ev.stopPropagation(); estLightbox(tipo,id); }; }
+      else el.innerHTML='<span class="muted" style="font-size:10.5px">Sem foto</span>';
+      el.removeAttribute('data-id');
+    });
+  };
+  const pedir=async()=>{
+    for(const tipo of ['produto','cor']){
+      const ids=[...fila[tipo]].slice(0,24); if(!ids.length) continue;
+      ids.forEach(i=>fila[tipo].delete(i));
+      try{
+        const r=await api(tipo==='cor'?'/produtos/cores/mockups':'/produtos/fotos',{method:'POST',body:{ids}});
+        Object.assign(tipo==='cor'?window.__MOCK:window.__PRODFOTOS, r||{});
+        ids.forEach(id=>pintar(tipo,id));
+      }catch(e){ /* imagem é apoio: falhar aqui não pode derrubar o estoque */ }
+    }
+    if(fila.produto.size||fila.cor.size) timer=setTimeout(pedir,60);
+  };
+  window.__ESTOBS=new IntersectionObserver(es=>{
+    for(const e of es){ const d=e.target.dataset; if(e.isIntersecting && d.id){ fila[d.tipo].add(Number(d.id)); window.__ESTOBS.unobserve(e.target); } }
+    if(fila.produto.size||fila.cor.size){ clearTimeout(timer); timer=setTimeout(pedir,80); }
+  },{rootMargin:'300px'});
+  alvos.forEach(a=>window.__ESTOBS.observe(a));
+}
 function estViewProduto(arr){
   const b=$('estvbox'); if(!b) return;
   const E=window.__EST;
@@ -9410,16 +9486,36 @@ function estViewProduto(arr){
     const tamsPres=new Set([...g.cels.keys()].map(x=>x.split('¦')[1]));
     const tams=EST_ESCADA.filter(t=>tamsPres.has(t)).concat([...tamsPres].filter(t=>!EST_ESCADA.includes(t)).sort());
     const max=Math.max(...g.cels.values(),1);
-    const linhas=cores.map(cor=>`<tr><td style="padding:3px 7px;font-size:11.5px;white-space:nowrap;color:#77746d">${esc(cor)}</td>`
+    const prodId=(typeof k==='number')?k:0;
+    // Foto do card: o mockup da cor com MAIS peça na prateleira — é ela que a
+    // pessoa vai encontrar quando for lá. Nem a 1ª do cadastro (pode não se
+    // produzir há meses) nem a 1ª em ordem alfabética.
+    const totCor=new Map();
+    for(const [ck,n] of g.cels) { const c=ck.split('¦')[0]; totCor.set(c,(totCor.get(c)||0)+n); }
+    const corTopo=[...totCor.entries()].sort((a,b2)=>b2[1]-a[1])[0];
+    const primCorId=(prodId&&corTopo)?estCorId(prodId,corTopo[0]):0;
+    const linhas=cores.map(cor=>{
+      // Miniatura da peça NAQUELA cor; sem mockup da cor, cai na foto do produto.
+      const corId=prodId?estCorId(prodId,cor):0;
+      const mini=corId
+        ? estFoto('cor',corId,'width:40px;height:40px;flex:none')
+        : estFoto('produto',prodId,'width:40px;height:40px;flex:none','');
+      return `<tr><td style="padding:3px 7px;font-size:11.5px;white-space:nowrap;color:#77746d">
+        <div style="display:flex;gap:7px;align-items:center">
+          <div style="position:relative;flex:none">${mini}
+            <span style="position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:3px;border:1.5px solid #fff;background:${corHex(cor)}"></span></div>
+          <span>${esc(cor)}</span></div></td>`
       + tams.map(t=>{ const n=g.cels.get(cor+'¦'+t)||0;
           if(!n) return `<td style="padding:2px"><div style="height:26px;border-radius:5px;background:#f6f5f2"></div></td>`;
           const i=Math.sqrt(n/max);
           return `<td style="padding:2px"><div onclick="APP.estDrawer('${esc(String(k))}','${esc(cor)}','${esc(t)}')" title="${n} peça(s)" style="height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:11.5px;font-weight:700;color:${i>0.55?'#fff':'#1d1c1a'};background:rgba(30,122,68,${(0.12+i*0.8).toFixed(2)})">${n}</div></td>`;
-        }).join('') + '</tr>').join('');
+        }).join('') + '</tr>';
+    }).join('');
     const barra=[[g.tot-g.rec-g.qua,'#1e7a44'],[g.rec,'#d4a82a'],[g.qua,'#c14a34']].filter(([n])=>n>0)
       .map(([n,c])=>`<div style="width:${(n*100/g.tot).toFixed(1)}%;background:${c}"></div>`).join('');
     return `<div class="card" style="padding:12px 14px;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
       <div style="min-width:190px;flex:0 0 230px">
+        ${estFoto(primCorId?'cor':'produto', primCorId||prodId, 'aspect-ratio:4/3;max-height:190px;margin-bottom:8px')}
         <div class="mono gold" style="font-size:11.5px;font-weight:700">${esc(g.codigo||'—')}</div>
         <div style="font-size:12.5px;line-height:1.3;margin:2px 0 6px">${esc(g.desc)}</div>
         <div style="font-size:23px;font-weight:800">${g.tot}<span class="muted" style="font-size:12px;font-weight:400"> peça(s)</span></div>
@@ -9437,6 +9533,7 @@ function estViewProduto(arr){
     ? `${cardsProd.length&&E.cat!=='materia'&&E.cat!=='aviamento'?`<div class="sect"><h3>Produto acabado · ${cardsProd.length} item(ns)</h3><div style="display:flex;flex-direction:column;gap:10px">${cardsProd.join('')}</div></div>`:(cardsProd.length?`<div style="display:flex;flex-direction:column;gap:10px">${cardsProd.join('')}</div>`:'')}
        ${cardsGranel.length?`<div class="sect"><h3>Matéria-prima e aviamento · ${cardsGranel.length} item(ns) <span class="muted" style="font-weight:400;font-size:12px">· saldo do cadastro; a etiqueta é o rastreio do rolo</span></h3><div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(290px,1fr))">${cardsGranel.join('')}</div></div>`:''}`
     : '<div class="panel"><div class="empty">Nada neste filtro.</div></div>';
+  estFotosObservar();
 }
 
 /** Cards de granel: um por material, com saldo do cadastro e cobertura de etiquetas. */
@@ -15888,7 +15985,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
