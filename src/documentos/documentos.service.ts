@@ -62,6 +62,25 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   cobranca: { titulo: 'Demonstrativo de Cobrança', prefixo: 'COB', area: 'receber' },
 };
 
+/**
+ * CNPJ legível no documento do cliente. O cadastro das filiais tem os dois
+ * formatos (45704956000102 e 37.094.787/0001-08) — aqui sai sempre pontuado.
+ * O que não tiver 14 dígitos vai como está, sem inventar máscara.
+ */
+function formatarCnpj(v?: string | null): string {
+  const d = String(v ?? '').replace(/\D/g, '');
+  if (d.length !== 14) return (v ?? '').trim() || '—';
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+/** Telefone com DDD, fixo (10) ou celular (11). Fora disso, devolve o original. */
+function formatarTelefone(v?: string | null): string {
+  const d = String(v ?? '').replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return (v ?? '').trim() || '—';
+}
+
 @Injectable()
 export class DocumentosService {
   /**
@@ -361,9 +380,33 @@ export class DocumentosService {
       : [];
     const prodMap = new Map<number, Produto>(prodsArr.map((p) => [p.id, p]));
     const titulo = tipo === 'proposta' ? 'Proposta Comercial' : 'Pedido de Venda';
+    // QUEM está vendendo. O grupo tem três CNPJs (HC Quality, Cherkesian Têxtil,
+    // Yerevan) e a proposta não dizia por qual deles ia — o cliente recebia um
+    // PDF do "Grupo Cherkesian" sem saber com qual empresa estava negociando,
+    // nem de quem viria a nota. É a filial do pedido; sem ela, a matriz.
+    const emit = pedido.filial
+      ?? (await this.prisma.filial.findFirst({ where: { empresaId }, orderBy: [{ matriz: 'desc' }, { id: 'asc' }] }));
+    // Logo do cabeçalho: o da empresa emissora, quando ela tiver o seu; senão
+    // mantém o do grupo (mesma regra da Ordem de Compra).
+    if (emit?.logo) setLogoDoc(emit.logo);
     // O cabeçalho mostra a data de ENTRADA (criação) do pedido, não a da impressão.
     setDataDoc(pedido.data ?? pedido.criadoEm ?? null);
     const doc = novoDocumento(titulo, numero);
+
+    if (emit) {
+      const emitEnd = [emit.logradouro, emit.numeroEndereco, emit.complemento, emit.bairro]
+        .filter(Boolean).join(', ') || '—';
+      const emitCidade = emit.municipio ? `${emit.municipio}${emit.uf ? '/' + emit.uf : ''}` : '—';
+      secao(doc, 'Empresa emissora');
+      camposDuplos(doc, [
+        ['Razão social', emit.nome],
+        ['CNPJ', formatarCnpj(emit.cnpj)],
+        ['Inscrição estadual', emit.inscricaoEstadual || '—'],
+        ['Telefone', formatarTelefone(emit.telefone)],
+        ['Endereço', emitEnd],
+        ['Cidade/UF · CEP', [emitCidade, emit.cep].filter((x) => x && x !== '—').join(' · ') || '—'],
+      ]);
+    }
 
     // Se o pedido aponta uma UNIDADE/FILIAL do cliente, os dados exibidos são os DELA
     // (nome, CNPJ, cidade) — é ela o destinatário; senão usa o cliente principal.
@@ -486,22 +529,20 @@ export class DocumentosService {
     // Instruções de entrega / etiquetagem (padrão do cliente — ex.: VIVARA via transportadora ZENATUR).
     this.secaoEntrega(doc, pedido.instrucoesEntrega);
 
-    // Dados bancários para pagamento (da filial emissora; se o pedido não tiver
-    // filial, usa a matriz da empresa como padrão).
-    let dadosBancarios = pedido.filial?.dadosBancarios?.trim() || '';
-    if (!dadosBancarios) {
-      const matriz = await this.prisma.filial.findFirst({ where: { empresaId, matriz: true }, select: { dadosBancarios: true } });
-      dadosBancarios = matriz?.dadosBancarios?.trim() || '';
-    }
+    // Dados bancários da MESMA empresa nomeada acima — nunca os de outra do
+    // grupo: o cliente paga no CNPJ que vai faturar.
+    const dadosBancarios = emit?.dadosBancarios?.trim() || '';
     if (dadosBancarios) {
       secao(doc, 'Dados bancários para pagamento');
       textoBloco(doc, dadosBancarios);
     }
 
+    // Quem assina é a empresa que emitiu, não o grupo: é ela que vai faturar.
+    const quemAssina = emit?.nome || 'GRUPO CHERKESIAN';
     if (tipo === 'proposta') {
-      assinaturas(doc, 'GRUPO CHERKESIAN', pedido.cliente.nome);
+      assinaturas(doc, quemAssina, pedido.cliente.nome);
     } else {
-      assinaturas(doc, 'GRUPO CHERKESIAN', `${pedido.cliente.nome} — De acordo`);
+      assinaturas(doc, quemAssina, `${pedido.cliente.nome} — De acordo`);
     }
     rodapeGrupo(doc);
     return doc;
