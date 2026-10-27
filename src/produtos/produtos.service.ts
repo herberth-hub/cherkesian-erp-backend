@@ -35,13 +35,25 @@ export class ProdutosService {
     if (!limpos.length) return {};
     const rows = await this.prisma.produto.findMany({
       where: { id: { in: limpos }, empresaId },
-      select: { id: true, fotoModelo: true },
+      select: {
+        id: true, fotoModelo: true,
+        // Sem "Foto do modelo", vale o MOCKUP DA 1ª COR. A ficha técnica promete
+        // isso em letras miúdas ("aparece no item do pedido, no catálogo e na
+        // OP"), mas o catálogo só olhava `fotoModelo` — então o PRD-CAM-0080,
+        // com frente e costas do PRETO cadastradas, saía como "Sem foto".
+        cores: {
+          where: { mockupFrente: { not: null } },
+          select: { mockupFrente: true },
+          orderBy: { ordem: 'asc' },
+          take: 1,
+        },
+      },
     });
     const out: Record<number, string | null> = {};
     // Todos os ids pedidos voltam, mesmo sem foto: assim a tela sabe que já
     // perguntou por aquele produto e não fica repetindo a consulta.
     for (const id of limpos) out[id] = null;
-    for (const r of rows) out[r.id] = this.imagemParaTela(r.fotoModelo);
+    for (const r of rows) out[r.id] = this.imagemParaTela(r.fotoModelo) ?? this.imagemParaTela(r.cores[0]?.mockupFrente);
     return out;
   }
 
