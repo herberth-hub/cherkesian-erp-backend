@@ -6543,7 +6543,7 @@ function formReceberEdit(id){
     <p class="muted" style="font-size:12px">Já recebido: ${money(t.pago)} — o valor não pode ser menor. Para receber, use o botão "Receber".</p>
     ${Number(t.pago)>0?'':`<div style="border-top:1px solid var(--line);margin:10px 0 6px;padding-top:10px">
       <label class="fl" style="font-weight:700">Parcelar este título (opcional)</label>
-      <div class="muted" style="font-size:11px;margin-bottom:6px">Divide em várias parcelas a partir do vencimento acima. Informe os <b>dias</b> (ex.: 30/60/90) ou só o <b>nº de parcelas</b> — nesse caso vai de mês em mês, no mesmo dia. Este título vira a 1ª parcela; as outras nascem ao lado dele.</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Divide em várias parcelas a partir do vencimento acima. <b>Um intervalo + o nº</b> (ex.: 30 e 3) = 3 parcelas de 30 em 30 dias. <b>Uma lista de dias</b> (ex.: 30/60/90) = uma parcela em cada data. <b>Só o nº</b> = de mês em mês, no mesmo dia. Este título vira a 1ª parcela; as outras nascem ao lado dele.</div>
       <div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap">
         <div class="mrow" style="flex:1;min-width:130px"><label class="fl">Dias (ex.: 30/60/90)</label><input id="rc_dias" class="inp" placeholder="30/60/90"></div>
         <div class="mrow" style="flex:0 0 90px"><label class="fl">ou nº parc.</label><input id="rc_np" class="inp" type="number" min="2" max="36" placeholder="3"></div>
@@ -6582,15 +6582,21 @@ function rcParcGerar(){
   if(!(total>0)){ toast('Informe o valor do título antes de parcelar.','err'); return; }
   const base=val('f_venc'); if(!base){ toast('Informe o vencimento da 1ª parcela.','err'); return; }
   const diasStr=(val('rc_dias')||'').trim();
-  const offs=diasStr?diasStr.split(/[\/,;\s]+/).map(x=>parseInt(x,10)).filter(x=>!isNaN(x)):[];
-  // Dias informados: a 1ª é o próprio vencimento e os dias são as PRÓXIMAS.
-  const n = offs.length ? offs.length+1 : Math.max(0,parseInt(val('rc_np')||'0',10)||0);
+  const offs=diasStr?diasStr.split(/[\/,;\s]+/).map(x=>parseInt(x,10)).filter(x=>!isNaN(x)&&x>0):[];
+  const np=Math.max(0,parseInt(val('rc_np')||'0',10)||0);
+  // UM intervalo + o nº de parcelas ("30" e "3") = 3 parcelas de 30 em 30 dias.
+  // Antes o nº era ignorado quando havia dias: "30" + "3" gerava 2 parcelas (o
+  // título e mais uma), que não é o que ninguém quer dizer ao preencher os dois.
+  const passo = (offs.length===1 && np>=2) ? offs[0] : 0;
+  // Lista de dias (30/60/90): a 1ª é o próprio vencimento e os dias são as PRÓXIMAS.
+  const n = passo ? np : (offs.length ? offs.length+1 : np);
   if(n<2){ toast('Informe os dias (30/60/90) ou o nº de parcelas (mínimo 2).','err'); return; }
   if(n>36){ toast('No máximo 36 parcelas.','err'); return; }
+  if(offs.length>1 && np && np!==n) toast('Usei a lista de dias ('+offs.join('/')+'): '+n+' parcelas.','ok');
   const cent=Math.round(total*100), part=Math.floor(cent/n);
   RCPARC=[];
   for(let i=0;i<n;i++){
-    const venc = i===0 ? base : (offs.length ? rcMaisDias(base, offs[i-1]) : rcMaisMeses(base, i));
+    const venc = i===0 ? base : (passo ? rcMaisDias(base, passo*i) : (offs.length ? rcMaisDias(base, offs[i-1]) : rcMaisMeses(base, i)));
     // A diferença de centavos vai na PRIMEIRA — praxe da cobrança e evita
     // a última parcela quebrada na hora de bater com o extrato.
     const c = i===0 ? (cent-part*(n-1)) : part;
@@ -6653,7 +6659,7 @@ async function formPagarEdit(id){
     <p class="muted" style="font-size:12px">Já pago: ${money(t.pago)} — o valor não pode ser menor.</p>
     ${Number(t.pago)>0?'':`<div style="border-top:1px solid var(--line);margin:10px 0 6px;padding-top:10px">
       <label class="fl" style="font-weight:700">Parcelar este título (opcional)</label>
-      <div class="muted" style="font-size:11px;margin-bottom:6px">Divide em várias parcelas — informe os dias (ex.: <b>30/60/91</b>) ou o nº de parcelas. Substitui este título pelas parcelas.</div>
+      <div class="muted" style="font-size:11px;margin-bottom:6px">Divide em várias parcelas — <b>um intervalo + o nº</b> (ex.: 30 e 3) = 3 parcelas de 30 em 30 dias; uma <b>lista de dias</b> (ex.: 30/60/91) = uma parcela em cada data; <b>só o nº</b> = de 30 em 30 dias. Substitui este título pelas parcelas.</div>
       <div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap">
         <div class="mrow" style="flex:1;min-width:130px"><label class="fl">Dias (ex.: 30/60/91)</label><input id="pg_dias" class="inp" placeholder="30/60/91"></div>
         <div class="mrow" style="flex:0 0 90px"><label class="fl">ou nº parc.</label><input id="pg_np" class="inp" type="number" min="2" placeholder="3"></div>
@@ -6669,10 +6675,14 @@ async function formPagarEdit(id){
 let PGPARC=[];
 function pgParcGerar(total){
   const diasStr=(val('pg_dias')||'').trim();
-  let offs=diasStr?diasStr.split(/[\/,;\s]+/).map(x=>parseInt(x)).filter(x=>!isNaN(x)):[];
+  let offs=diasStr?diasStr.split(/[\/,;\s]+/).map(x=>parseInt(x)).filter(x=>!isNaN(x)&&x>0):[];
+  const np=Math.max(0,parseInt(val('pg_np')||'0')||0);
   let n;
-  if(offs.length){ n=offs.length; }
-  else { n=Math.max(2,parseInt(val('pg_np')||'0')||0); if(!n||n<2){ toast('Informe os dias (30/60/91) ou o nº de parcelas.','err'); return; } offs=Array.from({length:n},(_,i)=>30*(i+1)); }
+  // UM intervalo + o nº ("30" e "3") = 3 parcelas de 30 em 30 dias. Antes o nº
+  // era ignorado quando havia dias, e "30" sozinho gerava UMA parcela só.
+  if(offs.length===1 && np>=2){ const passo=offs[0]; n=np; offs=Array.from({length:n},(_,i)=>passo*(i+1)); }
+  else if(offs.length){ n=offs.length; if(np && np!==n) toast('Usei a lista de dias ('+offs.join('/')+'): '+n+' parcelas.','ok'); }
+  else { n=np; if(!n||n<2){ toast('Informe os dias (30/60/91) ou o nº de parcelas.','err'); return; } offs=Array.from({length:n},(_,i)=>30*(i+1)); }
   const base=new Date(); base.setHours(12,0,0,0);
   const cent=Math.round(Number(total)*100), part=Math.floor(cent/n);
   PGPARC=[]; for(let i=0;i<n;i++){ const dt=new Date(base); dt.setDate(dt.getDate()+(offs[i]||0)); const c=(i===n-1)?(cent-part*(n-1)):part; PGPARC.push({vencimento:dt.toISOString().slice(0,10), valor:c/100}); }
