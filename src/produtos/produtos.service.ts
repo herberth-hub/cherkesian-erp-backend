@@ -171,12 +171,15 @@ export class ProdutosService {
       where: { id: corId },
       select: { mockupFrente: true, mockupCostas: true },
     });
+    const descartar: string[] = [];
     for (const lado of ['mockupFrente', 'mockupCostas'] as const) {
       if (dto[lado] === undefined) continue;
       const novo = ProdutosService.mockupOuNulo(dto[lado]);
       data[lado] = novo ? await this.arquivos.guardar(novo, 'mockups') : null;
       const velho = antigo?.[lado] ?? null;
-      if (velho && velho !== data[lado]) await this.arquivos.remover(velho);
+      // Fica para depois do update: enquanto a coluna apontar para o mockup
+      // velho, ele tem de existir no balde.
+      if (velho && velho !== data[lado]) descartar.push(velho);
     }
     try {
       const cor = await this.prisma.produtoCor.update({
@@ -184,6 +187,7 @@ export class ProdutosService {
         data,
         select: { id: true, nome: true, hex: true, ordem: true },
       });
+      await this.descartarAnexos(descartar);
       if (dto.nome !== undefined || dto.ordem !== undefined) await this.espelharCorTexto(produtoId);
       return cor;
     } catch (e) {
@@ -332,9 +336,9 @@ export class ProdutosService {
     const codigo = dto.codigo?.trim() || (await this.gerarCodigo(dto.categoria, empresaId));
     // Fora da transação de propósito: subir imagem é rede, e o Neon derruba
     // transação que fica esperando (P2028).
-    await this.anexosParaBucket(dto);
+    const descartar = await this.anexosParaBucket(dto);
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const produto = await this.prisma.$transaction(async (tx) => {
         const produto = await tx.produto.create({
           data: {
             empresaId,
@@ -362,6 +366,8 @@ export class ProdutosService {
         await this.upsertTecidoBom(tx, produto.id, dto);
         return produto;
       }, { maxWait: 15_000, timeout: 30_000 });
+      await this.descartarAnexos(descartar);
+      return produto;
     } catch (err) {
       throw this.tratarErroUnico(err, codigo);
     }
@@ -424,8 +430,8 @@ export class ProdutosService {
 
   async update(id: number, dto: UpdateProdutoDto, empresaId: number): Promise<Produto> {
     const antes = await this.findOne(id, empresaId);
-    await this.anexosParaBucket(dto, antes);
-    return this.prisma.$transaction(async (tx) => {
+    const descartar = await this.anexosParaBucket(dto, antes);
+    const produto = await this.prisma.$transaction(async (tx) => {
       const produto = await tx.produto.update({
         where: { id },
         data: {
@@ -466,6 +472,8 @@ export class ProdutosService {
       await this.upsertTecidoBom(tx, id, dto);
       return produto;
     }, { maxWait: 15_000, timeout: 30_000 });
+    await this.descartarAnexos(descartar);
+    return produto;
   }
 
   /** Normaliza as linhas da tabela de medidas para gravação (ordem sequencial). */
@@ -561,12 +569,19 @@ export class ProdutosService {
    * `findOne` entrega a REFERÊNCIA crua (e o link de exibição num campo à
    * parte): se devolvesse o link, o save gravaria o link por cima da
    * referência e a foto se perderia.
+   *
+   * Devolve os anexos ANTIGOS que ficaram sem uso — e NÃO os apaga aqui. Quem
+   * apaga é `descartarAnexos`, depois que o banco confirmou. Apagar antes
+   * custou a foto do PRD-CAM-0078: o arquivo novo subiu, o velho saiu do
+   * balde, a gravação não foi adiante, e a coluna ficou apontando para um
+   * objeto que não existe mais — no catálogo, um quadro quebrado para sempre.
    */
   private async anexosParaBucket(
     dto: CreateProdutoDto | UpdateProdutoDto,
     anterior?: Record<string, unknown> | null,
-  ): Promise<void> {
-    if (!this.arquivos.ligado) return;
+  ): Promise<string[]> {
+    const descartar: string[] = [];
+    if (!this.arquivos.ligado) return descartar;
     // mapaDtf entra aqui porque é o anexo mais pesado do produto (há mapas de
     // 2,5 MB): deixá-lo fora fazia a coluna voltar a encher sozinha a cada
     // produto novo, mesmo depois de migrada.
@@ -588,12 +603,20 @@ export class ProdutosService {
       const velho = (anterior?.[campo] ?? null) as string | null;
       if (s.startsWith('data:')) {
         dto[campo] = await this.arquivos.guardar(s, PASTAS[campo]);
-        if (velho && velho !== dto[campo]) await this.arquivos.remover(velho);
+        if (velho && velho !== dto[campo]) descartar.push(velho);
       } else if (!s && velho) {
-        await this.arquivos.remover(velho); // campo limpo: tira do bucket também
+        descartar.push(velho); // campo limpo: tira do bucket também
       }
     }
-    await this.logosParaBucket(dto, anterior);
+    descartar.push(...(await this.logosParaBucket(dto, anterior)));
+    return descartar;
+  }
+
+  /** Apaga do balde os anexos que a gravação deixou para trás. Só depois do
+   *  commit, e nunca derruba a resposta: arquivo órfão é barato, foto perdida
+   *  não tem volta. */
+  private async descartarAnexos(refs: string[]): Promise<void> {
+    for (const ref of refs) await this.arquivos.remover(ref);
   }
 
   /**
@@ -603,8 +626,8 @@ export class ProdutosService {
   private async logosParaBucket(
     dto: CreateProdutoDto | UpdateProdutoDto,
     anterior?: Record<string, unknown> | null,
-  ): Promise<void> {
-    if (dto.logosVetor === undefined) return;
+  ): Promise<string[]> {
+    if (dto.logosVetor === undefined) return [];
     const lista = (dto.logosVetor ?? []) as Array<{ data?: string; nome?: string }>;
     const antes = new Set(
       ((anterior?.logosVetor ?? []) as Array<{ data?: string }>)
@@ -617,7 +640,7 @@ export class ProdutosService {
       if (s.startsWith('data:')) item.data = await this.arquivos.guardar(s, 'logos');
     }
     // O que estava na lista e saiu dela não serve mais a ninguém.
-    for (const orfao of antes) await this.arquivos.remover(orfao);
+    return [...antes];
   }
 
   private dadosFicha(dto: CreateProdutoDto | UpdateProdutoDto) {

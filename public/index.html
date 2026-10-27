@@ -1871,7 +1871,7 @@ async function prodPainel(id){
     try{ const r=await api('/produtos/fotos',{method:'POST',body:{ids:[id]}}); Object.assign(window.__PRODFOTOS, r||{}); f=(r||{})[id]; }catch(e){ f=null; }
   }
   if(box) box.innerHTML = f
-    ? `<img src="${f}" alt="" style="width:100%;height:100%;object-fit:contain">`
+    ? `<img src="${f}" alt="" onerror="APP.fotoQuebrada(this,'produto',${id})" style="width:100%;height:100%;object-fit:contain">`
     : '<span class="muted" style="font-size:12px">Sem foto — clique para cadastrar</span>';
 }
 function prodPainelEsc(e){ if(e.key==='Escape') prodPainelFechar(); }
@@ -1889,12 +1889,24 @@ function prodFiltrar(){
   w.innerHTML = (window.__PRODVIEW==='lista') ? prodTabela(list) : prodGaleria(list);
   prodFotosObservar();
 }
+/**
+ * Imagem que não carregou — link vencido, anexo que sumiu do balde — vira
+ * "Sem foto" em vez do ícone de quadro quebrado, e sai do cache para a próxima
+ * pintura pedir um link novo.
+ */
+function fotoQuebrada(img, tipo, id){
+  const cache = tipo==='cor' ? window.__MOCK : window.__PRODFOTOS;
+  if(cache && id) delete cache[id];
+  const cx = img && img.parentElement; if(!cx) return;
+  cx.innerHTML='<span class="muted" style="font-size:11px">Sem foto</span>';
+  cx.style.cursor=''; cx.onclick=null;
+}
 /** Quadrado da foto — nasce vazio e recebe a imagem quando entra na tela. */
 function prodFotoBox(p, altura){
   const cache=window.__PRODFOTOS||{};
   const tem=cache[p.id];
   const estilo=`background:#f4f2ed;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;${altura}`;
-  if(tem) return `<div style="${estilo}"><img src="${tem}" alt="" style="width:100%;height:100%;object-fit:contain"></div>`;
+  if(tem) return `<div style="${estilo}"><img src="${tem}" alt="" onerror="APP.fotoQuebrada(this,'produto',${p.id})" style="width:100%;height:100%;object-fit:contain"></div>`;
   // data-foto marca os que ainda não têm imagem; o observer pede em lote.
   return `<div class="prodfoto" data-foto="${p.id}" style="${estilo};cursor:pointer" onclick="event.stopPropagation();APP.formProduto(${p.id})" title="${tem===null?'Sem foto — clique para cadastrar':'Carregando…'}">
     <span class="muted" style="font-size:11px">${tem===null?'Sem foto':'…'}</span></div>`;
@@ -1955,7 +1967,7 @@ function prodFotosObservar(){
         const el=document.querySelector('.prodfoto[data-foto="'+id+'"]');
         if(!el) continue;
         const f=(r||{})[id];
-        if(f){ el.innerHTML='<img src="'+f+'" alt="" style="width:100%;height:100%;object-fit:contain">'; el.removeAttribute('data-foto'); }
+        if(f){ el.innerHTML='<img src="'+f+'" alt="" onerror="APP.fotoQuebrada(this,\'produto\','+id+')" style="width:100%;height:100%;object-fit:contain">'; el.removeAttribute('data-foto'); }
         else { el.innerHTML='<span class="muted" style="font-size:11px">Sem foto</span>'; el.removeAttribute('data-foto'); el.title='Sem foto — clique para cadastrar'; }
       }
     }catch(e){ /* foto é enfeite: falhar aqui não pode quebrar o catálogo */ }
@@ -9412,7 +9424,7 @@ function estFoto(tipo, id, estilo, extra){
   const cache = tipo==='cor' ? (window.__MOCK||{}) : (window.__PRODFOTOS||{});
   const img = id ? cache[id] : undefined;
   const base=`background:#f4f2ed;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;${estilo}`;
-  if(img) return `<div style="${base};cursor:zoom-in" onclick="event.stopPropagation();APP.estLightbox('${tipo}',${id})"><img src="${img}" alt="" style="width:100%;height:100%;object-fit:contain"></div>`;
+  if(img) return `<div style="${base};cursor:zoom-in" onclick="event.stopPropagation();APP.estLightbox('${tipo}',${id})"><img src="${img}" alt="" onerror="APP.fotoQuebrada(this,'${tipo}',${id})" style="width:100%;height:100%;object-fit:contain"></div>`;
   if(!id || img===null) return `<div style="${base}">${extra||'<span class="muted" style="font-size:10.5px">Sem foto</span>'}</div>`;
   return `<div class="estfoto" data-tipo="${tipo}" data-id="${id}" style="${base}"><span class="muted" style="font-size:10.5px">…</span></div>`;
 }
@@ -9438,7 +9450,7 @@ function estFotosObservar(){
   const pintar=(tipo,id)=>{
     const img=(tipo==='cor'?(window.__MOCK||{}):(window.__PRODFOTOS||{}))[id];
     document.querySelectorAll('.estfoto[data-tipo="'+tipo+'"][data-id="'+id+'"]').forEach(el=>{
-      if(img){ el.innerHTML='<img src="'+img+'" alt="" style="width:100%;height:100%;object-fit:contain">'; el.style.cursor='zoom-in'; el.onclick=(ev)=>{ ev.stopPropagation(); estLightbox(tipo,id); }; }
+      if(img){ el.innerHTML='<img src="'+img+'" alt="" onerror="APP.fotoQuebrada(this,\''+tipo+'\','+id+')" style="width:100%;height:100%;object-fit:contain">'; el.style.cursor='zoom-in'; el.onclick=(ev)=>{ ev.stopPropagation(); estLightbox(tipo,id); }; }
       else el.innerHTML='<span class="muted" style="font-size:10.5px">Sem foto</span>';
       el.removeAttribute('data-id');
     });
@@ -15985,7 +15997,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,

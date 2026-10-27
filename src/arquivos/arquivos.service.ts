@@ -108,7 +108,17 @@ export class ArquivosService {
     if (!ArquivosService.ehReferencia(v)) return ArquivosService.partesDoDataUri(v);
     if (!this.cliente) throw new BadRequestException('Anexo está no bucket, mas o storage não está configurado.');
     const chave = ArquivosService.chaveDaReferencia(v);
-    const r = await this.cliente.send(new GetObjectCommand({ Bucket: this.bucket, Key: chave }));
+    // Referência apontando para objeto que não existe é 404, não erro de
+    // servidor: acontece quando a coluna sobreviveu ao arquivo. Quem chama
+    // trata como "sem anexo" e a tela mostra "Sem foto" em vez de quebrar.
+    const r = await this.cliente
+      .send(new GetObjectCommand({ Bucket: this.bucket, Key: chave }))
+      .catch((e: { name?: string; $metadata?: { httpStatusCode?: number } }) => {
+        if (e?.name === 'NoSuchKey' || e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404) {
+          throw new NotFoundException(`Anexo ${chave} não está mais no arquivo.`);
+        }
+        throw e;
+      });
     const corpo = r.Body as unknown as AsyncIterable<Uint8Array> | undefined;
     if (!corpo) throw new NotFoundException(`Anexo ${chave} não encontrado.`);
     const pedacos: Buffer[] = [];

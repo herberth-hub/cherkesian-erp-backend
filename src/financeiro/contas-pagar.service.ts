@@ -146,12 +146,15 @@ export class ContasPagarService {
     if (valor.lessThan(t.pago)) {
       throw new BadRequestException(`O valor não pode ser menor que o já pago (${t.pago.toFixed(2)}).`);
     }
-    // Sobe o boleto novo ANTES do update, e só então apaga o anterior do
-    // bucket — se o upload falhar, o título continua com o arquivo que tinha.
+    // Sobe o boleto novo ANTES do update — se o upload falhar, o título
+    // continua com o arquivo que tinha. O anterior só sai do bucket DEPOIS que
+    // a gravação passou: enquanto a coluna apontar para ele, ele tem de
+    // existir, ou o título fica com um link para o nada.
     let boletoNovo: string | null = null;
+    let boletoVelho: string | null = null;
     if (dto.boleto !== undefined) {
       boletoNovo = dto.boleto ? await this.arquivos.guardar(dto.boleto, 'boletos') : null;
-      if (t.boleto && t.boleto !== boletoNovo) await this.arquivos.remover(t.boleto);
+      if (t.boleto && t.boleto !== boletoNovo) boletoVelho = t.boleto;
     }
     const atualizado = await this.prisma.contaPagar.update({
       where: { id },
@@ -171,6 +174,7 @@ export class ContasPagarService {
       },
       include: { filial: { select: { id: true, nome: true, cnpj: true } } },
     });
+    if (boletoVelho) await this.arquivos.remover(boletoVelho);
     return this.comStatus(atualizado);
   }
 
