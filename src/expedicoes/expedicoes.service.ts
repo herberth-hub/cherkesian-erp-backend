@@ -1114,6 +1114,31 @@ export class ExpedicoesService {
       if (conferidos.includes(codigo)) {
         return { ja: true, mensagem: `${codigo} já foi conferido.`, conferidas: exp.pecasConferidas, esperadas, status: exp.conferenciaStatus };
       }
+      // ETIQUETA MASTER (o próprio número da expedição, ex.: "EXP0155"). Quem está
+      // na bancada tem UM leitor e UM campo: bipa as peças e, no fim, a master —
+      // e a própria mensagem de conclusão manda fazer isso ("Libere a etiqueta
+      // master e despache"). Recusar com "não reconhecida" mandava a pessoa
+      // procurar um botão no rodapé do modal. Agora a master FECHA a conferência.
+      if (codigo.replace(/[^A-Za-z0-9]/g, '').toUpperCase() === String(exp.numero).replace(/[^A-Za-z0-9]/g, '').toUpperCase()) {
+        const faltam = esperadas - exp.pecasConferidas;
+        if (faltam > 0) {
+          throw new BadRequestException(
+            `Etiqueta master de ${exp.numero}: ainda faltam ${faltam} peça(s) (${exp.pecasConferidas}/${esperadas}). Bipe as peças antes de fechar.`,
+          );
+        }
+        if (exp.conferenciaStatus !== 'conferida') {
+          await tx.expedicao.update({
+            where: { id },
+            data: { conferenciaStatus: 'conferida', conferidoPor: usuario, conferidoEm: new Date() },
+          });
+        }
+        return {
+          ja: false, completou: true, master: true,
+          mensagem: `Conferência de ${exp.numero} concluída (${esperadas} pç). Escolha o canal de envio e despache.`,
+          conferidas: exp.pecasConferidas, esperadas, status: 'conferida', alerta: null,
+        };
+      }
+
       let add = 1;
       let detalhe = codigo;
       let caixasUpd: Prisma.InputJsonValue | undefined;
