@@ -224,6 +224,89 @@ export class ContasReceberService {
     return this.comStatus(atualizado);
   }
 
+  /**
+   * PARCELAMENTO de um título a receber: um título de R$ 4.290 vira 3 de
+   * R$ 1.430, cada um com seu vencimento.
+   *
+   * O título original VIRA a parcela 1 (não é apagado): assim o pedido, a NF e
+   * a comissão continuam penduradas nele, e o cancelamento da NF segue
+   * derrubando tudo em cascata. As outras parcelas nascem como cópias dele.
+   *
+   * Recusa quando já houve recebimento (parcelar o que foi pago em parte muda o
+   * que o cliente deve) e quando existe boleto vivo — o banco já registrou
+   * aquele valor e aquele vencimento; dividir aqui faria o boleto cobrar uma
+   * coisa e o sistema outra.
+   */
+  async parcelar(
+    id: number,
+    empresaId: number,
+    parcelas: Array<{ vencimento: string; valor: number }>,
+  ): Promise<{ parcelas: ContaReceberView[]; total: string }> {
+    const t = await this.prisma.contaReceber.findUnique({ where: { id } });
+    if (!t || t.empresaId !== empresaId) {
+      throw new NotFoundException(`Título a receber ${id} não encontrado.`);
+    }
+    const n = (parcelas ?? []).length;
+    if (n < 2) throw new BadRequestException('Informe ao menos 2 parcelas.');
+    if (n > 36) throw new BadRequestException('No máximo 36 parcelas.');
+    if (t.pago.greaterThan(0)) {
+      throw new BadRequestException(
+        `Este título já tem R$ ${t.pago.toFixed(2)} recebido — não dá para parcelar. `
+        + 'Receba o saldo ou estorne o recebimento antes.',
+      );
+    }
+    // Boleto vivo = o banco já tem esse título registrado com valor e vencimento.
+    const vivos = await this.prisma.boleto.findMany({
+      where: { contaReceberId: id, status: { notIn: ['baixado', 'rejeitado'] } },
+      select: { nossoNumero: true, status: true },
+    });
+    if (vivos.length) {
+      throw new BadRequestException(
+        `Este título já tem boleto (${vivos.map((b) => `${b.nossoNumero} · ${b.status}`).join(', ')}). `
+        + 'Peça a baixa do boleto no banco antes de parcelar, senão a cobrança sai diferente do sistema.',
+      );
+    }
+
+    const valores = parcelas.map((p) => new Prisma.Decimal(Number(p.valor).toFixed(2)));
+    if (valores.some((v) => v.lessThanOrEqualTo(0))) {
+      throw new BadRequestException('Toda parcela precisa ter valor maior que zero.');
+    }
+    const total = valores.reduce((s, v) => s.plus(v), new Prisma.Decimal(0));
+
+    // "2635" já parcelado antes não vira "2635 (1/3) (1/2)".
+    const baseDoc = (t.documento ?? '').replace(/\s*\(\d+\/\d+\)\s*$/, '').trim();
+    const doc = (i: number) => `${baseDoc} (${i + 1}/${n})`.trim().slice(0, 60);
+    const linha = (i: number) => {
+      const venc = new Date(parcelas[i].vencimento);
+      return {
+        empresaId: t.empresaId,
+        filialId: t.filialId,
+        pedidoId: t.pedidoId,
+        notaFiscalId: t.notaFiscalId,
+        clienteId: t.clienteId,
+        documento: doc(i),
+        vencimento: venc,
+        valor: valores[i],
+        formaCobranca: t.formaCobranca,
+        status: calcularStatusTitulo(valores[i], new Prisma.Decimal(0), venc),
+      };
+    };
+
+    // Duas escritas, não uma por parcela: o Neon derruba transação longa.
+    const atualizado = await this.prisma.contaReceber.update({ where: { id }, data: linha(0) });
+    const novas = Array.from({ length: n - 1 }, (_, k) => linha(k + 1));
+    await this.prisma.contaReceber.createMany({ data: novas });
+
+    const criadas = await this.prisma.contaReceber.findMany({
+      where: { empresaId, clienteId: t.clienteId, documento: { in: novas.map((x) => x.documento) }, id: { not: id } },
+      orderBy: { vencimento: 'asc' },
+    });
+    return {
+      parcelas: [this.comStatus(atualizado), ...criadas.map((c) => this.comStatus(c))],
+      total: total.toFixed(2),
+    };
+  }
+
   async excluir(id: number, empresaId: number): Promise<{ removido: true; id: number }> {
     const t = await this.prisma.contaReceber.findUnique({ where: { id } });
     if (!t || t.empresaId !== empresaId) {

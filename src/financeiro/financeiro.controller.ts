@@ -106,6 +106,18 @@ export class FinanceiroController {
     return this.receber.editar(id, dto, user.empresaId);
   }
 
+  /** Divide o título em N parcelas (a 1ª continua sendo este título). */
+  @Areas('receber')
+  @Post('receber/:id/parcelar')
+  @HttpCode(HttpStatus.OK)
+  parcelarReceber(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ParcelarDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.receber.parcelar(id, user.empresaId, dto.parcelas);
+  }
+
   @Areas('receber')
   @Delete('receber/:id')
   excluirReceber(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
