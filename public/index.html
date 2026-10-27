@@ -7686,6 +7686,7 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePe
   try{
     toast('Gerando etiquetas…','ok');
     const todas = [];
+    let falhou = null;
     for(const l of entradas){
       const body = { tipo:'produto', descricao:descricao.slice(0,160), ref:ref||undefined, cor:cor||undefined, tamanho:l.tamanho||undefined,
         quantidade:l.quantidade, origem:'producao', destino: l.reservar?destino:'estoque', loteEntrada:'OP-'+id };
@@ -7693,17 +7694,24 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePe
       // ("não faz parte deste pedido"), mesmo sendo a peça certa.
       if(produtoId) body.produtoId = produtoId;
       if(l.reservar && destino==='expedicao' && pedidoId) body.pedidoId = pedidoId;
-      const r = await api('/estoque/entrada',{method:'POST',body});
-      // NÃO carimbar a quantidade do lote na etiqueta: cada etiqueta é UMA peça.
-      // Mostrava "TAM GG · 50 un" em cada uma das 50 etiquetas, como se cada
-      // etiqueta valesse 50 peças. O backend só preenche qtdLote em granel
-      // (rolo de tecido), que é o caso em que a medida faz sentido no rótulo.
-      (r.pecas||[]).forEach(p=>{ todas.push(p); });
+      try{
+        const r = await api('/estoque/entrada',{method:'POST',body});
+        // NÃO carimbar a quantidade do lote na etiqueta: cada etiqueta é UMA peça.
+        // Mostrava "TAM GG · 50 un" em cada uma das 50 etiquetas, como se cada
+        // etiqueta valesse 50 peças. O backend só preenche qtdLote em granel
+        // (rolo de tecido), que é o caso em que a medida faz sentido no rótulo.
+        (r.pecas||[]).forEach(p=>{ todas.push(p); });
+      }catch(e){ falhou={tamanho:l.tamanho||'(sem tam)', quantidade:l.quantidade, msg:(e.message||e)}; break; }
     }
-    // Registra o CONCLUÍDO por tamanho. O backend só finaliza a OP quando o
-    // acumulado alcança o cortado — numa conclusão parcial ela fica onde está.
+    // Etiqueta que já nasceu EXISTE no estoque. Antes um erro no meio da grade
+    // abortava tudo com um toast: as peças dos tamanhos anteriores ficavam no
+    // banco, sem impressão e sem conclusão registrada — ninguém saberia.
+    if(falhou && !todas.length){ toast('Nada foi gerado · '+falhou.tamanho+': '+falhou.msg,'err'); return; }
+    if(falhou) toast('Parou em '+falhou.tamanho+' ('+falhou.quantidade+' pç): '+falhou.msg+'. O que já saiu está abaixo.','err');
+    // Registra o CONCLUÍDO pelo que REALMENTE virou etiqueta — não pelo que foi
+    // digitado —, senão uma falha no meio fecharia a OP por peça inexistente.
     let fim = null;
-    const gradeFeita = {}; for(const l of lotes) gradeFeita[l.tamanho||''] = l.quantidade;
+    const gradeFeita = {}; todas.forEach(p=>{ const t=(p.tamanho||''); gradeFeita[t]=(gradeFeita[t]||0)+1; });
     try{ fim = await api('/ops/'+id+'/concluir-parcial',{method:'PATCH',body:{grade:gradeFeita}}); }
     catch(e){ toast('Etiquetas geradas, mas falhou registrar a conclusão: '+(e.message||e),'err'); }
     closeModal();

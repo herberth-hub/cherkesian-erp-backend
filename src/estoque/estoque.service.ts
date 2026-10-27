@@ -318,7 +318,10 @@ export class EstoqueService {
     if (!(qtdMedida > 0)) throw new BadRequestException('Informe a quantidade (> 0).');
     const qtd = granel ? 1 : Math.floor(qtdMedida);
     if (!granel && (qtd < 1)) throw new BadRequestException('Informe a quantidade (>= 1).');
-    if (!granel && qtd > 500) throw new BadRequestException('Máximo de 500 unidades (peças) por entrada.');
+    // O lote inteiro nasce numa escrita só (createMany, abaixo), então o teto
+    // agora é a impressão: 2.000 etiquetas já são ~70 folhas A4. Acima disso é
+    // erro de digitação muito mais provável que uma entrada de verdade.
+    if (!granel && qtd > 2000) throw new BadRequestException('Máximo de 2.000 unidades (peças) por entrada. Divida em lotes menores.');
 
     // Descrição + REF (código do produto/material) — vão na etiqueta.
     let descricao = dto.descricao;
@@ -369,21 +372,23 @@ export class EstoqueService {
     // Etiqueta de lote: usa a informada (ex.: OP-123 p/ reimpressão por OP) ou gera automática.
     const loteEntrada = (dto.loteEntrada || '').trim() || `ENT-${ymd}-${String(base + 1).padStart(4, '0')}`;
 
-    const criadas: Array<{ codigo: string }> = [];
-    for (let i = 0; i < qtd; i++) {
-      const codigo = `UN-${ymd}-${String(base + 1 + i).padStart(6, '0')}`;
-      await this.prisma.unidadeEstoque.create({
-        data: {
-          empresaId, codigo, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
-          descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
-          ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
-          coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
-          pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
-          ...(segunda ? { qualidade: 'segunda', defeito, qualidadeEm: agora, qualidadePor: usuario } : {}),
-        },
-      });
-      criadas.push({ codigo });
-    }
+    // UMA escrita para o lote inteiro. Era um `create` por peça — 500 idas ao
+    // banco em sequência, e o Neon é pooled: por isso o teto era 500. Fechar a
+    // OP-0054 (1.639 peças) batia nele em G (524) e a finalização morria.
+    const comum = {
+      empresaId, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
+      descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
+      ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
+      coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
+      pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
+      ...(segunda ? { qualidade: 'segunda', defeito, qualidadeEm: agora, qualidadePor: usuario } : {}),
+    };
+    const linhas = Array.from({ length: qtd }, (_, i) => ({
+      ...comum,
+      codigo: `UN-${ymd}-${String(base + 1 + i).padStart(6, '0')}`,
+    }));
+    await this.prisma.unidadeEstoque.createMany({ data: linhas });
+    const criadas: Array<{ codigo: string }> = linhas.map((l) => ({ codigo: l.codigo }));
 
     // Matéria-prima/aviamento: soma a quantidade (metro/kg) ao saldo do material.
     // `somarSaldo: false` = o saldo já veio da NF de entrada; aqui só se etiqueta o rolo.
