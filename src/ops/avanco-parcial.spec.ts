@@ -140,11 +140,40 @@ describe('mapa de fases x resto do sistema', () => {
     expect(r.fases.Costura).toEqual({ GG: 6 });
   });
 
-  it('registrar o corte reescreve o mapa com o que foi REALMENTE cortado', async () => {
+  /**
+   * O corte parcial SEPARA a OP em duas: o que foi cortado anda para a frente,
+   * o que não foi fica na fila do corte. Antes o resto simplesmente sumia do
+   * mapa — e com ele sumia a peça que a ordem ainda deve (OP-0204).
+   */
+  it('registrar corte parcial: o cortado anda, o resto fica em Corte', async () => {
     const { svc } = servico({ gradeCortada: null, gradeFases: { Corte: { G: 16, GG: 10 } } });
     const r = (await svc.registrarCorte(516, { G: 6, GG: 6 }, 'acabou o tecido', 1)) as unknown as
       { gradeFases: Record<string, Record<string, number>> };
-    expect(r.gradeFases).toEqual({ 'Separação 1': { G: 6, GG: 6 } });
+    expect(r.gradeFases['Separação 1']).toEqual({ G: 6, GG: 6 });
+    expect(r.gradeFases.Corte).toEqual({ G: 10, GG: 4 }); // o que o tecido não deu
+  });
+
+  /**
+   * OP-0204 (PV38): 2 macacões G2 planejados, corte apontado como 1, 1 já
+   * etiquetado. A peça que falta não estava cortada, então o mapa ficava vazio
+   * e o avanço respondia 'G2 não tem peça em "Separação 1"' — numa OP que a
+   * própria tela mostrava com 1 peça a fazer. Ela existe: está na fila do corte.
+   */
+  it('peça que a ordem deve e o corte não cobre aparece em Corte (OP-0204)', async () => {
+    const { svc } = servico({
+      quantidade: 2, gradeTamanhos: { G2: 2 }, gradeCortada: { G2: 1 },
+      gradeConcluida: { G2: 1 }, gradeFases: {}, setorAtual: 'Separação 1 · corte parcial',
+    });
+    const r = await svc.avancarFaseParcial(516, 'Corte', 'Separação 1', { G2: 1 }, 1);
+    expect(r.fases['Separação 1']).toEqual({ G2: 1 });
+    expect(r.fases.Corte).toBeUndefined();
+  });
+
+  it('corte completo não deixa nada na fila do corte', async () => {
+    const { svc } = servico({ gradeCortada: null, gradeFases: { Corte: { G: 16, GG: 10 } } });
+    const r = (await svc.registrarCorte(516, { G: 16, GG: 10 }, undefined, 1)) as unknown as
+      { gradeFases: Record<string, Record<string, number>> };
+    expect(r.gradeFases).toEqual({ 'Separação 1': { G: 16, GG: 10 } });
   });
 
   it('forçar o setor pela tela de ajuste move a OP inteira para lá', async () => {

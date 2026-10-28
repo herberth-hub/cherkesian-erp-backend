@@ -623,8 +623,26 @@ export class OpsService {
     'Risco CAD': 5, Corte: 15, 'Separação 1': 30, 'Estamparia/Bordado': 45, 'Separação 2': 60, Costura: 75, Acabamento: 90,
   };
 
-  /** O que ainda está em produção: o cortado (ou planejado) menos o já etiquetado. */
+  /**
+   * O que ainda está em produção: tudo que a ordem deve menos o já etiquetado —
+   * o que já foi cortado E o que ainda falta cortar.
+   *
+   * Contava só o cortado, e peça não cortada sumia do mapa de fases. Na OP-0204
+   * (2 G2 planejadas, corte apontado como 1, 1 etiquetada) o mapa ficava vazio:
+   * a tela oferecia a peça que falta e o avanço respondia 'G2 não tem peça em
+   * "Separação 1"'. Agora ela aparece — em **Corte**, que é onde ela está de
+   * verdade (ver `fasesDaOp`), e não na fase das que já foram cortadas.
+   */
   private pendenteDaOp(op: OP): Record<string, number> {
+    const pendente = this.pendenteCortado(op);
+    for (const [t, n] of Object.entries(this.porCortarDaOp(op))) {
+      pendente[t] = Number(pendente[t] ?? 0) + n;
+    }
+    return pendente;
+  }
+
+  /** Cortado e ainda não etiquetado: o que está andando pelas fases. */
+  private pendenteCortado(op: OP): Record<string, number> {
     const base = this.baseDaConclusao(op);
     const feito = (op.gradeConcluida as Record<string, number> | null) ?? {};
     const pendente: Record<string, number> = {};
@@ -633,6 +651,22 @@ export class OpsService {
       if (r > 0) pendente[t] = r;
     }
     return pendente;
+  }
+
+  /**
+   * O que a ordem ainda deve e o corte apontado não cobre — peça que está na
+   * fila do CORTE. Sem apontamento de corte não há o que separar: o pendente
+   * inteiro está na fase em que a OP se diz.
+   */
+  private porCortarDaOp(op: OP): Record<string, number> {
+    const cortada = (op.gradeCortada as Record<string, number> | null) ?? null;
+    if (!cortada || !Object.keys(cortada).length) return {};
+    const out: Record<string, number> = {};
+    for (const [t, n] of Object.entries(this.alvoDaOp(op))) {
+      const r = Number(n) - Number(cortada[t] ?? 0);
+      if (r > 0) out[t] = r;
+    }
+    return out;
   }
 
   /**
@@ -648,28 +682,49 @@ export class OpsService {
   private fasesDaOp(op: OP): Record<string, Record<string, number>> {
     const pendente = this.pendenteDaOp(op);
     const atual = (op.gradeFases as Record<string, Record<string, number>> | null) ?? null;
-    if (atual && Object.keys(atual).length && this.mapaConfere(atual, pendente)) {
+    if (atual && Object.keys(atual).length && this.mapaConfere(op, atual, pendente)) {
       return JSON.parse(JSON.stringify(atual));
     }
-    const fase = this.faseConhecida(op.setorAtual) ?? 'Separação 1';
-    return Object.keys(pendente).length ? { [fase]: pendente } : {};
+    return this.mapaNumaFase(op, this.faseConhecida(op.setorAtual) ?? 'Separação 1') ?? {};
   }
 
   /** O mapa de fases bate, tamanho a tamanho, com o que a OP ainda tem em produção? */
-  private mapaConfere(mapa: Record<string, Record<string, number>>, pendente: Record<string, number>): boolean {
+  private mapaConfere(op: OP, mapa: Record<string, Record<string, number>>, pendente: Record<string, number>): boolean {
     const soma: Record<string, number> = {};
     for (const g of Object.values(mapa)) {
       for (const [t, n] of Object.entries(g ?? {})) if (Number(n) > 0) soma[t] = (soma[t] ?? 0) + Number(n);
     }
     const tams = new Set([...Object.keys(soma), ...Object.keys(pendente)]);
     for (const t of tams) if (Number(soma[t] ?? 0) !== Number(pendente[t] ?? 0)) return false;
+    // O total pode bater e o mapa ainda estar velho: a OP que já passou do
+    // corte não pode ter, EM CORTE, mais peça do que ainda falta cortar. Era o
+    // caso do mapa escrito antes do corte ser apontado — ele segurava a grade
+    // inteira em "Corte" e o avanço não achava peça na fase real da OP.
+    const emCorte = mapa.Corte ?? {};
+    if (Object.keys(emCorte).length && (this.faseConhecida(op.setorAtual) ?? 'Separação 1') !== 'Corte') {
+      const porCortar = this.porCortarDaOp(op);
+      for (const [t, n] of Object.entries(emCorte)) {
+        if (Number(n) > Number(porCortar[t] ?? 0)) return false;
+      }
+    }
     return true;
   }
 
-  /** Mapa de fases com TUDO que está pendente numa fase só (usado quando a OP é remexida). */
+  /**
+   * Mapa de fases refeito do zero (usado quando a OP é remexida): o que já foi
+   * cortado na fase indicada, o que ainda falta cortar em CORTE. Separar os
+   * dois é o que impede "cortei 6 de 22, acabou o tecido" de virar 22 peças em
+   * Separação 1 — e, do outro lado, impede a peça não cortada de sumir do mapa.
+   */
   private mapaNumaFase(op: OP, fase: string): Record<string, Record<string, number>> | null {
-    const pendente = this.pendenteDaOp(op);
-    return Object.keys(pendente).length ? { [fase]: pendente } : {};
+    const mapa: Record<string, Record<string, number>> = {};
+    const emFluxo = this.pendenteCortado(op);
+    if (Object.keys(emFluxo).length) mapa[fase] = emFluxo;
+    for (const [t, n] of Object.entries(this.porCortarDaOp(op))) {
+      mapa.Corte = mapa.Corte ?? {};
+      mapa.Corte[t] = Number(mapa.Corte[t] ?? 0) + n;
+    }
+    return mapa;
   }
 
   /** Normaliza o setor gravado para um nome de fase conhecido ("Separação 1 · corte parcial" → "Separação 1"). */
