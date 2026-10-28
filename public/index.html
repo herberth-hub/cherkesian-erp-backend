@@ -295,6 +295,7 @@ label.fl{font-size:11px;color:var(--muted);margin-bottom:5px;display:block}
 <div id="toast"></div>
 
 <script src="/briefing-schema.js"></script>
+<script src="/briefing-extra.js"></script>
 <script>
 (function(){
 "use strict";
@@ -10030,7 +10031,8 @@ function estDrawerMaterial(matId){
 }
 async function unBulkReimprimirCods(cods){
   try{ const r=await api('/estoque/unidades/etiquetas',{method:'POST',body:{codigos:cods}});
-    etiquetasUnidades(r.etiquetas||r||[]); }catch(e){ toast(e.message,'err'); }
+    if(!r.pecas||!r.pecas.length){ toast('Nada para reimprimir.','err'); return; }
+    imprimirEtqUnidades(r.pecas,{loteEntrada:'REIMPRESSAO'}); }catch(e){ toast(e.message,'err'); }
 }
 
 // ===== EXPEDIÇÃO AVULSA: saída sem pedido e sem nota fiscal =====
