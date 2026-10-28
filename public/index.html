@@ -9938,15 +9938,29 @@ async function dwMover(codigos){
       </select></div>
     <div id="dm_end">
       <div class="grid3">
-        <div><label class="fl">Coluna *</label><select id="dm_col" class="inp"><option value="">—</option>${opc(o.colunas)}</select></div>
-        <div><label class="fl">Andar *</label><select id="dm_and" class="inp"><option value="">—</option>${opc(o.andares)}</select></div>
-        <div><label class="fl">Caixa master</label><select id="dm_cx" class="inp"><option value="">— nenhuma —</option>${opc(o.caixas)}</select></div>
+        <div><label class="fl">Coluna *</label><select id="dm_col" class="inp" onchange="APP.dmCx()"><option value="">—</option>${opc(o.colunas)}</select></div>
+        <div><label class="fl">Andar *</label><select id="dm_and" class="inp" onchange="APP.dmCx()"><option value="">—</option>${opc(o.andares)}</select></div>
+        <div><label class="fl">Caixa master</label><select id="dm_cx" class="inp"><option value="">— nenhuma —</option>${opc(masterListA('',''))}</select></div>
       </div>
       <div class="muted" style="font-size:11px;margin-top:4px">As opções são os endereços que já existem no armazém — assim ninguém digita errado.</div>
     </div>
     <div id="dm_sai" style="display:none">${field('dm_motivo','Motivo da baixa','placeholder="ex.: perda, amostra, uso interno"')}</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick='APP.dwMoverConfirmar(${JSON.stringify(cods).replace(/'/g,"&#39;")})'>Confirmar</button></div>`);
+}
+/**
+ * Caixas oferecidas na movimentação: as CATALOGADAS (1.000 .. máximo) mais as já
+ * em uso, filtradas pela posição escolhida — a mesma regra do endereçamento.
+ * Antes a lista vinha de /estoque/enderecos, que só devolve caixa que JÁ tem peça
+ * dentro: caixa recém-criada (24, 25) nunca aparecia e ninguém conseguia ser o
+ * primeiro a guardar nela.
+ */
+function dmCx(){
+  const s=$('dm_cx'); if(!s) return;
+  const atual=s.value;
+  const arr=masterListA(val('dm_col'), val('dm_and'));
+  s.innerHTML='<option value="">— nenhuma —</option>'+arr.map(x=>`<option>${esc(x)}</option>`).join('');
+  if(atual && arr.indexOf(atual)>=0) s.value=atual;
 }
 function dwMoverAcao(){
   const a=val('dm_acao');
@@ -10855,7 +10869,9 @@ function caixaPosMap(){
 function masterListA(col, andar){
   const max=Math.max(1,Number(window.__MASTERMAX||14));
   const todas=Array.from({length:max},(_,i)=>String(i+1)+'.000');
-  (window.__UNIDS_ALL||[]).forEach(u=>{ const c=u&&u.caixaMaster; if(c&&/^\d/.test(String(c))&&!todas.includes(String(c))) todas.push(String(c)); });
+  // Caixa já em uso entra mesmo com nome fora do padrão (C1, B2, A2...): tem peça
+  // dentro, então precisa poder receber mais.
+  (window.__UNIDS_ALL||[]).forEach(u=>{ const c=u&&u.caixaMaster; if(c&&!todas.includes(String(c))) todas.push(String(c)); });
   const pos=caixaPosMap();
   const key=String(col||'')+'|'+String(andar!=null?andar:'');
   const filtroPos = (col!=null && col!=='' && andar!=null && andar!=='');
@@ -15999,7 +16015,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
