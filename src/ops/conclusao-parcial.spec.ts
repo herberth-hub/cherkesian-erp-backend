@@ -223,9 +223,28 @@ describe('corte parcial NÃO encolhe a ordem', () => {
     expect(r.status).toBe('concluido');
   });
 
-  it('não deixa etiquetar peça que não foi cortada', async () => {
+  /**
+   * REGRA MUDOU (OP-0205): concluir ACIMA do corte apontado passou a ser aceito,
+   * e o apontamento sobe junto.
+   *
+   * O teto era o corte, e a recusa não impedia nada de verdade: a etiqueta nasce
+   * em /estoque/entrada, que não consulta corte nenhum. Na prática as peças
+   * saíam etiquetadas e a OP ficava aberta para sempre, porque só o registro da
+   * conclusão era recusado. O corte apontado é um número que alguém digitou — e
+   * quem digitou a menos não deve travar a fábrica. O PLANEJADO continua sendo
+   * o limite de verdade.
+   */
+  it('concluir acima do corte apontado é aceito e acerta o corte', async () => {
     const { svc } = servico(OP_0037);
-    await expect(svc.concluirParcial(516, { M: 10 }, 1)).rejects.toThrow(/não tem peça|faltam|já está concluído/i);
+    const r = await svc.concluirParcial(516, { M: 10 }, 1);
+    expect(r.gradeCortada).toEqual({ G: 47, M: 10 });
+    expect(r.quantidadeCortada).toBe(57);
+    expect(r.finalizada).toBe(false); // longe das 233 planejadas
+  });
+
+  it('acima do PLANEJADO continua recusado', async () => {
+    const { svc } = servico(OP_0037);
+    await expect(svc.concluirParcial(516, { M: 81 }, 1)).rejects.toThrow(/faltam 80 peça/i);
   });
 });
 

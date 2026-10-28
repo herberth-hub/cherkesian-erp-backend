@@ -471,6 +471,16 @@ export class OpsService {
   async concluirParcial(id: number, grade: Record<string, unknown>, empresaId: number) {
     const op = await this.findOne(id, empresaId);
     const base = this.baseDaConclusao(op);
+    // TETO = o maior entre o cortado e o PLANEJADO, tamanho a tamanho.
+    //
+    // O corte registrado é um apontamento, não a verdade da fábrica: quem corta
+    // mais e não volta na tela deixa o número para trás. Com o teto no cortado,
+    // a OP-0205 (44 planejadas, corte lançado como 32) recusava as 12 últimas
+    // com "G já está concluído nesta OP" — enquanto a própria tela oferecia
+    // essas 12 para avançar. As etiquetas saíam e a OP ficava aberta para
+    // sempre. O planejado continua sendo o limite: ninguém etiqueta peça que a
+    // ordem não pediu.
+    const teto = this.tetoDaConclusao(op);
     const jaFeito = (op.gradeConcluida as Record<string, number> | null) ?? {};
 
     const agora: Record<string, number> = {};
@@ -483,12 +493,12 @@ export class OpsService {
       // aqui travava a conclusão: na OP-0214 (PV165, 4 peças sem grade) as 4
       // etiquetas saíram e a OP ficou "em produção" para sempre, porque o
       // registro da conclusão era rejeitado com 'Tamanho inválido: ""'.
-      if (!t && base[''] == null) throw new BadRequestException('Informe o tamanho das peças concluídas.');
+      if (!t && teto[''] == null) throw new BadRequestException('Informe o tamanho das peças concluídas.');
       if (t.length > 6) throw new BadRequestException(`Tamanho inválido: "${tamanho}".`);
       const rot = t || 'Lote único'; // como a OP sem grade aparece nas mensagens
       if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${rot}: "${qtd}".`);
       if (n === 0) continue;
-      const restante = Number(base[t] ?? 0) - Number(jaFeito[t] ?? 0);
+      const restante = Number(teto[t] ?? 0) - Number(jaFeito[t] ?? 0);
       if (restante <= 0) throw new BadRequestException(`${rot} já está concluído nesta OP.`);
       if (n > restante) throw new BadRequestException(`${rot}: faltam ${restante} peça(s), não ${n}.`);
       agora[t] = n; somaAgora += n;
@@ -528,11 +538,17 @@ export class OpsService {
     }
     const resumo = fases ? this.resumoDasFases(fases) : null;
 
+    // Concluiu mais do que o corte apontado? Então o apontamento é que estava
+    // atrasado — a peça existe, virou etiqueta. O corte sobe para alcançá-lo,
+    // senão a OP ficaria dizendo "cortei 32, etiquetei 44" para sempre.
+    const corteAcertado = this.corteAlcancando(op, novo);
+
     const atualizada = await this.prisma.oP.update({
       where: { id },
       data: {
         gradeConcluida: novo as Prisma.InputJsonValue,
         quantidadeConcluida: totalConcluido,
+        ...(corteAcertado ?? {}),
         ...(fases ? { gradeFases: fases as Prisma.InputJsonValue } : {}),
         // Completou: fecha. Não completou: NÃO mexe em status — o resto da OP
         // continua em produção, no setor da peça mais atrasada que sobrou.
@@ -550,9 +566,47 @@ export class OpsService {
       // O que falta PRODUZIR (contra o planejado) e o que dá para etiquetar
       // agora (contra o cortado) são coisas diferentes quando o corte foi parcial.
       restante: this.restanteDaConclusao(alvo, novo),
-      aEtiquetar: this.restanteDaConclusao(base, novo),
-      aCortar: this.restanteDaConclusao(alvo, base),
+      // "Dá para etiquetar" continua sendo contra o CORTE — já com o acerto, se
+      // esta conclusão passou dele.
+      aEtiquetar: this.restanteDaConclusao((corteAcertado?.gradeCortada as Record<string, number>) ?? base, novo),
+      aCortar: this.restanteDaConclusao(alvo, (corteAcertado?.gradeCortada as Record<string, number>) ?? base),
       finalizada: completou,
+    };
+  }
+
+  /**
+   * Quanto esta OP pode etiquetar: o maior entre o cortado e o planejado, por
+   * tamanho. Cortar a mais é permitido (o schema diz isso), e apontar a menos
+   * acontece o tempo todo — nenhum dos dois pode travar a conclusão.
+   */
+  private tetoDaConclusao(op: OP): Record<string, number> {
+    const cortada = this.baseDaConclusao(op);
+    const alvo = this.alvoDaOp(op);
+    const teto: Record<string, number> = { ...cortada };
+    for (const [t, n] of Object.entries(alvo)) teto[t] = Math.max(Number(teto[t] ?? 0), Number(n));
+    return teto;
+  }
+
+  /**
+   * Acerta o corte apontado quando a conclusão passou dele. Devolve `null`
+   * quando não há o que mexer — o caso normal.
+   */
+  private corteAlcancando(op: OP, concluida: Record<string, number>): Prisma.OPUpdateInput | null {
+    const cortada = (op.gradeCortada as Record<string, number> | null) ?? null;
+    if (!cortada || !Object.keys(cortada).length) return null; // sem apontamento de corte, nada a acertar
+    const ajustada: Record<string, number> = { ...cortada };
+    let mudou = false;
+    for (const [t, n] of Object.entries(concluida)) {
+      if (Number(n) > Number(ajustada[t] ?? 0)) { ajustada[t] = Number(n); mudou = true; }
+    }
+    if (!mudou) return null;
+    const total = Object.values(ajustada).reduce((s, n) => s + Number(n), 0);
+    const alvo = this.alvoDaOp(op);
+    const totalAlvo = Object.values(alvo).reduce((s, n) => s + Number(n), 0);
+    return {
+      gradeCortada: ajustada as Prisma.InputJsonValue,
+      quantidadeCortada: total,
+      corteParcial: total < totalAlvo,
     };
   }
 
