@@ -23,8 +23,11 @@ const { PAPEIS } = require('./config');
 const MAX_TENTATIVAS = 4;
 
 class Orquestrador {
-  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS }) {
+  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS, leitorEmail = null }) {
     this.cfg = cfg;
+    this.leitorEmail = leitorEmail;
+    this.emailVerificadoEm = 0;
+    this.verificandoEmail = null;
     this.executarJob = executarJob;
     this.eventos = eventos;
     this.agora = agora;
@@ -181,6 +184,31 @@ class Orquestrador {
     }
   }
 
+  /**
+   * Verifica as caixas de e-mail (fase 2) se já passou o intervalo. Só no modo claude:
+   * triagem de e-mail exige julgamento. Devolve a promessa da verificação (útil nos testes).
+   */
+  verificarEmail() {
+    if (!this.leitorEmail || this.cfg.modo !== 'claude' || this.verificandoEmail) return this.verificandoEmail;
+    const intervalo = this.leitorEmail.email.intervaloMin * 60000;
+    if (this.agora().getTime() - this.emailVerificadoEm < intervalo) return null;
+    this.emailVerificadoEm = this.agora().getTime();
+    this.verificandoEmail = this.leitorEmail
+      .verificar()
+      .then((trabalhos) => {
+        for (const t of trabalhos) {
+          if (!this.enfileirar('vendedor', t)) this.leitorEmail.emFila.delete(t.chave.replace(/^email:/, ''));
+        }
+        if (trabalhos.length) this.eventos.emitir('email', { papel: 'vendedor', texto: `${trabalhos.length} e-mail(s) novo(s) para triagem.` });
+        return this.despachar();
+      })
+      .catch((e) => this.eventos.emitir('alerta', { papel: 'vendedor', texto: `Falha ao verificar e-mails: ${e.message}` }))
+      .finally(() => {
+        this.verificandoEmail = null;
+      });
+    return this.verificandoEmail;
+  }
+
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
   tick() {
     const aberto = this.expediente();
@@ -194,6 +222,7 @@ class Orquestrador {
       this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado });
     }
     this.salvarEstado();
+    this.verificarEmail();
     try {
       this.coletarDaBase();
     } catch (e) {
@@ -248,6 +277,13 @@ class Orquestrador {
       resultado = { status: 'erro', resumo: e.message, tokens: 0 };
     }
     a.ativos.delete(job.id);
+    if (typeof job.aoConcluir === 'function') {
+      try {
+        job.aoConcluir(resultado);
+      } catch (e) {
+        this.eventos.emitir('alerta', { papel: a.papel, texto: `Falha ao registrar conclusão de ${job.id}: ${e.message}` });
+      }
+    }
     if (resultado.status === 'erro') a.erros++;
     else a.concluidos++;
     a.ultimo = { job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, em: this.agora().toISOString() };
@@ -305,6 +341,7 @@ class Orquestrador {
       })),
       rotinas: this.rotinas.map((r) => ({ id: r.id, papel: r.papel, titulo: r.titulo, quando: r.hora ? `${r.hora}${r.dias ? ` (dias ${r.dias.join(',')})` : ''}` : `a cada ${r.aCadaMin} min` })),
       historico: this.historico.slice(0, 30),
+      email: this.leitorEmail ? this.leitorEmail.estado() : null,
     };
   }
 

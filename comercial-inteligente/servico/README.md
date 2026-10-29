@@ -1,4 +1,4 @@
-# Serviço autônomo — fase 1
+# Serviço autônomo — fases 1 e 2
 
 Os quatro agentes (CEO, Diretor, Gerente, Vendedor) rodando **sozinhos e em paralelo**, de
 **segunda a sexta, das 06:30 às 22:00 (horário de São Paulo)**, com um **painel visual** para
@@ -34,6 +34,43 @@ Toda decisão exige justificativa e fica no histórico.
 - **Nada é reprocessado sem mudança no registro**, e cada registro tem no máximo 4 trabalhos por dia; depois o painel avisa e o item fica para você.
 - Referência de preço do modelo (Opus 5.5): US$ 4 por milhão de tokens de entrada, US$ 20 de saída, US$ 0,20 em leitura de cache. Com o orçamento padrão, o teto teórico diário fica entre ~US$ 12 (tudo entrada) e US$ 60 (tudo saída); o consumo real aparece no painel e deve ser acompanhado nas primeiras semanas.
 
+## Fase 2 — cotações por e-mail
+
+A cada 5 minutos, dentro do expediente, o serviço verifica as caixas configuradas. Cada e-mail novo vira
+um trabalho do **vendedor**, que:
+
+1. classifica (pedido de cotação, cliente atual ou não comercial — este último é ignorado);
+2. confere se o cliente/lead já existe e registra lead, oportunidade e atividade **só com o que o e-mail informa**;
+3. lê anexos **PDF e imagens** (até 3 por e-mail); planilhas e outros formatos aparecem só pelo nome;
+4. escala ao gerente reclamações, clientes estratégicos e o que fugir da alçada;
+5. cria **um rascunho de resposta** no próprio Gmail, na mesma conversa, para o remetente original,
+   pedindo o que falta (quantidades, grade, cores, tecido, logotipo, prazo, local, CNPJ) — **sem preço, prazo ou certificação**.
+
+**O agente nunca envia.** Você abre o rascunho (link no painel, em "Rascunhos para você revisar e enviar"), ajusta e envia.
+O destinatário é sempre o remetente do e-mail original (definido pelo servidor, não pelo agente).
+O conteúdo dos e-mails é tratado como dado de terceiros: instruções escritas no e-mail são ignoradas.
+
+| Caixa | O que o agente lê |
+| --- | --- |
+| `contato@hcqualitycorp.com.br` | Caixa de entrada dos últimos 4 dias, exceto promoções e redes sociais. |
+| `herberth@hcqualitycorp.com.br` | **Só e-mails com o marcador `cotacoes`** (caixa pessoal: o resto não é lido). Crie no Gmail um filtro que aplique esse marcador (ex.: assunto contém "cotação" ou "orçamento") ou marque manualmente. |
+
+Cada e-mail é tratado uma vez (controle em `servico-email.json`); com falha, até 3 tentativas e depois aviso no painel.
+
+### Configurar (uma vez)
+1. **Google Cloud Console** (projeto da HC, conta do Workspace):
+   - ative a **Gmail API**;
+   - tela de consentimento OAuth do tipo **Interno** (só usuários `@hcqualitycorp.com.br`; dispensa verificação do Google);
+   - crie uma credencial **ID do cliente OAuth → Aplicativo da Web** com o URI de redirecionamento
+     `https://<endereço-do-painel>/oauth/gmail/retorno`.
+   - Pode reaproveitar o projeto do Agente Secretário, acrescentando esse redirecionamento.
+2. No servidor: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `HC_URL_PUBLICA=https://<endereço-do-painel>`.
+3. No painel, em **E-mail de cotações**, toque em **Conectar** em cada caixa e entre com **a própria conta** daquela caixa
+   (o serviço confere: autorizar com outra conta é recusado).
+4. Permissões pedidas: `gmail.readonly` (ler) e `gmail.compose` (criar rascunhos). O Google não tem uma permissão
+   "só rascunho"; `compose` também permitiria enviar, mas o código do serviço não tem nenhuma função de envio (há teste que garante).
+   Os tokens ficam em `segredos/` dentro da pasta de dados, com permissão restrita, e nunca aparecem no painel ou nos logs.
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Uso |
@@ -48,6 +85,12 @@ Toda decisão exige justificativa e fica no histórico.
 | `HC_FALLBACKS` | ligado | `off` desliga o fallback automático do servidor em recusas. |
 | `HC_ORCAMENTO_TOKENS_DIA`, `HC_MAX_TAREFAS_HORA`, `HC_MAX_ITERACOES` | 3000000, 20, 12 | Limites. |
 | `HC_PARALELO_CEO/DIRETOR/GERENTE/VENDEDOR` | 1/1/1/3 | Trabalhos simultâneos por agente. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Credencial OAuth do Google (fase 2). |
+| `HC_URL_PUBLICA` | — | Endereço público do painel (para o retorno do login Google). |
+| `HC_GMAIL_CONTAS` | `contato@…,herberth@…` | Caixas lidas. |
+| `HC_GMAIL_CONSULTA_<CAIXA>` | ver tabela acima | Filtro de busca do Gmail por caixa (ex.: `HC_GMAIL_CONSULTA_HERBERTH`). |
+| `HC_GMAIL_INTERVALO_MIN` | `5` | Intervalo de verificação. |
+| `GMAIL_TOKEN_<CAIXA>` | — | Alternativa ao botão Conectar: refresh token por variável de ambiente. |
 
 ## Implantação (Render ou outro servidor)
 
@@ -60,7 +103,8 @@ Toda decisão exige justificativa e fica no histórico.
 O `render.yaml` do ERP **não foi alterado** (ele publica o ERP a cada push na `main`); o serviço é um deploy separado, que você decide criar.
 
 ## Limitações desta fase
-- **Sem e-mail e sem WhatsApp** (fases 2 e 3): os agentes ainda não falam com clientes; preparam rascunhos como atividades no CRM.
+- **Sem WhatsApp** (fase 3). No e-mail, os agentes só criam rascunhos; o envio é sempre humano.
+- **E-mail não testado contra o Gmail real nesta entrega**: a integração foi testada com um Gmail simulado no formato da API; conecte primeiro a `contato@` e acompanhe os primeiros rascunhos.
 - **Não testado com a API real nesta entrega**: o loop foi testado com um cliente simulado que reproduz o formato da API; a primeira execução com `ANTHROPIC_API_KEY` deve ser acompanhada pelo painel.
 - Armazenamento em arquivos JSON: um único processo do serviço por base (não rode duas instâncias apontando para o mesmo diretório).
 - O painel é protegido por token único (sem usuários individuais). Para mais de um aprovador, a fase seguinte deve usar o login do ERP.

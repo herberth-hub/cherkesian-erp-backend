@@ -83,8 +83,17 @@ function visaoBase(base) {
   };
 }
 
+function paginaSimples(res, status, titulo, texto) {
+  const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(titulo)}</title>` +
+    `<body style="font:16px system-ui;margin:0;padding:32px 16px;background:#f4f5f7;color:#1c2430"><div style="max-width:520px;margin:auto;background:#fff;border:1px solid #e2e5ea;border-radius:12px;padding:20px">` +
+    `<h2 style="margin-top:0">${esc(titulo)}</h2><p>${esc(texto)}</p><p><a href="/">Voltar ao painel</a></p></div></body>`);
+}
+
 function criarServidor({ orquestrador, eventos, token }) {
   if (!token || token.length < 16) throw new Error('PAINEL_TOKEN ausente ou curto (mínimo 16 caracteres).');
+  const estadosOAuth = new Map(); // state -> { conta, expira }
 
   const autenticado = (req) => iguais(cookie(req, 'hc_painel'), token) || iguais(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''), token);
 
@@ -141,6 +150,37 @@ function criarServidor({ orquestrador, eventos, token }) {
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
       return res.end(fs.readFileSync(HTML));
+    }
+
+    // Conexão do Gmail (fase 2). O início exige o painel autenticado; o retorno do Google é
+    // validado pelo "state" aleatório de uso único (o cookie SameSite=Strict não volta do Google).
+    if (req.method === 'GET' && url.pathname === '/oauth/gmail') {
+      if (!autenticado(req)) return paginaSimples(res, 401, 'Acesso negado', 'Abra o painel com o token antes de conectar o Gmail.');
+      const leitor = orquestrador.leitorEmail;
+      try {
+        if (!leitor) throw new Error('Leitor de e-mail não habilitado neste serviço.');
+        const conta = String(url.searchParams.get('conta') || '').toLowerCase();
+        const state = crypto.randomBytes(24).toString('hex');
+        const destino = leitor.urlConsentimento(conta, state);
+        estadosOAuth.set(state, { conta, expira: Date.now() + 10 * 60000 });
+        res.writeHead(302, { Location: destino });
+        return res.end();
+      } catch (e) {
+        return paginaSimples(res, 400, 'Não foi possível conectar', e.message);
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/oauth/gmail/retorno') {
+      const state = url.searchParams.get('state') || '';
+      const pedido = estadosOAuth.get(state);
+      estadosOAuth.delete(state);
+      if (!pedido || pedido.expira < Date.now()) return paginaSimples(res, 400, 'Link expirado', 'Inicie a conexão de novo pelo painel.');
+      if (url.searchParams.get('error')) return paginaSimples(res, 400, 'Autorização cancelada', 'Nenhuma permissão foi concedida.');
+      try {
+        await orquestrador.leitorEmail.concluirOAuth(pedido.conta, url.searchParams.get('code'));
+        return paginaSimples(res, 200, 'Caixa conectada', `${pedido.conta} conectada. O vendedor começa a ler os e-mails no próximo ciclo dentro do expediente.`);
+      } catch (e) {
+        return paginaSimples(res, 400, 'Não foi possível conectar', e.message);
+      }
     }
 
     if (!url.pathname.startsWith('/api/')) return json(res, 404, { erro: 'Não encontrado.' });
