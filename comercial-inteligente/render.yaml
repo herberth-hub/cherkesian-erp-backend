@@ -1,0 +1,42 @@
+# Render Blueprint — Diretoria Comercial de IA (app separado do ERP Cherkesian)
+# Não substitui o render.yaml da raiz (que publica o ERP). Ao criar o Blueprint no Render,
+# informe o caminho deste arquivo: comercial-inteligente/render.yaml
+# Passo a passo: comercial-inteligente/IMPLANTACAO.md
+services:
+  - type: web
+    name: hc-diretoria-comercial
+    runtime: node
+    # Plano pago: precisa ficar sempre ligado (o gratuito hiberna) e ter disco permanente.
+    plan: starter
+    region: oregon            # mesma região do ERP (leitura da API do ERP fica mais rápida)
+    branch: main
+    rootDir: comercial-inteligente
+    buildCommand: npm ci
+    startCommand: node bin/servico.js
+    healthCheckPath: /saude
+    autoDeploy: true
+    # Disco permanente: conversas, CRM comercial, filas e tokens sobrevivem a novos deploys.
+    disk:
+      name: dados-agentes
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TZ
+        value: America/Sao_Paulo
+      # Começa na base de DEMONSTRAÇÃO (dados fictícios). Para produção, troque para
+      # HC_BASE=producao e HC_DATA_DIR=/var/data/producao (ver IMPLANTACAO.md, etapa 4).
+      - key: HC_BASE
+        value: demo
+      - key: HC_DATA_DIR
+        value: /var/data/demo
+      # Senha do painel: o Render gera sozinho; veja em Environment > PAINEL_TOKEN.
+      - key: PAINEL_TOKEN
+        generateValue: true
+      # Teto de consumo da IA por dia (tokens). Baixo para o período de teste; ajuste depois.
+      - key: HC_ORCAMENTO_TOKENS_DIA
+        value: "500000"
+      # Chave da API do Claude. Vazia = modo simulado (agentes rodam sem IA, custo zero).
+      - key: ANTHROPIC_API_KEY
+        sync: false
