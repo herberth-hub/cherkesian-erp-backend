@@ -142,6 +142,10 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 
 ## Implantação (Render ou outro servidor)
 
+**Passo a passo completo, pensado para fazer pelo celular: [`../IMPLANTACAO.md`](../IMPLANTACAO.md)**
+(Blueprint pronto em `comercial-inteligente/render.yaml`, separado do `render.yaml` do ERP).
+
+
 1. Serviço web Node com comando `npm install --prefix comercial-inteligente && node comercial-inteligente/bin/servico.js`.
 2. **Plano sempre ligado** (no Render, o gratuito hiberna e os agentes param).
 3. **Disco persistente** montado em `HC_DATA_DIR` — sem ele, os dados somem a cada novo deploy.
