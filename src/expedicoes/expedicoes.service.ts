@@ -11,6 +11,7 @@ import { ArquivosService } from '../arquivos/arquivos.service';
 import { CreateExpedicaoDto } from './dto/create-expedicao.dto';
 import { CreateExpedicaoAvulsaDto } from './dto/create-expedicao-avulsa.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
+import { planoCobranca } from '../common/utils/vencimentos.util';
 
 // bwip-js gera QR Code e código de barras (Code128) como PNG.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -142,30 +143,14 @@ export class ExpedicoesService {
     if (!(base > 0)) throw new BadRequestException('Informe o valor a cobrar — não consegui calcular pelo que foi expedido.');
 
     // Vencimento: data informada, ou prazo em dias da forma de pagamento, ou hoje.
+    // A regra mora em vencimentos.util — a venda de comodato cobra pela mesma.
     const forma = (dto.formaPagamento ?? pedido.formaPagamento ?? '').trim();
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-    let vencimentos: Date[] = [];
-    if (dto.vencimento) {
-      const v = new Date(dto.vencimento + (dto.vencimento.length <= 10 ? 'T12:00:00' : ''));
-      if (isNaN(v.getTime())) throw new BadRequestException(`Vencimento inválido: "${dto.vencimento}".`);
-      vencimentos = [v];
-    } else {
-      const dias = [...String(forma).replace(/\([^)]*\)/g, ' ').matchAll(/\d+/g)]
-        .map((m) => parseInt(m[0], 10)).filter((n) => n > 0 && n <= 360).sort((a, b) => a - b);
-      vencimentos = dias.length
-        ? dias.map((n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x; })
-        : [hoje];
+    let vencimentos: Date[]; let valores: number[];
+    try {
+      ({ vencimentos, valores } = planoCobranca(base, forma, dto));
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
     }
-    // Parcelas explícitas (sem prazo na forma): divide a partir do 1º vencimento, de 30 em 30.
-    const nParc = Math.max(1, Math.min(Number(dto.parcelas ?? vencimentos.length) || 1, 12));
-    if (nParc > vencimentos.length) {
-      const base0 = vencimentos[0];
-      vencimentos = Array.from({ length: nParc }, (_, i) => { const x = new Date(base0); x.setDate(x.getDate() + i * 30); return x; });
-    }
-
-    const parcela = Number((base / vencimentos.length).toFixed(2));
-    const valores = vencimentos.map((_, i) =>
-      i === vencimentos.length - 1 ? Number((base - parcela * (vencimentos.length - 1)).toFixed(2)) : parcela);
 
     // Boleto só existe onde há conta com CNAB homologado (hoje, o convênio
     // Santander da Yerevan). Nos outros CNPJs a cobrança é por transferência/PIX.

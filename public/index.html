@@ -9737,6 +9737,7 @@ function estDrawer(chave, cor, tam){
         <span class="mono" style="color:#8a6a0c">${esc(u.codigo)}</span>${unidStatusPill(u.status)}${estVincPill(u)}
         <button class="btn-sm" style="margin-left:auto;padding:2px 8px" onclick="APP.reimprimirUnidade('${esc(u.codigo)}')">Etiqueta</button></div>`).join('')}`,
     `<button class="btn-primary" style="flex:1" onclick="APP.dwMover()">📍 Movimentar selecionadas</button>
+     ${arr.some(u=>u.status==='comodato')?`<button class="btn-sm" style="background:#6b3fa0;color:#fff;border-color:#6b3fa0;font-weight:700" title="O cliente vendeu estas peças: baixa do estoque, gera o pedido e lança o título" onclick="APP.comodatoVenda()">💰 Cliente vendeu</button>`:''}
      <button class="btn-sm" onclick="APP.unBulkReimprimirCods(${JSON.stringify(arr.map(u=>u.codigo)).replace(/"/g,'&quot;')})">Reimprimir todas</button>
      ${S.user.acesso==='total'?`<button class="btn-sm" style="color:#c14a34;border-color:#e8bcae" onclick="APP.dwExcluir()">🗑 Excluir selecionadas</button>`:''}`);
 }
@@ -9813,14 +9814,17 @@ function estMultiRender(){
   const desp=MB.itens.filter(u=>u.status==='despachado').length;
   const res=MB.itens.filter(u=>u.status==='reservado').length;
   const seg=MB.itens.filter(u=>u.qualidade==='segunda').length;
+  const com=MB.itens.filter(u=>u.status==='comodato').length;
   const a=$('mb_acoes');
   if(a) a.innerHTML = `<div style="font-size:12.5px;margin-bottom:6px"><b>${n}</b> etiqueta(s)`
+    + (com?` · <span style="color:#6b3fa0">${com} em comodato</span>`:'')
     + (res?` · <span style="color:#8a5a00">${res} reservada(s)</span>`:'')
     + (desp?` · <span style="color:#c14a34">${desp} já despachada(s)</span>`:'')
     + (seg?` · <span style="color:#111;font-weight:700">${seg} de 2ª linha</span>`:'')
     + `</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn-primary" onclick="APP.estMultiMover()">📍 Movimentar as ${n}</button>
+      ${com?`<button class="btn-sm" style="background:#6b3fa0;color:#fff;border-color:#6b3fa0;font-weight:700" title="O cliente vendeu: baixa do estoque, gera o pedido e lança o título" onclick="APP.estMultiComodatoVenda()">💰 Cliente vendeu (${com})</button>`:''}
       <button class="btn-sm" onclick="APP.estMultiReimprimir()">🏷 Reimprimir todas</button>
       <button class="btn-sm" style="background:#111;color:#fff;border-color:#111" title="Marcar as etiquetas bipadas como peça de segunda linha (defeito leve)" onclick="APP.estSegundaForm()">⚠ Segunda linha</button>
       ${seg?`<button class="btn-sm" title="Devolver as de segunda linha para primeira" onclick="APP.estSegundaVoltar()">↩ Voltar p/ 1ª linha (${seg})</button>`:''}
@@ -9882,6 +9886,13 @@ function estMultiTirar(i){ const MB=window.__MB; if(!MB) return; MB.itens.splice
 function estMultiLimpar(){ window.__MB={itens:[]}; estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
 function estMultiCods(){ return (window.__MB&&window.__MB.itens||[]).map(u=>u.codigo); }
 function estMultiMover(){ const c=estMultiCods(); if(!c.length) return; closeModal(); dwMover(c); }
+/** Vender só as bipadas que ESTÃO em comodato — o resto da cesta não é venda. */
+function estMultiComodatoVenda(){
+  const MB=window.__MB||{itens:[]};
+  const c=MB.itens.filter(u=>u.status==='comodato').map(u=>u.codigo);
+  if(!c.length){ toast('Nenhuma das etiquetas bipadas está em comodato.','err'); return; }
+  closeModal(); comodatoVenda(c);
+}
 function estMultiReimprimir(){ const c=estMultiCods(); if(c.length) unBulkReimprimirCods(c); }
 async function estMultiExcluir(){
   const MB=window.__MB; const cods=estMultiCods(); if(!cods.length) return;
@@ -9985,6 +9996,115 @@ function dmCx(){
   const arr=masterListA(val('dm_col'), val('dm_and'));
   s.innerHTML='<option value="">— nenhuma —</option>'+arr.map(x=>`<option>${esc(x)}</option>`).join('');
   if(atual && arr.indexOf(atual)>=0) s.value=atual;
+}
+/* ===== VENDA DE COMODATO =====
+   A peça está na loja do cliente. Quando ele vende, três coisas têm de
+   acontecer juntas: a etiqueta sai do estoque, nasce o pedido de venda com o
+   preço de contrato e o título entra no a receber. O backend faz as três numa
+   transação só; aqui o operador vê ANTES quanto vai ser cobrado. */
+async function comodatoVenda(codigos){
+  const cods=(codigos&&codigos.length)?codigos:dwSelecionadas();
+  if(!cods.length){ toast('Marque as etiquetas que o cliente vendeu.','err'); return; }
+  let p;
+  try{ p=await api('/estoque/comodato/previa',{method:'POST',body:{codigos:cods}}); }
+  catch(e){ toast(e.message,'err'); return; }
+  window.__CVCODS=cods;
+  comodatoVendaModal(p);
+}
+function comodatoVendaModal(p){
+  const brl=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const gradeTxt=g=>Object.entries(g||{}).map(([t,n])=>`${t}:${n}`).join(' · ');
+  const origem={contrato:'contrato',tabela:'tabela do produto',informado:'informado agora'};
+  // Linha sem preço vira campo: sem preço a venda não sai, e mandar o operador
+  // cadastrar o produto no meio da cobrança seria perder a venda.
+  const faltando=p.linhas.filter(l=>!l.precoOrigem);
+  openModal(`<h3>💰 Venda de comodato · ${esc(p.cliente)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">${p.pecas} peça(s) que estavam na loja dele.
+      ${p.contrato?`Preço do contrato <b>${esc(p.contrato)}</b>.`:'Sem contrato vigente — preço da tabela do produto.'}
+      Ao confirmar: as etiquetas <b>saem do estoque</b>, nasce o <b>pedido de venda</b> e o <b>título</b> entra no a receber.</div>
+    ${faltando.length?`<div class="card" style="background:#fdf4f2;border-color:#e8bcae;margin-bottom:9px;font-size:12.5px">
+      ⚠ <b>${faltando.length} item(ns) sem preço</b> — nem o contrato nem a tabela do produto cobrem. Informe o valor unitário abaixo para poder cobrar.</div>`:''}
+    <div style="max-height:34vh;overflow:auto;border:1px solid #efe7d2;border-radius:8px;margin-bottom:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#faf8f0;position:sticky;top:0">
+          <th style="text-align:left;padding:6px 8px">Item</th><th style="text-align:left;padding:6px 8px">Grade</th>
+          <th style="text-align:right;padding:6px 8px">Qtd</th><th style="text-align:right;padding:6px 8px">Unit.</th>
+          <th style="text-align:right;padding:6px 8px">Subtotal</th></tr></thead>
+        <tbody>${p.linhas.map((l,i)=>`<tr style="border-top:1px solid #f2efe8">
+          <td style="padding:6px 8px">${l.itemCodigo?`<span class="mono gold">${esc(l.itemCodigo)}</span> `:''}${esc(l.descricao)}${l.cor?` · ${esc(l.cor)}`:''}
+            ${l.segunda?`<span style="background:#111;color:#fff;border-radius:999px;padding:0 6px;font-size:9.5px;font-weight:800">${l.segunda} de 2ª</span>`:''}</td>
+          <td style="padding:6px 8px;color:#77746d">${esc(gradeTxt(l.grade))}</td>
+          <td style="padding:6px 8px;text-align:right"><b>${l.quantidade}</b></td>
+          <td style="padding:6px 8px;text-align:right">${l.precoOrigem
+            ? `${brl(l.precoUnit)}<div class="muted" style="font-size:10px">${esc(origem[l.precoOrigem]||'')}</div>`
+            : `<input class="inp cvpreco" data-prod="${l.produtoId||''}" data-i="${i}" type="number" step="0.01" min="0.01" placeholder="0,00" oninput="APP.comodatoVendaRecalc()" style="width:92px;text-align:right;padding:4px 6px;height:28px">`}</td>
+          <td style="padding:6px 8px;text-align:right" id="cv_sub_${i}" data-qtd="${l.quantidade}">${l.precoOrigem?brl(l.subtotal):'—'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;align-items:baseline;gap:8px;margin-bottom:10px">
+      <span class="muted" style="font-size:12px">Total a cobrar</span>
+      <b id="cv_total" style="font-size:19px;color:#1e7a44">${brl(p.total)}</b></div>
+    <div class="grid3">
+      ${field('cv_venc','Vencimento','type="date"')}
+      <div class="mrow"><label class="fl">Parcelas</label><input id="cv_parc" class="inp" type="number" min="1" max="12" placeholder="${p.formaPagamento?'do contrato':'1'}"></div>
+      <div class="mrow"><label class="fl">Como cobrar</label><select id="cv_cobrar" class="inp">
+        <option value="">— decidir depois —</option><option value="boleto">Boleto (CNAB)</option><option value="transferencia">PIX / transferência</option></select></div>
+    </div>
+    <div class="muted" style="font-size:11px;margin:-2px 0 8px">${p.formaPagamento
+      ? `Sem data, vale o prazo do contrato: <b>${esc(p.formaPagamento)}</b>.`
+      : 'Sem data e sem prazo no contrato, o título vence hoje.'}</div>
+    ${field('cv_obs','Observação (opcional)','placeholder="ex.: acerto da vitrine de outubro"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" id="cv_ok" onclick="APP.comodatoVendaConfirmar()">Confirmar venda e cobrar</button></div>`);
+  window.__CVPREVIA=p;
+  comodatoVendaRecalc();
+}
+/** Preço digitado nas linhas sem tabela — recalcula subtotal e total na tela. */
+function comodatoVendaRecalc(){
+  const p=window.__CVPREVIA; if(!p) return;
+  const brl=v=>'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  let tot=0, falta=0;
+  p.linhas.forEach((l,i)=>{
+    let sub=l.subtotal;
+    if(!l.precoOrigem){
+      const el=document.querySelector('.cvpreco[data-i="'+i+'"]');
+      const v=Number((el&&el.value||'').replace(',','.'));
+      // Sem grade mista aqui: a linha digitada não tem preço de cadastro para
+      // comparar, então é o valor informado vezes a quantidade, e ponto.
+      sub = v>0 ? Number((v*l.quantidade).toFixed(2)) : 0;
+      if(!(v>0)) falta++;
+      const c=$('cv_sub_'+i); if(c) c.textContent = v>0?brl(sub):'—';
+    }
+    tot+=sub;
+  });
+  const t=$('cv_total'); if(t) t.textContent=brl(tot);
+  const b=$('cv_ok'); if(b){ b.disabled=falta>0||!(tot>0); b.style.opacity=b.disabled?'.5':''; b.title=falta?'Informe o preço dos itens que faltam':''; }
+}
+function comodatoVendaPrecos(){
+  const precos={};
+  document.querySelectorAll('.cvpreco').forEach(el=>{
+    const pid=el.getAttribute('data-prod'); const v=Number((el.value||'').replace(',','.'));
+    if(pid && v>0) precos[pid]=v;
+  });
+  return precos;
+}
+async function comodatoVendaConfirmar(){
+  const cods=window.__CVCODS||[]; if(!cods.length) return;
+  const precos=comodatoVendaPrecos();
+  const body={ codigos:cods, vencimento:val('cv_venc')||undefined, parcelas:Number(val('cv_parc')||0)||undefined,
+    cobrar:val('cv_cobrar')||undefined, obs:val('cv_obs')||undefined };
+  if(Object.keys(precos).length) body.precos=precos;
+  const tot=($('cv_total')||{}).textContent||'';
+  const ok=await uiConfirm({tipo:'warn', titulo:'Confirmar a venda de '+cods.length+' peça(s)?', ok:'Confirmar e cobrar', cancel:'Cancelar',
+    msg:'As etiquetas saem do estoque, nasce o pedido de venda e o título de '+tot+' entra em Contas a Receber. Para desfazer depois é preciso cancelar o pedido e o título.'});
+  if(!ok) return;
+  try{
+    const r=await api('/estoque/comodato/venda',{method:'POST',body});
+    closeModal(); estDrawerFechar();
+    toast('Venda '+r.pedido+' · '+r.pecas+' peça(s) · R$ '+Number(r.total).toLocaleString('pt-BR',{minimumFractionDigits:2})
+      +' em '+r.titulos+' título(s) · vence '+r.vencimentos.join(', '),'ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 function dwMoverAcao(){
   const a=val('dm_acao');
@@ -16111,7 +16231,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,

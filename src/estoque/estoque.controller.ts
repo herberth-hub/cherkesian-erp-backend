@@ -11,6 +11,8 @@ import {
 } from '@nestjs/common';
 import { Query } from '@nestjs/common';
 import { EstoqueService } from './estoque.service';
+import { ComodatoVendaService } from './comodato-venda.service';
+import { ComodatoVendaDto, ComodatoPreviaDto } from './dto/comodato-venda.dto';
 import { MovimentarEstoqueDto } from './dto/movimentar.dto';
 import { EntradaEstoqueDto, EnderecarDto } from './dto/unidade.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -20,7 +22,10 @@ import { AuthUser } from '../auth/auth.types';
 @Areas('estoque')
 @Controller('estoque')
 export class EstoqueController {
-  constructor(private readonly estoqueService: EstoqueService) {}
+  constructor(
+    private readonly estoqueService: EstoqueService,
+    private readonly comodatoVenda: ComodatoVendaService,
+  ) {}
 
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
@@ -156,6 +161,29 @@ export class EstoqueController {
   @Get('comodato')
   comodato(@CurrentUser() user: AuthUser) {
     return this.estoqueService.comodatoResumo(user.empresaId);
+  }
+
+  /**
+   * Prévia da cobrança da venda de comodato. Só lê: é o que a tela mostra
+   * antes de alguém confirmar que o cliente vendeu.
+   */
+  @Areas('estoque', 'vendas', 'receber')
+  @Post('comodato/previa')
+  @HttpCode(HttpStatus.OK)
+  comodatoPrevia(@Body() dto: ComodatoPreviaDto, @CurrentUser() user: AuthUser) {
+    return this.comodatoVenda.previa(dto.codigos, user.empresaId, dto.precos);
+  }
+
+  /**
+   * O cliente VENDEU: baixa as etiquetas, cria o pedido e lança o título.
+   * Gera dinheiro a receber, então fica com vendas/financeiro — não com quem
+   * só movimenta prateleira.
+   */
+  @Areas('vendas', 'receber')
+  @Post('comodato/venda')
+  @HttpCode(HttpStatus.OK)
+  comodatoVendaRegistrar(@Body() dto: ComodatoVendaDto, @CurrentUser() user: AuthUser) {
+    return this.comodatoVenda.registrarVenda(dto, user.empresaId, user.usuario);
   }
 
   /** Dá baixa em VÁRIAS etiquetas selecionadas. */
