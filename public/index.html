@@ -328,8 +328,8 @@ const ACCESS = {
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq','engenharia'],
   chao:['tv','producao','kits','piloto','estoque','sgq'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq','anomalias'],
-  financeiro:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','rh','notas','agente','sgq','anomalias'],
-  contabilidade:['dashboard','diretoria','tv','receber','pagar','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq','anomalias'],
+  financeiro:['dashboard','diretoria','tv','receber','pagar','banco','fluxo','impostos','comissoes','rh','notas','agente','sgq','anomalias'],
+  contabilidade:['dashboard','diretoria','tv','receber','pagar','banco','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq','anomalias'],
   consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','sgq','anomalias'],
   cliente:['portal'],
 };
@@ -346,7 +346,7 @@ const ROTA_AREAS = {
   comissoes:['comissoes'], precificacao:['cadastros','vendas'],
   pcp:['pcp'], producao:['pcp','producao'], kits:['pcp','producao','expedicao','estoque'], piloto:['piloto'], compras:['compras'],
   estoque:['estoque'], expedicao:['expedicao'], notas:['vendas','expedicao','receber'], entrada:['compras'],
-  receber:['receber'], pagar:['pagar'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
+  receber:['receber'], pagar:['pagar'], banco:['receber','pagar','fluxo'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
   sgq:['dashboard','tv','producao','estoque','expedicao','vendas','rh','pcp','usuarios'],
   produtos:['cadastros','vendas'], engenharia:['cadastros'], materia:['cadastros','estoque','compras'],
   aviamentos:['cadastros','estoque','compras'], fornecedores:['cadastros','compras'],
@@ -359,7 +359,7 @@ const NAVDEF = [
   ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['anomalias','Anomalias','shield'],['contratos','Contratos','file'],['clientes','Clientes','users'],['representantes','Representantes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
-  ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
+  ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['banco','Conciliação Bancária','trend'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
   ['Qualidade / SGQ', [['sgq','SGQ · Universidade','book']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['engenharia','Engenharia de Produtos','layers'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
@@ -374,7 +374,7 @@ const NAV_SIGLA = {
   'Integrações':'IN', 'Administração':'AD', 'Portal':'PT',
 };
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia','anomalias']);
+const READY = new Set(['dashboard','diretoria','bi','banco','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia','anomalias']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -390,6 +390,7 @@ const TITLES = {
   materia:['Matéria-prima','Tecidos e insumos · MP-CAT-0000'],
   fornecedores:['Fornecedores','Fornecedores e facções'],
   receber:['Contas a Receber','O que os clientes devem'],
+  banco:['Conciliação Bancária','O extrato do banco lado a lado com os títulos — o que já entrou e o que ninguém explicou'],
   pagar:['Contas a Pagar','Fornecedores, facção e despesas'],
   rh:['RH / Funcionários','Ponto, horas extras, férias e folha p/ contabilidade'],
   fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
@@ -859,6 +860,7 @@ async function loadRoute(){
     if(S.route==='anomalias') return await viewAnomalias(c);
     if(S.route==='rh') return await viewRh(c);
     if(S.route==='receber') return await viewReceber(c);
+    if(S.route==='banco') return await viewBanco(c);
     if(S.route==='pagar') return await viewPagar(c);
     if(S.route==='fluxo') return await viewFluxo(c);
     if(S.route==='comissoes') return await viewComissoes(c);
@@ -5723,6 +5725,176 @@ function tituloPill(st){
   const m = map[st]||['gray',st]; return `<span class="pill ${m[0]}">${esc(m[1])}</span>`;
 }
 function pct(v){ return (Number(v||0)*100).toFixed(2).replace('.',',')+'%'; }
+
+/* ===================== CONCILIAÇÃO BANCÁRIA =====================
+   O financeiro do ERP é uma promessa: títulos que DEVERIAM ter sido pagos. O
+   banco é o fato. Esta tela põe os dois lado a lado.
+
+   O número que importa é "pendente": dinheiro que se mexeu na conta e que o
+   sistema ainda não sabe explicar. Enquanto houver pendente, o a receber da
+   casa não é confiável — pode ser dinheiro que já entrou e ninguém baixou. */
+async function viewBanco(c){
+  const B = window.__BANCO = window.__BANCO || { conta:'', status:'pendente' };
+  let resumo={contas:[],totais:{}}, lancs=[], contas=[];
+  try{
+    [resumo, contas] = await Promise.all([ api('/bancos/extrato/resumo'), api('/bancos/contas').catch(()=>[]) ]);
+    lancs = await api('/bancos/extrato?'+new URLSearchParams(Object.entries({conta:B.conta,status:B.status}).filter(([,v])=>v)).toString());
+  }catch(e){ c.innerHTML=`<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; return; }
+  window.__BLANCS = lancs;
+
+  if(!contas.length){
+    c.innerHTML = toolbar('Conciliação bancária','','', '')
+      + `<div class="panel"><div class="empty">Cadastre uma conta bancária primeiro (Filiais › Contas bancárias) — é nela que o extrato entra.</div></div>`;
+    return;
+  }
+  const t=resumo.totais||{};
+  const card=(rot,v,sub,cor)=>`<div class="card kpi"><div class="k">${rot}</div><div class="v" style="color:${cor}">${v}</div><div class="s">${sub}</div></div>`;
+
+  c.innerHTML = toolbar('Conciliação bancária', '📥 Importar extrato (OFX)', 'APP.bancoImportarForm()',
+      `<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
+    + `<div class="cards" style="margin-bottom:12px">
+        ${card('⚠ Pendentes', t.pendentes||0, 'o banco mexeu e ninguém explicou', (t.pendentes>0)?'#c14a34':'#1e7a44')}
+        ${card('Conciliados', t.conciliados||0, 'ligados a um título', '#1e7a44')}
+        ${card('Ignorados', t.ignorados||0, 'tarifa, IOF, transferência própria', '#77746d')}
+      </div>
+      <div class="sect"><h3>Contas espelhadas</h3>
+        ${panelTable(['Conta','Saldo no banco','Espelhado até','Última importação','Pendentes','Entradas pendentes','Saídas pendentes'],
+          (resumo.contas||[]).map(x=>[esc(x.conta),
+            x.saldoBanco!=null?`<b>${money(x.saldoBanco)}</b><div class="muted" style="font-size:10.5px">em ${dfmt(x.saldoEm)}</div>`:'—',
+            dfmt(x.ateQuandoEspelhado), dfmt(x.ultimaImportacao),
+            x.pendentes?`<b style="color:#c14a34">${x.pendentes}</b>`:'<span style="color:#1e7a44">0</span>',
+            x.creditoPendente?money(x.creditoPendente):'—', x.debitoPendente?money(x.debitoPendente):'—']),
+          'Nenhum extrato importado ainda. Baixe o OFX no internet banking e clique em “Importar extrato”.')}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 8px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:8px">
+        <select class="inp" style="width:auto" onchange="APP.bancoSet('conta',this.value)">
+          <option value="">Todas as contas</option>
+          ${contas.map(x=>`<option value="${x.id}"${String(B.conta)===String(x.id)?' selected':''}>${esc(x.banco)}${x.conta?' · '+esc(x.conta):''}</option>`).join('')}
+        </select>
+        ${[['pendente','⚠ Pendentes'],['conciliado','Conciliados'],['ignorado','Ignorados'],['','Todos']]
+          .map(([v,r])=>`<button class="btn-sm" onclick="APP.bancoSet('status','${v}')" style="border-radius:999px;${B.status===v?'background:#d4a82a;color:#3a2f08;border-color:#d4a82a;font-weight:700':''}">${r}</button>`).join('')}
+        <span class="muted" style="margin-left:auto;font-size:12px">${lancs.length} lançamento(s)</span>
+      </div>
+      <div id="bk_lista">${bancoLista(lancs)}</div>`;
+}
+function bancoSet(campo,valor){ window.__BANCO[campo]=valor; loadRoute(); }
+function bancoLista(lancs){
+  if(!lancs.length) return `<div class="panel"><div class="empty">Nada neste filtro.</div></div>`;
+  return panelTable(['Data','Descrição no banco','Entrada','Saída','Situação',''],
+    lancs.map(l=>{
+      const pill = l.status==='conciliado'
+        ? `<span class="pill green">conciliado${l.conciliadoAuto?' (auto)':''}</span>`
+        : l.status==='ignorado' ? `<span class="pill gray">ignorado</span>` : `<span class="pill red">pendente</span>`;
+      const acoes = l.status==='pendente'
+        ? `<button class="btn-sm" onclick="APP.bancoSugestoes(${l.id})">🔎 Achar título</button>
+           <button class="btn-sm" title="Tarifa, IOF, transferência entre contas próprias" onclick="APP.bancoIgnorar(${l.id})">não é título</button>`
+        : l.status==='conciliado' ? `<button class="btn-sm" onclick="APP.bancoDesconciliar(${l.id})">desfazer</button>` : '';
+      return [dfmt(l.data), esc(String(l.descricao||'').slice(0,70))+(l.documento?`<div class="muted" style="font-size:10.5px">doc ${esc(l.documento)}</div>`:''),
+        l.tipo==='credito'?`<b style="color:#1e7a44">${money(l.valor)}</b>`:'—',
+        l.tipo==='debito'?`<b style="color:#c14a34">${money(l.valor)}</b>`:'—',
+        pill, `<div style="display:flex;gap:6px;justify-content:flex-end">${acoes}</div>`];
+    }));
+}
+async function bancoImportarForm(){
+  const {contas,html}=await bancosContasSelect('bi_conta', false);
+  if(!contas.length){ toast('Cadastre uma conta bancária primeiro.','err'); return; }
+  openModal(`<h3>📥 Importar extrato bancário</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">No internet banking, baixe o extrato no formato <b>OFX</b> (às vezes aparece como “Money”, “OFX/Quicken” ou “para gerenciador financeiro”). Serve qualquer banco e <b>não precisa de convênio</b>.</div>
+    <div class="mrow"><label class="fl">Conta bancária *</label>${html}</div>
+    <div class="mrow"><label class="fl">Arquivo .OFX *</label><input type="file" id="bi_arq" class="inp" accept=".ofx,.OFX,.txt"></div>
+    <div class="mrow" style="border:1px solid #e7e4dd;border-radius:8px;padding:8px 10px;background:#fbfaf7">
+      <label style="font-size:12.5px;cursor:pointer;font-weight:700"><input type="checkbox" id="bi_auto" checked> Conciliar automaticamente o que for <b>inequívoco</b></label>
+      <div class="muted" style="font-size:11px;margin-top:3px">Só casa sozinho quando o valor bate no centavo e existe <b>um único</b> título plausível. Dois títulos do mesmo valor no mesmo dia nunca são decididos sozinhos — ficam para você confirmar.</div>
+    </div>
+    <div class="muted" style="font-size:11px;margin-bottom:4px">Reimportar o mesmo extrato é seguro: o que já entrou é reconhecido e ignorado.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.bancoImportar()">Importar</button></div>`);
+}
+async function bancoImportar(confirmarContaDiferente){
+  const f=($('bi_arq')||{}).files && $('bi_arq').files[0];
+  if(!f){ toast('Escolha o arquivo .OFX baixado do banco.','err'); return; }
+  const conteudo=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result||'')); fr.onerror=rej; fr.readAsText(f,'utf-8'); });
+  const body={ contaBancariaId:Number(val('bi_conta')), nomeArquivo:f.name, conteudo,
+    conciliarAuto: !!($('bi_auto')&&$('bi_auto').checked) };
+  if(confirmarContaDiferente) body.confirmarContaDiferente=true;
+  try{
+    const r=await api('/bancos/extrato/importar',{method:'POST',body,procLabel:'Lendo o extrato…'});
+    closeModal();
+    toast(`${r.lidos} lançamento(s) lidos · ${r.novos} novo(s)`
+      + (r.duplicados?` · ${r.duplicados} já estavam aqui`:'')
+      + (r.conciliadosAuto?` · ${r.conciliadosAuto} conciliado(s) automaticamente`:''), 'ok');
+    window.__BANCO={conta:'',status:'pendente'};
+    loadRoute();
+  }catch(e){
+    // Conta do arquivo diferente da escolhida: pergunta em vez de simplesmente negar.
+    if(/misturaria o dinheiro/i.test(e.message||'')){
+      const ok=await uiConfirm({tipo:'err', titulo:'O extrato é de outra conta', msg:e.message+'\n\nSe este arquivo é realmente da conta escolhida (o banco mudou o número), dá para importar assim mesmo.', ok:'É a mesma conta, importar', cancel:'Cancelar'});
+      if(ok) return bancoImportar(true);
+      return;
+    }
+    toast(e.message,'err');
+  }
+}
+async function bancoSugestoes(id){
+  let r; try{ r=await api('/bancos/extrato/'+id+'/sugestoes'); }catch(e){ toast(e.message,'err'); return; }
+  const l=r.lancamento;
+  const lado = l.tipo==='credito' ? 'a receber' : 'a pagar';
+  openModal(`<h3>🔎 Que título é este lançamento?</h3>
+    <div class="card" style="background:#faf8f0;border-color:#efe2b8;margin-bottom:10px;font-size:13px">
+      <b>${dfmt(l.data)}</b> · ${esc(l.descricao)}
+      <div style="font-size:18px;font-weight:800;color:${l.tipo==='credito'?'#1e7a44':'#c14a34'};margin-top:3px">
+        ${l.tipo==='credito'?'entrou':'saiu'} ${money(l.valor)}</div></div>
+    ${r.sugestoes.length?`<div class="muted" style="font-size:11.5px;margin-bottom:6px">Títulos ${lado} em aberto que podem ser este lançamento, do mais provável ao menos. Confirmar <b>dá a baixa no título</b>.</div>`
+      :`<div class="card" style="background:#fdf4f2;border-color:#e8bcae;font-size:12.5px">Nenhum título ${lado} em aberto combina com este valor. Pode ser tarifa, IOF, transferência entre contas próprias — ou um título que ainda não foi lançado no sistema.</div>`}
+    ${r.sugestoes.map(s=>`<div style="border:1px solid #efe7d2;border-radius:9px;padding:9px 11px;margin-bottom:7px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:210px">
+          <div style="font-size:13px"><b>${esc(s.parte||'—')}</b>${s.pedido?` · <span class="mono gold">${esc(s.pedido)}</span>`:''}${s.documento?` · doc ${esc(s.documento)}`:''}</div>
+          <div class="muted" style="font-size:11.5px">vence ${dfmt(s.vencimento)} · saldo <b>${money(s.saldo)}</b>${Number(s.saldo)!==Number(s.valor)?` (de ${money(s.valor)})`:''}</div>
+          <div style="font-size:11px;color:#6b6757;margin-top:2px">${esc(s.motivos.join(' · '))}</div>
+        </div>
+        <button class="btn-primary" style="height:32px" onclick="APP.bancoConciliar(${l.id},'${s.tipo}',${s.tituloId})">É este</button>
+      </div>`).join('')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.bancoIgnorar(${l.id})">Não é título (tarifa/IOF)</button>
+      <button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+async function bancoConciliar(id, tipo, tituloId){
+  const body = tipo==='receber' ? {contaReceberId:tituloId} : {contaPagarId:tituloId};
+  try{ await api('/bancos/extrato/'+id+'/conciliar',{method:'POST',body});
+    closeModal(); toast('Conciliado — o título foi baixado.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+/**
+ * "Não é título" — tarifa, IOF, transferência entre contas próprias. O motivo é
+ * pedido porque é ele que explica, meses depois, por que aquele dinheiro saiu
+ * da conciliação sem baixar nada.
+ */
+const BANCO_MOTIVOS=['Tarifa / encargo do banco','IOF / imposto','Transferência entre contas próprias','Rendimento / aplicação','Estorno do próprio banco','Outro'];
+function bancoIgnorar(id){
+  openModal(`<h3>Não é título</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 9px">Some da lista de pendências sem baixar título nenhum. Use para o que o banco mexeu e não é cliente nem fornecedor.</div>
+    <div class="mrow"><label class="fl">Motivo *</label>
+      <select id="bg_mot" class="inp" onchange="APP.bancoIgnorarOutro()">${BANCO_MOTIVOS.map(m=>`<option>${esc(m)}</option>`).join('')}</select></div>
+    <div class="mrow" id="bg_outrobox" style="display:none"><label class="fl">Qual?</label><input id="bg_outro" class="inp" maxlength="120" placeholder="descreva em poucas palavras"></div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.bancoIgnorarSalvar(${id})">Marcar</button></div>`);
+}
+function bancoIgnorarOutro(){ const b=$('bg_outrobox'); if(b) b.style.display = val('bg_mot')==='Outro'?'':'none'; }
+async function bancoIgnorarSalvar(id){
+  const sel=val('bg_mot')||'';
+  const motivo = sel==='Outro' ? (val('bg_outro')||'').trim() : sel;
+  if(!motivo){ toast('Diga o motivo.','err'); return; }
+  try{ await api('/bancos/extrato/'+id+'/ignorar',{method:'POST',body:{motivo}});
+    closeModal(); toast('Marcado como “não é título”.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+async function bancoDesconciliar(id){
+  const ok=await uiConfirm({tipo:'warn', titulo:'Desfazer a conciliação?', ok:'Desfazer', cancel:'Cancelar',
+    msg:'O lançamento volta para pendente. ATENÇÃO: a BAIXA do título NÃO é estornada aqui — se o título não foi pago mesmo, estorne em Contas a Receber/Pagar.'});
+  if(!ok) return;
+  try{ const r=await api('/bancos/extrato/'+id+'/desconciliar',{method:'POST'});
+    toast(r.avisoBaixa||'Conciliação desfeita.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 
 async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
@@ -16251,6 +16423,7 @@ window.APP = {
   navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
   bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf, boletoEmail, boletoEmailEnviar,
+  bancoSet, bancoImportarForm, bancoImportar, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,
   drillAbrir, drillToggle, drillIr,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

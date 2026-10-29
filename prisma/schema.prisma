@@ -219,9 +219,65 @@ model ContaBancaria {
   boletos       Boleto[]
   remessas      RemessaBancaria[]
   retornos      RetornoBancario[]
+  extratos      ExtratoImportacao[]
+  lancamentos   ExtratoLancamento[]
 
   @@index([empresaId])
   @@index([filialId])
+}
+
+/// Importação de extrato (OFX hoje; API depois — o destino é o mesmo).
+model ExtratoImportacao {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  contaBancariaId Int
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id])
+  nomeArquivo     String
+  formato         String   @default("ofx") // ofx | api
+  periodoIni      DateTime?
+  periodoFim      DateTime?
+  saldoArquivo    Decimal? @db.Decimal(14,2) // saldo que o BANCO declarou no arquivo
+  saldoEm         DateTime?
+  qtdLidos        Int      @default(0)
+  qtdNovos        Int      @default(0)
+  qtdDuplicados   Int      @default(0) // já estavam aqui: reimportação não duplica
+  qtdConciliados  Int      @default(0) // casaram sozinhos com um título
+  importadoEm     DateTime @default(now())
+  importadoPor    String?
+  lancamentos     ExtratoLancamento[]
+
+  @@index([empresaId, contaBancariaId])
+}
+
+/// UM lançamento do extrato do banco — o espelho do que o banco diz que houve.
+/// Não é título nem baixa: é o fato bancário. A conciliação é que liga os dois.
+model ExtratoLancamento {
+  id              Int      @id @default(autoincrement())
+  empresaId       Int
+  contaBancariaId Int
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id])
+  importacaoId    Int?
+  importacao      ExtratoImportacao? @relation(fields: [importacaoId], references: [id])
+  data            DateTime
+  valor           Decimal  @db.Decimal(14,2) // sempre positivo; o sinal está em `tipo`
+  tipo            String   // credito | debito
+  descricao       String
+  documento       String?
+  /// ID do lançamento no banco (FITID). Com a unique abaixo, reimportar o mesmo
+  /// extrato NÃO duplica dinheiro na tela — é a trava que sustenta o espelho.
+  fitid           String
+  status          String   @default("pendente") // pendente | conciliado | ignorado
+  contaReceberId  Int?     // título que este crédito liquidou
+  contaPagarId    Int?     // título que este débito liquidou
+  conciliadoEm    DateTime?
+  conciliadoPor   String?
+  conciliadoAuto  Boolean  @default(false) // casou sozinho (valor exato, candidato único)
+  ignoradoMotivo  String?
+  criadoEm        DateTime @default(now())
+
+  @@unique([contaBancariaId, fitid])
+  @@index([empresaId, status])
+  @@index([contaBancariaId, data])
 }
 
 /// Boleto/título de cobrança registrado no banco — um por conta a receber (o vigente).
