@@ -34,13 +34,15 @@ comercial-inteligente/
 ├── bin/guard-bash.js         hook de segurança dos subagentes
 ├── bin/gerar-schemas.js      regenera schemas/
 ├── integracoes/erp.js        leitura do ERP Cherkesian (requer credenciais)
+├── servico/                  serviço autônomo: agentes em paralelo, expediente, rotinas e painel visual
+├── bin/servico.js            inicia o serviço (ver servico/README.md)
 ├── data/                     demo-seed/ (fictícia, versionada) · demo/ e producao/ (fora do git)
 └── test/                     testes unitários, de segurança, estrutura e aceitação (node:test)
 ```
 
 ## Instalação
 
-Requisitos: Node.js ≥ 20 (o repositório usa 20/22) e Claude Code. Não há dependências npm.
+Requisitos: Node.js ≥ 20 (o repositório usa 20/22) e Claude Code. O motor e a CLI não têm dependências; o serviço autônomo usa o SDK oficial da Anthropic (`npm install` dentro de `comercial-inteligente/`).
 
 ```bash
 cd cherkesian-erp-backend
@@ -88,6 +90,18 @@ $HC pipeline sem-follow-up --agente gerente --base demo
 $HC margem --preco 84 --qtd 1000 --custo 41 --impostos 9.25 --comissao 2 --frete 1200 --preco-tabela 89.9 --agente diretor --base demo
 $HC proposta avaliar --id PRO-0002 --agente diretor --base demo
 $HC solicitacao listar --todas --agente gerente --base demo
+```
+
+## Serviço autônomo e painel visual (fase 1)
+
+Além do uso pelo Claude Code, os agentes rodam sozinhos como um serviço: **em paralelo**, de
+**segunda a sexta das 06:30 às 22:00 (São Paulo)**, com rotinas programadas, fila automática de
+solicitações e tarefas, limites de custo e um **painel ao vivo** onde você acompanha cada agente,
+pausa o trabalho e toma as decisões que são suas. Sem `ANTHROPIC_API_KEY` ele roda em modo simulado
+(comandos fixos, sem IA), útil para conhecer o painel. Detalhes, variáveis e implantação: `servico/README.md`.
+
+```bash
+cd comercial-inteligente && npm install && npm run servico:demo   # abre em http://localhost:3100/?token=...
 ```
 
 ## Como a delegação funciona
@@ -145,7 +159,7 @@ itens como "dados ausentes" em vez de estimá-los.
 
 ## Limitações
 
-- **Execução sequencial**: os agentes não rodam em paralelo; a sessão principal os aciona um por vez.
+- **Dentro do Claude Code a execução é sequencial** (a sessão principal aciona um agente por vez). **No serviço autônomo os agentes rodam em paralelo** (`servico/`).
 - **Teste real no Claude Code (2.1.312, sessão headless desta entrega):** o subagente `hc-gerente-comercial`
   foi carregado e seguiu as instruções (recusou agir como diretor). Como o workspace não estava marcado como
   confiável, o Claude Code **ignorou** permissões e hooks do projeto (um `ls` passou e a CLI pediu aprovação).

@@ -4,12 +4,21 @@
   "description": "Sistema de inteligência comercial da HC Quality: 4 agentes hierárquicos (CEO, Diretor, Gerente, Vendedor) com CLI, CRM em arquivos e regras de alçada.",
   "private": true,
   "license": "UNLICENSED",
-  "engines": { "node": ">=20" },
-  "bin": { "hc": "bin/hc.js" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "hc": "bin/hc.js"
+  },
   "scripts": {
     "test": "node --test test/*.test.js",
     "schemas": "node bin/gerar-schemas.js",
     "demo:restaurar": "node bin/hc.js demo restaurar --agente humano",
-    "validar": "node bin/hc.js validar --agente humano"
+    "validar": "node bin/hc.js validar --agente humano",
+    "servico": "node bin/servico.js",
+    "servico:demo": "HC_MODO=simulado HC_BASE=demo node bin/servico.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
   }
 }

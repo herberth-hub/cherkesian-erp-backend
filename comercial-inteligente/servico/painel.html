@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diretoria Comercial</title>
+<style>
+:root {
+  --bg: #f4f5f7; --painel: #ffffff; --borda: #e2e5ea; --texto: #1c2430; --suave: #5f6b7a; --fraco: #8a94a3;
+  --marca: #0f5c8c; --ok: #1f8a4c; --alerta: #b7791f; --erro: #c0392b; --pausa: #6b7280;
+  --ceo: #6d3fc0; --diretor: #0f5c8c; --gerente: #0e8a7e; --vendedor: #c2581a;
+  --sombra: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1419; --painel: #171d24; --borda: #27313c; --texto: #e6ebf1; --suave: #a3afbd; --fraco: #7a8696;
+    --marca: #4aa3df; --ok: #3fbf74; --alerta: #e0a43a; --erro: #ef6b5b; --pausa: #9aa3af;
+    --ceo: #a385f0; --diretor: #4aa3df; --gerente: #34c3b3; --vendedor: #f08a4b; --sombra: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1419; --painel: #171d24; --borda: #27313c; --texto: #e6ebf1; --suave: #a3afbd; --fraco: #7a8696;
+  --marca: #4aa3df; --ok: #3fbf74; --alerta: #e0a43a; --erro: #ef6b5b; --pausa: #9aa3af;
+  --ceo: #a385f0; --diretor: #4aa3df; --gerente: #34c3b3; --vendedor: #f08a4b; --sombra: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--texto); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--painel); border-bottom: 1px solid var(--borda); position: sticky; top: 0; z-index: 2; }
+h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+h1 small { color: var(--suave); font-weight: 400; margin-left: 6px; }
+.barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--borda); color: var(--suave); white-space: nowrap; }
+.pill .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--fraco); }
+.pill.ok .ponto { background: var(--ok); } .pill.alerta { color: var(--alerta); border-color: var(--alerta); } .pill.erro { color: var(--erro); border-color: var(--erro); }
+.medidor { width: 110px; height: 6px; background: var(--borda); border-radius: 3px; overflow: hidden; }
+.medidor i { display: block; height: 100%; background: var(--marca); }
+button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--borda); background: var(--painel); color: var(--texto); cursor: pointer; }
+button:hover { border-color: var(--marca); }
+button.primario { background: var(--marca); border-color: var(--marca); color: #fff; }
+button.perigo { color: var(--erro); }
+button:disabled { opacity: .5; cursor: default; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; padding: 16px 20px 32px; max-width: 1600px; margin: 0 auto; }
+.agentes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card { background: var(--painel); border: 1px solid var(--borda); border-radius: 12px; box-shadow: var(--sombra); }
+.agente { display: flex; flex-direction: column; min-height: 520px; border-top: 4px solid var(--cor); }
+.agente header { position: static; padding: 12px 14px; border-bottom: 1px solid var(--borda); background: transparent; }
+.avatar { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--cor); color: #fff; font-weight: 700; font-size: 13px; }
+.quem { display: flex; gap: 10px; align-items: center; }
+.quem b { display: block; font-size: 14px; } .quem span { font-size: 12px; color: var(--suave); }
+.status { font-size: 12px; font-weight: 600; }
+.status.trabalhando { color: var(--ok); } .status.pausado { color: var(--pausa); } .status.fora { color: var(--fraco); } .status.ocioso { color: var(--suave); }
+.trabalhando-anim { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 5px; animation: pulso 1.2s infinite; }
+@keyframes pulso { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+@media (prefers-reduced-motion: reduce) { .trabalhando-anim { animation: none; } }
+.secao { padding: 10px 14px; border-bottom: 1px solid var(--borda); }
+.secao h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fraco); font-weight: 600; }
+.job { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--cor) 10%, transparent); margin-bottom: 6px; }
+.job small { display: block; color: var(--suave); font-size: 11px; }
+.vazio { color: var(--fraco); font-size: 12px; }
+.feed { flex: 1; overflow-y: auto; max-height: 340px; padding: 8px 14px 12px; font-size: 12px; }
+.ev { padding: 5px 0; border-bottom: 1px dashed var(--borda); word-break: break-word; }
+.ev time { color: var(--fraco); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.ev .tag { font-weight: 600; margin-right: 4px; }
+.ev.ok .tag { color: var(--ok); } .ev.erro .tag { color: var(--erro); } .ev.nota { color: var(--suave); } .ev.fim .tag { color: var(--marca); }
+.rodape-agente { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 12px; color: var(--suave); }
+aside { display: flex; flex-direction: column; gap: 12px; }
+aside .card { padding: 14px; }
+aside h2 { font-size: 14px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
+.contador { background: var(--erro); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 12px; }
+.decisao { border: 1px solid var(--borda); border-radius: 10px; padding: 10px; margin-bottom: 10px; font-size: 13px; }
+.decisao b { display: block; } .decisao p { margin: 4px 0; color: var(--suave); font-size: 12px; }
+.decisao textarea { width: 100%; min-height: 54px; margin: 6px 0; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg); color: var(--texto); resize: vertical; }
+.acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.grade2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--borda); vertical-align: top; }
+th { color: var(--fraco); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.tabela { padding: 12px 14px; overflow-x: auto; }
+.tabela h2 { font-size: 14px; margin: 0 0 8px; }
+.rotina { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--borda); font-size: 12px; }
+.aviso { background: color-mix(in srgb, var(--alerta) 14%, transparent); color: var(--texto); border: 1px solid var(--alerta); border-radius: 10px; padding: 8px 12px; font-size: 12px; margin: 12px 20px 0; }
+@media (max-width: 1280px) { .agentes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 980px) { main { grid-template-columns: 1fr; } aside { order: -1; } .grade2 { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .agentes { grid-template-columns: 1fr; } header, main { padding-left: 16px; padding-right: 16px; } .aviso { margin: 12px 16px 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Diretoria Comercial de IA <small>HC Quality</small></h1>
+  <div class="barra">
+    <span class="pill" id="pExpediente"><span class="ponto"></span><span>…</span></span>
+    <span class="pill" id="pModo">…</span>
+    <span class="pill" title="Tokens usados hoje / orçamento diário"><span id="tTokens">0</span><span class="medidor"><i id="mTokens" style="width:0"></i></span></span>
+    <span class="pill" id="pConexao"><span class="ponto"></span><span>conectando</span></span>
+    <button id="bPausaGeral">Pausar todos</button>
+  </div>
+</header>
+<div id="avisos"></div>
+<main>
+  <section>
+    <div class="agentes" id="agentes"></div>
+    <div class="grade2">
+      <div class="card tabela"><h2>Fluxo de solicitações</h2><div id="solicitacoes"></div></div>
+      <div class="card tabela"><h2>Tarefas abertas</h2><div id="tarefas"></div></div>
+    </div>
+  </section>
+  <aside>
+    <div class="card"><h2>Aguardando você <span class="contador" id="nDecisoes">0</span></h2><div id="decisoes"></div></div>
+    <div class="card"><h2>Rotinas programadas</h2><div id="rotinas"></div></div>
+    <div class="card"><h2>Últimos trabalhos</h2><div id="historico"></div></div>
+  </aside>
+</main>
+<script>
+const AGENTES = {
+  ceo: { nome: 'CEO', cargo: 'Presidente executivo', sigla: 'CEO', cor: 'var(--ceo)' },
+  diretor: { nome: 'Diretor Comercial', cargo: 'Planejamento e margem', sigla: 'DC', cor: 'var(--diretor)' },
+  gerente: { nome: 'Gerente Comercial', cargo: 'Coordenação diária', sigla: 'GC', cor: 'var(--gerente)' },
+  vendedor: { nome: 'Vendedor', cargo: 'Atendimento e CRM', sigla: 'VD', cor: 'var(--vendedor)' },
+};
+const ORDEM = ['ceo', 'diretor', 'gerente', 'vendedor'];
+const feeds = { ceo: [], diretor: [], gerente: [], vendedor: [] };
+let estado = null;
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hora = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: (estado && estado.expediente.fuso) || 'America/Sao_Paulo' }) : '');
+const moeda = (v) => (v == null ? 'n/d' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const decorrido = (iso) => { const s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}min ${s % 60}s`; };
+
+async function api(caminho, corpo) {
+  const r = await fetch(caminho, corpo ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Painel': '1' }, body: JSON.stringify(corpo) } : {});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.erro || `Erro ${r.status}`);
+  return d;
+}
+
+function linhaEvento(ev) {
+  const t = `<time>${hora(ev.em)}</time>`;
+  if (ev.tipo === 'ferramenta') return `<div class="ev ${ev.ok ? 'ok' : 'erro'}">${t}<span class="tag">${ev.ok ? '✓' : '✗'} ${esc(ev.comando)}</span>${ev.ok ? '' : esc(ev.saida)}</div>`;
+  if (ev.tipo === 'nota') return `<div class="ev nota">${t}${esc(ev.texto)}</div>`;
+  if (ev.tipo === 'inicio') return `<div class="ev">${t}<span class="tag">▶</span>${esc(ev.titulo)}</div>`;
+  if (ev.tipo === 'fim') return `<div class="ev fim">${t}<span class="tag">■ ${esc(ev.status)}</span>${esc(ev.resumo)}</div>`;
+  if (ev.tipo === 'enfileirado') return `<div class="ev nota">${t}na fila: ${esc(ev.titulo)}</div>`;
+  if (ev.tipo === 'alerta') return `<div class="ev erro">${t}<span class="tag">!</span>${esc(ev.texto)}</div>`;
+  return '';
+}
+
+function receberEvento(ev, redesenhar = true) {
+  if (feeds[ev.papel]) {
+    feeds[ev.papel].unshift(ev);
+    feeds[ev.papel] = feeds[ev.papel].slice(0, 80);
+  }
+  if (redesenhar && feeds[ev.papel]) desenharFeed(ev.papel);
+  if (['inicio', 'fim', 'pausa', 'expediente', 'decisao-humana', 'enfileirado'].includes(ev.tipo)) agendarEstado();
+}
+
+function desenharFeed(papel) {
+  const el = document.getElementById(`feed-${papel}`);
+  if (el) el.innerHTML = feeds[papel].map(linhaEvento).join('') || '<div class="vazio">Sem atividade ainda.</div>';
+}
+
+function statusAgente(a) {
+  if (estado.pausadoGeral || a.pausado) return ['pausado', 'Pausado'];
+  if (!estado.expediente.aberto) return ['fora', 'Fora do expediente'];
+  if (a.ativos.length) return ['trabalhando', `Trabalhando (${a.ativos.length}/${a.concorrencia})`];
+  return ['ocioso', 'Aguardando trabalho'];
+}
+
+function desenharAgentes() {
+  document.getElementById('agentes').innerHTML = ORDEM.map((p) => {
+    const a = estado.agentes.find((x) => x.papel === p);
+    const d = AGENTES[p];
+    const [cls, txt] = statusAgente(a);
+    return `<article class="card agente" style="--cor:${d.cor}">
+      <header><div class="quem"><div class="avatar">${d.sigla}</div><div><b>${d.nome}</b><span>${d.cargo}</span></div></div>
+      <div class="status ${cls}">${cls === 'trabalhando' ? '<span class="trabalhando-anim"></span>' : ''}${txt}</div></header>
+      <div class="secao"><h3>Agora</h3>${a.ativos.map((j) => `<div class="job">${esc(j.titulo)}<small>${esc(j.origem)} · há ${decorrido(j.iniciadoEm)}</small></div>`).join('') || '<div class="vazio">Nenhum trabalho em execução.</div>'}</div>
+      <div class="secao"><h3>Fila (${a.fila.length})</h3>${a.fila.slice(0, 3).map((j) => `<div class="vazio">• ${esc(j.titulo)}</div>`).join('') || '<div class="vazio">Vazia.</div>'}</div>
+      <div class="feed" id="feed-${p}"></div>
+      <div class="rodape-agente"><span>${a.concluidos} concluídos · ${a.erros} erros</span>
+      <button data-agente="${p}" data-pausado="${a.pausado}">${a.pausado ? 'Retomar' : 'Pausar'}</button></div>
+    </article>`;
+  }).join('');
+  ORDEM.forEach(desenharFeed);
+}
+
+function desenharDecisoes() {
+  const b = estado.dados;
+  const itens = [];
+  for (const a of b.aprovacoes.filter((x) => x.alcada === 'humano')) {
+    itens.push(`<div class="decisao"><b>Aprovação ${esc(a.id)} — ${esc(a.objeto)}</b>
+      <p>Valor ${moeda(a.valor)} · margem ${a.margem == null ? 'n/d' : a.margem + '%'} · desconto ${a.desconto == null ? 'n/d' : a.desconto + '%'}</p>
+      <p>${esc(a.motivos.join(' / '))}</p>
+      <textarea id="j-${a.id}" placeholder="Justificativa (obrigatória)"></textarea>
+      <div class="acoes"><button class="primario" data-aprovar="${a.id}" data-decisao="aprovada">Aprovar</button><button class="perigo" data-aprovar="${a.id}" data-decisao="recusada">Recusar</button></div></div>`);
+  }
+  for (const s of b.paraHumano) {
+    itens.push(`<div class="decisao"><b>${esc(s.id)} — ${s.status === 'aguardando_informacao' ? 'pedido de informação' : 'escalonado por ' + esc(s.de)}</b>
+      <p>${esc(s.objetivo)}</p>${s.dados ? `<p>${esc(s.dados)}</p>` : ''}${s.ultima ? `<p>Última: ${esc(s.ultima)}</p>` : ''}<p>Prazo ${esc(s.prazo)}</p>
+      <textarea id="r-${s.id}" placeholder="Sua decisão ou resposta"></textarea>
+      <div class="acoes"><button class="primario" data-responder="${s.id}">Responder</button></div></div>`);
+  }
+  for (const m of b.metasPropostas) {
+    itens.push(`<div class="decisao"><b>Meta ${esc(m.id)} — ${esc(m.periodo)}</b><p>Proposta pelo CEO: ${moeda(m.faturamento)}</p>
+      <div class="acoes"><button class="primario" data-meta="${m.id}" data-aprovar-meta="1">Aprovar</button><button class="perigo" data-meta="${m.id}" data-aprovar-meta="0">Revogar</button></div></div>`);
+  }
+  const outras = b.aprovacoes.filter((x) => x.alcada !== 'humano');
+  if (outras.length) itens.push(`<p class="vazio">${outras.length} aprovação(ões) na alçada dos agentes: ${outras.map((a) => `${esc(a.id)} (${esc(a.alcada)})`).join(', ')}.</p>`);
+  document.getElementById('decisoes').innerHTML = itens.join('') || '<div class="vazio">Nada aguardando sua decisão.</div>';
+  document.getElementById('nDecisoes').textContent = b.aprovacoes.filter((x) => x.alcada === 'humano').length + b.paraHumano.length + b.metasPropostas.length;
+}
+
+function tabela(cab, linhas, vazio) {
+  if (!linhas.length) return `<div class="vazio">${vazio}</div>`;
+  return `<table><thead><tr>${cab.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas.map((l) => `<tr>${l.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+function desenhar() {
+  const e = estado;
+  const pe = document.getElementById('pExpediente');
+  pe.className = `pill ${e.expediente.aberto ? 'ok' : ''}`;
+  pe.lastElementChild.textContent = e.expediente.aberto ? `Expediente aberto (${e.expediente.abre}–${e.expediente.fecha})` : `Fora do expediente (${e.expediente.abre}–${e.expediente.fecha}, seg–sex)`;
+  const pm = document.getElementById('pModo');
+  pm.className = `pill ${e.modo === 'simulado' ? 'alerta' : ''}`;
+  pm.textContent = `${e.modo === 'claude' ? 'IA ativa' : 'Modo simulado (sem IA)'} · base ${e.base}`;
+  document.getElementById('tTokens').textContent = `${(e.tokens.hoje / 1000).toFixed(0)}k / ${(e.tokens.limite / 1000).toFixed(0)}k tokens`;
+  document.getElementById('mTokens').style.width = `${Math.min(100, (e.tokens.hoje / e.tokens.limite) * 100)}%`;
+  document.getElementById('bPausaGeral').textContent = e.pausadoGeral ? 'Retomar todos' : 'Pausar todos';
+  const avisos = [];
+  if (e.dados.ficticia) avisos.push('Base de DEMONSTRAÇÃO: todos os dados são fictícios.');
+  if (!e.dados.politicaConfigurada) avisos.push('Política comercial não configurada: toda proposta vai para a sua decisão.');
+  if (e.modo === 'simulado') avisos.push('Modo simulado: os agentes rodam as rotinas com comandos fixos, sem IA. Configure ANTHROPIC_API_KEY para o modo claude.');
+  document.getElementById('avisos').innerHTML = avisos.map((a) => `<div class="aviso">${esc(a)}</div>`).join('');
+  desenharAgentes();
+  desenharDecisoes();
+  document.getElementById('solicitacoes').innerHTML = tabela(['ID', 'De → para', 'Objetivo', 'Prazo', 'Status'], e.dados.solicitacoes.map((s) => [s.id, `${s.de} → ${s.para}`, s.objetivo, s.prazo, s.status]), 'Nenhuma solicitação aberta.');
+  document.getElementById('tarefas').innerHTML = tabela(['ID', 'Tarefa', 'De → para', 'Prazo', 'Status'], e.dados.tarefas.map((t) => [t.id, t.titulo, `${t.de} → ${t.para}`, t.prazo, t.status]), 'Nenhuma tarefa aberta.');
+  document.getElementById('rotinas').innerHTML = e.rotinas.map((r) => `<div class="rotina"><span><b>${esc(AGENTES[r.papel].nome)}</b> · ${esc(r.titulo)}<br><span class="vazio">${esc(r.quando)}</span></span><button data-rotina="${r.id}">Executar</button></div>`).join('');
+  document.getElementById('historico').innerHTML = e.historico.slice(0, 12).map((h) => `<div class="rotina"><span><b>${esc(AGENTES[h.papel] ? AGENTES[h.papel].nome : h.papel)}</b> · ${esc(h.titulo)}<br><span class="vazio">${hora(h.em)} · ${esc(h.status)}${h.tokens ? ` · ${h.tokens} tokens` : ''}</span></span></div>`).join('') || '<div class="vazio">Nenhum trabalho concluído ainda.</div>';
+}
+
+let pendente = null;
+function agendarEstado() { clearTimeout(pendente); pendente = setTimeout(carregar, 400); }
+async function carregar() {
+  try {
+    estado = await api('/api/estado');
+    if (!carregar.feito) { estado.eventos.forEach((ev) => receberEvento(ev, false)); carregar.feito = true; }
+    desenhar();
+  } catch (e) { console.error(e); }
+}
+
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  try {
+    b.disabled = true;
+    if (b.id === 'bPausaGeral') await api(estado.pausadoGeral ? '/api/retomar' : '/api/pausar', {});
+    else if (b.dataset.agente) await api(b.dataset.pausado === 'true' ? '/api/retomar' : '/api/pausar', { papel: b.dataset.agente });
+    else if (b.dataset.rotina) await api('/api/rotina', { id: b.dataset.rotina });
+    else if (b.dataset.aprovar) {
+      const j = document.getElementById(`j-${b.dataset.aprovar}`).value.trim();
+      if (!j) throw new Error('Escreva a justificativa.');
+      await api('/api/aprovacao', { id: b.dataset.aprovar, decisao: b.dataset.decisao, justificativa: j });
+    } else if (b.dataset.responder) {
+      const t = document.getElementById(`r-${b.dataset.responder}`).value.trim();
+      if (!t) throw new Error('Escreva a resposta.');
+      await api('/api/solicitacao', { id: b.dataset.responder, texto: t });
+    } else if (b.dataset.meta) await api('/api/meta', { id: b.dataset.meta, aprovar: b.dataset.aprovarMeta === '1' });
+    await carregar();
+  } catch (e) { alert(e.message); } finally { b.disabled = false; }
+});
+
+function conectar() {
+  const pc = document.getElementById('pConexao');
+  const fonte = new EventSource('/api/eventos');
+  fonte.onopen = () => { pc.className = 'pill ok'; pc.lastElementChild.textContent = 'ao vivo'; };
+  fonte.onmessage = (m) => receberEvento(JSON.parse(m.data));
+  fonte.onerror = () => { pc.className = 'pill erro'; pc.lastElementChild.textContent = 'reconectando'; };
+}
+
+carregar().then(conectar);
+setInterval(() => { if (estado && estado.agentes.some((a) => a.ativos.length)) desenharAgentes(); }, 5000);
+setInterval(carregar, 30000);
+</script>
+</body>
+</html>
