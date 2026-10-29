@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/pedido.schema.json",
+  "title": "pedido",
+  "x-prefixo": "PED",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^PED-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "clienteId": {
+      "type": "string",
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "propostaId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^PRO-\\d{4,}$"
+    },
+    "oportunidadeId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^OPO-\\d{4,}$"
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "numeroErp": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidencia": {
+      "type": "string",
+      "minLength": 1
+    },
+    "data": {
+      "type": "string",
+      "format": "date"
+    },
+    "valorTotal": {
+      "type": "number",
+      "minimum": 0
+    },
+    "status": {
+      "enum": [
+        "recebido",
+        "em_producao",
+        "pronto",
+        "expedido",
+        "faturado",
+        "cancelado"
+      ]
+    },
+    "prazoEntrega": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "faturadoEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "clienteId",
+    "evidencia",
+    "data",
+    "valorTotal",
+    "status"
+  ]
+}

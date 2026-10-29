@@ -1,0 +1,20 @@
+[
+  {
+    "id": "MET-0001",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-01T12:00:00.000Z",
+    "atualizadoEm": "2026-10-01T12:00:00.000Z",
+    "criadoPor": "humano",
+    "periodo": "2026-10",
+    "nivel": "empresa",
+    "responsavelId": null,
+    "segmento": null,
+    "faturamento": 150000,
+    "margemMinimaPercent": 18,
+    "novosClientes": 2,
+    "metaPaiId": null,
+    "definidaPor": "humano",
+    "status": "aprovada"
+  }
+]

@@ -1,0 +1,4 @@
+# Dados reais de clientes/pedidos NUNCA vão para o git.
+/producao/
+# Cópia de trabalho da demonstração (recriada a partir de demo-seed/).
+/demo/

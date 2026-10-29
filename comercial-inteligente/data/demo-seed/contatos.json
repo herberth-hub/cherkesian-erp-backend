@@ -1,0 +1,32 @@
+[
+  {
+    "id": "CON-0001",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-01T12:00:00.000Z",
+    "atualizadoEm": "2026-10-01T12:00:00.000Z",
+    "criadoPor": "humano",
+    "clienteId": "CLI-0001",
+    "nome": "Contato de Compras Alfa (FICTÍCIO)",
+    "cargo": "Comprador",
+    "area": "compras",
+    "papelDecisao": "comprador",
+    "email": "compras@hospital-alfa.invalid",
+    "telefone": null
+  },
+  {
+    "id": "CON-0002",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-01T12:00:00.000Z",
+    "atualizadoEm": "2026-10-01T12:00:00.000Z",
+    "criadoPor": "humano",
+    "clienteId": "CLI-0003",
+    "nome": "Contato de Suprimentos Gama (FICTÍCIO)",
+    "cargo": "Coordenador de suprimentos",
+    "area": "suprimentos",
+    "papelDecisao": "decisor",
+    "email": "suprimentos@gama.invalid",
+    "telefone": null
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ATV-0001",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-27T12:00:00.000Z",
+    "atualizadoEm": "2026-10-27T12:00:00.000Z",
+    "criadoPor": "humano",
+    "oportunidadeId": "OPO-0001",
+    "clienteId": "CLI-0001",
+    "responsavelId": "AGT-0005",
+    "tipo": "reuniao",
+    "data": "2026-10-27",
+    "resumo": "Reunião com compras: cliente pede revisão de preço para 1.000 conjuntos.",
+    "resultado": "contato_realizado"
+  },
+  {
+    "id": "ATV-0002",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-28T12:00:00.000Z",
+    "atualizadoEm": "2026-10-28T12:00:00.000Z",
+    "criadoPor": "humano",
+    "oportunidadeId": "OPO-0004",
+    "clienteId": "CLI-0004",
+    "responsavelId": "AGT-0006",
+    "tipo": "ligacao",
+    "data": "2026-10-28",
+    "resumo": "Primeiro contato; agendada visita técnica.",
+    "resultado": "contato_realizado"
+  },
+  {
+    "id": "ATV-0003",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-15T12:00:00.000Z",
+    "atualizadoEm": "2026-10-15T12:00:00.000Z",
+    "criadoPor": "humano",
+    "oportunidadeId": "OPO-0002",
+    "clienteId": "CLI-0003",
+    "responsavelId": "AGT-0005",
+    "tipo": "email",
+    "data": "2026-10-15",
+    "resumo": "Proposta PRO-0001 enviada pelo responsável humano.",
+    "resultado": "proposta_enviada"
+  },
+  {
+    "id": "ATV-0004",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-29T12:00:00.000Z",
+    "atualizadoEm": "2026-10-29T12:00:00.000Z",
+    "criadoPor": "humano",
+    "oportunidadeId": "OPO-0001",
+    "clienteId": "CLI-0001",
+    "responsavelId": "AGT-0005",
+    "tipo": "whatsapp",
+    "data": "2026-10-29",
+    "resumo": "Cliente confirmou interesse e aguarda proposta revisada.",
+    "resultado": "resposta_recebida"
+  }
+]

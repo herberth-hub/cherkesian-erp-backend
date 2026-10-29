@@ -1,0 +1,107 @@
+[
+  {
+    "id": "PRO-0001",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-14T12:00:00.000Z",
+    "atualizadoEm": "2026-10-14T12:00:00.000Z",
+    "criadoPor": "humano",
+    "oportunidadeId": "OPO-0002",
+    "itens": [
+      {
+        "produtoId": "PRD-0003",
+        "descricao": "Camisa polo bordada (demo)",
+        "quantidade": 300,
+        "precoUnitario": 54
+      }
+    ],
+    "premissasCusto": {
+      "impostosPercent": 9.25,
+      "comissaoPercent": 3,
+      "freteTotal": 250,
+      "outrosCustosVariaveis": 0,
+      "observacoes": "premissas fictícias"
+    },
+    "condicoesPagamento": "28 dias",
+    "validadeAte": "2026-11-01",
+    "prazoEntrega": {
+      "dias": 30,
+      "confirmadoOperacao": false
+    },
+    "status": "enviada",
+    "avaliacao": null,
+    "justificativaDesconto": null,
+    "enviadaEm": "2026-10-15",
+    "respondidaEm": null
+  },
+  {
+    "id": "PRO-0002",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-28T12:00:00.000Z",
+    "atualizadoEm": "2026-10-28T12:00:00.000Z",
+    "criadoPor": "vendedor",
+    "oportunidadeId": "OPO-0001",
+    "itens": [
+      {
+        "produtoId": "PRD-0001",
+        "descricao": "Conjunto privativo hospitalar (demo)",
+        "quantidade": 1000,
+        "precoUnitario": 84
+      }
+    ],
+    "premissasCusto": {
+      "impostosPercent": 9.25,
+      "comissaoPercent": 2,
+      "freteTotal": 1200,
+      "outrosCustosVariaveis": 0,
+      "observacoes": "premissas fictícias"
+    },
+    "condicoesPagamento": "28/56 dias",
+    "validadeAte": "2026-11-20",
+    "prazoEntrega": {
+      "dias": 45,
+      "confirmadoOperacao": false
+    },
+    "status": "rascunho",
+    "avaliacao": null,
+    "justificativaDesconto": null,
+    "enviadaEm": null,
+    "respondidaEm": null
+  },
+  {
+    "id": "PRO-0003",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-10T12:00:00.000Z",
+    "atualizadoEm": "2026-10-10T12:00:00.000Z",
+    "criadoPor": "diretor",
+    "oportunidadeId": "OPO-0005",
+    "itens": [
+      {
+        "produtoId": "PRD-0004",
+        "descricao": "Macacão operacional com refletivo (demo)",
+        "quantidade": 320,
+        "precoUnitario": 95
+      }
+    ],
+    "premissasCusto": {
+      "impostosPercent": 9.25,
+      "comissaoPercent": 3,
+      "freteTotal": 600,
+      "outrosCustosVariaveis": 0,
+      "observacoes": "premissas fictícias"
+    },
+    "condicoesPagamento": "30/60 dias",
+    "validadeAte": "2026-10-25",
+    "prazoEntrega": {
+      "dias": 25,
+      "confirmadoOperacao": true
+    },
+    "status": "aceita",
+    "avaliacao": null,
+    "justificativaDesconto": null,
+    "enviadaEm": "2026-10-12",
+    "respondidaEm": "2026-10-22"
+  }
+]

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/contato.schema.json",
+  "title": "contato",
+  "x-prefixo": "CON",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^CON-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "clienteId": {
+      "type": "string",
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "nome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cargo": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "area": {
+      "enum": [
+        "compras",
+        "suprimentos",
+        "rh",
+        "facilities",
+        "operacoes",
+        "diretoria",
+        "outra",
+        null
+      ]
+    },
+    "papelDecisao": {
+      "enum": [
+        "decisor",
+        "influenciador",
+        "comprador",
+        "usuario",
+        "desconhecido"
+      ]
+    },
+    "email": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    },
+    "telefone": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "clienteId",
+    "nome"
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/tarefa.schema.json",
+  "title": "tarefa",
+  "x-prefixo": "TAR",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^TAR-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "titulo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "atribuidaPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "responsavel": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "solicitacaoId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^SOL-\\d{4,}$"
+    },
+    "referencia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "prazo": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "enum": [
+        "pendente",
+        "em_andamento",
+        "aguardando_informacao",
+        "aguardando_aprovacao",
+        "concluida",
+        "bloqueada"
+      ]
+    },
+    "condicaoConclusao": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ultimaEvidencia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verificacao": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verificadoPor": {
+          "enum": [
+            "ceo",
+            "diretor",
+            "gerente",
+            "vendedor",
+            "humano"
+          ]
+        },
+        "evidencia": {
+          "type": "string",
+          "minLength": 1
+        },
+        "em": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "verificadoPor",
+        "evidencia",
+        "em"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "titulo",
+    "atribuidaPor",
+    "responsavel",
+    "prazo",
+    "status",
+    "condicaoConclusao"
+  ]
+}
