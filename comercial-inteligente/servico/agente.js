@@ -31,6 +31,22 @@ const RASCUNHO = {
 };
 const LIMITE_RASCUNHO = 8000;
 
+/** Ferramenta extra do vendedor: resposta de WhatsApp (passa pelo portão de aprovação do canal). */
+const RESPONDER_WHATSAPP = {
+  name: 'responder_whatsapp',
+  description:
+    'Responde ao cliente da conversa de WhatsApp deste trabalho (o telefone é definido pelo servidor). Conforme a configuração, ' +
+    'a mensagem vai para aprovação do responsável humano antes de sair; mensagens sobre preço, prazo, pagamento ou certificação ' +
+    'sempre vão para aprovação. Use no máximo uma vez. Texto curto, cordial, em português.',
+  input_schema: {
+    type: 'object',
+    properties: { texto: { type: 'string', description: 'Mensagem ao cliente (até 2.000 caracteres).' } },
+    required: ['texto'],
+    additionalProperties: false,
+  },
+  strict: true,
+};
+
 const resumir = (s, n = 400) => (String(s).length > n ? `${String(s).slice(0, n)}…` : String(s));
 
 /** Prompt de sistema estável por papel (vai para o cache de prompt). */
@@ -43,7 +59,7 @@ function promptSistema(papel, cfg) {
     'Sua única ferramenta é `hc` (a CLI comercial). O servidor define seu papel, a base de dados e a data; não os informe.',
     'Trabalhe só com dados que a CLI devolver. Dado ausente fica ausente e vira pendência. Nunca invente.',
     papel === 'vendedor'
-      ? 'Você nunca envia mensagens. Em trabalhos de e-mail, a ferramenta rascunho_email cria um rascunho que o humano revisa e envia; fora disso, registre rascunhos como atividade (tipo nota).'
+      ? 'E-mail: a ferramenta rascunho_email só cria rascunho (o humano envia). WhatsApp: responder_whatsapp passa pelo portão de aprovação do servidor. Fora desses trabalhos, registre rascunhos como atividade (tipo nota).'
       : 'Você não envia e-mail nem WhatsApp e não fala com clientes; quando útil, registre rascunhos como atividade (tipo nota).',
     'Decisões fora da sua alçada: escale ao superior direto pela CLI. Decisões do humano: escalonamento até "humano" — ele decide pelo painel.',
     'Seja objetivo: execute o trabalho pedido e termine com um resumo de 3 a 8 linhas (o que fez, IDs criados/alterados, pendências, próximo passo).',
@@ -64,9 +80,26 @@ function textoDe(conteudo) {
  * Executor com a API do Claude. `cliente` é uma instância do SDK (ou um dublê nos testes).
  * ctl: { deveParar(): string|null, registrarTokens(n), evento(tipo, dados) }
  */
-function criarExecutorClaude({ cfg, cliente, leitorEmail = null }) {
+function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null }) {
   const sistemas = {};
-  const ferramentas = (papel) => (papel === 'vendedor' ? [DEFINICAO, RASCUNHO] : [DEFINICAO]);
+  const ferramentas = (papel) => (papel === 'vendedor' ? [DEFINICAO, RASCUNHO, RESPONDER_WHATSAPP] : [DEFINICAO]);
+
+  async function responderWhatsapp(papel, job, input, ctl) {
+    if (papel !== 'vendedor') return { ok: false, saida: 'ERRO [FERRAMENTA]: só o vendedor responde no WhatsApp.' };
+    if (!job.whatsapp) return { ok: false, saida: 'ERRO [FERRAMENTA]: este trabalho não é uma conversa de WhatsApp.' };
+    if (job.whatsappRespondido) return { ok: false, saida: 'ERRO [FERRAMENTA]: já respondeu nesta rodada (máximo uma mensagem).' };
+    const texto = String((input || {}).texto || '').trim();
+    if (!texto || texto.length > 2000) return { ok: false, saida: 'ERRO [FERRAMENTA]: texto vazio ou maior que 2.000 caracteres.' };
+    if (!whatsapp) return { ok: false, saida: 'ERRO [FERRAMENTA]: WhatsApp não configurado no serviço.' };
+    try {
+      const r = await whatsapp.responderComoAgente(job.whatsapp.telefone, texto, papel);
+      job.whatsappRespondido = true;
+      ctl.evento('ferramenta', { comando: 'responder_whatsapp', ok: true, saida: r.enviado ? 'Mensagem enviada' : `Aguardando aprovação humana (${r.motivo})` });
+      return { ok: true, saida: r.enviado ? 'Mensagem enviada ao cliente.' : r.propostaId ? `Mensagem NÃO enviada: aguarda aprovação do responsável humano (${r.motivo}).` : `Mensagem não enviada: ${r.motivo}` };
+    } catch (e) {
+      return { ok: false, saida: `ERRO [WHATSAPP]: ${e.message}` };
+    }
+  }
 
   async function rascunho(papel, job, input, ctl) {
     if (papel !== 'vendedor') return { ok: false, saida: 'ERRO [FERRAMENTA]: só o vendedor cria rascunhos.' };
@@ -88,7 +121,8 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null }) {
   return async function executarJob(papel, job, ctl) {
     sistemas[papel] = sistemas[papel] || promptSistema(papel, cfg);
     const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: cfg.fuso }).format(new Date());
-    const texto = `Data de hoje: ${hoje}.\n\nTrabalho (${job.origem}): ${job.titulo}\n\n${job.instrucao}`;
+    const instrucao = typeof job.instrucao === 'function' ? job.instrucao() : job.instrucao;
+    const texto = `Data de hoje: ${hoje}.\n\nTrabalho (${job.origem}): ${job.titulo}\n\n${instrucao}`;
     const messages = [{ role: 'user', content: job.blocos && job.blocos.length ? [...job.blocos, { type: 'text', text: texto }] : texto }];
     let tokens = 0;
 
@@ -131,6 +165,7 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null }) {
       for (const bloco of resposta.content.filter((b) => b.type === 'tool_use')) {
         let r;
         if (bloco.name === 'rascunho_email') r = await rascunho(papel, job, bloco.input, ctl);
+        else if (bloco.name === 'responder_whatsapp') r = await responderWhatsapp(papel, job, bloco.input, ctl);
         else if (bloco.name !== 'hc') r = { ok: false, saida: `ERRO [FERRAMENTA]: ferramenta desconhecida "${bloco.name}".`, argumentos: [] };
         else {
           r = await executarHc(papel, (bloco.input || {}).argumentos, cfg);
@@ -163,4 +198,4 @@ function criarExecutorSimulado({ cfg, pausaMs = 400 }) {
   };
 }
 
-module.exports = { criarExecutorClaude, criarExecutorSimulado, promptSistema, RASCUNHO };
+module.exports = { criarExecutorClaude, criarExecutorSimulado, promptSistema, RASCUNHO, RESPONDER_WHATSAPP };

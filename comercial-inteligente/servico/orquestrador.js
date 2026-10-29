@@ -23,9 +23,12 @@ const { PAPEIS } = require('./config');
 const MAX_TENTATIVAS = 4;
 
 class Orquestrador {
-  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS, leitorEmail = null }) {
+  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS, leitorEmail = null, whatsapp = null }) {
     this.cfg = cfg;
     this.leitorEmail = leitorEmail;
+    this.whatsapp = whatsapp;
+    this.falhasWhatsapp = new Map(); // telefone -> { n, ate } (falhas seguidas desde a última mensagem)
+    if (whatsapp) whatsapp.aoReceber = (telefone) => this.enfileirarWhatsapp(telefone);
     this.emailVerificadoEm = 0;
     this.verificandoEmail = null;
     this.executarJob = executarJob;
@@ -209,6 +212,45 @@ class Orquestrador {
     return this.verificandoEmail;
   }
 
+  /**
+   * Conversa de WhatsApp com mensagem nova vira trabalho do vendedor (uma por telefone por vez).
+   * A instrução é montada na hora em que o trabalho começa; ao terminar, se o cliente escreveu
+   * de novo nesse meio-tempo, a conversa volta para a fila.
+   */
+  enfileirarWhatsapp(telefone) {
+    const w = this.whatsapp;
+    if (!w || this.cfg.modo !== 'claude' || !w.precisaAgente(telefone)) return null;
+    const c = w.conversa(telefone);
+    const f = this.falhasWhatsapp.get(c.telefone);
+    if (f && f.n >= 3 && f.ate === c.nCliente) return null; // aguarda mensagem nova ou ação humana
+    const job = this.enfileirar('vendedor', {
+      chave: `whatsapp:${c.telefone}`,
+      origem: 'whatsapp',
+      titulo: `WhatsApp: ${c.nome || `•••${c.telefone.slice(-4)}`}`,
+      whatsapp: { telefone: c.telefone },
+      instrucao: () => {
+        job.vistoAte = w.conversa(telefone).nCliente || 0;
+        return w.instrucao(telefone);
+      },
+      aoConcluir: (resultado) => {
+        // Só conta como lida se o agente terminou; interrompido/erro volta para a fila.
+        if (resultado && resultado.status === 'concluido') {
+          w.marcarVisto(telefone, job.vistoAte);
+          this.falhasWhatsapp.delete(c.telefone);
+        } else {
+          const ate = job.vistoAte === undefined ? w.conversa(telefone).nCliente || 0 : job.vistoAte;
+          const ant = this.falhasWhatsapp.get(c.telefone);
+          const n = ant && ant.ate === ate ? ant.n + 1 : 1;
+          this.falhasWhatsapp.set(c.telefone, { n, ate });
+          if (n === 3) this.eventos.emitir('alerta', { papel: 'vendedor', texto: `WhatsApp ${c.nome || `•••${c.telefone.slice(-4)}`}: 3 tentativas sem sucesso; responda pelo painel.` });
+        }
+        if (w.precisaAgente(telefone)) setImmediate(() => this.enfileirarWhatsapp(telefone));
+      },
+    });
+    if (job) this.despachar();
+    return job;
+  }
+
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
   tick() {
     const aberto = this.expediente();
@@ -223,6 +265,7 @@ class Orquestrador {
     }
     this.salvarEstado();
     this.verificarEmail();
+    if (this.whatsapp) for (const t of this.whatsapp.pendentes()) this.enfileirarWhatsapp(t);
     try {
       this.coletarDaBase();
     } catch (e) {
@@ -342,6 +385,7 @@ class Orquestrador {
       rotinas: this.rotinas.map((r) => ({ id: r.id, papel: r.papel, titulo: r.titulo, quando: r.hora ? `${r.hora}${r.dias ? ` (dias ${r.dias.join(',')})` : ''}` : `a cada ${r.aCadaMin} min` })),
       historico: this.historico.slice(0, 30),
       email: this.leitorEmail ? this.leitorEmail.estado() : null,
+      whatsapp: this.whatsapp ? this.whatsapp.estado() : null,
     };
   }
 

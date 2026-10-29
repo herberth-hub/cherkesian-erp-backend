@@ -107,6 +107,7 @@ th { color: var(--fraco); font-weight: 600; font-size: 11px; text-transform: upp
   </section>
   <aside>
     <div class="card"><h2>Aguardando você <span class="contador" id="nDecisoes">0</span></h2><div id="decisoes"></div></div>
+    <div class="card"><h2>WhatsApp</h2><div id="whatsapp"></div></div>
     <div class="card"><h2>E-mail de cotações</h2><div id="email"></div></div>
     <div class="card"><h2>Rotinas programadas</h2><div id="rotinas"></div></div>
     <div class="card"><h2>Últimos trabalhos</h2><div id="historico"></div></div>
@@ -143,6 +144,7 @@ function linhaEvento(ev) {
   if (ev.tipo === 'fim') return `<div class="ev fim">${t}<span class="tag">■ ${esc(ev.status)}</span>${esc(ev.resumo)}</div>`;
   if (ev.tipo === 'enfileirado') return `<div class="ev nota">${t}na fila: ${esc(ev.titulo)}</div>`;
   if (ev.tipo === 'rascunho') return `<div class="ev ok">${t}<span class="tag">✉ rascunho</span>${esc(ev.texto)}</div>`;
+  if (ev.tipo === 'whatsapp' || ev.tipo === 'whatsapp-proposta') return `<div class="ev">${t}<span class="tag">💬</span>${esc(ev.texto)}</div>`;
   if (ev.tipo === 'email') return `<div class="ev">${t}<span class="tag">✉</span>${esc(ev.texto)}</div>`;
   if (ev.tipo === 'alerta') return `<div class="ev erro">${t}<span class="tag">!</span>${esc(ev.texto)}</div>`;
   return '';
@@ -154,7 +156,7 @@ function receberEvento(ev, redesenhar = true) {
     feeds[ev.papel] = feeds[ev.papel].slice(0, 80);
   }
   if (redesenhar && feeds[ev.papel]) desenharFeed(ev.papel);
-  if (['inicio', 'fim', 'pausa', 'expediente', 'decisao-humana', 'enfileirado', 'rascunho', 'email'].includes(ev.tipo)) agendarEstado();
+  if (['inicio', 'fim', 'pausa', 'expediente', 'decisao-humana', 'enfileirado', 'rascunho', 'email', 'whatsapp', 'whatsapp-proposta'].includes(ev.tipo)) agendarEstado();
 }
 
 function desenharFeed(papel) {
@@ -207,10 +209,33 @@ function desenharDecisoes() {
     itens.push(`<div class="decisao"><b>Meta ${esc(m.id)} — ${esc(m.periodo)}</b><p>Proposta pelo CEO: ${moeda(m.faturamento)}</p>
       <div class="acoes"><button class="primario" data-meta="${m.id}" data-aprovar-meta="1">Aprovar</button><button class="perigo" data-meta="${m.id}" data-aprovar-meta="0">Revogar</button></div></div>`);
   }
+  const wz = estado.whatsapp;
+  for (const p of (wz && wz.propostas) || []) {
+    itens.push(`<div class="decisao"><b>WhatsApp para ${esc(p.rotulo)}</b><p>Proposta do vendedor · ${esc(p.motivo)}</p>
+      <textarea id="w-${p.id}" style="min-height:120px">${esc(p.texto)}</textarea>
+      <div class="acoes"><button class="primario" data-wenviar="${p.id}">Enviar</button><button class="perigo" data-wdescartar="${p.id}">Descartar</button></div></div>`);
+  }
   const outras = b.aprovacoes.filter((x) => x.alcada !== 'humano');
   if (outras.length) itens.push(`<p class="vazio">${outras.length} aprovação(ões) na alçada dos agentes: ${outras.map((a) => `${esc(a.id)} (${esc(a.alcada)})`).join(', ')}.</p>`);
   document.getElementById('decisoes').innerHTML = itens.join('') || '<div class="vazio">Nada aguardando sua decisão.</div>';
-  document.getElementById('nDecisoes').textContent = b.aprovacoes.filter((x) => x.alcada === 'humano').length + b.paraHumano.length + b.metasPropostas.length;
+  document.getElementById('nDecisoes').textContent = b.aprovacoes.filter((x) => x.alcada === 'humano').length + b.paraHumano.length + b.metasPropostas.length + ((wz && wz.propostas.length) || 0);
+}
+
+function desenharWhatsapp() {
+  const w = estado.whatsapp;
+  const el = document.getElementById('whatsapp');
+  if (!w) { el.innerHTML = '<div class="vazio">WhatsApp desativado neste serviço.</div>'; return; }
+  const partes = [];
+  partes.push(`<p class="vazio">${w.configurado ? `Provedor ${esc(w.provedor)} conectado` : 'Não configurado (defina o provedor e as credenciais no servidor)'} · autonomia: <b>${w.autonomia === 'aprovacao' ? 'você aprova cada resposta' : 'automática (preço/prazo/pagamento sempre com você)'}</b></p>`);
+  if (estado.modo !== 'claude') partes.push('<p class="vazio">O agente só responde no modo IA (ANTHROPIC_API_KEY). Você pode responder por aqui.</p>');
+  for (const c of w.conversas) {
+    const msgs = c.mensagens.map((m) => `<div class="vazio">${m.de === 'cliente' ? '👤' : m.de === 'humano' ? '🧑‍💼' : '🤖'} ${esc(m.texto).slice(0, 160)}</div>`).join('');
+    partes.push(`<div class="decisao"><b>${esc(c.rotulo)}</b> <span class="vazio">· ${c.estado === 'humano' ? 'com você' : 'com o agente'}${c.dentroDaJanela ? '' : ' · fora da janela de 24 h'}</span>${msgs}
+      <textarea id="wr-${c.telefone}" placeholder="Responder como você (assume a conversa)"></textarea>
+      <div class="acoes"><button data-wresponder="${c.telefone}">Enviar</button><button data-wassumir="${c.telefone}" data-valor="${c.estado === 'humano' ? '0' : '1'}">${c.estado === 'humano' ? 'Devolver ao agente' : 'Assumir conversa'}</button></div></div>`);
+  }
+  if (!w.conversas.length) partes.push('<div class="vazio">Nenhuma conversa ainda.</div>');
+  el.innerHTML = partes.join('');
 }
 
 function desenharEmail() {
@@ -256,6 +281,7 @@ function desenhar() {
   desenharAgentes();
   desenharDecisoes();
   desenharEmail();
+  desenharWhatsapp();
   document.getElementById('solicitacoes').innerHTML = tabela(['ID', 'De → para', 'Objetivo', 'Prazo', 'Status'], e.dados.solicitacoes.map((s) => [s.id, `${s.de} → ${s.para}`, s.objetivo, s.prazo, s.status]), 'Nenhuma solicitação aberta.');
   document.getElementById('tarefas').innerHTML = tabela(['ID', 'Tarefa', 'De → para', 'Prazo', 'Status'], e.dados.tarefas.map((t) => [t.id, t.titulo, `${t.de} → ${t.para}`, t.prazo, t.status]), 'Nenhuma tarefa aberta.');
   document.getElementById('rotinas').innerHTML = e.rotinas.map((r) => `<div class="rotina"><span><b>${esc(AGENTES[r.papel].nome)}</b> · ${esc(r.titulo)}<br><span class="vazio">${esc(r.quando)}</span></span><button data-rotina="${r.id}">Executar</button></div>`).join('');
@@ -289,6 +315,14 @@ document.addEventListener('click', async (ev) => {
       if (!t) throw new Error('Escreva a resposta.');
       await api('/api/solicitacao', { id: b.dataset.responder, texto: t });
     } else if (b.dataset.meta) await api('/api/meta', { id: b.dataset.meta, aprovar: b.dataset.aprovarMeta === '1' });
+    else if (b.dataset.wenviar) await api('/api/whatsapp/aprovar', { id: b.dataset.wenviar, texto: document.getElementById(`w-${b.dataset.wenviar}`).value });
+    else if (b.dataset.wdescartar) await api('/api/whatsapp/descartar', { id: b.dataset.wdescartar });
+    else if (b.dataset.wassumir) await api('/api/whatsapp/assumir', { telefone: b.dataset.wassumir, assumir: b.dataset.valor === '1' });
+    else if (b.dataset.wresponder) {
+      const t = document.getElementById(`wr-${b.dataset.wresponder}`).value.trim();
+      if (!t) throw new Error('Escreva a mensagem.');
+      await api('/api/whatsapp/responder', { telefone: b.dataset.wresponder, texto: t });
+    }
     await carregar();
   } catch (e) { alert(e.message); } finally { b.disabled = false; }
 });

@@ -92,14 +92,16 @@ $HC proposta avaliar --id PRO-0002 --agente diretor --base demo
 $HC solicitacao listar --todas --agente gerente --base demo
 ```
 
-## Serviço autônomo, painel visual e e-mail (fases 1 e 2)
+## Serviço autônomo, painel visual, e-mail e WhatsApp (fases 1, 2 e 3)
 
 Além do uso pelo Claude Code, os agentes rodam sozinhos como um serviço: **em paralelo**, de
 **segunda a sexta das 06:30 às 22:00 (São Paulo)**, com rotinas programadas, fila automática de
 solicitações e tarefas, limites de custo e um **painel ao vivo** onde você acompanha cada agente,
 pausa o trabalho e toma as decisões que são suas. **Fase 2:** o vendedor lê as cotações que chegam por e-mail
 (`contato@` e, com o marcador `cotacoes`, `herberth@`), registra no CRM e deixa um **rascunho de resposta** no Gmail
-para você revisar e enviar — nunca envia sozinho. Sem `ANTHROPIC_API_KEY` ele roda em modo simulado
+para você revisar e enviar — nunca envia sozinho. **Fase 3:** o vendedor atende o WhatsApp da empresa (API da Meta ou Z-API);
+por padrão cada resposta espera sua aprovação no painel, e assuntos de preço, prazo e pagamento nunca saem sem você.
+Sem `ANTHROPIC_API_KEY` ele roda em modo simulado
 (comandos fixos, sem IA), útil para conhecer o painel. Detalhes, variáveis e implantação: `servico/README.md`.
 
 ```bash

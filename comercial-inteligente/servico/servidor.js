@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const C = require('../src/comercial');
+const { assinaturaMetaValida } = require('./whatsapp');
 const PR = require('../src/protocolo');
 
 const HTML = path.join(__dirname, 'painel.html');
@@ -59,6 +60,22 @@ function lerCorpo(req) {
   });
 }
 
+function lerBruto(req) {
+  return new Promise((resolve, reject) => {
+    let tam = 0;
+    const partes = [];
+    req.on('data', (c) => {
+      tam += c.length;
+      if (tam > LIMITE_CORPO) {
+        reject(new Error('Corpo grande demais.'));
+        req.destroy();
+      } else partes.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(partes)));
+    req.on('error', reject);
+  });
+}
+
 /** Visão da base para o painel: o que está aberto e o que espera o humano. */
 function visaoBase(base) {
   const sols = base.listar('solicitacao');
@@ -95,6 +112,11 @@ function criarServidor({ orquestrador, eventos, token }) {
   if (!token || token.length < 16) throw new Error('PAINEL_TOKEN ausente ou curto (mínimo 16 caracteres).');
   const estadosOAuth = new Map(); // state -> { conta, expira }
 
+  const exigirWhatsapp = () => {
+    if (!orquestrador.whatsapp) throw Object.assign(new Error('WhatsApp não habilitado neste serviço.'), { status: 404 });
+    return orquestrador.whatsapp;
+  };
+
   const autenticado = (req) => iguais(cookie(req, 'hc_painel'), token) || iguais(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''), token);
 
   const rotasPost = {
@@ -121,6 +143,27 @@ function criarServidor({ orquestrador, eventos, token }) {
       orquestrador.coletarDaBase();
       orquestrador.despachar();
       return r;
+    },
+    'POST /api/whatsapp/aprovar': async (c) => {
+      const w = exigirWhatsapp();
+      const p = await w.aprovar(c.id, c.texto);
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `WhatsApp ${p.id} aprovado e enviado` });
+      return p;
+    },
+    'POST /api/whatsapp/descartar': (c) => exigirWhatsapp().descartar(c.id),
+    'POST /api/whatsapp/assumir': (c) => {
+      const conv = exigirWhatsapp().assumir(c.telefone, Boolean(c.assumir));
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `Conversa ${conv.nome || conv.telefone.slice(-4)} ${c.assumir ? 'assumida por você' : 'devolvida ao agente'}` });
+      return { telefone: conv.telefone, estado: conv.estado };
+    },
+    'POST /api/whatsapp/responder': async (c) => {
+      // Escrever pelo painel = assumir a conversa (o agente para de responder até você devolver).
+      const w = exigirWhatsapp();
+      const texto = String(c.texto || '').trim();
+      if (!texto) throw Object.assign(new Error('Escreva a mensagem.'), { status: 422 });
+      w.assumir(c.telefone, true);
+      await w.enviarTexto(c.telefone, texto, 'humano');
+      return { ok: true };
     },
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
@@ -150,6 +193,34 @@ function criarServidor({ orquestrador, eventos, token }) {
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
       return res.end(fs.readFileSync(HTML));
+    }
+
+    // Webhook do WhatsApp (fase 3) — público, autenticado pelo provedor:
+    // Meta: verificação do GET com verify token e assinatura HMAC do POST; Z-API: segredo na URL.
+    if (url.pathname === '/webhook/whatsapp') {
+      const w = orquestrador.whatsapp;
+      if (!w || !w.configurado()) return json(res, 404, { erro: 'WhatsApp não configurado.' });
+      const { provedor, meta, zapi } = w.cfg;
+      if (req.method === 'GET') {
+        const ok = provedor === 'meta' && url.searchParams.get('hub.mode') === 'subscribe' && iguais(url.searchParams.get('hub.verify_token'), meta.verifyToken);
+        res.writeHead(ok ? 200 : 403, { 'Content-Type': 'text/plain' });
+        return res.end(ok ? String(url.searchParams.get('hub.challenge') || '') : 'Forbidden');
+      }
+      if (req.method !== 'POST') return json(res, 405, { erro: 'Método não permitido.' });
+      let bruto;
+      try {
+        bruto = await lerBruto(req);
+      } catch {
+        return json(res, 413, { erro: 'Corpo grande demais.' });
+      }
+      const autorizado = provedor === 'meta' ? assinaturaMetaValida(bruto, req.headers['x-hub-signature-256'], meta.appSecret) : iguais(url.searchParams.get('segredo'), zapi.segredoWebhook);
+      if (!autorizado) return json(res, 401, { erro: 'Assinatura inválida.' });
+      try {
+        await w.receber(JSON.parse(bruto.toString('utf8') || '{}'), { dentroDoExpediente: orquestrador.expediente() });
+      } catch (e) {
+        eventos.emitir('alerta', { papel: 'vendedor', texto: `Webhook do WhatsApp: ${e.message}` });
+      }
+      return json(res, 200, { recebido: true }); // 200 sempre, para o provedor não reenviar em loop
     }
 
     // Conexão do Gmail (fase 2). O início exige o painel autenticado; o retorno do Google é

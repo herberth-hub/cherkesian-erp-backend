@@ -15,6 +15,7 @@ const { Orquestrador } = require('../servico/orquestrador');
 const { criarServidor } = require('../servico/servidor');
 const { criarExecutorClaude, criarExecutorSimulado } = require('../servico/agente');
 const { LeitorEmail } = require('../servico/email');
+const { CanalWhatsapp } = require('../servico/whatsapp');
 const { Base } = require('../src/store');
 
 const cfg = carregar();
@@ -28,17 +29,18 @@ if (!token) {
 const dir = Base.abrir({ nome: cfg.base, dir: cfg.dataDir }).dir;
 const eventos = new Eventos({ dir });
 const leitorEmail = new LeitorEmail({ cfg, dir, eventos });
+const whatsapp = new CanalWhatsapp({ dir, eventos });
 
 let executarJob;
 if (cfg.modo === 'claude') {
   const Anthropic = require('@anthropic-ai/sdk');
   const Cliente = Anthropic.default || Anthropic;
-  executarJob = criarExecutorClaude({ cfg, cliente: new Cliente(), leitorEmail });
+  executarJob = criarExecutorClaude({ cfg, cliente: new Cliente(), leitorEmail, whatsapp });
 } else {
   executarJob = criarExecutorSimulado({ cfg });
 }
 
-const orquestrador = new Orquestrador({ cfg, executarJob, eventos, leitorEmail });
+const orquestrador = new Orquestrador({ cfg, executarJob, eventos, leitorEmail, whatsapp });
 const servidor = criarServidor({ orquestrador, eventos, token });
 
 servidor.listen(cfg.porta, () => {

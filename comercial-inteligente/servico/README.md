@@ -1,4 +1,4 @@
-# Serviço autônomo — fases 1 e 2
+# Serviço autônomo — fases 1, 2 e 3
 
 Os quatro agentes (CEO, Diretor, Gerente, Vendedor) rodando **sozinhos e em paralelo**, de
 **segunda a sexta, das 06:30 às 22:00 (horário de São Paulo)**, com um **painel visual** para
@@ -71,6 +71,50 @@ Cada e-mail é tratado uma vez (controle em `servico-email.json`); com falha, at
    "só rascunho"; `compose` também permitiria enviar, mas o código do serviço não tem nenhuma função de envio (há teste que garante).
    Os tokens ficam em `segredos/` dentro da pasta de dados, com permissão restrita, e nunca aparecem no painel ou nos logs.
 
+## Fase 3 — WhatsApp comercial
+
+Mensagens que chegam no WhatsApp da empresa viram trabalho do **vendedor**: ele identifica o contato no CRM,
+registra lead/oportunidade/atividade só com o que o cliente disse e prepara a resposta pedindo o que falta.
+
+**Portão de saída (servidor, não depende do agente):**
+
+| Autonomia (`HC_WHATSAPP_AUTONOMIA`) | O que acontece com a resposta do agente |
+| --- | --- |
+| `aprovacao` (**padrão**) | Vai para "Aguardando você" no painel. Você edita se quiser e toca **Enviar** (ou **Descartar**). Nada sai sem você. |
+| `automatico` | Sai direto, **exceto** se falar de preço, valor, desconto, prazo, entrega, pagamento, boleto/PIX, certificação, norma ou garantia — essas sempre vão para sua aprovação. |
+
+- **Assumir conversa:** no painel, "Assumir conversa" (ou responder você mesmo pela caixa de texto) tira a conversa do agente
+  e descarta as propostas pendentes dela; "Devolver ao agente" volta ao normal.
+- **Uma resposta por rodada**; se o cliente escrever de novo enquanto o agente trabalha, a conversa volta para a fila com o histórico novo.
+  Se o cliente só disser "ok/obrigado", o agente pode não responder — e isso não gera novo trabalho.
+- **Janela de 24 h (API da Meta):** passado esse prazo desde a última mensagem do cliente, o WhatsApp só aceita modelos aprovados;
+  o serviço recusa o envio e avisa (modelos não fazem parte desta fase).
+- **Fora do horário:** as mensagens são guardadas e respondidas a partir das 06:30. Opcionalmente, defina
+  `HC_WHATSAPP_MSG_FORA_HORARIO` com um texto fixo escrito por você (ex.: "Olá! Recebemos sua mensagem e retornamos a partir das 6h30.");
+  ele é enviado no máximo uma vez a cada 12 h por conversa. Sem essa variável, nada é enviado fora do horário.
+- Mídias (foto, áudio, documento) chegam registradas como "[imagem recebida]" etc.; o conteúdo não é lido nesta fase.
+- O conteúdo das mensagens é tratado como dado do cliente: instruções escritas na conversa são ignoradas.
+
+### Atenção: robô de WhatsApp do ERP
+O ERP já tem um robô (`/api/v1/whatsapp/webhook`, para clientes com contrato fazerem pedido). **Um número só entrega as mensagens
+para um endereço.** Escolha uma opção:
+1. **Número comercial próprio** para a diretoria comercial (recomendado), mantendo o robô do ERP no número dos contratos; ou
+2. usar o mesmo número aqui e **desativar** o robô do ERP (WhatsApp → configuração → ativo = não).
+
+### Configurar
+Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whatsapp`
+
+**API oficial da Meta (WhatsApp Cloud API)** — recomendada:
+- `HC_WHATSAPP_PROVEDOR=meta`, `WHATSAPP_META_TOKEN` (token permanente de usuário do sistema), `WHATSAPP_META_PHONE_ID`,
+  `WHATSAPP_META_VERIFY_TOKEN` (texto que você inventa e repete no painel da Meta), `WHATSAPP_META_APP_SECRET` (chave secreta do app —
+  obrigatória: toda mensagem recebida tem a assinatura conferida; sem ela o webhook não é aceito).
+- No painel da Meta, assine o campo `messages` do webhook.
+
+**Z-API** (não oficial; sem regra de 24 h, mas sujeita a bloqueio do número pelo WhatsApp):
+- `HC_WHATSAPP_PROVEDOR=zapi`, `ZAPI_INSTANCIA`, `ZAPI_TOKEN`, `ZAPI_CLIENT_TOKEN` (token de segurança da conta),
+  `ZAPI_WEBHOOK_SEGREDO` (texto longo que você inventa) e, na Z-API, o webhook "Ao receber":
+  `https://<endereço-do-painel>/webhook/whatsapp?segredo=<ZAPI_WEBHOOK_SEGREDO>`.
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Uso |
@@ -91,6 +135,10 @@ Cada e-mail é tratado uma vez (controle em `servico-email.json`); com falha, at
 | `HC_GMAIL_CONSULTA_<CAIXA>` | ver tabela acima | Filtro de busca do Gmail por caixa (ex.: `HC_GMAIL_CONSULTA_HERBERTH`). |
 | `HC_GMAIL_INTERVALO_MIN` | `5` | Intervalo de verificação. |
 | `GMAIL_TOKEN_<CAIXA>` | — | Alternativa ao botão Conectar: refresh token por variável de ambiente. |
+| `HC_WHATSAPP_PROVEDOR` | automático | `meta` ou `zapi`. |
+| `HC_WHATSAPP_AUTONOMIA` | `aprovacao` | `aprovacao` ou `automatico` (assuntos sensíveis sempre com aprovação). |
+| `HC_WHATSAPP_MSG_FORA_HORARIO` | — | Texto fixo enviado fora do expediente (opcional). |
+| `WHATSAPP_META_*` / `ZAPI_*` | — | Credenciais do provedor (ver Fase 3). |
 
 ## Implantação (Render ou outro servidor)
 
@@ -103,7 +151,9 @@ Cada e-mail é tratado uma vez (controle em `servico-email.json`); com falha, at
 O `render.yaml` do ERP **não foi alterado** (ele publica o ERP a cada push na `main`); o serviço é um deploy separado, que você decide criar.
 
 ## Limitações desta fase
-- **Sem WhatsApp** (fase 3). No e-mail, os agentes só criam rascunhos; o envio é sempre humano.
+- No e-mail, os agentes só criam rascunhos; o envio é sempre humano. No WhatsApp, o padrão é sua aprovação em cada resposta.
+- **WhatsApp não testado contra a Meta/Z-API reais nesta entrega**: testado com provedor simulado no formato das APIs; comece em modo `aprovacao`.
+- Sem modelos de mensagem da Meta (necessários para iniciar conversa ou responder após 24 h) e sem leitura de mídia no WhatsApp.
 - **E-mail não testado contra o Gmail real nesta entrega**: a integração foi testada com um Gmail simulado no formato da API; conecte primeiro a `contato@` e acompanhe os primeiros rascunhos.
 - **Não testado com a API real nesta entrega**: o loop foi testado com um cliente simulado que reproduz o formato da API; a primeira execução com `ANTHROPIC_API_KEY` deve ser acompanhada pelo painel.
 - Armazenamento em arquivos JSON: um único processo do serviço por base (não rode duas instâncias apontando para o mesmo diretório).

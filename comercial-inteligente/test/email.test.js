@@ -180,7 +180,7 @@ test('executor: só o vendedor tem a ferramenta de rascunho; destinatário fixo;
   assert.equal(r.status, 'concluido');
   assert.equal(g.rascunhos.length, 1, 'segundo rascunho recusado');
   assert.match(deB64url(g.rascunhos[0].message.raw).toString('utf8'), /To: Compras <compras@cliente\.invalid>/);
-  assert.deepEqual(chamadas[0].tools.map((t) => t.name), ['hc', 'rascunho_email']);
+  assert.deepEqual(chamadas[0].tools.map((t) => t.name), ['hc', 'rascunho_email', 'responder_whatsapp']);
   assert.equal(chamadas[0].messages[0].content[0].type, 'document', 'anexo PDF enviado ao modelo');
   const segunda = chamadas[2].messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => b.type === 'tool_result' && b.tool_use_id === 'r2');
   assert.equal(segunda.is_error, true);
