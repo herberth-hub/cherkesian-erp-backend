@@ -17,9 +17,12 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsString() @MaxLength(10) unidadeMedida?: string;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
-  @IsOptional() @IsIn(['A', 'B']) coluna?: string;
+  // C = COMODATO (loja do cliente). Nesse caso o lugar não é coluna/andar/caixa:
+  // é o cliente que está guardando a peça — por isso `comodatoClienteId`.
+  @IsOptional() @IsIn(['A', 'B', 'C']) coluna?: string;
   @IsOptional() @IsString() @MaxLength(4) andar?: string;
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
+  @IsOptional() @IsInt() @IsPositive() comodatoClienteId?: number;
   @IsOptional() @IsInt() @IsPositive() pedidoId?: number;
   @IsOptional() @IsIn(['entrada', 'producao']) origem?: string;
   /** Etiqueta de lote personalizada (ex.: OP-123) p/ reimpressão por OP. */
@@ -28,9 +31,13 @@ export class EntradaEstoqueDto {
 
 export class EnderecarDto {
   @IsString() @IsNotEmpty() codigo!: string;
-  @IsIn(['A', 'B']) coluna!: string;
-  @IsString() @IsNotEmpty() @MaxLength(4) andar!: string;
+  @IsIn(['A', 'B', 'C']) coluna!: string;
+  // Andar é obrigatório nas colunas A e B e não existe no COMODATO (coluna C),
+  // onde o lugar é o cliente. Quem cobra é o serviço, que sabe qual é a coluna.
+  @IsOptional() @IsString() @MaxLength(4) andar?: string;
   // Caixa Master é OPCIONAL — endereçar só por Coluna + Andar (gôndola aberta/prateleira).
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
+  /** Cliente que vai guardar a peça na loja dele (obrigatório na coluna C). */
+  @IsOptional() @IsInt() @IsPositive() comodatoClienteId?: number;
   @IsOptional() @IsBoolean() confirmar?: boolean;
 }

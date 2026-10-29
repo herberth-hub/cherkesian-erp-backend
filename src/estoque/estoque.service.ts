@@ -25,7 +25,9 @@ export class EstoqueService {
     if (!ids.length) return [] as Array<{ produtoId: number; tamanho: string | null; cor: string | null; quantidade: number }>;
     const grupos = await this.prisma.unidadeEstoque.groupBy({
       by: ['produtoId', 'tamanho', 'cor'],
-      where: { empresaId, produtoId: { in: ids }, status: { not: 'despachado' } },
+      // Comodato fica de fora: a peça é nossa, mas está na loja do cliente —
+      // oferecer como disponível prometeria peça que não está no armazém.
+      where: { empresaId, produtoId: { in: ids }, status: { notIn: ['despachado', 'comodato'] } },
       _count: { _all: true },
     });
     return grupos
@@ -63,7 +65,7 @@ export class EstoqueService {
 
     type Linha = {
       produtoId: number; cor: string | null; tamanho: string | null;
-      livre: number; doPedido: number; deOutro: number; semEndereco: number; segunda: number;
+      livre: number; doPedido: number; deOutro: number; semEndereco: number; segunda: number; comodato: number;
       separavel: number;
       locais: Array<{ endereco: string; quantidade: number }>;
       etiquetas: Array<{ codigo: string; endereco: string; status: string; segunda: boolean }>;
@@ -76,7 +78,7 @@ export class EstoqueService {
       if (!l) {
         l = {
           produtoId: u.produtoId, cor: u.cor, tamanho: u.tamanho,
-          livre: 0, doPedido: 0, deOutro: 0, semEndereco: 0, segunda: 0, separavel: 0,
+          livre: 0, doPedido: 0, deOutro: 0, semEndereco: 0, segunda: 0, comodato: 0, separavel: 0,
           locais: [], etiquetas: [],
         };
         mapa.set(chave, l);
@@ -93,6 +95,9 @@ export class EstoqueService {
         else l.deOutro++;
       } else if (u.status === 'aguardando_endereco') {
         l.semEndereco++;
+      } else if (u.status === 'comodato') {
+        // Está na loja do cliente: existe e é nossa, mas não dá para separar.
+        l.comodato++;
       } else if (u.status === 'em_estoque') {
         // Peça em estoque reservada a outro pedido não existe; o que existe é
         // `reservado`. Aqui `em_estoque` com pedidoId é sobra de vínculo antigo:
@@ -301,6 +306,8 @@ export class EstoqueService {
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; unidadeMedida?: string; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
+    /** Coluna C = comodato: a peça nasce na loja deste cliente, não no armazém. */
+    comodatoClienteId?: number;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
     qualidade?: 'primeira' | 'segunda'; defeito?: string;
     /**
@@ -358,7 +365,15 @@ export class EstoqueService {
     if (segunda && !defeito) throw new BadRequestException('Informe o defeito da peça de segunda linha.');
 
     const paraExpedicao = dto.destino === 'expedicao';
-    const status = paraExpedicao ? 'reservado' : (dto.coluna && dto.andar != null && dto.caixaMaster ? 'em_estoque' : 'aguardando_endereco');
+    // COMODATO (coluna C): a peça já nasce na loja do cliente. Não tem andar nem
+    // caixa — o "endereço" dela é o cliente que está guardando.
+    const comodato = !paraExpedicao && dto.coluna === EstoqueService.COL_COMODATO;
+    const cliComodato = comodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
+    const status = paraExpedicao
+      ? 'reservado'
+      : comodato
+        ? 'comodato'
+        : (dto.coluna && dto.andar != null && dto.caixaMaster ? 'em_estoque' : 'aguardando_endereco');
     const agora = new Date();
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
     // Base = MAIOR sequencial do dia (não a contagem) — evita colisão de código
@@ -379,7 +394,8 @@ export class EstoqueService {
       empresaId, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
       descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
       ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
-      coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster, status,
+      coluna: dto.coluna, andar: comodato ? null : dto.andar, caixaMaster: comodato ? null : dto.caixaMaster, status,
+      ...(comodato ? { comodatoClienteId: cliComodato!.id, comodatoEm: agora, comodatoPor: usuario } : {}),
       pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
       ...(segunda ? { qualidade: 'segunda', defeito, qualidadeEm: agora, qualidadePor: usuario } : {}),
     };
@@ -408,51 +424,108 @@ export class EstoqueService {
       pecas.push({
         codigo: c.codigo, ref, refCliente, descricao, cor: dto.cor ?? '', tamanho: dto.tamanho ?? '',
         loteFornecedor: dto.loteFornecedor ?? '', barcode: 'data:image/png;base64,' + bc.toString('base64'),
-        endereco: this.enderecoTxt(dto) ?? '', // endereçamento na etiqueta (se já informado)
+        endereco: this.enderecoTxt(dto, cliComodato?.nome) ?? '', // endereçamento na etiqueta (se já informado)
         // Faixa de SEGUNDA LINHA na etiqueta — tem de ser lida de longe, na prateleira.
         segundaLinha: segunda, defeito: segunda ? defeito : '',
         // No rolo/volume de matéria-prima, mostra a medida na etiqueta (ex.: 5,90 m).
         ...(granel ? { qtdLote: qtdFmt, unLote: unidadeMedida } : {}),
       });
     }
-    return { loteEntrada, total: qtd, granel, saldoAdd: granel ? qtdMedida : 0, unidade: unidadeMedida, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto), qualidade: segunda ? 'segunda' : 'primeira', defeito: segunda ? defeito : null, pecas };
+    return { loteEntrada, total: qtd, granel, saldoAdd: granel ? qtdMedida : 0, unidade: unidadeMedida, destino: dto.destino ?? 'estoque', status, endereco: this.enderecoTxt(dto, cliComodato?.nome), comodatoCliente: cliComodato?.nome ?? null, qualidade: segunda ? 'segunda' : 'primeira', defeito: segunda ? defeito : null, pecas };
   }
 
-  private enderecoTxt(d: { coluna?: string; andar?: string; caixaMaster?: string }): string | null {
+  /**
+   * COMODATO — a coluna "C" não é um lugar no armazém: é a loja do cliente.
+   *
+   * A peça em comodato sai daqui e fica guardada no cliente, que vende e só
+   * depois paga. Ela continua sendo NOSSA (não foi vendida, não tem nota de
+   * venda), mas não está na prateleira: se contasse como estoque disponível, a
+   * separação prometeria peça que não está aqui. Por isso vira status próprio,
+   * fora de `em_estoque`, e fica de fora da pronta-entrega e do portal.
+   */
+  static readonly COL_COMODATO = 'C';
+
+  /** Confere o cliente do comodato (existe e é desta empresa). */
+  private async clienteComodato(clienteId: number | undefined, empresaId: number) {
+    if (!clienteId) throw new BadRequestException('Comodato: escolha o cliente que vai guardar as peças.');
+    const cli = await this.prisma.cliente.findUnique({
+      where: { id: clienteId },
+      select: { id: true, nome: true, fantasia: true },
+    });
+    if (!cli || (await this.prisma.cliente.count({ where: { id: clienteId, empresaId } })) === 0) {
+      throw new NotFoundException(`Cliente ${clienteId} não encontrado nesta empresa.`);
+    }
+    return { id: cli.id, nome: cli.fantasia || cli.nome };
+  }
+
+  private enderecoTxt(
+    d: { coluna?: string | null; andar?: string | null; caixaMaster?: string | null },
+    comodatoCliente?: string | null,
+  ): string | null {
+    if (d.coluna === EstoqueService.COL_COMODATO) return `🤝 Comodato · ${comodatoCliente || 'cliente'}`;
     if (!d.coluna && d.andar == null && !d.caixaMaster) return null;
     return `Coluna ${d.coluna ?? '—'} · Andar ${d.andar ?? '—'} · Caixa ${d.caixaMaster ?? '—'}`;
   }
 
   /** Endereça uma unidade (bipada) no armazém. Se já estiver endereçada em OUTRO
    *  lugar, NÃO troca sem confirmar: devolve `precisaConfirmar` com o endereço atual. */
-  async enderecar(dto: { codigo: string; coluna: string; andar: string; caixaMaster?: string; confirmar?: boolean }, empresaId: number, usuario: string) {
+  async enderecar(
+    dto: { codigo: string; coluna: string; andar?: string; caixaMaster?: string; comodatoClienteId?: number; confirmar?: boolean },
+    empresaId: number,
+    usuario: string,
+  ) {
     const codigo = (dto.codigo ?? '').trim();
     const un = await this.prisma.unidadeEstoque.findUnique({ where: { codigo } });
     if (!un || un.empresaId !== empresaId) throw new NotFoundException(`Unidade ${codigo} não encontrada.`);
     if (un.status === 'despachado') throw new BadRequestException('Unidade já despachada.');
 
-    const fmt = (c?: string | null, a?: string | null, x?: string | null) => `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
-    const jaEnderecado = un.status === 'em_estoque' && (un.coluna != null || un.andar != null || un.caixaMaster != null);
-    const mudou = un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
+    const paraComodato = dto.coluna === EstoqueService.COL_COMODATO;
+    if (!paraComodato && !(dto.andar ?? '').trim()) throw new BadRequestException('Informe o andar.');
+    const cli = paraComodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
+    // Nome do cliente de ONDE a peça está hoje (se já estava em comodato), só
+    // para a mensagem fazer sentido: "saiu da loja X, foi para a loja Y".
+    const cliAtual = un.comodatoClienteId
+      ? await this.prisma.cliente.findUnique({ where: { id: un.comodatoClienteId }, select: { nome: true, fantasia: true } })
+      : null;
+    const nomeAtual = cliAtual ? cliAtual.fantasia || cliAtual.nome : null;
+
+    const fmt = (c?: string | null, a?: string | null, x?: string | null, nome?: string | null) =>
+      c === EstoqueService.COL_COMODATO
+        ? `🤝 Comodato · ${nome || 'cliente'}`
+        : `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
+    const jaEnderecado =
+      (un.status === 'em_estoque' || un.status === 'comodato') &&
+      (un.coluna != null || un.andar != null || un.caixaMaster != null);
+    const mudou = paraComodato
+      ? un.coluna !== dto.coluna || un.comodatoClienteId !== cli!.id
+      : un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
     // Já está EXATAMENTE neste endereço → não duplica, só avisa.
     if (jaEnderecado && !mudou) {
-      return { jaAqui: true, codigo, descricao: un.descricao, tamanho: un.tamanho, endereco: fmt(un.coluna, un.andar, un.caixaMaster) };
+      return { jaAqui: true, codigo, descricao: un.descricao, tamanho: un.tamanho, endereco: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual) };
     }
     // Já está guardado em outro endereço e o operador escolheu um diferente → confirma antes.
     if (jaEnderecado && mudou && !dto.confirmar) {
       return {
         precisaConfirmar: true,
         codigo, descricao: un.descricao, tamanho: un.tamanho,
-        atual: fmt(un.coluna, un.andar, un.caixaMaster),
-        novo: fmt(dto.coluna, dto.andar, dto.caixaMaster),
+        atual: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual),
+        novo: fmt(dto.coluna, dto.andar, dto.caixaMaster, cli?.nome),
       };
     }
 
     const upd = await this.prisma.unidadeEstoque.update({
       where: { codigo },
-      data: { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster || null, status: 'em_estoque' },
+      data: paraComodato
+        ? { coluna: dto.coluna, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
+        : // Voltando para o armazém: o vínculo de comodato tem de sair junto,
+          // senão a peça fica na prateleira ainda apontando para a loja do cliente.
+          { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster || null, status: 'em_estoque', comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
     });
-    return { codigo, descricao: upd.descricao, tamanho: upd.tamanho, endereco: fmt(dto.coluna, dto.andar, dto.caixaMaster), movido: jaEnderecado && mudou };
+    return {
+      codigo, descricao: upd.descricao, tamanho: upd.tamanho,
+      endereco: fmt(dto.coluna, dto.andar, dto.caixaMaster, cli?.nome),
+      comodato: paraComodato, movido: jaEnderecado && mudou,
+    };
   }
 
   /**
@@ -464,7 +537,7 @@ export class EstoqueService {
    * é contada à parte no retorno — ela continua reservada, só muda de lugar.
    */
   async enderecarVarias(
-    dto: { codigos: string[]; coluna: string; andar: string; caixaMaster?: string },
+    dto: { codigos: string[]; coluna: string; andar?: string; caixaMaster?: string; comodatoClienteId?: number },
     empresaId: number,
     usuario: string,
   ) {
@@ -473,28 +546,50 @@ export class EstoqueService {
     if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
     const coluna = String(dto.coluna ?? '').trim();
     const andar = String(dto.andar ?? '').trim();
-    if (!coluna || !andar) throw new BadRequestException('Informe a coluna e o andar.');
+    // Coluna C = COMODATO: o lugar é a loja do cliente, não coluna+andar.
+    const paraComodato = coluna === EstoqueService.COL_COMODATO;
+    const cli = paraComodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
+    if (!coluna || (!paraComodato && !andar)) throw new BadRequestException('Informe a coluna e o andar.');
 
     const uns = await this.prisma.unidadeEstoque.findMany({ where: { codigo: { in: codigos }, empresaId } });
     const achados = new Set(uns.map((u) => u.codigo));
     const naoAchadas = codigos.filter((c) => !achados.has(c));
     const despachadas = uns.filter((u) => u.status === 'despachado').map((u) => u.codigo);
-    const mover = uns.filter((u) => u.status !== 'despachado');
+    let mover = uns.filter((u) => u.status !== 'despachado');
+    /**
+     * Peça RESERVADA não vai para comodato. Nos outros endereços ela só muda de
+     * lugar e segue reservada; mandar para a loja de um cliente é diferente —
+     * ela já está separada para o pedido de OUTRO, e sairia da expedição sem
+     * ninguém ver. Aqui é recusa explícita, não silêncio.
+     */
+    const reservadasBloqueadas = paraComodato ? mover.filter((u) => u.status === 'reservado').map((u) => u.codigo) : [];
+    if (reservadasBloqueadas.length) mover = mover.filter((u) => u.status !== 'reservado');
     if (!mover.length) {
-      throw new BadRequestException('Nenhuma etiqueta pôde ser endereçada (despachadas ou inexistentes).');
+      throw new BadRequestException(
+        reservadasBloqueadas.length
+          ? `As ${reservadasBloqueadas.length} etiqueta(s) estão RESERVADAS para expedição e não podem ir para comodato — solte a reserva antes.`
+          : 'Nenhuma etiqueta pôde ser endereçada (despachadas ou inexistentes).',
+      );
     }
     const reservadas = mover.filter((u) => u.status === 'reservado').length;
+    const endereco = paraComodato
+      ? `🤝 Comodato · ${cli!.nome}`
+      : `Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`;
 
     // Uma só escrita para o lote inteiro — Neon é pooled e 500 updates em
     // sequência estouravam o tempo da transação.
     const r = await this.prisma.unidadeEstoque.updateMany({
       where: { codigo: { in: mover.map((u) => u.codigo) }, empresaId },
-      data: { coluna, andar, caixaMaster: (dto.caixaMaster ?? '').trim() || null },
+      data: paraComodato
+        ? { coluna, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
+        : // Voltando ao armazém, o vínculo de comodato sai junto: senão a peça
+          // fica na prateleira ainda apontando para a loja do cliente.
+          { coluna, andar, caixaMaster: (dto.caixaMaster ?? '').trim() || null, comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
     });
     // Só o que NÃO está reservado passa a "em estoque". A reservada tem expedição
     // atrás: mudar o status a soltaria do pedido — ela só muda de lugar.
     const livres = mover.filter((u) => u.status !== 'reservado').map((u) => u.codigo);
-    if (livres.length) {
+    if (!paraComodato && livres.length) {
       await this.prisma.unidadeEstoque.updateMany({
         where: { codigo: { in: livres }, empresaId },
         data: { status: 'em_estoque' },
@@ -503,17 +598,20 @@ export class EstoqueService {
 
     await this.prisma.log.create({
       data: {
-        usuario, acao: 'estoque.enderecar.lote',
-        detalhe: `${r.count} etiqueta(s) para Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`,
+        usuario, acao: paraComodato ? 'estoque.comodato.enviar' : 'estoque.enderecar.lote',
+        detalhe: `${r.count} etiqueta(s) para ${endereco}`,
         entidade: 'UnidadeEstoque',
+        entidadeId: paraComodato ? String(cli!.id) : undefined,
       },
     }).catch(() => undefined);
 
     return {
       enderecadas: r.count,
       reservadas,
-      ignoradas: { despachadas, naoAchadas },
-      endereco: `Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`,
+      comodato: paraComodato,
+      comodatoCliente: cli?.nome ?? null,
+      ignoradas: { despachadas, naoAchadas, reservadasBloqueadas },
+      endereco,
     };
   }
 
@@ -597,6 +695,71 @@ export class EstoqueService {
     };
   }
 
+  /**
+   * COMODATO — o que cada cliente está guardando na loja dele.
+   *
+   * É a conta que o comodato precisa ter: peça nossa, na mão de outro, que só
+   * vira dinheiro quando ele vender. Sem esta visão ninguém sabe quanto está
+   * espalhado por aí nem há quanto tempo.
+   */
+  async comodatoResumo(empresaId: number) {
+    const uns = await this.prisma.unidadeEstoque.findMany({
+      where: { empresaId, status: 'comodato' },
+      select: {
+        codigo: true, descricao: true, cor: true, tamanho: true, produtoId: true,
+        qualidade: true, comodatoClienteId: true, comodatoEm: true,
+      },
+      orderBy: { codigo: 'asc' },
+    });
+    if (!uns.length) return [];
+
+    const cIds = [...new Set(uns.map((u) => u.comodatoClienteId).filter((x): x is number => x != null))];
+    const pIds = [...new Set(uns.map((u) => u.produtoId).filter((x): x is number => x != null))];
+    const [clis, prods] = await Promise.all([
+      cIds.length ? this.prisma.cliente.findMany({ where: { id: { in: cIds } }, select: { id: true, nome: true, fantasia: true } }) : [],
+      pIds.length ? this.prisma.produto.findMany({ where: { id: { in: pIds } }, select: { id: true, codigo: true } }) : [],
+    ]);
+    const cMap = new Map(clis.map((c) => [c.id, c.fantasia || c.nome]));
+    const pMap = new Map(prods.map((p) => [p.id, p.codigo]));
+
+    type Item = { itemCodigo: string | null; descricao: string; cor: string | null; tamanho: string | null; quantidade: number; segunda: number; codigos: string[] };
+    type Linha = { clienteId: number | null; cliente: string; total: number; desde: Date | null; itens: Map<string, Item> };
+    const porCliente = new Map<string, Linha>();
+    for (const u of uns) {
+      const chaveCli = String(u.comodatoClienteId ?? 'sem');
+      let l = porCliente.get(chaveCli);
+      if (!l) {
+        l = {
+          clienteId: u.comodatoClienteId,
+          cliente: (u.comodatoClienteId != null ? cMap.get(u.comodatoClienteId) : null) ?? 'Cliente não identificado',
+          total: 0, desde: null, itens: new Map(),
+        };
+        porCliente.set(chaveCli, l);
+      }
+      l.total++;
+      if (u.comodatoEm && (!l.desde || u.comodatoEm < l.desde)) l.desde = u.comodatoEm;
+      const chaveItem = `${u.produtoId ?? 'd:' + u.descricao}|${u.cor ?? ''}|${u.tamanho ?? ''}`;
+      let it = l.itens.get(chaveItem);
+      if (!it) {
+        it = {
+          itemCodigo: u.produtoId != null ? pMap.get(u.produtoId) ?? null : null,
+          descricao: u.descricao, cor: u.cor, tamanho: u.tamanho, quantidade: 0, segunda: 0, codigos: [],
+        };
+        l.itens.set(chaveItem, it);
+      }
+      it.quantidade++;
+      if (u.qualidade === 'segunda') it.segunda++;
+      it.codigos.push(u.codigo);
+    }
+
+    return [...porCliente.values()]
+      .map((l) => ({
+        ...l,
+        itens: [...l.itens.values()].sort((a, b) => b.quantidade - a.quantidade),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }
+
   /** Lista as unidades em estoque (com filtros simples). */
   /**
    * Lista as unidades (etiquetas) da empresa. A tela de Estoque filtra do lado do
@@ -622,6 +785,9 @@ export class EstoqueService {
       select: {
         codigo: true, descricao: true, cor: true, tamanho: true, tipo: true,
         status: true, coluna: true, andar: true, caixaMaster: true, areaMotivo: true,
+        // Comodato: o "endereço" é a loja do cliente — sem o nome dele a lista
+        // mostraria só "Coluna C" e ninguém saberia em que loja a peça está.
+        comodatoClienteId: true, comodatoEm: true,
         // Segunda linha: a peça continua em estoque, mas não pode sair como primeira.
         qualidade: true, defeito: true,
         // Agrupar por ID, não por descrição: descrição muda e não é chave.
@@ -662,6 +828,13 @@ export class EstoqueService {
     const pMap = new Map(prods.map((p) => [p.id, p.codigo]));
     const mMap = new Map(mats.map((m) => [m.id, m]));
 
+    // Nome da loja que está com cada peça em comodato (1 consulta, não N).
+    const cIds = [...new Set(unidades.map((u) => u.comodatoClienteId).filter((x): x is number => x != null))];
+    const clis = cIds.length
+      ? await this.prisma.cliente.findMany({ where: { id: { in: cIds } }, select: { id: true, nome: true, fantasia: true } })
+      : [];
+    const cMap = new Map(clis.map((c) => [c.id, c.fantasia || c.nome]));
+
     return unidades.map((u) => {
       const mat = u.materialId != null ? mMap.get(u.materialId) : undefined;
       return {
@@ -669,6 +842,7 @@ export class EstoqueService {
         quantidade: u.quantidade != null ? Number(u.quantidade) : null,
         itemCodigo: (u.produtoId != null ? pMap.get(u.produtoId) : undefined) ?? mat?.codigo ?? null,
         unidadeMedida: mat?.unidade ?? null,
+        comodatoCliente: u.comodatoClienteId != null ? cMap.get(u.comodatoClienteId) ?? null : null,
       };
     });
   }
@@ -799,8 +973,13 @@ export class EstoqueService {
     const mat = un.materialId ? await this.prisma.material.findUnique({ where: { id: un.materialId }, select: { id: true, codigo: true, unidade: true, saldo: true } }) : null;
     const prod = un.produtoId ? await this.prisma.produto.findUnique({ where: { id: un.produtoId }, select: { codigo: true } }) : null;
     const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
+    const cliCom = un.comodatoClienteId
+      ? await this.prisma.cliente.findUnique({ where: { id: un.comodatoClienteId }, select: { nome: true, fantasia: true } })
+      : null;
+    const nomeCom = cliCom ? cliCom.fantasia || cliCom.nome : null;
     const statusLabel: Record<string, string> = {
-      aguardando_endereco: 'Recebimento (aguardando endereço)', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)', despachado: 'Despachado', quarentena: 'Quarentena',
+      aguardando_endereco: 'Recebimento (aguardando endereço)', em_estoque: 'Em estoque', reservado: 'Reservado (expedição)',
+      comodato: `Em comodato${nomeCom ? ' · ' + nomeCom : ''}`, despachado: 'Despachado', quarentena: 'Quarentena',
     };
     return {
       codigo: un.codigo,
@@ -818,8 +997,9 @@ export class EstoqueService {
       qualidadeEm: un.qualidadeEm,
       qualidadePor: un.qualidadePor,
       enderecado,
-      endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna ?? undefined, andar: un.andar ?? undefined, caixaMaster: un.caixaMaster ?? undefined }) : null,
+      endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster }, nomeCom) : null,
       coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
+      comodatoClienteId: un.comodatoClienteId, comodatoCliente: nomeCom, comodatoEm: un.comodatoEm,
       loteEntrada: un.loteEntrada,
       loteFornecedor: un.loteFornecedor,
       // Vínculo p/ movimentação: material + quantidade da etiqueta + unidade de medida.

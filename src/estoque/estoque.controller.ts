@@ -142,10 +142,20 @@ export class EstoqueController {
   @Post('enderecar-lote')
   @HttpCode(HttpStatus.OK)
   enderecarLote(
-    @Body() body: { codigos: string[]; coluna: string; andar: string; caixaMaster?: string },
+    @Body() body: { codigos: string[]; coluna: string; andar?: string; caixaMaster?: string; comodatoClienteId?: number },
     @CurrentUser() user: AuthUser,
   ) {
     return this.estoqueService.enderecarVarias(body, user.empresaId, user.usuario);
+  }
+
+  /**
+   * COMODATO: o que cada cliente está guardando na loja dele para vender.
+   * Vendas também lê — é o comercial que cobra quando a peça é vendida.
+   */
+  @Areas('estoque', 'producao', 'vendas')
+  @Get('comodato')
+  comodato(@CurrentUser() user: AuthUser) {
+    return this.estoqueService.comodatoResumo(user.empresaId);
   }
 
   /** Dá baixa em VÁRIAS etiquetas selecionadas. */
