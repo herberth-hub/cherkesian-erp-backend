@@ -1,0 +1,19 @@
+{
+  "descricao": "Política comercial e alçadas. MODELO NÃO CONFIGURADO: os valores financeiros são null até o responsável humano defini-los. Enquanto 'configurado' for false, toda proposta exige decisão humana. Para produção, copie este arquivo para data/producao/politica_comercial.json e preencha.",
+  "configurado": false,
+  "definidaPor": null,
+  "definidaEm": null,
+  "margemMinimaPercent": null,
+  "premissasPadrao": {
+    "impostosPercent": null,
+    "comissaoPercent": null,
+    "observacao": "Usadas apenas quando a proposta não informa as próprias premissas. null = não configurado."
+  },
+  "validadePropostaDias": null,
+  "alcadas": {
+    "vendedor": { "descontoMaxPercent": null, "margemMinimaPercent": null, "valorMaximoProposta": null },
+    "gerente": { "descontoMaxPercent": null, "margemMinimaPercent": null, "valorMaximoProposta": null },
+    "diretor": { "descontoMaxPercent": null, "margemMinimaPercent": null, "valorMaximoProposta": null },
+    "ceo": { "descontoMaxPercent": null, "margemMinimaPercent": null, "valorMaximoProposta": null }
+  }
+}

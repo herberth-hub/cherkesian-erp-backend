@@ -1,0 +1,49 @@
+{
+  "descricao": "Cadeia de comando do sistema de inteligência comercial da HC Quality. Fonte de verdade lida por src/hierarquia.js. Alterações aqui exigem autorização do responsável humano.",
+  "papeis": {
+    "humano": {
+      "nome": "Responsável humano (diretoria da HC Quality)",
+      "nivel": 5,
+      "superior": null,
+      "subordinado": "ceo",
+      "agenteNativo": null,
+      "instrucoes": null
+    },
+    "ceo": {
+      "nome": "CEO / Presidente Executivo",
+      "nivel": 4,
+      "superior": "humano",
+      "subordinado": "diretor",
+      "agenteNativo": "hc-ceo",
+      "instrucoes": "agents/ceo.md"
+    },
+    "diretor": {
+      "nome": "Diretor Comercial",
+      "nivel": 3,
+      "superior": "ceo",
+      "subordinado": "gerente",
+      "agenteNativo": "hc-diretor-comercial",
+      "instrucoes": "agents/diretor_comercial.md"
+    },
+    "gerente": {
+      "nome": "Gerente Comercial",
+      "nivel": 2,
+      "superior": "diretor",
+      "subordinado": "vendedor",
+      "agenteNativo": "hc-gerente-comercial",
+      "instrucoes": "agents/gerente_comercial.md"
+    },
+    "vendedor": {
+      "nome": "Vendedor / Atendente Comercial",
+      "nivel": 1,
+      "superior": "gerente",
+      "subordinado": null,
+      "agenteNativo": "hc-vendedor-comercial",
+      "instrucoes": "agents/vendedor_comercial.md"
+    }
+  },
+  "limites": {
+    "profundidadeMaximaSolicitacao": 8,
+    "observacao": "Delegação só desce um nível; escalonamento só sobe um nível; uma solicitação recebida por escalonamento não pode ser delegada para baixo (deve ser decidida, devolvida com pedido de informação ou escalada). Isso torna a cadeia monotônica e impede ciclos."
+  }
+}

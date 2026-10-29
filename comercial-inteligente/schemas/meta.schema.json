@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/meta.schema.json",
+  "title": "meta",
+  "x-prefixo": "MET",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^MET-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "periodo": {
+      "type": "string",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+    },
+    "nivel": {
+      "enum": [
+        "empresa",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "segmento"
+      ]
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "segmento": {
+      "enum": [
+        "saude",
+        "lavanderia",
+        "industria",
+        "facilities",
+        "construcao",
+        "servicos",
+        "distribuidores",
+        "publico",
+        "outro",
+        null
+      ]
+    },
+    "faturamento": {
+      "type": "number",
+      "minimum": 0
+    },
+    "margemMinimaPercent": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "novosClientes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "metaPaiId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^MET-\\d{4,}$"
+    },
+    "definidaPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "status": {
+      "enum": [
+        "proposta",
+        "aprovada",
+        "revogada"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "periodo",
+    "nivel",
+    "faturamento",
+    "definidaPor",
+    "status"
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/aprovacao.schema.json",
+  "title": "aprovacao",
+  "x-prefixo": "APR",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^APR-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "objetoTipo": {
+      "enum": [
+        "proposta",
+        "meta",
+        "excecao"
+      ]
+    },
+    "objetoId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "solicitadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "alcadaNecessaria": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "motivos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "pendente",
+        "aprovada",
+        "recusada"
+      ]
+    },
+    "decididoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano",
+        null
+      ]
+    },
+    "decididoEm": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "justificativa": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "objetoTipo",
+    "objetoId",
+    "solicitadoPor",
+    "alcadaNecessaria",
+    "motivos",
+    "status"
+  ]
+}

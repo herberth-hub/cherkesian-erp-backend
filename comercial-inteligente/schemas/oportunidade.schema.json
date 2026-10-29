@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/oportunidade.schema.json",
+  "title": "oportunidade",
+  "x-prefixo": "OPO",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^OPO-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "titulo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "clienteId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "leadId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^LEA-\\d{4,}$"
+    },
+    "responsavelId": {
+      "type": "string",
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "segmento": {
+      "enum": [
+        "saude",
+        "lavanderia",
+        "industria",
+        "facilities",
+        "construcao",
+        "servicos",
+        "distribuidores",
+        "publico",
+        "outro"
+      ]
+    },
+    "etapa": {
+      "enum": [
+        "lead_identificado",
+        "lead_qualificado",
+        "contato_realizado",
+        "necessidade_levantada",
+        "cotacao_solicitada",
+        "proposta_em_preparacao",
+        "proposta_enviada",
+        "negociacao",
+        "aguardando_decisao",
+        "pedido_ganho",
+        "pedido_perdido",
+        "pos_venda"
+      ]
+    },
+    "valorEstimado": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "ultimoContatoEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "proximoPasso": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proximoPassoEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "previsaoFechamentoEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "fechadoEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "estrategica": {
+      "type": "boolean"
+    },
+    "qualificacao": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quantidadePecas": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "tipoUniforme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tecido": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grade": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "frequenciaReposicao": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personalizacao": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prazoPretendido": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "localEntrega": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "faixaOrcamento": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "processoDecisao": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exigeAmostra": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "motivoPerda": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "concorrenteInformado": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "titulo",
+    "responsavelId",
+    "etapa",
+    "valorEstimado",
+    "ultimoContatoEm",
+    "proximoPasso",
+    "proximoPassoEm"
+  ],
+  "anyOf": [
+    {
+      "properties": {
+        "clienteId": {
+          "type": "string",
+          "pattern": "^CLI-\\d{4,}$"
+        }
+      },
+      "required": [
+        "clienteId"
+      ]
+    },
+    {
+      "properties": {
+        "leadId": {
+          "type": "string",
+          "pattern": "^LEA-\\d{4,}$"
+        }
+      },
+      "required": [
+        "leadId"
+      ]
+    }
+  ]
+}

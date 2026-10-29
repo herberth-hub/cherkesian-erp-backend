@@ -1,0 +1,19 @@
+{
+  "descricao": "Premissas OPERACIONAIS (não financeiras) usadas nas análises. São estimativas padrão e aparecem na seção 'Premissas' de todo relatório. Ajuste com o histórico real da HC Quality.",
+  "probabilidadePorEtapa": {
+    "lead_identificado": 0.02,
+    "lead_qualificado": 0.05,
+    "contato_realizado": 0.08,
+    "necessidade_levantada": 0.15,
+    "cotacao_solicitada": 0.25,
+    "proposta_em_preparacao": 0.3,
+    "proposta_enviada": 0.4,
+    "negociacao": 0.6,
+    "aguardando_decisao": 0.7
+  },
+  "diasSemContatoParaAlerta": 7,
+  "diasInatividadeCliente": 180,
+  "diasAlertaPrazoPedido": 7,
+  "diasAlertaValidadeProposta": 3,
+  "diasPropostaSemResposta": 5
+}

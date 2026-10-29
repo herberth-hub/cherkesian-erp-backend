@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/atividade.schema.json",
+  "title": "atividade",
+  "x-prefixo": "ATV",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ATV-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "oportunidadeId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^OPO-\\d{4,}$"
+    },
+    "clienteId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "responsavelId": {
+      "type": "string",
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "tipo": {
+      "enum": [
+        "ligacao",
+        "email",
+        "reuniao",
+        "visita",
+        "whatsapp",
+        "nota",
+        "proposta"
+      ]
+    },
+    "data": {
+      "type": "string",
+      "format": "date"
+    },
+    "resumo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resultado": {
+      "enum": [
+        "contato_realizado",
+        "sem_resposta",
+        "resposta_recebida",
+        "proposta_enviada",
+        "fechamento",
+        "perda",
+        "nota",
+        null
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "responsavelId",
+    "tipo",
+    "data",
+    "resumo"
+  ]
+}
