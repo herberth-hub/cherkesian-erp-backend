@@ -768,12 +768,24 @@ export class EstoqueService {
    * ainda falseia os contadores. Por isso: payload enxuto (só os campos que a
    * lista usa) e teto alto, apenas como proteção contra runaway.
    */
+  /**
+   * DESPACHADA NÃO VEM POR PADRÃO.
+   *
+   * A tela de Estoque carrega tudo de uma vez e filtra no cliente — e a primeira
+   * coisa que ela faz é jogar fora as despachadas, que são 68% das etiquetas
+   * (13.776 de 20.277). Ou seja: dois terços do que trafegava existiam só para
+   * serem descartados no navegador.
+   *
+   * Agora `GET /estoque/unidades` devolve o armazém; o histórico de saídas vem
+   * sob demanda, com `?status=despachado`. A contagem continua honesta porque
+   * vem de `contagemPorStatus`, que conta no banco em vez de no navegador.
+   */
   async listarUnidades(empresaId: number, status?: string, q?: string) {
     const termo = (q ?? '').trim();
     const unidades = await this.prisma.unidadeEstoque.findMany({
       where: {
         empresaId,
-        ...(status ? { status } : {}),
+        ...(status ? { status } : { status: { not: 'despachado' } }),
         ...(termo ? { OR: [
           { codigo: { contains: termo, mode: 'insensitive' } },
           { descricao: { contains: termo, mode: 'insensitive' } },
@@ -845,6 +857,27 @@ export class EstoqueService {
         comodatoCliente: u.comodatoClienteId != null ? cMap.get(u.comodatoClienteId) ?? null : null,
       };
     });
+  }
+
+  /**
+   * Quantas etiquetas em cada status — contado no BANCO, numa consulta só.
+   *
+   * A tela precisa do número de despachadas para oferecer o histórico, mas não
+   * precisa das 13.776 linhas para isso. Contar é barato; trazer, não.
+   */
+  async contagemPorStatus(empresaId: number) {
+    const grupos = await this.prisma.unidadeEstoque.groupBy({
+      by: ['status'],
+      where: { empresaId },
+      _count: { _all: true },
+    });
+    const porStatus: Record<string, number> = {};
+    for (const g of grupos) porStatus[g.status] = g._count._all;
+    return {
+      porStatus,
+      despachadas: porStatus.despachado ?? 0,
+      noArmazem: Object.entries(porStatus).reduce((s, [st, n]) => s + (st === 'despachado' ? 0 : n), 0),
+    };
   }
 
   /** Defeitos leves que mandam a peça para a segunda linha. "Outro" aceita texto livre. */

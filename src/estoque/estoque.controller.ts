@@ -33,10 +33,21 @@ export class EstoqueController {
   }
 
   // ===== Estoque unitário (etiqueta por peça + endereçamento) =====
+  /**
+   * Etiquetas do ARMAZÉM. Despachada só vem com `?status=despachado` — ela é
+   * 68% da tabela e a tela a descartava logo depois de baixar.
+   */
   @Areas('estoque', 'producao', 'expedicao')
   @Get('unidades')
   unidades(@Query('status') status: string, @Query('q') q: string, @CurrentUser() user: AuthUser) {
     return this.estoqueService.listarUnidades(user.empresaId, status, q);
+  }
+
+  /** Quantas etiquetas por status — contado no banco, p/ a tela não ter de trazê-las. */
+  @Areas('estoque', 'producao', 'expedicao')
+  @Get('unidades/contagem')
+  unidadesContagem(@CurrentUser() user: AuthUser) {
+    return this.estoqueService.contagemPorStatus(user.empresaId);
   }
 
   /** Estoque disponível (não despachado) por produto — p/ a expedição parcial. */

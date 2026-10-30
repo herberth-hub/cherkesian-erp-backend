@@ -9322,12 +9322,19 @@ async function viewEstoque(c){
   // /produtos entra pelas CORES: a etiqueta guarda o nome da cor ("BEGE"), e o
   // mockup é buscado por ProdutoCor.id. Sem esse mapa não dá para mostrar a peça
   // na cor certa na matriz. A lista não traz base64, então é leve.
-  const [unidades, materiais, produtos] = await Promise.all([
+  // DESPACHADA NÃO VEM AQUI. São 68% das etiquetas e esta tela as descartava
+  // logo na primeira linha de cada filtro — baixar era puro desperdício. O
+  // histórico de saídas carrega sob demanda (estViewDespachadas) e a contagem
+  // vem do banco, não de contar linhas no navegador.
+  const [unidades, materiais, produtos, contagem] = await Promise.all([
     api('/estoque/unidades').catch(()=>[]),
     api('/materiais').catch(()=>[]),
     api('/produtos').catch(()=>[]),
+    api('/estoque/unidades/contagem').catch(()=>({despachadas:0})),
   ]);
   window.__UNIDS_ALL = unidades||[];
+  window.__UNIDS_DESP_N = Number(contagem&&contagem.despachadas)||0;
+  window.__UNIDS_DESP = null; // histórico recarrega sob demanda (uma baixa pode tê-lo mudado)
   window.__MATS_EST = materiais||[];
   window.__ESTPROD = new Map((produtos||[]).map(p=>[p.id,p]));
   // Os dois caches de imagem são compartilhados com o catálogo e com o pedido;
@@ -9524,7 +9531,8 @@ function estRender(){
   const box=$('estbox'); if(!box) return;
   const E=window.__EST;
   const todas=(window.__UNIDS_ALL||[]).filter(u=>u.status!=='despachado');
-  const desp=(window.__UNIDS_ALL||[]).filter(u=>u.status==='despachado').length;
+  // Contagem vem do banco: as despachadas não estão carregadas aqui.
+  const desp=Number(window.__UNIDS_DESP_N)||0;
   const cnt=(f)=>todas.filter(f).length;
   const semMetragemN=todas.filter(u=>u.tipo!=='produto' && u.quantidade==null).length;
   const arr=estFiltradas();
@@ -9571,9 +9579,19 @@ function estRender(){
   else estViewProduto(arr);
 }
 
-function estViewDespachadas(){
-  const arr=(window.__UNIDS_ALL||[]).filter(u=>u.status==='despachado');
+/**
+ * Histórico de saídas — carregado SÓ quando alguém abre esta visão.
+ * São 68% das etiquetas e não entram em contagem nenhuma: trazê-las junto com o
+ * armazém era baixar dois terços do estoque para jogar fora.
+ */
+async function estViewDespachadas(){
   const b=$('estvbox'); if(!b) return;
+  if(!window.__UNIDS_DESP){
+    b.innerHTML='<div class="panel"><div class="empty">Carregando o histórico de saídas…</div></div>';
+    try{ window.__UNIDS_DESP = await api('/estoque/unidades?status=despachado'); }
+    catch(e){ b.innerHTML=`<div class="panel"><div class="empty">${esc(e.message)}</div></div>`; return; }
+  }
+  const arr=window.__UNIDS_DESP||[];
   b.innerHTML=`<div class="card" style="background:#f4f1ea;border-color:#d9cfb5;font-size:12.5px;margin-bottom:8px">🚚 <b>Histórico de saídas</b> — ${arr.length} peça(s) que já deixaram o armazém. <b>Não entram em nenhuma contagem de estoque.</b></div>`
     + panelTable(['Código','Item','Saiu em','Motivo'], arr.slice(0,300).map(u=>[
         `<span class="mono gold">${esc(u.codigo)}</span>`,

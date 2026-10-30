@@ -1,0 +1,62 @@
+# Trava antes do deploy.
+#
+# O Render está com autoDeploy ligado: o que entra na main vai para produção.
+# Sem esta verificação, um push quebrado chega no ar antes de alguém perceber —
+# e quem percebe é a pessoa que está tentando trabalhar.
+#
+# Quatro checagens, as mesmas que rodamos à mão antes de cada publicação:
+#   tsc        — o backend compila
+#   jest       — as regras de negócio continuam valendo (441 testes)
+#   rbac-check — o menu não oferece tela que a API nega
+#   checa-js   — o <script> do index.html não tem erro de sintaxe
+#     (esse último é o que derruba a TELA INTEIRA, porque é um IIFE só)
+#
+# Nada aqui toca o banco: os testes usam mocks e nenhum passo recebe segredo.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # permite rodar à mão pela aba Actions
+
+concurrency:
+  # Push novo na mesma branch cancela a verificação anterior — não adianta
+  # esperar o resultado de um commit que já foi substituído.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Compila, testa e confere o RBAC
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 20 (mesma versão do Render)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # O client do Prisma não é versionado; os tipos do tsc dependem dele.
+      - name: Gerar o Prisma Client
+        run: npx prisma generate
+
+      - name: TypeScript compila
+        run: npx tsc --noEmit
+
+      - name: Sintaxe do frontend (index.html e portal.html)
+        run: node scripts/checa-js.js
+
+      - name: RBAC coerente entre menu e API
+        run: node scripts/rbac-check.js
+
+      - name: Testes
+        run: npx jest --ci

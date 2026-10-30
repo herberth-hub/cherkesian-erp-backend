@@ -39,6 +39,15 @@ const ENTRADA = (quantidade: number, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('entrada de peças em lote', () => {
+  /**
+   * Os dois testes de lote grande geram código de barras DE VERDADE, um por
+   * peça — é isso que eles provam, e é isso que os faz demorar. Sob carga (o
+   * jest roda as suítes em paralelo) passavam do limite padrão de 5 s e caíam
+   * por tempo, não por erro. Alarme falso é o jeito mais rápido de ensinar uma
+   * equipe a ignorar o CI, então o limite aqui é explícito e folgado.
+   */
+  const LOTE_GRANDE = 60_000;
+
   it('524 peças entram numa escrita só — não 524', async () => {
     const { svc, lotes } = servico();
     const r = await svc.entrada(ENTRADA(524) as never, 1, 'admin');
@@ -46,7 +55,7 @@ describe('entrada de peças em lote', () => {
     expect(lotes[0]).toHaveLength(524);
     expect(r.total).toBe(524);
     expect(r.pecas).toHaveLength(524);
-  });
+  }, LOTE_GRANDE);
 
   it('os códigos saem sequenciais, continuando o último do dia', async () => {
     const hoje = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -82,7 +91,7 @@ describe('entrada de peças em lote', () => {
     const { svc, lotes } = servico();
     await svc.entrada(ENTRADA(1639) as never, 1, 'admin');
     expect(lotes[0]).toHaveLength(1639);
-  });
+  }, LOTE_GRANDE);
 
   it('acima de 2.000 continua barrado (erro de digitação)', async () => {
     const { svc } = servico();
