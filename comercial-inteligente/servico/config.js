@@ -4,7 +4,7 @@
  * Configuração do serviço autônomo, só por variáveis de ambiente (segredos nunca no código).
  */
 
-const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor'];
+const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor', 'hunter'];
 
 /** Preço por milhão de tokens (US$) por modelo — confira em anthropic.com/pricing. */
 const TABELA_PRECOS = {
@@ -69,7 +69,10 @@ function carregar(env = process.env) {
       diretor: inteiro(env.HC_PARALELO_DIRETOR, 1),
       gerente: inteiro(env.HC_PARALELO_GERENTE, 1),
       vendedor: inteiro(env.HC_PARALELO_VENDEDOR, 3),
+      hunter: inteiro(env.HC_PARALELO_HUNTER, 1),
     },
+    // Hunter (pesquisa web de grandes contas): HC_HUNTER=off desliga; buscas por trabalho limitadas.
+    hunter: { ativo: env.HC_HUNTER !== 'off', buscasPorTrabalho: inteiro(env.HC_HUNTER_BUSCAS, 8), paginasPorTrabalho: inteiro(env.HC_HUNTER_PAGINAS, 6) },
     intervaloTickMs: inteiro(env.HC_TICK_MS, 30000),
   };
 }

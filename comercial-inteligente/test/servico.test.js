@@ -67,7 +67,7 @@ test('rotinas: horário fixo roda uma vez por dia; semanais só na sexta', () =>
   assert.ok(vencidas(SEX_1700, cfg, new Set()).some((x) => x.rotina.id === 'diretor-semanal'));
   assert.ok(!vencidas(new Date('2026-10-29T20:00:00Z'), cfg, new Set()).some((x) => x.rotina.id === 'diretor-semanal'));
   assert.equal(vencidas(SAB_1000, cfg, new Set()).length, 0);
-  for (const r of ROTINAS) assert.ok(['ceo', 'diretor', 'gerente', 'vendedor'].includes(r.papel) && r.instrucao && r.simulado.length);
+  for (const r of ROTINAS) assert.ok(['ceo', 'diretor', 'gerente', 'vendedor', 'hunter'].includes(r.papel) && r.instrucao && r.simulado.length);
 });
 
 test('ferramenta: servidor impõe papel e base; agente não age como humano nem roda comandos exclusivos', async () => {
@@ -348,7 +348,7 @@ test('painel: autenticação, estado, CSRF, decisão humana e eventos ao vivo', 
 
     const auth = { Authorization: `Bearer ${TOKEN}` };
     const est = JSON.parse((await requisitar(porta, '/api/estado', { cabecalhos: auth })).corpo);
-    assert.equal(est.agentes.length, 4);
+    assert.equal(est.agentes.length, 5);
     assert.equal(est.base, 'demo');
     assert.equal(est.dados.ficticia, true);
     assert.ok(est.dados.aprovacoes.some((a) => a.id === aprovacao.id && a.alcada === 'humano'));

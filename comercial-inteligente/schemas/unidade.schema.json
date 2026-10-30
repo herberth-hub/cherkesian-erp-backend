@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/unidade.schema.json",
+  "title": "unidade",
+  "x-prefixo": "UNI",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^UNI-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "hunter",
+        "humano"
+      ]
+    },
+    "grupoId": {
+      "type": "string",
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "empresaId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^EMP-\\d{4,}$"
+    },
+    "nome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tipo": {
+      "enum": [
+        "matriz",
+        "filial",
+        "fabrica",
+        "hospital",
+        "centro_distribuicao",
+        "centro_logistico",
+        "escritorio",
+        "base_operacional",
+        "centro_manutencao",
+        "unidade_atendimento",
+        "laboratorio",
+        "operacao_terceirizada",
+        "outra"
+      ]
+    },
+    "cnpj": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{14}$"
+    },
+    "endereco": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cidade": {
+      "type": "string",
+      "minLength": 1
+    },
+    "uf": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Z]{2}$"
+    },
+    "cep": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{8}$"
+    },
+    "telefone": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "funcionariosLocais": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "valor": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "evidencia": {
+          "enum": [
+            "comprovado",
+            "estimado",
+            "nao_verificado"
+          ]
+        },
+        "fonte": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dataPesquisa": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "valor",
+        "evidencia"
+      ]
+    },
+    "perfilMaoDeObra": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "administrativo": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "operacional": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "industrial": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "hospitalar": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "usaEpi": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "reposicaoPeriodica": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "potencialContrato": {
+      "enum": [
+        "alto",
+        "medio",
+        "baixo",
+        "desconhecido"
+      ]
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "status": {
+      "enum": [
+        "nao_explorada",
+        "em_pesquisa",
+        "em_abordagem",
+        "negociacao",
+        "cliente",
+        "descartada"
+      ]
+    },
+    "clienteId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "fontes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "descricao": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataPesquisa": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "descricao"
+        ]
+      }
+    },
+    "dataPesquisa": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "grupoId",
+    "nome",
+    "tipo",
+    "cidade",
+    "status"
+  ]
+}

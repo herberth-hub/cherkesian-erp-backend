@@ -18,10 +18,11 @@ const erro = (r, codigo) => {
   assert.match(r.saida, new RegExp(`ERRO \\[${codigo}\\]`));
 };
 
-test('[1][2] quatro agentes distintos e hierarquia aplicada pela CLI', async () => {
+test('[1][2] agentes distintos (quatro na cadeia de comando + hunter) e hierarquia aplicada pela CLI', async () => {
   const b = baseDemo();
   const h = ok(await cli(b.dir, ['hierarquia', '--agente', 'ceo']));
-  assert.deepEqual(h.map((x) => x.papel), ['humano', 'ceo', 'diretor', 'gerente', 'vendedor']);
+  assert.deepEqual(h.map((x) => x.papel), ['humano', 'ceo', 'diretor', 'gerente', 'vendedor', 'hunter']);
+  assert.equal(h.find((x) => x.papel === 'hunter').escalonamento, 'hunter → gerente → diretor → ceo → humano');
   assert.equal(h.find((x) => x.papel === 'vendedor').escalonamento, 'vendedor → gerente → diretor → ceo → humano');
 });
 

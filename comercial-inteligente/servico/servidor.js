@@ -327,6 +327,11 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       if (!orquestrador.sincronizacao) throw Object.assign(new Error('Importação automática não habilitada neste serviço.'), { status: 404 });
       return orquestrador.sincronizacao.executar('manual');
     },
+    'POST /api/contas/atribuir': (c) => {
+      const r = require('../src/contas').atribuir(orquestrador.abrirBase(), 'humano', { grupoId: c.grupo || undefined, unidadeId: c.unidade || undefined, responsavelId: c.responsavel, papel: c.como });
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `${r.id}: responsável definido (${c.como === 'corporativo' ? 'corporativo' : c.unidade ? 'unidade' : 'grupo'})` });
+      return r;
+    },
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
       const r = C.atualizarMeta(base, 'humano', c.id, { status: c.aprovar ? 'aprovada' : 'revogada' });
@@ -435,6 +440,13 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
     try {
       if (req.method === 'GET' && url.pathname === '/api/estado') {
         return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase(), orquestrador.dataLocal()), eventos: eventos.recentes.slice(-120) });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/contas') {
+        const K = require('../src/contas');
+        const base = orquestrador.abrirBase();
+        const grupo = url.searchParams.get('grupo');
+        const vendedores = base.listar('agente').filter((a) => a.ativo && ['vendedor', 'gerente', 'diretor'].includes(a.papel)).map((a) => ({ id: a.id, nome: a.nome, papel: a.papel }));
+        return json(res, 200, grupo ? { arvore: K.arvoreGrupo(base, grupo), vendedores } : { ...K.painelContas(base), vendedores });
       }
       if (req.method === 'GET' && url.pathname === '/api/config') {
         const vc = visaoConfig(orquestrador.abrirBase(), env);

@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/grupo.schema.json",
+  "title": "grupo",
+  "x-prefixo": "GRP",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "hunter",
+        "humano"
+      ]
+    },
+    "nome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "controladora": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "segmentos": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "saude",
+          "lavanderia",
+          "industria",
+          "facilities",
+          "construcao",
+          "servicos",
+          "distribuidores",
+          "publico",
+          "outro"
+        ]
+      }
+    },
+    "presencaGeografica": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "colaboradoresGrupo": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "valor": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "evidencia": {
+          "enum": [
+            "comprovado",
+            "estimado",
+            "nao_verificado"
+          ]
+        },
+        "fonte": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dataPesquisa": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "valor",
+        "evidencia"
+      ]
+    },
+    "colaboradoresBrasil": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "valor": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "evidencia": {
+          "enum": [
+            "comprovado",
+            "estimado",
+            "nao_verificado"
+          ]
+        },
+        "fonte": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dataPesquisa": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "valor",
+        "evidencia"
+      ]
+    },
+    "modeloCompra": {
+      "enum": [
+        "centralizada",
+        "descentralizada",
+        "hibrida",
+        "desconhecido"
+      ]
+    },
+    "modeloCompraEvidencia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "categoriasCentralizadas": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "administrativo",
+          "operacional",
+          "industrial",
+          "hospitalar",
+          "epi"
+        ]
+      }
+    },
+    "potencialCorporativo": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pecasAno": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "valorAno": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "premissa": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "premissa"
+      ]
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "responsavelCorporativoId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "estrategico": {
+      "type": "boolean"
+    },
+    "status": {
+      "enum": [
+        "mapeando",
+        "mapeado",
+        "em_abordagem",
+        "homologado",
+        "cliente",
+        "descartado"
+      ]
+    },
+    "clienteId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "fontes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "descricao": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataPesquisa": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "descricao"
+        ]
+      }
+    },
+    "obs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "nome",
+    "modeloCompra",
+    "status"
+  ]
+}

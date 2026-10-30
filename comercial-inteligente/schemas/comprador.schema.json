@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/comprador.schema.json",
+  "title": "comprador",
+  "x-prefixo": "CMP",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^CMP-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "hunter",
+        "humano"
+      ]
+    },
+    "grupoId": {
+      "type": "string",
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "unidadeId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^UNI-\\d{4,}$"
+    },
+    "nivel": {
+      "enum": [
+        "corporativo",
+        "local"
+      ]
+    },
+    "nome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cargo": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "funcao": {
+      "enum": [
+        "diretor_compras",
+        "diretor_suprimentos",
+        "gerente_suprimentos",
+        "gerente_procurement",
+        "coordenador_compras",
+        "comprador",
+        "homologacao_fornecedores",
+        "gerente_compras_unidade",
+        "coordenador_administrativo",
+        "gerente_facilities",
+        "seguranca_trabalho",
+        "coordenador_operacoes",
+        "responsavel_uniformes_epi",
+        "outra"
+      ]
+    },
+    "papelNaCompra": {
+      "enum": [
+        "decide",
+        "influencia",
+        "solicita",
+        "especifica",
+        "administra",
+        "desconhecido"
+      ]
+    },
+    "confirmacao": {
+      "enum": [
+        "evidenciada",
+        "presumida_pelo_cargo"
+      ]
+    },
+    "evidenciaFuncao": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "email": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    },
+    "telefone": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "perfilPublico": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fontes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "descricao": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataPesquisa": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "descricao"
+        ]
+      }
+    },
+    "dataPesquisa": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "grupoId",
+    "nivel",
+    "nome",
+    "confirmacao"
+  ]
+}

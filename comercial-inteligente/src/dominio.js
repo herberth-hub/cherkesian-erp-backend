@@ -93,7 +93,32 @@ const CAMPOS_OBRIGATORIOS_OPORTUNIDADE = [
   'proximoPassoEm',
 ];
 
+/** Grandes contas: tipos de instalação de um grupo empresarial. */
+const TIPOS_UNIDADE = [
+  'matriz', 'filial', 'fabrica', 'hospital', 'centro_distribuicao', 'centro_logistico', 'escritorio',
+  'base_operacional', 'centro_manutencao', 'unidade_atendimento', 'laboratorio', 'operacao_terceirizada', 'outra',
+];
+
+/** Categorias de potencial por unidade (uniformes por perfil de mão de obra + EPIs). */
+const CATEGORIAS_POTENCIAL = ['administrativo', 'operacional', 'industrial', 'hospitalar', 'epi'];
+
+/** Qualidade da evidência de um número (colaboradores, por exemplo). */
+const EVIDENCIAS = ['comprovado', 'estimado', 'nao_verificado'];
+
+/** Municípios da Região Metropolitana de São Paulo (Grande São Paulo), sem acento e em minúsculas. */
+const CIDADES_GRANDE_SP = [
+  'aruja', 'barueri', 'biritiba-mirim', 'caieiras', 'cajamar', 'carapicuiba', 'cotia', 'diadema', 'embu das artes',
+  'embu-guacu', 'ferraz de vasconcelos', 'francisco morato', 'franco da rocha', 'guararema', 'guarulhos', 'itapecerica da serra',
+  'itapevi', 'itaquaquecetuba', 'jandira', 'juquitiba', 'mairipora', 'maua', 'mogi das cruzes', 'osasco', 'pirapora do bom jesus',
+  'poa', 'ribeirao pires', 'rio grande da serra', 'salesopolis', 'santa isabel', 'santana de parnaiba', 'santo andre',
+  'sao bernardo do campo', 'sao caetano do sul', 'sao lourenco da serra', 'sao paulo', 'suzano', 'taboao da serra', 'vargem grande paulista',
+];
+
 module.exports = {
+  TIPOS_UNIDADE,
+  CATEGORIAS_POTENCIAL,
+  EVIDENCIAS,
+  CIDADES_GRANDE_SP,
   ETAPAS,
   ETAPAS_ABERTAS,
   ROTULO_ETAPA,

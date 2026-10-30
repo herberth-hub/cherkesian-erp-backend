@@ -35,7 +35,8 @@ class Orquestrador {
     this.executarJob = executarJob;
     this.eventos = eventos;
     this.agora = agora;
-    this.rotinas = rotinas;
+    // HC_HUNTER=off: sem rotina de pesquisa web (o hunter ainda atende o que for delegado a ele).
+    this.rotinas = cfg.hunter && !cfg.hunter.ativo ? rotinas.filter((r) => r.papel !== 'hunter') : rotinas;
     this.pausadoGeral = false;
     this.seq = 0;
     this.agentes = Object.fromEntries(
@@ -183,7 +184,7 @@ class Orquestrador {
         }
         continue;
       }
-      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro, ...this.enxuto() })) {
+      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro, ...this.enxuto(c.papel) })) {
         this.vistos.add(chave);
         this.tentativas.set(kt, n + 1);
       }
@@ -255,8 +256,9 @@ class Orquestrador {
   }
 
   /** Trabalhos de rotina (rotinas, e-mails, tarefas entre agentes): raciocínio enxuto e o modelo de rotina. */
-  enxuto() {
-    return { esforco: this.cfg.esforcoRotina, modelo: this.cfg.modeloRotina };
+  enxuto(papel) {
+    // Pesquisa do hunter exige julgamento sobre fontes: esforço padrão (não o mínimo das rotinas).
+    return { esforco: papel === 'hunter' ? this.cfg.esforco : this.cfg.esforcoRotina, modelo: this.cfg.modeloRotina };
   }
 
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
@@ -273,7 +275,7 @@ class Orquestrador {
     if (!aberto) return;
     for (const { rotina, slot } of vencidas(this.agora(), this.cfg, this.executadas, this.rotinas)) {
       this.executadas.add(`${rotina.id}@${slot}`);
-      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto() });
+      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto(rotina.papel) });
     }
     this.salvarEstado();
     this.verificarEmail();
@@ -374,7 +376,7 @@ class Orquestrador {
   executarRotina(id) {
     const r = this.rotinas.find((x) => x.id === id);
     if (!r) return null;
-    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, ...this.enxuto() });
+    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, ...this.enxuto(r.papel) });
   }
 
   estado() {
