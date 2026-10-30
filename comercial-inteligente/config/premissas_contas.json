@@ -1,0 +1,39 @@
+{
+  "descricao": "PREMISSAS (não são dados) para estimar o potencial anual de uniformes e EPIs por unidade de um grande grupo. Valores de partida para o responsável humano ajustar à realidade da HC Quality; todo potencial calculado com elas é ESTIMATIVA. Para mudar, grave uma cópia em data/<base>/premissas_contas.json.",
+  "pecasPorPessoaAno": {
+    "administrativo": 3,
+    "operacional": 5,
+    "industrial": 6,
+    "hospitalar": 8,
+    "epi": 4
+  },
+  "ticketMedio": {
+    "administrativo": null,
+    "operacional": null,
+    "industrial": null,
+    "hospitalar": null,
+    "epi": null
+  },
+  "observacaoTicket": "Preço médio por peça (R$) por categoria. null = valor em R$ não calculável (só peças). Definir a partir da tabela de preços autorizada.",
+  "perfilPorTipo": {
+    "matriz": { "administrativo": 80, "operacional": 20, "industrial": 0, "hospitalar": 0 },
+    "filial": { "administrativo": 40, "operacional": 60, "industrial": 0, "hospitalar": 0 },
+    "fabrica": { "administrativo": 10, "operacional": 10, "industrial": 80, "hospitalar": 0 },
+    "hospital": { "administrativo": 15, "operacional": 15, "industrial": 0, "hospitalar": 70 },
+    "centro_distribuicao": { "administrativo": 10, "operacional": 90, "industrial": 0, "hospitalar": 0 },
+    "centro_logistico": { "administrativo": 10, "operacional": 90, "industrial": 0, "hospitalar": 0 },
+    "escritorio": { "administrativo": 100, "operacional": 0, "industrial": 0, "hospitalar": 0 },
+    "base_operacional": { "administrativo": 10, "operacional": 90, "industrial": 0, "hospitalar": 0 },
+    "centro_manutencao": { "administrativo": 10, "operacional": 30, "industrial": 60, "hospitalar": 0 },
+    "unidade_atendimento": { "administrativo": 60, "operacional": 40, "industrial": 0, "hospitalar": 0 },
+    "laboratorio": { "administrativo": 20, "operacional": 20, "industrial": 0, "hospitalar": 60 },
+    "operacao_terceirizada": { "administrativo": 10, "operacional": 90, "industrial": 0, "hospitalar": 0 },
+    "outra": { "administrativo": 50, "operacional": 50, "industrial": 0, "hospitalar": 0 }
+  },
+  "epiPorTipo": {
+    "matriz": 5, "filial": 30, "fabrica": 90, "hospital": 70, "centro_distribuicao": 90, "centro_logistico": 90,
+    "escritorio": 0, "base_operacional": 80, "centro_manutencao": 90, "unidade_atendimento": 10, "laboratorio": 80,
+    "operacao_terceirizada": 80, "outra": 30
+  },
+  "observacaoEpi": "Percentual dos funcionários locais que usam EPI, por tipo de unidade (premissa)."
+}

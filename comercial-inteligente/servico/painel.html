@@ -157,6 +157,19 @@ textarea { min-height: 72px; resize: vertical; margin-bottom: 8px; }
 .conversa { background: var(--surface); padding: 12px; margin-bottom: 12px; font-size: 13px; }
 .conversa .msg { padding: 3px 0; }
 
+/* Grandes contas */
+.mapa { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px; }
+.mapa button { display: block; background: var(--surface); border: 0; border-top: 4px solid var(--n400); padding: 8px 10px; min-height: 64px; font-weight: 400; }
+.mapa button b { display: block; font-size: 20px; font-weight: 800; } .mapa button small { font-size: 11px; color: var(--n700); display: block; line-height: 1.2; }
+.mapa button.gsp { border-top-color: var(--text); } .mapa button.sel { border-top-color: var(--accent); background: var(--accent-100); }
+.mapa button.apagado { opacity: .35; }
+.linha-grupo { cursor: pointer; } .linha-grupo:hover td { background: var(--n200); } .linha-grupo.sel td { background: var(--accent-100); }
+.abr { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); border: 2px solid var(--text); margin-bottom: 16px; }
+.abr div { padding: 12px 14px; border-right: 2px solid var(--text); } .abr div:last-child { border-right: 0; }
+.abr b { display: block; font-size: 24px; font-weight: 800; } .abr small { font-size: 11px; color: var(--n700); }
+.empresa-bloco { margin: 18px 0; } .empresa-bloco h3 { font-size: 16px; margin-bottom: 6px; }
+select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px; }
+
 /* Gaveta do agente */
 .fundo { position: fixed; inset: 0; background: color-mix(in srgb, #2d2b2b 45%, transparent); z-index: 20; }
 .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--bg); z-index: 21; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; border-left: 2px solid var(--text); }
@@ -212,6 +225,7 @@ textarea { min-height: 72px; resize: vertical; margin-bottom: 8px; }
   <nav class="abas" role="tablist">
     <button role="tab" data-vista="manha" aria-selected="true">Minha manhã <span class="badge" id="nManha" hidden>0</span></button>
     <button role="tab" data-vista="painel" aria-selected="false">Painel</button>
+    <button role="tab" data-vista="contas" aria-selected="false">Grandes Contas</button>
     <button role="tab" data-vista="config" aria-selected="false">Configurar</button>
   </nav>
 </header>
@@ -239,6 +253,20 @@ textarea { min-height: 72px; resize: vertical; margin-bottom: 8px; }
         <div id="pWhatsappBloco"><div class="secao-tit"><h2>WhatsApp</h2></div><div id="pWhatsapp"></div></div>
       </div>
     </div>
+  </section>
+
+  <section class="vista painel" id="v-contas" hidden>
+    <div class="secao-tit" style="border-top:0;padding-top:0"><h2 style="font-size:28px">Grandes Contas</h2><span>Grupos empresariais, unidades e compradores. Potencial = estimativa por premissa; pedidos e receita = confirmados.</span></div>
+    <div class="kpis" id="cKpis"><p class="vazio" style="padding:16px">Carregando…</p></div>
+    <div class="duas">
+      <div class="coluna">
+        <div><div class="secao-tit"><h2>Grupos mapeados</h2><span>Toque para ver unidades e compradores</span></div><div id="cGrupos"></div></div>
+      </div>
+      <div class="coluna">
+        <div><div class="secao-tit"><h2>Mapa por cidade</h2><span id="cMapaLeg">Unidades por município</span></div><div class="mapa" id="cMapa"></div></div>
+      </div>
+    </div>
+    <div id="cDetalhe"></div>
   </section>
 
   <section class="vista config" id="v-config" hidden>
@@ -299,10 +327,11 @@ const AGENTES = {
   gerente: { nome: 'Gerente Comercial', cargo: 'Coordenação diária', sigla: 'GC' },
   diretor: { nome: 'Diretor Comercial', cargo: 'Planejamento e margem', sigla: 'DC' },
   ceo: { nome: 'CEO', cargo: 'Direção e metas', sigla: 'CEO' },
+  hunter: { nome: 'Hunter', cargo: 'Pesquisa de grandes contas', sigla: 'HU' },
 };
-const ORDEM = ['vendedor', 'gerente', 'diretor', 'ceo'];
-const NOME_PAPEL = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', humano: 'Você' };
-const feeds = { ceo: [], diretor: [], gerente: [], vendedor: [] };
+const ORDEM = ['vendedor', 'gerente', 'diretor', 'ceo', 'hunter'];
+const NOME_PAPEL = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', hunter: 'Hunter', humano: 'Você' };
+const feeds = { ceo: [], diretor: [], gerente: [], vendedor: [], hunter: [] };
 let estado = null;
 let vista = 'manha';
 const abertos = new Set(); // casos expandidos (sobrevivem ao redesenho)
@@ -485,6 +514,7 @@ function desenharPainel() {
 
   document.getElementById('pAgentes').innerHTML = ORDEM.map((p) => {
     const a = estado.agentes.find((x) => x.papel === p);
+    if (!a) return '';
     const e = erros.find((x) => x.papel === p);
     const [cls, txt] = statusAgente(a, e);
     const atual = a.ativos[0];
@@ -612,7 +642,8 @@ function desenhar() {
 function mostrarVista(v) {
   vista = v;
   document.querySelectorAll('.topo .abas [data-vista]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.vista === v)));
-  for (const id of ['manha', 'painel', 'config']) document.getElementById(`v-${id}`).hidden = id !== v;
+  for (const id of ['manha', 'painel', 'contas', 'config']) document.getElementById(`v-${id}`).hidden = id !== v;
+  if (v === 'contas') carregarContas().catch((e) => alert(e.message));
   document.getElementById('bConfig').textContent = v === 'config' ? 'Fechar configuração' : 'Configurar';
   if (v === 'config') carregarConfig().catch((e) => alert(e.message));
   guardar('hc_vista', v === 'config' ? 'manha' : v);
@@ -638,7 +669,85 @@ async function carregar() {
   } catch (e) { console.error(e); }
 }
 
-// ------------------------------------------------------------ Configurar
+// ------------------------------------------------------------ Grandes Contas
+let contas = null;
+let grupoSel = null;
+let arvore = null;
+const ROT_ELEG = { elegivel: ['elegível', 'ink'], elegivel_estimado: ['elegível (estimativa)', 'ink'], pendente_evidencia: ['sem evidência', ''], abaixo_do_porte: ['abaixo de 1.000', ''], sem_dado: ['sem dado', 'hot'] };
+const ROT_MODELO = { centralizada: 'Compra centralizada', descentralizada: 'Compra descentralizada', hibrida: 'Compra híbrida', desconhecido: 'Modelo de compra desconhecido' };
+const ESTRATEGIA = {
+  centralizada: 'Estratégia A — corporativa: homologar a HC Quality no departamento central de compras; unidades só alinhadas com o responsável corporativo.',
+  descentralizada: 'Estratégia B — por unidade: oportunidades por instalação, relacionamento com gestores locais.',
+  hibrida: 'A + B: corporativa para as categorias compradas centralmente, por unidade para o resto.',
+  desconhecido: 'Descobrir primeiro como o grupo compra (centralizado, por unidade ou misto).',
+};
+const num = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
+const medidaTxt = (m) => (m && m.valor != null ? `${num(m.valor)} <small>(${esc(m.evidencia.replace('_', ' '))})</small>` : '<span class="muted">sem dado</span>');
+const potTxt = (p) => (!p || !p.pecasAno ? '—' : p.valorAno != null ? `${num(p.pecasAno)} peças · ${moeda(p.valorAno)}` : `${num(p.pecasAno)} peças/ano`);
+
+async function carregarContas() {
+  contas = await api('/api/contas');
+  if (grupoSel) arvore = (await api(`/api/contas?grupo=${encodeURIComponent(grupoSel)}`)).arvore;
+  desenharContas();
+}
+
+function desenharContas() {
+  if (!contas) return;
+  const t = contas.totais;
+  const kpi = (rot, v, sub) => `<div class="kpi"><span class="kicker">${rot}</span><b>${v}</b><small>${sub}</small></div>`;
+  document.getElementById('cKpis').innerHTML = [
+    kpi('Grupos', num(t.grupos), `${num(t.gruposElegiveis)} elegíveis (1.000+) · ${num(t.empresas)} empresas`),
+    kpi('Unidades', num(t.unidades), `${num(t.unidadesGrandeSP)} na Grande SP · ${num(t.unidadesNaoExploradas)} não exploradas`),
+    kpi('Compradores', num(t.compradoresCorporativos + t.compradoresLocais), `${num(t.compradoresCorporativos)} corporativos · ${num(t.compradoresLocais)} locais · ${num(t.compradoresEvidenciados.corporativos + t.compradoresEvidenciados.locais)} com evidência`),
+    kpi('Potencial estimado', t.potencialValorAno != null ? moeda(t.potencialValorAno) : `${num(t.potencialPecasAno)}`, t.potencialValorAno != null ? `${num(t.potencialPecasAno)} peças/ano (estimativa)` : 'peças/ano (estimativa; R$ sem ticket médio)'),
+    kpi('Oportunidades', num(t.oportunidadesCentralizadas + t.oportunidadesDescentralizadas), `${num(t.oportunidadesEmNegociacao)} em negociação · ${num(t.propostasEnviadas)} propostas enviadas`),
+    kpi('Pedidos', num(t.pedidosConquistados), `receita realizada ${moeda(t.receitaRealizada)}`),
+  ].join('');
+  document.getElementById('cGrupos').innerHTML = contas.grupos.length
+    ? `<table class="tabela"><thead><tr><th>Grupo</th><th>Porte</th><th class="col-de">Unidades</th><th class="col-prazo">Compradores</th><th>Potencial</th></tr></thead><tbody>${contas.grupos.map((g) => {
+        const [rot, cls] = ROT_ELEG[g.elegibilidade.status] || [g.elegibilidade.status, ''];
+        return `<tr class="linha-grupo ${g.id === grupoSel ? 'sel' : ''}" data-grupo="${g.id}"><td><b>${esc(g.nome)}</b><br><span class="sub muted">${esc(ROT_MODELO[g.modeloCompra])}${g.responsavel ? ` · ${esc(g.responsavel)}` : ''}</span></td><td><span class="chip ${cls}">${esc(rot)}</span></td><td class="col-de">${g.unidades} <span class="muted">(${g.unidadesGrandeSP} GSP)</span></td><td class="col-prazo">${g.compradoresCorporativos} corp. · ${g.compradoresLocais} loc.</td><td>${potTxt(g.potencial)}</td></tr>`;
+      }).join('')}</tbody></table>`
+    : '<p class="vazio">Nenhum grupo mapeado ainda. O Hunter pesquisa um grupo por dia útil (10:00); você também pode pedir ao gerente.</p>';
+  const doGrupo = new Set(arvore ? [...arvore.empresas.flatMap((e) => e.unidades), ...arvore.unidadesSemEmpresa].map((u) => u.cidade) : []);
+  document.getElementById('cMapaLeg').textContent = arvore ? `Cidades com unidades de ${arvore.grupo.nome}` : 'Unidades por município (borda preta = Grande SP)';
+  document.getElementById('cMapa').innerHTML = contas.cidades.map((c) => `<button class="${c.grandeSP ? 'gsp' : ''} ${arvore ? (doGrupo.has(c.cidade) ? 'sel' : 'apagado') : ''}" title="${esc(c.cidade)}"><b>${c.unidades}</b><small>${esc(c.cidade)}</small><small>${c.grupos.length} grupo(s)${c.oportunidades ? ` · ${c.oportunidades} op.` : ''}</small></button>`).join('') || '<p class="vazio">Sem unidades mapeadas.</p>';
+  desenharDetalheGrupo();
+}
+
+function seletorResp(attrs, atual) {
+  return `<select class="mini" ${attrs}><option value="">— sem responsável —</option>${contas.vendedores.map((v) => `<option value="${v.id}" ${v.id === atual ? 'selected' : ''}>${esc(v.nome)}</option>`).join('')}</select>`;
+}
+
+function desenharDetalheGrupo() {
+  const el = document.getElementById('cDetalhe');
+  if (!arvore) { el.innerHTML = ''; return; }
+  const a = arvore;
+  const g = a.grupo;
+  const unidadeLinha = (u) => `<tr><td><b>${esc(u.nome)}</b><br><span class="sub muted">${esc(u.tipo.replace(/_/g, ' '))}${u.cnpj ? ` · ${esc(u.cnpj)}` : ''}</span></td><td>${esc(u.cidade)}${u.grandeSP ? ' <span class="chip ink">GSP</span>' : ''}</td><td class="col-de">${medidaTxt(u.funcionariosLocais)}</td><td>${u.potencial && u.potencial.calculavel ? potTxt(u.potencial) : '<span class="muted">não calculável</span>'}</td><td class="col-prazo"><span class="chip">${esc(u.status.replace(/_/g, ' '))}</span></td><td>${seletorResp(`data-atribuir-unidade="${u.id}"`, u.responsavelId)}</td></tr>`;
+  const tabelaUnidades = (us) => (us.length ? `<table class="tabela"><thead><tr><th>Unidade</th><th>Cidade</th><th class="col-de">Funcionários locais</th><th>Potencial (est.)</th><th class="col-prazo">Status</th><th>Vendedor</th></tr></thead><tbody>${us.map(unidadeLinha).join('')}</tbody></table>` : '<p class="vazio">Nenhuma unidade.</p>');
+  const compradorLinha = (c) => `<div class="lista-linha"><div class="principal"><span><b>${esc(c.nome)}</b> · ${esc(c.cargo || (c.funcao || '').replace(/_/g, ' '))}</span><span class="sub">${c.nivel === 'corporativo' ? 'corporativo' : 'local'} · ${esc(c.papelNaCompra || 'papel na compra desconhecido')}${c.email ? ` · ${esc(c.email)}` : ''}</span></div><span class="chip ${c.confirmacao === 'evidenciada' ? 'ink' : ''}">${c.confirmacao === 'evidenciada' ? 'função evidenciada' : 'presumida pelo cargo'}</span></div>`;
+  const todasUnidades = [...a.empresas.flatMap((e) => e.unidades), ...a.unidadesSemEmpresa];
+  const locais = todasUnidades.flatMap((u) => u.compradores.map((c) => ({ ...c, _u: u.nome })));
+  const cons = a.consolidado;
+  el.innerHTML = `<div class="secao-tit"><h2>${esc(g.nome)}</h2><span>${esc(g.id)} · ${esc(g.status)}${g.controladora ? ` · controladora: ${esc(g.controladora)}` : ''}</span></div>
+    <div class="abr"><div><small>FUNCIONÁRIOS DO GRUPO</small><b>${medidaTxt(a.funcionarios.grupo)}</b></div><div><small>NO BRASIL</small><b>${medidaTxt(a.funcionarios.brasil)}</b></div><div><small>UNIDADES COM DADO LOCAL</small><b>${a.funcionarios.unidadesComDadoLocal} de ${todasUnidades.length}</b></div></div>
+    <p class="muted" style="font-size:12px;margin:-8px 0 16px">${esc(a.funcionarios.observacao)} ${esc(g.elegibilidade.texto)}</p>
+    <div class="caso"><div class="caso-cab"><span class="tag">${esc(ROT_MODELO[g.modeloCompra])}</span>${g.modeloCompraEvidencia ? `<span class="id">${esc(g.modeloCompraEvidencia)}</span>` : ''}</div>
+      <p class="rec" style="margin-top:10px"><b>Estratégia:</b> ${esc(ESTRATEGIA[g.modeloCompra])}</p>
+      <div class="fatos"><div><div class="k">Potencial corporativo</div><div class="v" style="text-transform:none">${potTxt(cons.corporativo)}</div></div><div><div class="k">Potencial das unidades</div><div class="v" style="text-transform:none">${potTxt(cons.local)}</div></div><div><div class="k">Total sem dupla contagem</div><div class="v" style="text-transform:none">${potTxt(cons.total)}</div></div></div>
+      <p class="muted" style="font-size:12px;margin:0 0 12px">${esc(cons.observacao)}${cons.categoriasCentrais.length ? ` Categorias compradas centralmente: ${esc(cons.categoriasCentrais.join(', '))}.` : ''}</p>
+      <div class="acoes"><label class="campo">Vendedor do grupo ${seletorResp(`data-atribuir-grupo="${g.id}"`, g.responsavelId)}</label><label class="campo">Responsável corporativo ${seletorResp(`data-atribuir-corp="${g.id}"`, g.responsavelCorporativoId)}</label></div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Propostas enviadas: ${a.propostasEnviadas} · pedidos: ${a.pedidos.quantidade} · receita realizada: ${moeda(a.pedidos.receitaRealizada)} · oportunidades: ${a.oportunidades.length}</p>
+    </div>
+    ${a.empresas.map((e) => `<div class="empresa-bloco"><h3>${esc(e.razaoSocial)} <span class="muted" style="font-weight:400;font-size:13px">${esc(e.papelNoGrupo)}${e.cnpjMatriz ? ` · CNPJ ${esc(e.cnpjMatriz)}` : ''}${e.colaboradoresBrasil && e.colaboradoresBrasil.valor != null ? ` · ${num(e.colaboradoresBrasil.valor)} no Brasil (${esc(e.colaboradoresBrasil.evidencia)})` : ''}</span></h3>${tabelaUnidades(e.unidades)}</div>`).join('')}
+    ${a.unidadesSemEmpresa.length ? `<div class="empresa-bloco"><h3>Unidades sem empresa identificada</h3>${tabelaUnidades(a.unidadesSemEmpresa)}</div>` : ''}
+    <div class="duas" style="margin-top:16px"><div><div class="secao-tit"><h2>Compradores corporativos</h2></div>${a.compradoresCorporativos.map(compradorLinha).join('') || '<p class="vazio">Nenhum identificado.</p>'}</div>
+    <div><div class="secao-tit"><h2>Compradores locais</h2></div>${locais.map((c) => compradorLinha(c).replace('</span><span class="sub">', ` · ${esc(c._u)}</span><span class="sub">`)).join('') || '<p class="vazio">Nenhum identificado.</p>'}</div></div>
+    <div><div class="secao-tit"><h2>Histórico do grupo</h2></div>${a.historico.map((h) => `<div class="lista-linha"><span class="h muted" style="width:60px;flex:none">${esc(dm(h.data))}</span><div class="principal"><span>${esc(h.tipo)} · ${esc(h.resumo)}</span></div></div>`).join('') || '<p class="vazio">Sem interações registradas.</p>'}</div>`;
+}
+
+// ------------------------------------------------------------------ Configurar
 const NIVEIS = [['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['diretor', 'Diretor'], ['ceo', 'CEO']];
 const PAPEL_ROTULO = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', humano: 'Responsável humano' };
 let config = null;
@@ -703,6 +812,15 @@ async function salvarPolitica() {
 }
 
 // ------------------------------------------------------------ cliques
+document.addEventListener('change', async (ev) => {
+  const sel = ev.target.closest('select[data-atribuir-grupo], select[data-atribuir-corp], select[data-atribuir-unidade]');
+  if (!sel || !sel.value) return;
+  try {
+    const d = sel.dataset;
+    await api('/api/contas/atribuir', { grupo: d.atribuirGrupo || d.atribuirCorp, unidade: d.atribuirUnidade, como: d.atribuirCorp ? 'corporativo' : undefined, responsavel: sel.value });
+    await carregarContas();
+  } catch (e) { alert(e.message); }
+});
 document.addEventListener('input', (ev) => { const t = ev.target.closest('[data-texto]'); if (t) textos[t.dataset.texto] = t.value; });
 document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || !document.activeElement.matches('textarea[data-texto], input, select')) agendarEstado(); }, 50));
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && gavetaAberta) { gavetaAberta = null; desenharGaveta(); } });
@@ -710,6 +828,8 @@ document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && gaveta
 document.addEventListener('click', async (ev) => {
   const link = ev.target.closest('a[data-rascunho]');
   if (link) { marcarRascunhoVisto(link.dataset.rascunho); setTimeout(desenhar, 300); return; }
+  const linhaGrupo = ev.target.closest('tr[data-grupo]');
+  if (linhaGrupo) { grupoSel = linhaGrupo.dataset.grupo === grupoSel ? null : linhaGrupo.dataset.grupo; arvore = null; carregarContas().then(() => { const d = document.getElementById('cDetalhe'); if (grupoSel && d) d.scrollIntoView({ behavior: 'smooth' }); }).catch((e) => alert(e.message)); return; }
   const b = ev.target.closest('button');
   if (!b) return;
   // Navegação e interface local (sem servidor)
@@ -797,6 +917,7 @@ function conectar() {
 mostrarVista(guardado('hc_vista', 'manha'));
 carregar().then(conectar);
 setInterval(carregar, 30000);
+setInterval(() => { if (vista === 'contas' && !(document.activeElement && document.activeElement.matches('select'))) carregarContas().catch(() => {}); }, 60000);
 </script>
 </body>
 </html>

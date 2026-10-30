@@ -10,16 +10,16 @@ const { SCHEMAS } = require('../src/schemas');
 const H = require('../src/hierarquia');
 
 const ler = (...p) => fs.readFileSync(path.join(...p), 'utf8');
-const ARQ_AGENTES = { ceo: 'ceo.md', diretor: 'diretor_comercial.md', gerente: 'gerente_comercial.md', vendedor: 'vendedor_comercial.md' };
+const ARQ_AGENTES = { ceo: 'ceo.md', diretor: 'diretor_comercial.md', gerente: 'gerente_comercial.md', vendedor: 'vendedor_comercial.md', hunter: 'hunter.md' };
 
 function responsabilidades(md) {
   const bloco = md.split(/^## Responsabilidades.*$/m)[1].split(/^## /m)[0];
   return bloco.split('\n').filter((l) => /^\d+\.\s/.test(l)).map((l) => l.replace(/^\d+\.\s*/, '').trim().toLowerCase());
 }
 
-test('existem exatamente quatro agentes, cada um com instruções próprias e seções obrigatórias', () => {
+test('existem exatamente cinco agentes (CEO, diretor, gerente, vendedor e hunter), cada um com instruções próprias e seções obrigatórias', () => {
   const papeisIA = Object.entries(H.PAPEIS).filter(([, d]) => d.agenteNativo);
-  assert.equal(papeisIA.length, 4);
+  assert.equal(papeisIA.length, 5);
   for (const [papel, d] of papeisIA) {
     const md = ler(RAIZ, d.instrucoes);
     for (const secao of ['## Identidade', '## Missão', '## Responsabilidades', '## Indicadores', 'scalonamento', '## Entregas']) {
@@ -31,7 +31,7 @@ test('existem exatamente quatro agentes, cada um com instruções próprias e se
   }
 });
 
-test('responsabilidades dos quatro agentes são distintas (nenhum item repetido entre agentes)', () => {
+test('responsabilidades dos agentes são distintas (nenhum item repetido entre agentes)', () => {
   const vistos = new Map();
   for (const [papel, arq] of Object.entries(ARQ_AGENTES)) {
     const itens = responsabilidades(ler(RAIZ, 'agents', arq));

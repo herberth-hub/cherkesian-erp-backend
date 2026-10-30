@@ -1,5 +1,5 @@
 {
-  "descricao": "Cadeia de comando do sistema de inteligência comercial da HC Quality. Fonte de verdade lida por src/hierarquia.js. Alterações aqui exigem autorização do responsável humano.",
+  "descricao": "Cadeia de comando do sistema de inteligência comercial da HC Quality. Fonte de verdade lida por src/hierarquia.js. Alterações aqui exigem autorização do responsável humano. O gerente tem dois subordinados diretos: vendedor e hunter (pesquisa de grandes contas).",
   "papeis": {
     "humano": {
       "nome": "Responsável humano (diretoria da HC Quality)",
@@ -31,7 +31,11 @@
       "superior": "diretor",
       "subordinado": "vendedor",
       "agenteNativo": "hc-gerente-comercial",
-      "instrucoes": "agents/gerente_comercial.md"
+      "instrucoes": "agents/gerente_comercial.md",
+      "subordinados": [
+        "vendedor",
+        "hunter"
+      ]
     },
     "vendedor": {
       "nome": "Vendedor / Atendente Comercial",
@@ -40,6 +44,14 @@
       "subordinado": null,
       "agenteNativo": "hc-vendedor-comercial",
       "instrucoes": "agents/vendedor_comercial.md"
+    },
+    "hunter": {
+      "nome": "Hunter de Grandes Contas",
+      "nivel": 1,
+      "superior": "gerente",
+      "subordinado": null,
+      "agenteNativo": "hc-hunter",
+      "instrucoes": "agents/hunter.md"
     }
   },
   "limites": {

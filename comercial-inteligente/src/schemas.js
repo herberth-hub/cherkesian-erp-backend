@@ -6,9 +6,9 @@
  * e um teste garante que estão sincronizados.
  */
 
-const { ETAPAS, SEGMENTOS, CATEGORIAS_PRODUTO, STATUS_TAREFA } = require('./dominio');
+const { ETAPAS, SEGMENTOS, CATEGORIAS_PRODUTO, STATUS_TAREFA, TIPOS_UNIDADE, CATEGORIAS_POTENCIAL, EVIDENCIAS } = require('./dominio');
 
-const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor', 'humano'];
+const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor', 'hunter', 'humano'];
 
 const id = (prefixo) => ({ type: 'string', pattern: `^${prefixo}-\\d{4,}$` });
 const ref = (prefixo) => ({ type: ['string', 'null'], pattern: `^${prefixo}-\\d{4,}$` });
@@ -18,6 +18,28 @@ const data = { type: ['string', 'null'], format: 'date' };
 const dataHora = { type: 'string', format: 'date-time' };
 const dinheiro = { type: ['number', 'null'], minimum: 0 };
 const percentual = { type: ['number', 'null'], minimum: 0, maximum: 100 };
+const cnpj = { type: ['string', 'null'], pattern: '^\\d{14}$' };
+/** Um número com a qualidade da evidência, a fonte e a data da pesquisa (ex.: colaboradores). */
+const medida = {
+  type: ['object', 'null'],
+  additionalProperties: false,
+  properties: {
+    valor: { type: ['integer', 'null'], minimum: 0 },
+    evidencia: { enum: EVIDENCIAS },
+    fonte: textoOpc,
+    dataPesquisa: data,
+  },
+  required: ['valor', 'evidencia'],
+};
+const fontes = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { descricao: texto, url: textoOpc, dataPesquisa: data },
+    required: ['descricao'],
+  },
+};
 
 /** Campos de controle comuns a todos os registros. */
 const base = (prefixo) => ({
@@ -130,6 +152,9 @@ const SCHEMAS = {
       },
       motivoPerda: textoOpc,
       concorrenteInformado: textoOpc,
+      grupoId: ref('GRP'),
+      unidadeId: ref('UNI'),
+      canal: { enum: ['corporativo', 'local', null] },
     },
     ['titulo', 'responsavelId', 'etapa', 'valorEstimado', 'ultimoContatoEm', 'proximoPasso', 'proximoPassoEm'],
     { anyOf: [{ properties: { clienteId: id('CLI') }, required: ['clienteId'] }, { properties: { leadId: id('LEA') }, required: ['leadId'] }] },
@@ -146,6 +171,9 @@ const SCHEMAS = {
       data: { type: 'string', format: 'date' },
       resumo: texto,
       resultado: { enum: ['contato_realizado', 'sem_resposta', 'resposta_recebida', 'proposta_enviada', 'fechamento', 'perda', 'nota', null] },
+      grupoId: ref('GRP'),
+      unidadeId: ref('UNI'),
+      compradorId: ref('CMP'),
     },
     ['responsavelId', 'tipo', 'data', 'resumo'],
   ),
@@ -373,6 +401,113 @@ const SCHEMAS = {
     },
     ['titulo', 'atribuidaPor', 'responsavel', 'prazo', 'status', 'condicaoConclusao'],
   ),
+
+  // ---------------------------------------------------------------- grandes contas
+  grupo: entidade(
+    'grupo',
+    'GRP',
+    {
+      nome: texto,
+      controladora: textoOpc,
+      segmentos: { type: 'array', items: { enum: SEGMENTOS } },
+      presencaGeografica: textoOpc,
+      colaboradoresGrupo: medida,
+      colaboradoresBrasil: medida,
+      modeloCompra: { enum: ['centralizada', 'descentralizada', 'hibrida', 'desconhecido'] },
+      modeloCompraEvidencia: textoOpc,
+      categoriasCentralizadas: { type: 'array', items: { enum: CATEGORIAS_POTENCIAL } },
+      potencialCorporativo: {
+        type: ['object', 'null'],
+        additionalProperties: false,
+        properties: { pecasAno: { type: ['integer', 'null'], minimum: 0 }, valorAno: dinheiro, premissa: texto },
+        required: ['premissa'],
+      },
+      responsavelId: ref('AGT'),
+      responsavelCorporativoId: ref('AGT'),
+      estrategico: { type: 'boolean' },
+      status: { enum: ['mapeando', 'mapeado', 'em_abordagem', 'homologado', 'cliente', 'descartado'] },
+      clienteId: ref('CLI'),
+      fontes,
+      obs: textoOpc,
+    },
+    ['nome', 'modeloCompra', 'status'],
+  ),
+
+  empresa: entidade(
+    'empresa',
+    'EMP',
+    {
+      grupoId: id('GRP'),
+      razaoSocial: texto,
+      nomeFantasia: textoOpc,
+      cnpjMatriz: cnpj,
+      papelNoGrupo: { enum: ['controladora', 'subsidiaria', 'coligada', 'desconhecido'] },
+      colaboradoresBrasil: medida,
+      clienteId: ref('CLI'),
+      fontes,
+    },
+    ['grupoId', 'razaoSocial', 'papelNoGrupo'],
+  ),
+
+  unidade: entidade(
+    'unidade',
+    'UNI',
+    {
+      grupoId: id('GRP'),
+      empresaId: ref('EMP'),
+      nome: texto,
+      tipo: { enum: TIPOS_UNIDADE },
+      cnpj,
+      endereco: textoOpc,
+      cidade: texto,
+      uf: { type: ['string', 'null'], pattern: '^[A-Z]{2}$' },
+      cep: { type: ['string', 'null'], pattern: '^\\d{8}$' },
+      telefone: textoOpc,
+      funcionariosLocais: medida,
+      perfilMaoDeObra: {
+        type: ['object', 'null'],
+        additionalProperties: false,
+        properties: Object.fromEntries(CATEGORIAS_POTENCIAL.filter((c) => c !== 'epi').map((c) => [c, percentual])),
+      },
+      usaEpi: { type: ['boolean', 'null'] },
+      reposicaoPeriodica: { type: ['boolean', 'null'] },
+      potencialContrato: { enum: ['alto', 'medio', 'baixo', 'desconhecido'] },
+      responsavelId: ref('AGT'),
+      status: { enum: ['nao_explorada', 'em_pesquisa', 'em_abordagem', 'negociacao', 'cliente', 'descartada'] },
+      clienteId: ref('CLI'),
+      fontes,
+      dataPesquisa: data,
+    },
+    ['grupoId', 'nome', 'tipo', 'cidade', 'status'],
+  ),
+
+  comprador: entidade(
+    'comprador',
+    'CMP',
+    {
+      grupoId: id('GRP'),
+      unidadeId: ref('UNI'),
+      nivel: { enum: ['corporativo', 'local'] },
+      nome: texto,
+      cargo: textoOpc,
+      funcao: {
+        enum: [
+          'diretor_compras', 'diretor_suprimentos', 'gerente_suprimentos', 'gerente_procurement', 'coordenador_compras', 'comprador',
+          'homologacao_fornecedores', 'gerente_compras_unidade', 'coordenador_administrativo', 'gerente_facilities',
+          'seguranca_trabalho', 'coordenador_operacoes', 'responsavel_uniformes_epi', 'outra',
+        ],
+      },
+      papelNaCompra: { enum: ['decide', 'influencia', 'solicita', 'especifica', 'administra', 'desconhecido'] },
+      confirmacao: { enum: ['evidenciada', 'presumida_pelo_cargo'] },
+      evidenciaFuncao: textoOpc,
+      email: { type: ['string', 'null'], pattern: '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$' },
+      telefone: textoOpc,
+      perfilPublico: textoOpc,
+      fontes,
+      dataPesquisa: data,
+    },
+    ['grupoId', 'nivel', 'nome', 'confirmacao'],
+  ),
 };
 
 const ENTIDADES = Object.keys(SCHEMAS);
@@ -392,6 +527,10 @@ const COLECOES = {
   historico: 'historico',
   solicitacao: 'solicitacoes',
   tarefa: 'tarefas',
+  grupo: 'grupos',
+  empresa: 'empresas',
+  unidade: 'unidades',
+  comprador: 'compradores',
 };
 
 module.exports = { SCHEMAS, ENTIDADES, PREFIXOS, COLECOES, PAPEIS };

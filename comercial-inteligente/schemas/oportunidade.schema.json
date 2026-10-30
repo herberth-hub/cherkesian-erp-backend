@@ -41,6 +41,7 @@
         "diretor",
         "gerente",
         "vendedor",
+        "hunter",
         "humano"
       ]
     },
@@ -223,6 +224,27 @@
       "type": [
         "string",
         "null"
+      ]
+    },
+    "grupoId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "unidadeId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^UNI-\\d{4,}$"
+    },
+    "canal": {
+      "enum": [
+        "corporativo",
+        "local",
+        null
       ]
     }
   },

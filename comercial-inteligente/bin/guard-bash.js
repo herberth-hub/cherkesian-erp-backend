@@ -17,13 +17,14 @@
 const path = require('path');
 
 const HC_REAL = path.resolve(__dirname, 'hc.js');
-const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor'];
+const PAPEIS = ['ceo', 'diretor', 'gerente', 'vendedor', 'hunter'];
 const EXCLUSIVOS_HUMANO = ['erp', 'demo'];
 const AGENTE_PAPEL = {
   'hc-ceo': 'ceo',
   'hc-diretor-comercial': 'diretor',
   'hc-gerente-comercial': 'gerente',
   'hc-vendedor-comercial': 'vendedor',
+  'hc-hunter': 'hunter',
 };
 
 /** Papel do subagente a partir do agent_type (aceita prefixo de plugin, ex.: "x:hc-ceo"). */
