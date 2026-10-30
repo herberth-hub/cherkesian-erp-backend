@@ -52,7 +52,7 @@ financeiro ou contratual · cliente estratégico · conflito entre áreas · inf
 ## Aprovações comerciais
 A aprovação formal de proposta é um registro próprio (`aprovacao`), com alçada calculada pela política.
 A solicitação de escalonamento referencia a aprovação (`--ref aprovacao:APR-...`); quem tem a alçada
-decide com `aprovacao decidir` e responde a solicitação com `--tipo decisao`.
+decide com `aprovacao decidir` e responde à solicitação com `--tipo decisao`.
 
 ## Tarefas
 `tarefa criar` (para si ou subordinado direto) · `tarefa mover`. Executor entrega com

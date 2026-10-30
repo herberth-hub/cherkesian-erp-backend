@@ -504,7 +504,7 @@ function pendencias() {
   }
   const vistos = rascunhosVistos();
   const rasc = ((estado.email && estado.email.rascunhos) || []).filter((r) => !vistos.has(r.link));
-  if (rasc.length) itens.push({ chave: 'rascunhos', ordem: 3, tag: 'Rascunhos', meta: `${rasc.length} na fila`, tipo: 'rascunhos', rasc, titulo: `${rasc.length} e-mail(s) prontos para você revisar e enviar`, texto: `O próximo: "${rasc[0].assunto}" para ${rasc[0].para}.` });
+  if (rasc.length) itens.push({ chave: 'rascunhos', ordem: 3, tag: 'Rascunhos', meta: `${rasc.length} na fila`, tipo: 'rascunhos', rasc, titulo: `${rasc.length} e-mail(s) pronto(s) para você revisar e enviar`, texto: `O próximo: "${rasc[0].assunto}" para ${rasc[0].para}.` });
   return itens.sort((a, b) => a.ordem - b.ordem || String(a.prazo || '').localeCompare(String(b.prazo || '')));
 }
 
@@ -652,7 +652,7 @@ function desenharCanais() {
       linhas.push(`<div class="lista-linha"><div class="principal"><span><b>${esc(c.conta)}</b></span><span class="sub">${c.ultimaVerificacao ? `verificada às ${hora(c.ultimaVerificacao)}` : 'ainda não verificada'}${c.erro ? ` · erro: ${esc(c.erro)}` : ''}</span></div>
         <span class="chip ${c.conectada ? 'ink' : 'hot'}">${c.conectada ? 'conectada' : 'desconectada'}</span><a class="botao" href="/oauth/gmail?conta=${encodeURIComponent(c.conta)}">${c.conectada ? 'Reconectar' : 'Conectar'}</a></div>`);
     }
-    linhas.push(`<p class="vazio" style="margin-top:8px">${m.processadosHoje} e-mail(s) tratados hoje · verificação a cada ${m.intervaloMin} min${m.falhas ? ` · ${m.falhas} com falha` : ''}</p>`);
+    linhas.push(`<p class="vazio" style="margin-top:8px">${m.processadosHoje} e-mail(s) tratado(s) hoje · verificação a cada ${m.intervaloMin} min${m.falhas ? ` · ${m.falhas} com falha` : ''}</p>`);
   }
   linhas.push(`<div class="lista-linha"><div class="principal"><span><b>WhatsApp</b></span><span class="sub">${w && w.configurado ? `${esc(w.provedor)} · ${w.autonomia === 'aprovacao' ? 'você aprova cada resposta' : 'automático até a alçada'}` : 'defina o provedor e as credenciais no servidor'}</span></div><span class="chip ${w && w.configurado ? 'ink' : 'hot'}">${w && w.configurado ? 'conectado' : 'não configurado'}</span></div>`);
   document.getElementById('pCanais').innerHTML = linhas.join('');
@@ -958,7 +958,7 @@ function desenharEscritorio() {
     <div class="corredor"><span class="rot">Corredor</span>${caso ? `<div class="documento" style="left:${pos}%"><span>${esc(caso.sala === 'humano' ? 'na sua sala' : caso.id)}</span></div>` : ''}</div>
     <div class="base-planta">
       <div class="entrada"><h3>Entrada · e-mail e WhatsApp</h3><div class="canais">${m ? m.contas.map((c) => `<span>${esc(c.conta.split('@')[0])}@ ${c.conectada ? '✓' : '✗'}</span>`).join('') : ''}<span>WhatsApp ${estado.whatsapp && estado.whatsapp.configurado ? '✓' : '✗'}</span></div>
-        <p class="muted" style="font-size:12px;margin:0">${m ? `${m.processadosHoje} e-mail(s) tratados hoje${m.falhas ? ` · ${m.falhas} com falha` : ''}${m.ignoradosHoje ? ` · ${m.ignoradosHoje} automáticos ignorados` : ''}` : 'E-mail desativado.'}</p></div>
+        <p class="muted" style="font-size:12px;margin:0">${m ? `${m.processadosHoje} e-mail(s) tratado(s) hoje${m.falhas ? ` · ${m.falhas} com falha` : ''}${m.ignoradosHoje ? ` · ${m.ignoradosHoje} automáticos ignorados` : ''}` : 'E-mail desativado.'}</p></div>
       <div class="sua-sala"><h3>Sua sala</h3>${casos.length ? casos.slice(0, 5).map((c) => `<div class="lista-linha"><div class="principal"><span><b>${esc(c.id)}</b> · ${esc(c.titulo)}</span></div><button data-decidir="${c.id}">Decidir</button></div>`).join('') : '<p class="vazio">Nenhum caso esperando você.</p>'}</div>
     </div>`;
   desenharTrilho();
@@ -1243,8 +1243,8 @@ document.addEventListener('click', async (ev) => {
       delete textos[`j-${b.dataset.aprovar}`]; resolveu = true;
     } else if (b.dataset.meta) { await api('/api/meta', { id: b.dataset.meta, aprovar: b.dataset.aprovarMeta === '1' }); resolveu = true; }
     else if (b.dataset.wenviar) {
-      const el = document.querySelector(`[data-texto="w-${b.dataset.wenviar}"]`);
-      await api('/api/whatsapp/aprovar', { id: b.dataset.wenviar, texto: el ? el.value : undefined });
+      // O texto vem do que você digitou (a mesma resposta aparece em "Minha manhã" e no Painel).
+      await api('/api/whatsapp/aprovar', { id: b.dataset.wenviar, texto: lerTexto(`w-${b.dataset.wenviar}`) || undefined });
       delete textos[`w-${b.dataset.wenviar}`]; resolveu = true;
     } else if (b.dataset.wdescartar) { await api('/api/whatsapp/descartar', { id: b.dataset.wdescartar }); resolveu = true; }
     else if (b.dataset.wassumir) await api('/api/whatsapp/assumir', { telefone: b.dataset.wassumir, assumir: b.dataset.valor === '1' });

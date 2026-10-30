@@ -58,5 +58,7 @@ function encerrar(sinal) {
   servidor.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 10000).unref();
 }
+// Rede de segurança: uma promessa rejeitada sem tratamento é registrada, sem derrubar o serviço.
+process.on('unhandledRejection', (e) => console.error('Erro assíncrono não tratado:', e));
 process.on('SIGTERM', () => encerrar('SIGTERM'));
 process.on('SIGINT', () => encerrar('SIGINT'));

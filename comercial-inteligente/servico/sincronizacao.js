@@ -68,7 +68,8 @@ class SincronizacaoErp {
 
   /** Hoje é dia de sincronizar, já passou do horário e ainda não rodou hoje? */
   devidaAgora() {
-    if (!this.sync.ativa || !this.erpConfigurado()) return false;
+    // Base de demonstração nunca importa do ERP (evita alerta repetido a cada ciclo).
+    if (!this.sync.ativa || !this.erpConfigurado() || this.cfg.base === 'demo') return false;
     const l = local(this.agora(), this.cfg.fuso);
     return this.sync.dias.includes(l.diaSemana) && l.minutos >= paraMinutos(this.sync.hora) && this.dados.ultimaData !== l.data;
   }

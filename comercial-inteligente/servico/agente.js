@@ -55,7 +55,9 @@ function custoUsd(u, precos) {
       (u.output_tokens || 0) * precos.saida +
       (u.cache_creation_input_tokens || 0) * precos.cacheEscrita +
       (u.cache_read_input_tokens || 0) * precos.cacheLeitura) /
-    1e6
+      1e6 +
+    // Buscas na web do Hunter: cobradas à parte (cerca de US$ 10 por 1.000 buscas).
+    ((u.server_tool_use && u.server_tool_use.web_search_requests) || 0) * 0.01
   );
 }
 

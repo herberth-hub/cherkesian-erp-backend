@@ -25,5 +25,5 @@ Argumentos do usuário: $ARGUMENTS
    `node comercial-inteligente/bin/hc.js atualizar meta --id MET-xxxx --json '{"status":"aprovada"}' --agente humano`.
 3. Com a meta aprovada, acione **hc-diretor-comercial**: "Desdobre MET-xxxx por gerente/segmento (`meta definir --meta-pai`)
    e confira `meta cobertura`. Delegue ao gerente a execução (`solicitacao criar --fluxo delegacao --para gerente`)."
-4. Acione **hc-gerente-comercial** com o ID da solicitação: "Desdobre por vendedor e crie as tarefas; responda a solicitação com `--tipo conclusao`."
+4. Acione **hc-gerente-comercial** com o ID da solicitação: "Desdobre por vendedor e crie as tarefas; responda à solicitação com `--tipo conclusao`."
 5. Acione **hc-diretor-comercial** para verificar a entrega (`solicitacao verificar`). Apresente a árvore de metas.

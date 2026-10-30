@@ -7,7 +7,7 @@ entrando com a mesma conta que publica o ERP.
 | Etapa | Resultado | Precisa de |
 | --- | --- | --- |
 | 1. Criar o app | Painel no ar com os agentes em **modo demonstração** (dados fictícios, sem IA, custo de IA zero) | Conta do Render |
-| 2. Abrir o painel | Você vê os 4 agentes trabalhando | Senha gerada pelo Render |
+| 2. Abrir o painel | Você vê os 5 agentes trabalhando | Senha gerada pelo Render |
 | 3. Ligar a IA | Agentes pensando de verdade (ainda com dados fictícios) | Chave da API do Claude |
 | 4. Dados reais | Agentes trabalhando a carteira da HC (tudo pelo painel) | Política comercial + usuário do ERP |
 | 5. Endereço próprio | `diretoria.hcqualitycorp.com.br` | Acesso ao DNS (Wix) |
@@ -81,7 +81,7 @@ Tudo pelo painel, no botão **Configurar** (topo da tela):
    (desconto máximo, margem mínima e valor máximo por nível), marque **Política ativa** e toque **Salvar política**.
    O painel recusa combinações incoerentes (ex.: vendedor com mais desconto que o gerente) e explica o motivo.
    Os valores são decisão sua; enquanto a política estiver desligada, toda proposta vem para você.
-4. **Configurar → Equipe** — cadastre os vendedores (pessoas), os 4 agentes de IA (tipo "Agente de IA") e você
+4. **Configurar → Equipe** — cadastre os vendedores (pessoas), os 5 agentes de IA (tipo "Agente de IA") e você
    (papel "Responsável humano").
 5. **Configurar → Importar do ERP** — toque, nesta ordem: **Importar clientes**, **Importar produtos**, **Importar pedidos**;
    depois escolha o vendedor responsável e toque **Importar leads**. É só leitura: nada muda no ERP, e reimportar atualiza sem duplicar.

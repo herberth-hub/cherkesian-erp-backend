@@ -93,9 +93,9 @@ test('portão de saída: aprovação por padrão; automático envia só o que n�
   const auto = canal({ ...META, HC_WHATSAPP_AUTONOMIA: 'automatico' });
   await auto.c.receber(metaMsg('m1', 'Oi'));
   assert.equal((await auto.c.responderComoAgente('5511999990001', 'Olá! Quantas peças e quais tamanhos?', 'vendedor')).enviado, true);
-  assert.equal(auto.p.envios[0].url, 'https://graph.facebook.com/v20.0/123/messages');
+  assert.equal(auto.p.envios[0].url, 'https://graph.facebook.com/v23.0/123/messages');
   assert.deepEqual(auto.p.envios[0].corpo, { messaging_product: 'whatsapp', to: '5511999990001', type: 'text', text: { body: 'Olá! Quantas peças e quais tamanhos?' } });
-  for (const t of ['O preço é R$ 54,00', 'Conseguimos desconto', 'Entrega em 15 dias úteis', 'Pagamento via boleto', 'Tem certificação?']) {
+  for (const t of ['O preço é R$ 54,00', 'Conseguimos desconto', 'Entrega em 15 dias úteis', 'Pagamento via boleto', 'Tem certificação?', 'Fica 45 reais a peça', 'Conseguimos entregar em 10 dias', 'Temos 300 em estoque', '12 mil o lote', 'Frete grátis']) {
     assert.ok(SENSIVEL.test(t), t);
     assert.equal((await auto.c.responderComoAgente('5511999990001', t, 'vendedor')).enviado, false, `sensível vai para aprovação: ${t}`);
   }
@@ -243,4 +243,34 @@ test('webhook e painel: verificação da Meta, assinatura obrigatória, aprovaç
   } finally {
     sz.close();
   }
+});
+
+test('Meta: reação e sistema não viram mensagem; legenda de mídia entra; falha de entrega vira alerta; 9º dígito', async () => {
+  const { normalizar, falhasEntrega, telefoneAlternativo } = require('../servico/whatsapp');
+  const corpo = (msgs, statuses) => ({ entry: [{ changes: [{ value: { contacts: [{ wa_id: '551199990001', profile: { name: 'Ana' } }], messages: msgs, statuses } }] }] });
+  const n = normalizar(corpo([
+    { from: '551199990001', id: 'a', type: 'reaction', reaction: { emoji: '👍' } },
+    { from: '551199990001', id: 'b', type: 'image', image: { caption: 'logo da empresa' } },
+    { from: '551199990001', id: 'c', type: 'system', system: {} },
+  ]));
+  assert.deepEqual(n.map((x) => x.id), ['b']);
+  assert.match(n[0].texto, /Legenda: logo da empresa/);
+  const f = falhasEntrega(corpo([], [{ id: 'wamid.1', status: 'failed', recipient_id: '551199990001', errors: [{ code: 131047, title: 'Re-engagement message' }] }, { id: 'wamid.2', status: 'delivered', recipient_id: '551199990001' }]));
+  assert.equal(f.length, 1);
+  assert.match(f[0].erro, /131047/);
+  assert.equal(telefoneAlternativo('551199990001'), '5511999990001');
+  assert.equal(telefoneAlternativo('5511999990001'), '551199990001');
+  assert.equal(telefoneAlternativo('14155550000'), null);
+  const { c } = canal();
+  await c.receber(corpo([], [{ id: 'wamid.9', status: 'failed', recipient_id: '5511999990001', errors: [{ code: 131047, title: 'Re-engagement message' }] }]));
+  assert.match(c.conversa('5511999990001').mensagens.at(-1).texto, /NÃO entregue/);
+});
+
+test('aprovação em dobro (dois cliques) envia uma vez só', async () => {
+  const { c, p } = canal();
+  await c.receber(metaMsg('m1', 'Oi'));
+  const r = await c.responderComoAgente('5511999990001', 'Olá! Quantas peças?', 'vendedor');
+  const [a, b] = await Promise.allSettled([c.aprovar(r.propostaId), c.aprovar(r.propostaId)]);
+  assert.equal([a, b].filter((x) => x.status === 'fulfilled').length, 1);
+  assert.equal(p.envios.length, 1);
 });

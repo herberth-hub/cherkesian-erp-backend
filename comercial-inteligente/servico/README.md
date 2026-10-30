@@ -1,6 +1,6 @@
 # Serviço autônomo — fases 1, 2 e 3
 
-Os quatro agentes (CEO, Diretor, Gerente, Vendedor) rodando **sozinhos e em paralelo**, de
+Os cinco agentes (CEO, Diretor, Gerente, Vendedor e Hunter) rodando **sozinhos e em paralelo**, de
 **segunda a sexta, das 06:30 às 22:00 (horário de São Paulo)**, com um **painel visual** para
 acompanhar o trabalho ao vivo, pausar agentes e tomar as decisões que são suas.
 
@@ -152,6 +152,7 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 | `HC_WHATSAPP_AUTONOMIA` | `aprovacao` | `aprovacao` ou `automatico` (assuntos sensíveis sempre com aprovação). |
 | `HC_WHATSAPP_MSG_FORA_HORARIO` | — | Texto fixo enviado fora do expediente (opcional). |
 | `WHATSAPP_META_*` / `ZAPI_*` | — | Credenciais do provedor (ver Fase 3). |
+| `WHATSAPP_META_API_VERSION` | `v23.0` | Versão da Graph API da Meta usada no envio (atualize quando a Meta descontinuar a versão). |
 
 ## Implantação (Render ou outro servidor)
 

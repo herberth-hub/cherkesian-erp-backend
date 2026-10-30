@@ -122,8 +122,7 @@ class Orquestrador {
     const contexto = historico.length
       ? `Conversa recente com o responsável humano (mais antiga primeiro):\n${historico.map((m) => `${m.de === 'humano' ? 'Responsável' : 'Você'}: ${m.texto}`).join('\n')}\n\n`
       : '';
-    const job = this.enfileirar(papel, {
-      chave: `ordem:${papel}:${this.agora().getTime()}`,
+    const dados = {
       origem: 'ordem',
       titulo: `Mensagem do responsável: ${t.slice(0, 70)}`,
       instrucao:
@@ -133,8 +132,22 @@ class Orquestrador {
         'Responda direto ao responsável, em 2 a 8 linhas de texto simples, com os IDs do que consultou ou alterou.',
       modelo: this.cfg.modeloRotina,
       esforco: this.cfg.esforco,
-      aoConcluir: (r) => this.registrarMensagem(papel, { de: 'agente', texto: r.resumo || `(${r.status})`, status: r.status }),
-    });
+    };
+    const enfileirarOrdem = (tentativa) =>
+      this.enfileirar(papel, {
+        ...dados,
+        chave: `ordem:${papel}:${this.agora().getTime()}:${tentativa}`,
+        aoConcluir: (r) => {
+          // Interrompida (fim do expediente, pausa, teto de gasto): volta para a fila em vez de se perder.
+          if (r.status === 'interrompido' && tentativa < 3) {
+            this.registrarMensagem(papel, { de: 'sistema', texto: `${r.resumo || 'Interrompido.'} A mensagem volta para a fila.` });
+            enfileirarOrdem(tentativa + 1);
+            return;
+          }
+          this.registrarMensagem(papel, { de: 'agente', texto: r.resumo || `(${r.status})`, status: r.status });
+        },
+      });
+    const job = enfileirarOrdem(1);
     if (!job) throw Object.assign(new Error('Mensagem já está na fila.'), { status: 409 });
     const aviso = this.pausadoGeral || this.agentes[papel].pausado ? 'agente pausado' : !this.expediente() ? 'fora do expediente' : this.orcamentoEsgotado() ? 'teto de gasto do dia atingido' : null;
     if (aviso) this.registrarMensagem(papel, { de: 'sistema', texto: `Mensagem na fila (${aviso}): o agente responde quando voltar a trabalhar.` });
@@ -192,7 +205,7 @@ class Orquestrador {
           titulo: `Tratar ${s.id} (${s.fluxo} de ${s.solicitante})`,
           instrucao:
             `Trate a solicitação ${s.id} (obter solicitacao --id ${s.id}). Objetivo: ${s.objetivo}. Resultado esperado: ${s.resultadoEsperado}. Prazo: ${s.prazo}.\n` +
-            'Termine respondendo a solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
+            'Termine respondendo à solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
         });
       }
       const ultima = s.respostas[s.respostas.length - 1];
@@ -405,6 +418,8 @@ class Orquestrador {
         this.eventos.emitir('alerta', { papel: a.papel, texto: `Falha ao registrar conclusão de ${job.id}: ${e.message}` });
       }
     }
+    // Trabalho da base (solicitação/tarefa) que não terminou volta a ser coletado; o limite diário de tentativas segura repetições.
+    if (job.origem === 'fila' && resultado.status !== 'concluido') this.vistos.delete(job.chave);
     if (resultado.status === 'erro') a.erros++;
     else a.concluidos++;
     a.ultimo = { job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, em: this.agora().toISOString() };
