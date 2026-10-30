@@ -269,3 +269,12 @@ test('painel: conectar Gmail exige login, valida state e confere que a conta aut
     srv.close();
   }
 });
+
+test('filtro sem IA: newsletter e notificação saem antes do agente; portal de compras com cotação passa', () => {
+  const { eAutomatico } = require('../servico/gmail');
+  assert.equal(eAutomatico({ from: 'Loja <news@loja.com>', subject: 'Ofertas', 'list-unsubscribe': '<mailto:x>' }), true);
+  assert.equal(eAutomatico({ from: 'noreply@banco.com.br', subject: 'Seu extrato' }), true);
+  assert.equal(eAutomatico({ from: 'x@y.com', subject: 'Fora do escritório', 'auto-submitted': 'auto-replied' }), true);
+  assert.equal(eAutomatico({ from: 'no-reply@ariba.com', subject: 'Cotação 22895741 - jalecos' }), false);
+  assert.equal(eAutomatico({ from: 'Compras <compras@hospital.org.br>', subject: 'Uniformes' }), false);
+});

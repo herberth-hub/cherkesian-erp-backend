@@ -130,7 +130,8 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 | `HC_HORARIO` / `HC_DIAS` / `HC_FUSO` | `06:30-22:00` / `1,2,3,4,5` / `America/Sao_Paulo` | Expediente. |
 | `HC_MODELO` / `HC_ESFORCO` | `claude-opus-5-5` / `medium` | Modelo e esforço de raciocínio (`low`…`max`). |
 | `HC_FALLBACKS` | ligado | `off` desliga o fallback automático do servidor em recusas. |
-| `HC_ORCAMENTO_TOKENS_DIA`, `HC_MAX_TAREFAS_HORA`, `HC_MAX_ITERACOES` | 3000000, 20, 12 | Limites. |
+| `HC_MODELO_ROTINA` | igual a `HC_MODELO` | Modelo de rotinas, e-mails e tarefas entre agentes (ex.: `claude-sonnet-5-5`, metade do preço do Opus 5.5). WhatsApp com cliente usa sempre `HC_MODELO`. |
+| `HC_ORCAMENTO_TOKENS_DIA`, `HC_MAX_TAREFAS_HORA`, `HC_MAX_ITERACOES` | 3000000, 10, 8 | Limites. |
 | `HC_PARALELO_CEO/DIRETOR/GERENTE/VENDEDOR` | 1/1/1/3 | Trabalhos simultâneos por agente. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Credencial OAuth do Google (fase 2). |
 | `HC_URL_PUBLICA` | — | Endereço público do painel (para o retorno do login Google). |

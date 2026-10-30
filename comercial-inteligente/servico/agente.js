@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { DEFINICAO, executarHc } = require('./ferramentas');
 const H = require('../src/hierarquia');
+const { precosDe } = require('./config');
 
 const RAIZ = path.resolve(__dirname, '..');
 /** Ferramenta extra do vendedor: rascunho de resposta ao e-mail do trabalho (nunca envia). */
@@ -139,6 +140,10 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
     let tokens = 0;
     let usd = 0;
     const esforco = job.esforco || cfg.esforco;
+    const modelo = job.modelo || cfg.modelo;
+    const precos = precosDe(cfg, modelo);
+    // Fallback no servidor: só Opus/Sonnet aceitam (o Haiku não tem).
+    const fallbacks = cfg.fallbacks && !/haiku/.test(modelo);
 
     for (let i = 0; i < cfg.limites.iteracoesPorTarefa; i++) {
       const parar = ctl.deveParar();
@@ -147,7 +152,7 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
       const params = {
         // Cache automático da conversa: a cada passo, o histórico já enviado é relido do cache (~10% do preço).
         cache_control: { type: 'ephemeral' },
-        model: cfg.modelo,
+        model: modelo,
         max_tokens: 16000,
         system: [{ type: 'text', text: sistemas[papel], cache_control: { type: 'ephemeral' } }],
         tools: ferramentas(papel),
@@ -155,14 +160,14 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
         thinking: { type: 'adaptive' },
         output_config: { effort: esforco },
       };
-      const resposta = cfg.fallbacks
+      const resposta = fallbacks
         ? await cliente.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
         : await cliente.messages.create(params);
 
       const u = resposta.usage || {};
       // Tokens "cheios" (leitura de cache fica fora: custa ~10%); o custo em US$ considera tudo.
       const gasto = (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_creation_input_tokens || 0);
-      const custo = custoUsd(u, cfg.precos);
+      const custo = custoUsd(u, precos);
       tokens += gasto;
       usd += custo;
       ctl.registrarTokens(gasto, custo);
