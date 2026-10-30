@@ -1,6 +1,6 @@
 # Serviço autônomo — fases 1, 2 e 3
 
-Os quatro agentes (CEO, Diretor, Gerente, Vendedor) rodando **sozinhos e em paralelo**, de
+Os cinco agentes (CEO, Diretor, Gerente, Vendedor e Hunter) rodando **sozinhos e em paralelo**, de
 **segunda a sexta, das 06:30 às 22:00 (horário de São Paulo)**, com um **painel visual** para
 acompanhar o trabalho ao vivo, pausar agentes e tomar as decisões que são suas.
 

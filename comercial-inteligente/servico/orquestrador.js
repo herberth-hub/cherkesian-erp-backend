@@ -192,7 +192,7 @@ class Orquestrador {
           titulo: `Tratar ${s.id} (${s.fluxo} de ${s.solicitante})`,
           instrucao:
             `Trate a solicitação ${s.id} (obter solicitacao --id ${s.id}). Objetivo: ${s.objetivo}. Resultado esperado: ${s.resultadoEsperado}. Prazo: ${s.prazo}.\n` +
-            'Termine respondendo a solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
+            'Termine respondendo à solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
         });
       }
       const ultima = s.respostas[s.respostas.length - 1];

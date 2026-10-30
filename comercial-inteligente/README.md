@@ -1,7 +1,7 @@
 # Inteligência Comercial — HC Quality (Grupo Cherkesian)
 
-Diretoria comercial de IA com **quatro agentes hierárquicos** — CEO, Diretor Comercial, Gerente
-Comercial e Vendedor/Atendente — implementados como subagentes nativos do Claude Code, com um motor
+Diretoria comercial de IA com **cinco agentes hierárquicos** — CEO, Diretor Comercial, Gerente
+Comercial, Vendedor/Atendente e Hunter de Grandes Contas — implementados como subagentes nativos do Claude Code, com um motor
 determinístico (CLI em Node.js, sem dependências) que aplica hierarquia, alçadas, permissões,
 validação de dados, cálculo de margem, relatórios padronizados, histórico e log de execução.
 
