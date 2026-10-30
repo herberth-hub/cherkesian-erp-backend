@@ -47,6 +47,17 @@ const RESPONDER_WHATSAPP = {
   strict: true,
 };
 
+/** Custo estimado em US$ de uma resposta, pelo uso informado pela API. */
+function custoUsd(u, precos) {
+  return (
+    ((u.input_tokens || 0) * precos.entrada +
+      (u.output_tokens || 0) * precos.saida +
+      (u.cache_creation_input_tokens || 0) * precos.cacheEscrita +
+      (u.cache_read_input_tokens || 0) * precos.cacheLeitura) /
+    1e6
+  );
+}
+
 const resumir = (s, n = 400) => (String(s).length > n ? `${String(s).slice(0, n)}…` : String(s));
 
 /** Prompt de sistema estável por papel (vai para o cache de prompt). */
@@ -62,7 +73,8 @@ function promptSistema(papel, cfg) {
       ? 'E-mail: a ferramenta rascunho_email só cria rascunho (o humano envia). WhatsApp: responder_whatsapp passa pelo portão de aprovação do servidor. Fora desses trabalhos, registre rascunhos como atividade (tipo nota).'
       : 'Você não envia e-mail nem WhatsApp e não fala com clientes; quando útil, registre rascunhos como atividade (tipo nota).',
     'Decisões fora da sua alçada: escale ao superior direto pela CLI. Decisões do humano: escalonamento até "humano" — ele decide pelo painel.',
-    'Seja objetivo: execute o trabalho pedido e termine com um resumo de 3 a 8 linhas (o que fez, IDs criados/alterados, pendências, próximo passo).',
+    'Seja objetivo e econômico: use o menor número de comandos que resolva o trabalho (prefira um relatório ou uma análise de pipeline a vários "listar" e "obter").',
+    'Termine com um resumo de 3 a 8 linhas em texto simples (o que fez, IDs criados/alterados, pendências, próximo passo). Pode usar **negrito** e listas com "-", sem tabelas.',
     cfg.base === 'demo' ? 'ATENÇÃO: base de DEMONSTRAÇÃO — todos os dados são fictícios; diga isso no resumo.' : '',
   ].join('\n');
   return `${regras}\n\n---\n\n${instrucoes}\n\n---\n\n${servico}`;
@@ -125,41 +137,48 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
     const texto = `Data de hoje: ${hoje}.\n\nTrabalho (${job.origem}): ${job.titulo}\n\n${instrucao}`;
     const messages = [{ role: 'user', content: job.blocos && job.blocos.length ? [...job.blocos, { type: 'text', text: texto }] : texto }];
     let tokens = 0;
+    let usd = 0;
+    const esforco = job.esforco || cfg.esforco;
 
     for (let i = 0; i < cfg.limites.iteracoesPorTarefa; i++) {
       const parar = ctl.deveParar();
-      if (parar) return { status: 'interrompido', resumo: `Interrompido: ${parar}.`, tokens };
+      if (parar) return { status: 'interrompido', resumo: `Interrompido: ${parar}.`, tokens, usd };
 
       const params = {
+        // Cache automático da conversa: a cada passo, o histórico já enviado é relido do cache (~10% do preço).
+        cache_control: { type: 'ephemeral' },
         model: cfg.modelo,
         max_tokens: 16000,
         system: [{ type: 'text', text: sistemas[papel], cache_control: { type: 'ephemeral' } }],
         tools: ferramentas(papel),
         messages,
         thinking: { type: 'adaptive' },
-        output_config: { effort: cfg.esforco },
+        output_config: { effort: esforco },
       };
       const resposta = cfg.fallbacks
         ? await cliente.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
         : await cliente.messages.create(params);
 
       const u = resposta.usage || {};
-      const gasto = (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+      // Tokens "cheios" (leitura de cache fica fora: custa ~10%); o custo em US$ considera tudo.
+      const gasto = (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      const custo = custoUsd(u, cfg.precos);
       tokens += gasto;
-      ctl.registrarTokens(gasto);
+      usd += custo;
+      ctl.registrarTokens(gasto, custo);
 
       const nota = textoDe(resposta.content || []);
       if (nota) ctl.evento('nota', { texto: resumir(nota, 600) });
 
       if (resposta.stop_reason === 'refusal') {
-        return { status: 'recusado', resumo: 'O modelo recusou a solicitação; nada foi executado a partir daqui.', tokens };
+        return { status: 'recusado', resumo: 'O modelo recusou a solicitação; nada foi executado a partir daqui.', tokens, usd };
       }
       if (resposta.stop_reason === 'max_tokens') {
-        return { status: 'truncado', resumo: nota || 'Resposta truncada pelo limite de tokens.', tokens };
+        return { status: 'truncado', resumo: nota || 'Resposta truncada pelo limite de tokens.', tokens, usd };
       }
       messages.push({ role: 'assistant', content: resposta.content });
       if (resposta.stop_reason === 'pause_turn') continue;
-      if (resposta.stop_reason !== 'tool_use') return { status: 'concluido', resumo: nota || '(sem resumo)', tokens };
+      if (resposta.stop_reason !== 'tool_use') return { status: 'concluido', resumo: nota || '(sem resumo)', tokens, usd };
 
       const resultados = [];
       for (const bloco of resposta.content.filter((b) => b.type === 'tool_use')) {
@@ -175,7 +194,7 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
       }
       messages.push({ role: 'user', content: resultados });
     }
-    return { status: 'limite', resumo: `Parado no limite de ${cfg.limites.iteracoesPorTarefa} iterações.`, tokens };
+    return { status: 'limite', resumo: `Parado no limite de ${cfg.limites.iteracoesPorTarefa} iterações.`, tokens, usd };
   };
 }
 
@@ -198,4 +217,4 @@ function criarExecutorSimulado({ cfg, pausaMs = 400 }) {
   };
 }
 
-module.exports = { criarExecutorClaude, criarExecutorSimulado, promptSistema, RASCUNHO, RESPONDER_WHATSAPP };
+module.exports = { criarExecutorClaude, criarExecutorSimulado, promptSistema, RASCUNHO, RESPONDER_WHATSAPP, custoUsd };

@@ -30,7 +30,8 @@ respostas a pedidos de informação feitos a você e aprovação da meta geral p
 Toda decisão exige justificativa e fica no histórico.
 
 ### Proteções de custo e de loop
-- **Orçamento diário de tokens** (`HC_ORCAMENTO_TOKENS_DIA`, padrão 3.000.000): atingido, nenhum trabalho novo começa até o dia seguinte; o painel mostra o consumo.
+- **Teto diário de gasto em US$** (`HC_ORCAMENTO_USD_DIA`, padrão 5): custo estimado pelos preços do modelo (`HC_PRECO_*`); atingido, nenhum trabalho novo começa até o dia seguinte. Teto secundário em tokens (`HC_ORCAMENTO_TOKENS_DIA`; leitura de cache não conta).
+- **Economia de tokens:** cache automático da conversa (cada passo relê o histórico a ~10% do preço), respostas da CLI compactas e sem campos internos, e raciocínio `low` nas rotinas (`HC_ESFORCO_ROTINA`) — trabalhos de e-mail, WhatsApp e decisões usam `HC_ESFORCO` (padrão `medium`).
 - **Máximo de trabalhos por hora por agente** (padrão 20) e **de iterações por trabalho** (padrão 12).
 - **Nada é reprocessado sem mudança no registro**, e cada registro tem no máximo 4 trabalhos por dia; depois o painel avisa e o item fica para você.
 - Referência de preço do modelo (Opus 5.5): US$ 4 por milhão de tokens de entrada, US$ 20 de saída, US$ 0,20 em leitura de cache. Com o orçamento padrão, o teto teórico diário fica entre ~US$ 12 (tudo entrada) e US$ 60 (tudo saída); o consumo real aparece no painel e deve ser acompanhado nas primeiras semanas.

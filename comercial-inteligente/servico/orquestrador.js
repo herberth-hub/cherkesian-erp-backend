@@ -82,14 +82,16 @@ class Orquestrador {
 
   // ------------------------------------------------------------ orçamento
 
-  registrarTokens(n) {
+  registrarTokens(n, usd = 0) {
     const hoje = this.dataLocal();
-    if (this.tokens.data !== hoje) this.tokens = { data: hoje, total: 0 };
+    if (this.tokens.data !== hoje) this.tokens = { data: hoje, total: 0, usd: 0 };
     this.tokens.total += n;
+    this.tokens.usd = (this.tokens.usd || 0) + usd;
   }
 
   orcamentoEsgotado() {
-    return this.tokens.data === this.dataLocal() && this.tokens.total >= this.cfg.limites.tokensPorDia;
+    if (this.tokens.data !== this.dataLocal()) return false;
+    return this.tokens.total >= this.cfg.limites.tokensPorDia || (this.tokens.usd || 0) >= (this.cfg.limites.usdPorDia || Infinity);
   }
 
   // ------------------------------------------------------------ fila
@@ -261,7 +263,7 @@ class Orquestrador {
     if (!aberto) return;
     for (const { rotina, slot } of vencidas(this.agora(), this.cfg, this.executadas, this.rotinas)) {
       this.executadas.add(`${rotina.id}@${slot}`);
-      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado });
+      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, esforco: this.cfg.esforcoRotina });
     }
     this.salvarEstado();
     this.verificarEmail();
@@ -294,7 +296,7 @@ class Orquestrador {
       }
     }
     if (this.orcamentoEsgotado() && Object.values(this.agentes).some((a) => a.fila.length)) {
-      this.eventos.emitir('alerta', { texto: 'Orçamento diário de tokens atingido: novos trabalhos aguardam o próximo dia ou ajuste do limite.' });
+      this.eventos.emitir('alerta', { texto: 'Orçamento diário atingido (US$ ou tokens): novos trabalhos aguardam o próximo dia ou ajuste do limite.' });
     }
     return Promise.all(iniciados);
   }
@@ -307,10 +309,10 @@ class Orquestrador {
         if (this.pausadoGeral) return 'pausa geral';
         if (a.pausado) return 'agente pausado';
         if (!this.expediente()) return 'fim do expediente';
-        if (this.orcamentoEsgotado()) return 'orçamento diário de tokens atingido';
+        if (this.orcamentoEsgotado()) return 'orçamento diário atingido';
         return null;
       },
-      registrarTokens: (n) => this.registrarTokens(n),
+      registrarTokens: (n, usd) => this.registrarTokens(n, usd),
       evento: (tipo, dados) => this.eventos.emitir(tipo, { papel: a.papel, job: job.id, ...dados }),
     };
     let resultado;
@@ -330,9 +332,9 @@ class Orquestrador {
     if (resultado.status === 'erro') a.erros++;
     else a.concluidos++;
     a.ultimo = { job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, em: this.agora().toISOString() };
-    this.historico.unshift({ papel: a.papel, ...a.ultimo, tokens: resultado.tokens });
+    this.historico.unshift({ papel: a.papel, ...a.ultimo, tokens: resultado.tokens, usd: resultado.usd });
     this.historico = this.historico.slice(0, 100);
-    this.eventos.emitir('fim', { papel: a.papel, job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, tokens: resultado.tokens });
+    this.eventos.emitir('fim', { papel: a.papel, job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, tokens: resultado.tokens, usd: resultado.usd });
     // A conclusão pode ter liberado trabalho para outro agente: coleta e despacha de novo.
     try {
       this.coletarDaBase();
@@ -362,7 +364,7 @@ class Orquestrador {
   executarRotina(id) {
     const r = this.rotinas.find((x) => x.id === id);
     if (!r) return null;
-    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado });
+    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, esforco: this.cfg.esforcoRotina });
   }
 
   estado() {
@@ -371,7 +373,12 @@ class Orquestrador {
       base: this.cfg.base,
       expediente: { aberto: this.expediente(), ...this.cfg.expediente, fuso: this.cfg.fuso },
       pausadoGeral: this.pausadoGeral,
-      tokens: { hoje: this.tokens.data === this.dataLocal() ? this.tokens.total : 0, limite: this.cfg.limites.tokensPorDia },
+      tokens: {
+        hoje: this.tokens.data === this.dataLocal() ? this.tokens.total : 0,
+        limite: this.cfg.limites.tokensPorDia,
+        usdHoje: this.tokens.data === this.dataLocal() ? Math.round((this.tokens.usd || 0) * 100) / 100 : 0,
+        usdLimite: this.cfg.limites.usdPorDia || null,
+      },
       agentes: Object.values(this.agentes).map((a) => ({
         papel: a.papel,
         pausado: a.pausado,

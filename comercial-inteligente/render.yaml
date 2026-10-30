@@ -25,18 +25,22 @@ services:
         value: "22"
       - key: TZ
         value: America/Sao_Paulo
-      # Começa na base de DEMONSTRAÇÃO (dados fictícios). Para produção, troque para
-      # HC_BASE=producao e HC_DATA_DIR=/var/data/producao (ver IMPLANTACAO.md, etapa 4).
+      # Base, pasta de dados e senha do painel são definidas por você no Render (sync: false):
+      # o Blueprint nunca sobrescreve esses valores. Na criação, use HC_BASE=demo e
+      # HC_DATA_DIR=/var/data/demo; para produção, HC_BASE=producao e HC_DATA_DIR=/var/data/producao.
+      # PAINEL_TOKEN: texto longo, só letras e números (mínimo 16 caracteres).
       - key: HC_BASE
-        value: demo
+        sync: false
       - key: HC_DATA_DIR
-        value: /var/data/demo
-      # Senha do painel: o Render gera sozinho; veja em Environment > PAINEL_TOKEN.
+        sync: false
       - key: PAINEL_TOKEN
-        generateValue: true
-      # Teto de consumo da IA por dia (tokens). Baixo para o período de teste; ajuste depois.
+        sync: false
+      # Teto principal de gasto com IA por dia, em US$ (custo estimado; o painel mostra o consumo).
+      - key: HC_ORCAMENTO_USD_DIA
+        value: "5"
+      # Teto secundário em tokens "cheios" (leitura de cache não conta: custa ~10%).
       - key: HC_ORCAMENTO_TOKENS_DIA
-        value: "500000"
+        value: "2000000"
       # Chave da API do Claude. Vazia = modo simulado (agentes rodam sem IA, custo zero).
       - key: ANTHROPIC_API_KEY
         sync: false

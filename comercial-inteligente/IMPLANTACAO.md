@@ -14,7 +14,7 @@ entrando com a mesma conta que publica o ERP.
 | 6. E-mail e 7. WhatsApp | Cotações por e-mail e atendimento no WhatsApp | Google Cloud / Meta ou Z-API |
 
 **Custos** (confira os valores atuais no Render e na Anthropic): instância Starter do Render (ordem de US$ 7/mês) + disco de 1 GB
-(centavos/mês) + consumo da IA, limitado pelo teto diário `HC_ORCAMENTO_TOKENS_DIA` (começa em 500 mil tokens/dia).
+(centavos/mês) + consumo da IA, limitado pelo teto diário em dólares `HC_ORCAMENTO_USD_DIA` (padrão US$ 5/dia; o painel mostra o gasto do dia).
 
 ---
 
@@ -25,7 +25,9 @@ entrando com a mesma conta que publica o ERP.
 2. Escolha o repositório **herberth-hub/cherkesian-erp-backend** (já conectado por causa do ERP).
 3. Em **Blueprint Path** (caminho do arquivo), escreva: `comercial-inteligente/render.yaml`.
    O Render vai mostrar **um** serviço novo: `hc-diretoria-comercial`. Confira que ele **não** lista o ERP — se listar, o caminho está errado.
-4. Quando pedir `ANTHROPIC_API_KEY`, **deixe vazio** por enquanto (o app sobe em modo demonstração).
+4. Preencha o que o Render pedir: `HC_BASE` = `demo`, `HC_DATA_DIR` = `/var/data/demo`, `PAINEL_TOKEN` = uma senha sua
+   (texto longo, só letras e números, mínimo 16 caracteres) e `ANTHROPIC_API_KEY` **vazio** por enquanto (o app sobe em modo demonstração).
+   Esses valores ficam sob seu controle: atualizações do Blueprint não os sobrescrevem.
 5. **Apply** e aguarde o deploy ficar **Live** (alguns minutos).
 
 **Caminho B — manual** (se não aparecer o campo do caminho do Blueprint):
@@ -45,15 +47,15 @@ entrando com a mesma conta que publica o ERP.
      | `NODE_VERSION` | `22` |
      | `HC_BASE` | `demo` |
      | `HC_DATA_DIR` | `/var/data/demo` |
-     | `PAINEL_TOKEN` | clique em **Generate** (ou cole um texto longo e aleatório) |
-     | `HC_ORCAMENTO_TOKENS_DIA` | `500000` |
+     | `PAINEL_TOKEN` | uma senha sua: texto longo, só letras e números (mín. 16) |
+     | `HC_ORCAMENTO_USD_DIA` | `5` |
+     | `HC_ORCAMENTO_TOKENS_DIA` | `2000000` |
 4. **Create Web Service** e aguarde ficar **Live**.
 
 ## 2. Abrir o painel
 
-1. No serviço `hc-diretoria-comercial`, abra **Environment** e copie o valor de **PAINEL_TOKEN**.
-2. O endereço do app aparece no topo (algo como `https://hc-diretoria-comercial.onrender.com`). Abra:
-   `https://hc-diretoria-comercial.onrender.com/?token=COLE_O_TOKEN_AQUI`
+1. Abra o endereço do app (aparece no topo do serviço, algo como `https://hc-diretoria-comercial.onrender.com`).
+2. Na tela de entrada, cole o **PAINEL_TOKEN** (Render → Environment) e toque **Entrar**.
    O navegador guarda o acesso por 30 dias. No celular: **Compartilhar → Adicionar à Tela de Início**.
 3. O painel mostra **"Modo simulado (sem IA) · base demo"**. Dentro do expediente (seg–sex, 06:30–22:00) as rotinas rodam sozinhas;
    para ver na hora, toque **Executar** em qualquer rotina — os agentes aparecem trabalhando nas colunas.
@@ -64,8 +66,8 @@ Não compartilhe o link com o token: quem tiver o token aprova decisões no seu 
 
 1. Em [console.anthropic.com](https://console.anthropic.com) → **API Keys** → crie uma chave (ex.: "diretoria-comercial") e defina um limite de gasto mensal.
 2. No Render → **Environment** → `ANTHROPIC_API_KEY` = a chave → **Save Changes** (o app reinicia sozinho).
-3. O painel passa a mostrar **"IA ativa"** e o medidor de tokens. Ainda são dados fictícios: bom para conhecer o comportamento sem risco.
-4. Acompanhe 1–2 dias. Se quiser mais trabalho por dia, aumente `HC_ORCAMENTO_TOKENS_DIA` (o padrão do sistema é 3.000.000).
+3. O painel passa a mostrar **"IA ativa"** e o gasto do dia em US$. Ainda são dados fictícios: bom para conhecer o comportamento sem risco.
+4. Acompanhe 1–2 dias. Para permitir mais trabalho por dia, aumente `HC_ORCAMENTO_USD_DIA`.
 
 ## 4. Dados reais da HC
 
@@ -110,7 +112,7 @@ Passo a passo completo em `comercial-inteligente/servico/README.md` (seções Fa
 | Sintoma | O que fazer |
 | --- | --- |
 | "Acesso negado" no painel | Abra de novo com `/?token=<PAINEL_TOKEN>` (o token pode ter mudado se a variável foi regenerada). |
-| Agentes parados | Veja o selo no topo: fora do expediente, pausado ou orçamento de tokens do dia esgotado. |
+| Agentes parados | Veja o selo no topo: fora do expediente, pausado ou teto de gasto do dia (US$) atingido. |
 | Deploy falhou | Render → **Logs**. Confira o Root Directory `comercial-inteligente` e o comando `npm ci`. |
 | Dados sumiram após deploy | Falta o disco em `/var/data` ou `HC_DATA_DIR` não aponta para ele. |
 | E-mail ou WhatsApp com erro | O painel mostra o erro na seção correspondente; os logs do Render mostram o detalhe. |
