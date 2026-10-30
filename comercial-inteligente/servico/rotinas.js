@@ -10,6 +10,10 @@
 
 const { local, paraMinutos } = require('./horario');
 
+const RONDA =
+  'Ronda de follow-up: verifique pipeline sem-follow-up e propostas-pendentes. Para itens novos (sem tarefa aberta), crie tarefa ao vendedor ' +
+  '(no máximo 3, as mais valiosas). Seja breve; se nada mudou desde a última ronda, apenas informe.';
+
 const ROTINAS = [
   {
     id: 'vendedor-abertura',
@@ -17,9 +21,8 @@ const ROTINAS = [
     hora: '06:30',
     titulo: 'Abertura do dia do vendedor',
     instrucao:
-      'Abertura do dia. Para cada vendedor (listar agente --filtro papel=vendedor), gere o relatório do vendedor, ' +
-      'liste os próximos passos de hoje e registre como atividade (tipo nota) as pendências de informação de cada oportunidade. ' +
-      'Não invente dados. Termine com um resumo curto para o gerente.',
+      'Abertura do dia. Use pipeline sem-follow-up e pipeline dados-ausentes (não abra oportunidade por oportunidade). ' +
+      'Liste os próximos passos de hoje por vendedor, sem registrar atividades novas. Não invente dados. Termine com um resumo curto para o gerente.',
     simulado: [['listar', 'agente', '--filtro', 'papel=vendedor'], ['pipeline', 'sem-follow-up'], ['pipeline', 'dados-ausentes']],
   },
   {
@@ -29,7 +32,7 @@ const ROTINAS = [
     titulo: 'Reunião diária do gerente',
     instrucao:
       'Reunião diária. Gere o relatório do gerente, revise oportunidades paradas, sem follow-up e propostas pendentes. ' +
-      'Crie tarefas para o vendedor (tarefa criar --responsavel vendedor) com prazo e condição de conclusão, sem duplicar tarefas abertas ' +
+      'Crie no máximo 5 tarefas para o vendedor (tarefa criar --responsavel vendedor), as mais valiosas, com prazo e condição de conclusão, sem duplicar tarefas abertas ' +
       '(confira com tarefa listar --todas). Escale ao diretor o que exceder sua alçada. Salve o relatório (--salvar).',
     simulado: [['relatorio', 'gerente', '--salvar'], ['pipeline', 'parados'], ['pipeline', 'propostas-pendentes']],
   },
@@ -47,11 +50,17 @@ const ROTINAS = [
   {
     id: 'gerente-follow-up',
     papel: 'gerente',
-    aCadaMin: 120,
-    titulo: 'Ronda de follow-up',
-    instrucao:
-      'Ronda de follow-up: verifique pipeline sem-follow-up e propostas-pendentes. Para itens novos (sem tarefa aberta), crie tarefa ao vendedor. ' +
-      'Seja breve; se nada mudou desde a última ronda, apenas informe.',
+    hora: '11:00',
+    titulo: 'Ronda de follow-up (manhã)',
+    instrucao: RONDA,
+    simulado: [['pipeline', 'sem-follow-up'], ['pipeline', 'propostas-pendentes']],
+  },
+  {
+    id: 'gerente-follow-up-tarde',
+    papel: 'gerente',
+    hora: '15:30',
+    titulo: 'Ronda de follow-up (tarde)',
+    instrucao: RONDA,
     simulado: [['pipeline', 'sem-follow-up'], ['pipeline', 'propostas-pendentes']],
   },
   {

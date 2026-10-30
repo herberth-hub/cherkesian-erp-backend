@@ -73,6 +73,21 @@ function montarResposta({ de, para, assunto, corpo, inReplyTo, references }) {
   return `${linhas.join('\r\n')}\r\n\r\n${corpoB64}`;
 }
 
+/** Remetente automático (newsletter, notificação, sistema): não é cliente pedindo algo. */
+const REMETENTE_AUTOMATICO = /(no-?reply|nao-?responda|naoresponda|do-?not-?reply|mailer-daemon|postmaster|notifica|newsletter|news@|marketing@|bounce)/i;
+
+/** Portais de compra (Ariba, Coupa etc.) mandam cotações por endereço automático: esses passam. */
+const ASSUNTO_COMERCIAL = /(cota[çc][ãa]o|or[çc]amento|pedido|proposta|rfq|rfp|licita[çc][ãa]o|preg[ãa]o)/i;
+
+function eAutomatico(cab) {
+  if (ASSUNTO_COMERCIAL.test(String(cab.subject || ''))) return false;
+  if (cab['list-unsubscribe'] || cab['list-id']) return true;
+  if (/^(bulk|list|junk)$/i.test(String(cab.precedence || '').trim())) return true;
+  const auto = String(cab['auto-submitted'] || '').trim().toLowerCase();
+  if (auto && auto !== 'no') return true;
+  return REMETENTE_AUTOMATICO.test(String(cab.from || ''));
+}
+
 class CaixaGmail {
   constructor({ conta, clientId, clientSecret, refreshToken, fetchImpl = globalThis.fetch }) {
     this.conta = conta;
@@ -127,6 +142,7 @@ class CaixaGmail {
       references: cab.references || null,
       texto,
       anexos,
+      automatico: eAutomatico(cab),
     };
   }
 
@@ -152,4 +168,4 @@ class CaixaGmail {
   }
 }
 
-module.exports = { CaixaGmail, ESCOPOS, extrairPartes, montarResposta, htmlParaTexto, b64url, deB64url, TOKEN_URL };
+module.exports = { eAutomatico, CaixaGmail, ESCOPOS, extrairPartes, montarResposta, htmlParaTexto, b64url, deB64url, TOKEN_URL };

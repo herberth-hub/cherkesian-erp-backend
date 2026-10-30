@@ -22,10 +22,10 @@ const IMAGENS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 const chaveConta = (conta) => conta.split('@')[0].toUpperCase().replace(/[^A-Z0-9]/g, '_');
 
-/** Consulta padrão: contato@ inteira (sem promoções/social); demais caixas só com o marcador "cotacoes". */
+/** Consulta padrão: contato@ sem promoções/social/atualizações/fóruns; demais caixas só com o marcador "cotacoes". */
 function consultaPadrao(conta) {
   return conta.startsWith('contato@')
-    ? 'in:inbox -from:me newer_than:4d -category:promotions -category:social'
+    ? 'in:inbox -from:me newer_than:4d -category:promotions -category:social -category:updates -category:forums'
     : 'in:inbox label:cotacoes -from:me newer_than:4d';
 }
 
@@ -224,10 +224,17 @@ class LeitorEmail {
           const p = this.estadoDisco.processados[`${c.conta}:${id}`];
           return !this.emFila.has(`${c.conta}:${id}`) && !(p && (p.status === 'processado' || p.status === 'falhou'));
         });
+        let ignorados = 0;
         for (const id of novos.slice(0, MAX_NOVOS_POR_VERIFICACAO)) {
           const email = await cx.obter(id);
-          const { blocos, naoLidos } = await this.blocosAnexos(cx, email);
           const chave = `${c.conta}:${id}`;
+          // Newsletter, notificação e e-mail de sistema saem antes da IA (custo zero).
+          if (email.automatico) {
+            this.estadoDisco.processados[chave] = { status: 'processado', ignorado: 'automatico', tentativas: 0, em: new Date().toISOString() };
+            ignorados++;
+            continue;
+          }
+          const { blocos, naoLidos } = await this.blocosAnexos(cx, email);
           this.emFila.add(chave);
           trabalhos.push({
             chave: `email:${chave}`,
@@ -239,7 +246,8 @@ class LeitorEmail {
             aoConcluir: (r) => this.concluir(chave, r.status === 'concluido'),
           });
         }
-        this.status.set(c.conta, { ultimaVerificacao: new Date().toISOString(), erro: null, novos: novos.length });
+        if (ignorados) this.salvarEstado();
+        this.status.set(c.conta, { ultimaVerificacao: new Date().toISOString(), erro: null, novos: novos.length, ignorados });
       } catch (e) {
         this.status.set(c.conta, { ultimaVerificacao: new Date().toISOString(), erro: e.message });
         this.eventos.emitir('alerta', { papel: 'vendedor', texto: e.message });
@@ -279,7 +287,8 @@ class LeitorEmail {
       urlPublica: Boolean(this.email.urlPublica),
       intervaloMin: this.email.intervaloMin,
       contas: this.email.contas.map((c) => ({ conta: c.conta, consulta: c.consulta, conectada: Boolean(this.refreshToken(c.conta)), ...(this.status.get(c.conta) || {}) })),
-      processadosHoje: proc.filter((p) => p.status === 'processado' && String(p.em).startsWith(hoje)).length,
+      processadosHoje: proc.filter((p) => p.status === 'processado' && !p.ignorado && String(p.em).startsWith(hoje)).length,
+      ignoradosHoje: proc.filter((p) => p.ignorado && String(p.em).startsWith(hoje)).length,
       falhas: proc.filter((p) => p.status === 'falhou').length,
       rascunhos: this.estadoDisco.rascunhos.slice(0, 15),
     };
