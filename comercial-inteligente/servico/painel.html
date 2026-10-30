@@ -1243,8 +1243,8 @@ document.addEventListener('click', async (ev) => {
       delete textos[`j-${b.dataset.aprovar}`]; resolveu = true;
     } else if (b.dataset.meta) { await api('/api/meta', { id: b.dataset.meta, aprovar: b.dataset.aprovarMeta === '1' }); resolveu = true; }
     else if (b.dataset.wenviar) {
-      const el = document.querySelector(`[data-texto="w-${b.dataset.wenviar}"]`);
-      await api('/api/whatsapp/aprovar', { id: b.dataset.wenviar, texto: el ? el.value : undefined });
+      // O texto vem do que você digitou (a mesma resposta aparece em "Minha manhã" e no Painel).
+      await api('/api/whatsapp/aprovar', { id: b.dataset.wenviar, texto: lerTexto(`w-${b.dataset.wenviar}`) || undefined });
       delete textos[`w-${b.dataset.wenviar}`]; resolveu = true;
     } else if (b.dataset.wdescartar) { await api('/api/whatsapp/descartar', { id: b.dataset.wdescartar }); resolveu = true; }
     else if (b.dataset.wassumir) await api('/api/whatsapp/assumir', { telefone: b.dataset.wassumir, assumir: b.dataset.valor === '1' });

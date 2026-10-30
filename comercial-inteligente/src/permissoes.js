@@ -126,6 +126,9 @@ function podeAtualizar(papel, entidade, atual, patch = {}) {
     throw new ErroNegocio('PERMISSAO_NEGADA', 'Vendedor não altera o status do cliente.');
   }
   if (entidade === 'tarefa' && papel !== 'humano') {
+    for (const campo of ['atribuidaPor', 'responsavel']) {
+      exigir(!(campo in patch) || patch[campo] === atual[campo], 'PERMISSAO_NEGADA', `"${campo}" da tarefa não muda por atualização: crie outra tarefa pela hierarquia (tarefa criar).`);
+    }
     const envolvido = atual.responsavel === papel || atual.atribuidaPor === papel || H.nivel(papel) > H.nivel(atual.atribuidaPor);
     exigir(envolvido, 'PERMISSAO_NEGADA', `Tarefa ${atual.id} não pertence a "${papel}".`);
   }

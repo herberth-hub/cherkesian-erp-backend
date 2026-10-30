@@ -152,6 +152,7 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 | `HC_WHATSAPP_AUTONOMIA` | `aprovacao` | `aprovacao` ou `automatico` (assuntos sensíveis sempre com aprovação). |
 | `HC_WHATSAPP_MSG_FORA_HORARIO` | — | Texto fixo enviado fora do expediente (opcional). |
 | `WHATSAPP_META_*` / `ZAPI_*` | — | Credenciais do provedor (ver Fase 3). |
+| `WHATSAPP_META_API_VERSION` | `v23.0` | Versão da Graph API da Meta usada no envio (atualize quando a Meta descontinuar a versão). |
 
 ## Implantação (Render ou outro servidor)
 

@@ -210,7 +210,7 @@ function verificarAbordagem(base, { grupoId, unidadeId }) {
   const corporativas = abertas.filter((o) => o.canal === 'corporativo' || !o.unidadeId);
   const destaUnidade = uni ? abertas.filter((o) => o.unidadeId === uni.id) : [];
   const outrasUnidades = abertas.filter((o) => o.unidadeId && (!uni || o.unidadeId !== uni.id) && o.canal !== 'corporativo');
-  const resumo = (o) => ({ id: o.id, titulo: o.titulo, etapa: o.etapa, responsavel: agentes[o.responsavelId] || o.responsavelId, unidadeId: o.unidadeId || null, canal: o.canal || null });
+  const resumo = (o) => ({ id: o.id, titulo: o.titulo, etapa: o.etapa, responsavelId: o.responsavelId, responsavel: agentes[o.responsavelId] || o.responsavelId, unidadeId: o.unidadeId || null, canal: o.canal || null });
   let orientacao;
   if (destaUnidade.length) orientacao = 'Já existe negociação nesta unidade: fale com o responsável antes de qualquer contato.';
   else if (corporativas.length && g.modeloCompra !== 'descentralizada') orientacao = `Negociação corporativa em andamento (compra ${g.modeloCompra}): alinhe com o responsável corporativo antes de abordar a unidade.`;
@@ -239,8 +239,11 @@ function conferirOportunidadeConta(base, dados) {
     out.grupoId = u.grupoId;
   }
   if (!out.canal) out.canal = out.unidadeId ? 'local' : 'corporativo';
-  const v = verificarAbordagem(base, { grupoId: out.grupoId, unidadeId: out.unidadeId });
-  const outra = (lista) => lista.find((o) => o.responsavel !== out.responsavelId);
+  const v0 = verificarAbordagem(base, { grupoId: out.grupoId, unidadeId: out.unidadeId });
+  // Numa atualização, a própria oportunidade não conta como conflito.
+  const semEla = (lista) => lista.filter((o) => o.id !== out.id);
+  const v = { ...v0, destaUnidade: semEla(v0.destaUnidade), corporativas: semEla(v0.corporativas) };
+  const outra = (lista) => lista.find((o) => o.responsavelId !== out.responsavelId);
   if (out.unidadeId && v.destaUnidade.length) {
     throw new ErroNegocio('CONFLITO_CONTA', `Já existe negociação aberta nesta unidade: ${v.destaUnidade.map((o) => `${o.id} (${o.responsavel})`).join(', ')}. Atualize-a em vez de abrir outra.`);
   }
@@ -374,20 +377,23 @@ function painelContas(base, premissas = premissasContas(base)) {
   };
 }
 
+/** Conferências do comprador (cadastro e atualização). */
+function conferirComprador(base, dados) {
+  base.exigir('grupo', dados.grupoId);
+  if (dados.nivel === 'local' && !dados.unidadeId) throw new ErroNegocio('ARGUMENTO_AUSENTE', 'Comprador local precisa de unidadeId.');
+  if (dados.unidadeId && base.exigir('unidade', dados.unidadeId).grupoId !== dados.grupoId) throw new ErroNegocio('GRUPO_DIVERGENTE', 'A unidade do comprador é de outro grupo.');
+  if (dados.confirmacao === 'evidenciada' && !String(dados.evidenciaFuncao || '').trim()) {
+    throw new ErroNegocio('EVIDENCIA_AUSENTE', 'Para marcar a função como "evidenciada", descreva a evidência em evidenciaFuncao (o cargo sozinho não basta).');
+  }
+}
+
 /** Criação de registros de grandes contas com as conferências deste módulo. */
 function registrarConta(base, agente, entidade, dados) {
   P.podeCriar(agente, entidade, dados);
   let d = dados;
   if (entidade === 'unidade') d = conferirUnidade(base, { status: 'nao_explorada', potencialContrato: 'desconhecido', ...dados });
   if (entidade === 'empresa') base.exigir('grupo', dados.grupoId);
-  if (entidade === 'comprador') {
-    base.exigir('grupo', dados.grupoId);
-    if (dados.nivel === 'local' && !dados.unidadeId) throw new ErroNegocio('ARGUMENTO_AUSENTE', 'Comprador local precisa de unidadeId.');
-    if (dados.unidadeId && base.exigir('unidade', dados.unidadeId).grupoId !== dados.grupoId) throw new ErroNegocio('GRUPO_DIVERGENTE', 'A unidade do comprador é de outro grupo.');
-    if (dados.confirmacao === 'evidenciada' && !String(dados.evidenciaFuncao || '').trim()) {
-      throw new ErroNegocio('EVIDENCIA_AUSENTE', 'Para marcar a função como "evidenciada", descreva a evidência em evidenciaFuncao (o cargo sozinho não basta).');
-    }
-  }
+  if (entidade === 'comprador') conferirComprador(base, dados);
   if (entidade === 'grupo') d = { modeloCompra: 'desconhecido', status: 'mapeando', ...dados };
   return base.criar(entidade, d, agente);
 }
@@ -408,4 +414,5 @@ module.exports = {
   arvoreGrupo,
   painelContas,
   registrarConta,
+  conferirComprador,
 };

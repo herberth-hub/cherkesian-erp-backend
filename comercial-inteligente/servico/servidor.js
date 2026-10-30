@@ -22,6 +22,8 @@ const PR = require('../src/protocolo');
 
 const HTML = path.join(__dirname, 'painel.html');
 const LIMITE_CORPO = 64 * 1024;
+/** A Meta agrupa vários eventos por POST: o webhook aceita corpos maiores (até ~3 MB pela documentação). */
+const LIMITE_WEBHOOK = 5 * 1024 * 1024;
 
 function iguais(a, b) {
   const x = Buffer.from(String(a || ''));
@@ -31,7 +33,12 @@ function iguais(a, b) {
 
 function cookie(req, nome) {
   const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${nome}=([^;]+)`));
-  return m ? decodeURIComponent(m[1]) : null;
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null; // cookie malformado: trata como ausente (nunca derruba o servidor)
+  }
 }
 
 function json(res, status, dados) {
@@ -61,13 +68,13 @@ function lerCorpo(req) {
   });
 }
 
-function lerBruto(req) {
+function lerBruto(req, limite = LIMITE_CORPO) {
   return new Promise((resolve, reject) => {
     let tam = 0;
     const partes = [];
     req.on('data', (c) => {
       tam += c.length;
-      if (tam > LIMITE_CORPO) {
+      if (tam > limite) {
         reject(new Error('Corpo grande demais.'));
         req.destroy();
       } else partes.push(c);
@@ -146,7 +153,7 @@ const GRUPOS_FUNIL = [
   ['Qualificado', ['necessidade_levantada']],
   ['Cotação', ['cotacao_solicitada', 'proposta_em_preparacao']],
   ['Proposta', ['proposta_enviada', 'negociacao', 'aguardando_decisao']],
-  ['Fechado', ['pedido_ganho']],
+  ['Fechado', ['pedido_ganho', 'pos_venda']],
 ];
 function resumoFunil(oportunidades, agoraMs = Date.now()) {
   return GRUPOS_FUNIL.map(([nome, etapas]) => {
@@ -344,8 +351,8 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       const w = exigirWhatsapp();
       const texto = String(c.texto || '').trim();
       if (!texto) throw Object.assign(new Error('Escreva a mensagem.'), { status: 422 });
-      w.assumir(c.telefone, true);
       await w.enviarTexto(c.telefone, texto, 'humano');
+      w.assumir(c.telefone, true); // só depois do envio: se falhar, a conversa continua como estava
       return { ok: true };
     },
     'POST /api/politica': (c) => {
@@ -414,7 +421,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
     },
   };
 
-  return http.createServer(async (req, res) => {
+  const atender = async (req, res) => {
     const url = new URL(req.url, 'http://painel');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -463,7 +470,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       if (req.method !== 'POST') return json(res, 405, { erro: 'Método não permitido.' });
       let bruto;
       try {
-        bruto = await lerBruto(req);
+        bruto = await lerBruto(req, LIMITE_WEBHOOK);
       } catch {
         return json(res, 413, { erro: 'Corpo grande demais.' });
       }
@@ -553,6 +560,19 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
     } catch (e) {
       return json(res, e.status || (e.codigo ? 422 : 500), { erro: e.message, codigo: e.codigo || null });
     }
+  };
+
+  // Rede de segurança: nenhuma requisição malformada (URL, cabeçalho, corpo) derruba o processo.
+  return http.createServer((req, res) => {
+    atender(req, res).catch((e) => {
+      try {
+        if (!res.headersSent) json(res, 400, { erro: 'Requisição inválida.' });
+        else res.end();
+      } catch {
+        // conexão já encerrada
+      }
+      if (!(e instanceof URIError || e instanceof TypeError)) console.error('Erro não tratado no painel:', e);
+    });
   });
 }
 
