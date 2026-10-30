@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/agente.schema.json",
+  "title": "agente",
+  "x-prefixo": "AGT",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "nome": {
+      "type": "string",
+      "minLength": 1
+    },
+    "papel": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "tipo": {
+      "enum": [
+        "agente_ia",
+        "humano"
+      ]
+    },
+    "superiorId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "email": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ativo": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "nome",
+    "papel",
+    "tipo",
+    "ativo"
+  ]
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "LEA-0001",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-05T12:00:00.000Z",
+    "atualizadoEm": "2026-10-05T12:00:00.000Z",
+    "criadoPor": "humano",
+    "empresa": "Rede de Clínicas Demo Zeta (FICTÍCIA)",
+    "cnpj": null,
+    "segmento": "saude",
+    "fonte": "indicação",
+    "status": "qualificado",
+    "responsavelId": "AGT-0006",
+    "cidadeUf": "Cidade Exemplo/SP",
+    "motivoDescarte": null,
+    "oportunidadeId": "OPO-0003"
+  },
+  {
+    "id": "LEA-0002",
+    "ficticio": true,
+    "origem": "demo",
+    "criadoEm": "2026-10-20T12:00:00.000Z",
+    "atualizadoEm": "2026-10-20T12:00:00.000Z",
+    "criadoPor": "humano",
+    "empresa": "Prefeitura Demo Eta (FICTÍCIA)",
+    "cnpj": null,
+    "segmento": "publico",
+    "fonte": "portal de licitações",
+    "status": "novo",
+    "responsavelId": "AGT-0004",
+    "cidadeUf": "Cidade Exemplo/SP",
+    "motivoDescarte": null,
+    "oportunidadeId": "OPO-0007"
+  }
+]

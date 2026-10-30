@@ -1,0 +1,46 @@
+# Render Blueprint — Diretoria Comercial de IA (app separado do ERP Cherkesian)
+# Não substitui o render.yaml da raiz (que publica o ERP). Ao criar o Blueprint no Render,
+# informe o caminho deste arquivo: comercial-inteligente/render.yaml
+# Passo a passo: comercial-inteligente/IMPLANTACAO.md
+services:
+  - type: web
+    name: hc-diretoria-comercial
+    runtime: node
+    # Plano pago: precisa ficar sempre ligado (o gratuito hiberna) e ter disco permanente.
+    plan: starter
+    region: oregon            # mesma região do ERP (leitura da API do ERP fica mais rápida)
+    branch: main
+    rootDir: comercial-inteligente
+    buildCommand: npm ci
+    startCommand: node bin/servico.js
+    healthCheckPath: /saude
+    autoDeploy: true
+    # Disco permanente: conversas, CRM comercial, filas e tokens sobrevivem a novos deploys.
+    disk:
+      name: dados-agentes
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TZ
+        value: America/Sao_Paulo
+      # Base, pasta de dados e senha do painel são definidas por você no Render (sync: false):
+      # o Blueprint nunca sobrescreve esses valores. Na criação, use HC_BASE=demo e
+      # HC_DATA_DIR=/var/data/demo; para produção, HC_BASE=producao e HC_DATA_DIR=/var/data/producao.
+      # PAINEL_TOKEN: texto longo, só letras e números (mínimo 16 caracteres).
+      - key: HC_BASE
+        sync: false
+      - key: HC_DATA_DIR
+        sync: false
+      - key: PAINEL_TOKEN
+        sync: false
+      # Teto principal de gasto com IA por dia, em US$ (custo estimado; o painel mostra o consumo).
+      - key: HC_ORCAMENTO_USD_DIA
+        value: "5"
+      # Teto secundário em tokens "cheios" (leitura de cache não conta: custa ~10%).
+      - key: HC_ORCAMENTO_TOKENS_DIA
+        value: "2000000"
+      # Chave da API do Claude. Vazia = modo simulado (agentes rodam sem IA, custo zero).
+      - key: ANTHROPIC_API_KEY
+        sync: false

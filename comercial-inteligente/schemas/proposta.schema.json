@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/proposta.schema.json",
+  "title": "proposta",
+  "x-prefixo": "PRO",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^PRO-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "oportunidadeId": {
+      "type": "string",
+      "pattern": "^OPO-\\d{4,}$"
+    },
+    "itens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "produtoId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^PRD-\\d{4,}$"
+          },
+          "descricao": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantidade": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "precoUnitario": {
+            "type": "number",
+            "minimum": 0
+          },
+          "custoVariavelUnitario": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "componentesCusto": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "descricao",
+          "quantidade",
+          "precoUnitario"
+        ]
+      }
+    },
+    "premissasCusto": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "impostosPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "comissaoPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "freteTotal": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "outrosCustosVariaveis": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "observacoes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "condicoesPagamento": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "validadeAte": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "prazoEntrega": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dias": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "confirmadoOperacao": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirmadoOperacao"
+      ]
+    },
+    "status": {
+      "enum": [
+        "rascunho",
+        "aguardando_aprovacao",
+        "aprovada",
+        "enviada",
+        "aceita",
+        "recusada",
+        "expirada"
+      ]
+    },
+    "avaliacao": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "justificativaDesconto": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "enviadaEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "respondidaEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "oportunidadeId",
+    "itens",
+    "status",
+    "prazoEntrega"
+  ]
+}

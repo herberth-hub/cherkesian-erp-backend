@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/produto.schema.json",
+  "title": "produto",
+  "x-prefixo": "PRD",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^PRD-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "descricao": {
+      "type": "string",
+      "minLength": 1
+    },
+    "categoria": {
+      "enum": [
+        "camiseta_polo",
+        "camisa_social",
+        "calca",
+        "jaleco",
+        "avental",
+        "privativo_hospitalar",
+        "macacao",
+        "personalizado",
+        "protecao_acessorio",
+        "outro"
+      ]
+    },
+    "codigoErp": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "precoAutorizado": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "precoFonte": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "custoVariavelUnitario": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "custoFonte": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "componentesCusto": {
+      "type": "object"
+    },
+    "certificacoes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "minLength": 1
+          },
+          "numero": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "documento": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validadoDocumento": {
+            "type": "boolean"
+          },
+          "validadeAte": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "tipo",
+          "validadoDocumento"
+        ]
+      }
+    },
+    "ativo": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "descricao",
+    "categoria",
+    "precoAutorizado",
+    "custoVariavelUnitario"
+  ]
+}

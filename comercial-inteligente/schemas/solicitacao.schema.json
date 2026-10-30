@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/solicitacao.schema.json",
+  "title": "solicitacao",
+  "x-prefixo": "SOL",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^SOL-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "solicitante": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "responsavel": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "fluxo": {
+      "enum": [
+        "delegacao",
+        "escalonamento"
+      ]
+    },
+    "raizId": {
+      "type": "string",
+      "pattern": "^SOL-\\d{4,}$"
+    },
+    "origemId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^SOL-\\d{4,}$"
+    },
+    "profundidade": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "referencia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "objetivo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dadosDisponiveis": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "informacoesFaltantes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prazo": {
+      "type": "string",
+      "format": "date"
+    },
+    "resultadoEsperado": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "pendente",
+        "em_andamento",
+        "aguardando_informacao",
+        "aguardando_aprovacao",
+        "concluida",
+        "bloqueada"
+      ]
+    },
+    "respostas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tipo": {
+            "enum": [
+              "decisao",
+              "pedido_informacao",
+              "informacao",
+              "escalonamento",
+              "conclusao"
+            ]
+          },
+          "por": {
+            "enum": [
+              "ceo",
+              "diretor",
+              "gerente",
+              "vendedor",
+              "humano"
+            ]
+          },
+          "em": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "texto": {
+            "type": "string",
+            "minLength": 1
+          },
+          "escalonadaPara": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^SOL-\\d{4,}$"
+          }
+        },
+        "required": [
+          "tipo",
+          "por",
+          "em",
+          "texto"
+        ]
+      }
+    },
+    "decisao": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "solicitante",
+    "responsavel",
+    "fluxo",
+    "raizId",
+    "profundidade",
+    "objetivo",
+    "prazo",
+    "resultadoEsperado",
+    "status",
+    "respostas",
+    "informacoesFaltantes"
+  ]
+}

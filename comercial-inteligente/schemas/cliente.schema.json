@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/cliente.schema.json",
+  "title": "cliente",
+  "x-prefixo": "CLI",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "humano"
+      ]
+    },
+    "razaoSocial": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nomeFantasia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cnpj": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{14}$"
+    },
+    "segmento": {
+      "enum": [
+        "saude",
+        "lavanderia",
+        "industria",
+        "facilities",
+        "construcao",
+        "servicos",
+        "distribuidores",
+        "publico",
+        "outro"
+      ]
+    },
+    "status": {
+      "enum": [
+        "prospect",
+        "ativo",
+        "inativo"
+      ]
+    },
+    "cidadeUf": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "responsavelId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^AGT-\\d{4,}$"
+    },
+    "estrategico": {
+      "type": "boolean"
+    },
+    "ultimaCompraEm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "obs": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "razaoSocial",
+    "segmento",
+    "status"
+  ]
+}
