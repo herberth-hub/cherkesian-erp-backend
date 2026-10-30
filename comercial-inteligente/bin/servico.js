@@ -16,6 +16,7 @@ const { criarServidor } = require('../servico/servidor');
 const { criarExecutorClaude, criarExecutorSimulado } = require('../servico/agente');
 const { LeitorEmail } = require('../servico/email');
 const { CanalWhatsapp } = require('../servico/whatsapp');
+const { SincronizacaoErp } = require('../servico/sincronizacao');
 const { Base } = require('../src/store');
 
 const cfg = carregar();
@@ -40,7 +41,9 @@ if (cfg.modo === 'claude') {
   executarJob = criarExecutorSimulado({ cfg });
 }
 
-const orquestrador = new Orquestrador({ cfg, executarJob, eventos, leitorEmail, whatsapp });
+const abrirBase = () => Base.abrir({ nome: cfg.base, dir: cfg.dataDir });
+const sincronizacao = new SincronizacaoErp({ cfg, dir, eventos, abrirBase });
+const orquestrador = new Orquestrador({ cfg, executarJob, eventos, leitorEmail, whatsapp, sincronizacao });
 const servidor = criarServidor({ orquestrador, eventos, token });
 
 servidor.listen(cfg.porta, () => {

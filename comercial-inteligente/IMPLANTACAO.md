@@ -86,6 +86,8 @@ Tudo pelo painel, no botão **Configurar** (topo da tela):
 5. **Configurar → Importar do ERP** — toque, nesta ordem: **Importar clientes**, **Importar produtos**, **Importar pedidos**;
    depois escolha o vendedor responsável e toque **Importar leads**. É só leitura: nada muda no ERP, e reimportar atualiza sem duplicar.
 6. **Configurar → Saúde da base** deve mostrar "Todos os registros válidos".
+7. A partir daí a **importação é automática**: todo dia útil às 06:00 o app reimporta tudo do ERP (sem duplicar) antes de os agentes
+   começarem. O resultado aparece em **Configurar → Importar do ERP → Importação automática**, com o botão **Sincronizar agora**.
 
 > Alternativa por linha de comando (Shell do Render, pasta `comercial-inteligente`): `node bin/hc.js politica definir --agente humano --json '{...}'`,
 > `node bin/hc.js registrar agente --agente humano --json '{...}'`, `node bin/hc.js erp importar --recurso clientes --agente humano` e

@@ -238,7 +238,13 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
         throw Object.assign(e, { status: e.status || 422 });
       }
       eventos.emitir('decisao-humana', { papel: 'humano', texto: `Importação do ERP (${c.recurso}): ${resumo.criados} novos, ${resumo.atualizados} atualizados, ${resumo.erros.length} com erro` });
+      // O vendedor escolhido na importação manual de leads vira o padrão da importação automática.
+      if (c.recurso === 'leads' && c.responsavel && orquestrador.sincronizacao) orquestrador.sincronizacao.definirResponsavel(c.responsavel);
       return resumo;
+    },
+    'POST /api/erp/sincronizar': async () => {
+      if (!orquestrador.sincronizacao) throw Object.assign(new Error('Importação automática não habilitada neste serviço.'), { status: 404 });
+      return orquestrador.sincronizacao.executar('manual');
     },
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
@@ -350,7 +356,9 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
         return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase()), eventos: eventos.recentes.slice(-120) });
       }
       if (req.method === 'GET' && url.pathname === '/api/config') {
-        return json(res, 200, visaoConfig(orquestrador.abrirBase(), env));
+        const vc = visaoConfig(orquestrador.abrirBase(), env);
+        vc.erp.sincronizacao = orquestrador.sincronizacao ? orquestrador.sincronizacao.estado() : null;
+        return json(res, 200, vc);
       }
       if (req.method === 'GET' && url.pathname === '/api/eventos') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
