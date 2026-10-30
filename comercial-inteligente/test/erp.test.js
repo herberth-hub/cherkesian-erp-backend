@@ -54,6 +54,25 @@ test('importação com cliente HTTP simulado: cria, depois atualiza sem duplicar
   assert.ok(b.listar('pedido').every((p) => p.origem === 'erp' && p.ficticio === false));
 });
 
+test('importação: unidades do mesmo cliente com o mesmo nome no ERP entram todas (e seus pedidos também)', async () => {
+  const b = baseVazia();
+  const unidades = [
+    { id: 51, nome: 'SANTA CASA TESTE', cnpjCpf: '11222333000181', clienteNovo: false },
+    { id: 139, nome: 'SANTA CASA TESTE', cnpjCpf: '11222333000262', clienteNovo: false },
+    { id: 140, nome: 'Santa Casa Teste', cnpjCpf: null, clienteNovo: false },
+  ];
+  const pedidos = unidades.map((u, i) => ({ ...PEDIDO, id: 900 + i, numero: `PV9${i}`, clienteId: u.id }));
+  const cliente = { get: async (c) => ({ '/clientes': unidades, '/pedidos': pedidos }[c]) };
+  const rc = await E.importar(b, 'clientes', { cliente });
+  assert.equal(rc.criados, 3, rc.erros.join(' | '));
+  const rp = await E.importar(b, 'pedidos', { cliente });
+  assert.equal(rp.criados, 3, rp.erros.join(' | '));
+  assert.equal((await E.importar(b, 'clientes', { cliente })).atualizados, 3, 'reimportar atualiza, não duplica');
+  assert.equal(b.listar('cliente').length, 3);
+  // cadastro manual continua protegido contra duplicidade por nome
+  assert.throws(() => b.criar('cliente', { razaoSocial: 'Santa Casa Teste', segmento: 'saude', status: 'prospect' }, 'vendedor'), /equivalente/);
+});
+
 test('cliente HTTP exige variáveis de ambiente', () => {
   assert.throws(() => new E.ErpLeitura({ url: '', usuario: '', senha: '' }), /ERP_API_URL, ERP_USUARIO, ERP_SENHA/);
 });

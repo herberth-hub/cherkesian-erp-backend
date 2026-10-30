@@ -145,8 +145,9 @@ class Base {
   duplicado(entidade, reg) {
     const lista = this.listar(entidade);
     if (reg.erpId) {
-      const porErp = lista.find((r) => r.erpId && r.erpId === reg.erpId);
-      if (porErp) return porErp;
+      // Registro vindo do ERP: o ERP é a fonte da verdade e cada registro dele tem código próprio.
+      // Unidades/filiais com o mesmo nome são registros distintos lá; aqui também (só o erpId identifica).
+      return lista.find((r) => r.erpId && r.erpId === reg.erpId) || null;
     }
     if (entidade === 'cliente' || entidade === 'lead') {
       const nome = normalizar(reg.razaoSocial || reg.empresa);
