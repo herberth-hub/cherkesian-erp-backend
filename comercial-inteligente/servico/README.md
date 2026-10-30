@@ -118,6 +118,15 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
   `ZAPI_WEBHOOK_SEGREDO` (texto longo que você inventa) e, na Z-API, o webhook "Ao receber":
   `https://<endereço-do-painel>/webhook/whatsapp?segredo=<ZAPI_WEBHOOK_SEGREDO>`.
 
+## Conversar e dar ordens aos agentes
+
+- Toque num agente (Painel ou Escritório) → aba **Conversa**: pergunte ou peça algo. A mensagem vira trabalho na fila do
+  agente (com as últimas mensagens como contexto) e a resposta volta para a conversa. Conversas ficam em `<base>/conversas.json`.
+- **Ctrl K** (ou "Buscar ou dar ordem"): busca casos, agentes, oportunidades, telas e ações; `vendedor, priorize o pregão`
+  envia a ordem direto para o agente.
+- A ordem não amplia permissões: o agente continua limitado pela CLI, pela hierarquia e pela alçada do próprio papel.
+  Fora do expediente, pausado ou com o teto de gasto atingido, a mensagem espera na fila. Cada mensagem consome IA (modelo de rotina).
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Uso |
