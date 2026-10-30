@@ -23,8 +23,9 @@ const { PAPEIS } = require('./config');
 const MAX_TENTATIVAS = 4;
 
 class Orquestrador {
-  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS, leitorEmail = null, whatsapp = null }) {
+  constructor({ cfg, executarJob, eventos, agora = () => new Date(), rotinas = ROTINAS, leitorEmail = null, whatsapp = null, sincronizacao = null }) {
     this.cfg = cfg;
+    this.sincronizacao = sincronizacao;
     this.leitorEmail = leitorEmail;
     this.whatsapp = whatsapp;
     this.falhasWhatsapp = new Map(); // telefone -> { n, ate } (falhas seguidas desde a última mensagem)
@@ -255,6 +256,10 @@ class Orquestrador {
 
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
   tick() {
+    // Importação diária do ERP: roda no horário dela (antes da abertura), mesmo fora do expediente dos agentes.
+    if (this.sincronizacao && this.sincronizacao.devidaAgora()) {
+      this.sincronizacao.executar('automatica').catch((e) => this.eventos.emitir('alerta', { texto: `Importação do ERP: ${e.message}` }));
+    }
     const aberto = this.expediente();
     if (aberto !== this.expedienteAnterior) {
       this.eventos.emitir('expediente', { aberto });

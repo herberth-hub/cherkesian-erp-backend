@@ -217,6 +217,7 @@ function linhaEvento(ev) {
   if (ev.tipo === 'enfileirado') return `<div class="ev nota">${t}na fila: ${esc(ev.titulo)}</div>`;
   if (ev.tipo === 'rascunho') return `<div class="ev ok">${t}<span class="tag">✉ rascunho</span>${esc(ev.texto)}</div>`;
   if (ev.tipo === 'whatsapp' || ev.tipo === 'whatsapp-proposta') return `<div class="ev">${t}<span class="tag">💬</span>${esc(ev.texto)}</div>`;
+  if (ev.tipo === 'erp') return `<div class="ev">${t}<span class="tag">⇅ ERP</span>${esc(ev.texto)}</div>`;
   if (ev.tipo === 'email') return `<div class="ev">${t}<span class="tag">✉</span>${esc(ev.texto)}</div>`;
   if (ev.tipo === 'alerta') return `<div class="ev erro">${t}<span class="tag">!</span>${esc(ev.texto)}</div>`;
   return '';
@@ -404,6 +405,15 @@ async function carregarConfig() {
   erp += `<div class="acoes">${['clientes', 'produtos', 'pedidos'].map((r) => `<button data-importar="${r}" ${pode ? '' : 'disabled'}>Importar ${r}</button>`).join('')}</div>`;
   erp += `<div class="linha" style="margin-top:10px"><label class="campo">Leads do CRM do ERP: vendedor responsável<select id="iResp">${vendedores.map((v) => `<option value="${v.id}">${esc(v.nome)}</option>`).join('') || '<option value="">cadastre um vendedor primeiro</option>'}</select></label></div>`;
   erp += `<button data-importar="leads" ${pode && vendedores.length ? '' : 'disabled'}>Importar leads</button>`;
+  const sy = e.sincronizacao;
+  if (sy) {
+    const u = sy.ultima;
+    const linhas = u ? u.resultados.map((r) => (r.pulado ? `${r.recurso}: pulado (${r.pulado})` : r.falha ? `${r.recurso}: FALHA — ${r.falha}` : `${r.recurso}: ${r.criados} novos, ${r.atualizados} atualizados${r.erros ? `, ${r.erros} com erro` : ''}`)) : [];
+    const resp = config.agentes.find((a) => a.id === sy.responsavelLeads);
+    erp += `<h3>Importação automática</h3><p class="vazio">${sy.ativa ? `Todo dia útil às ${esc(sy.hora)} (clientes → produtos → pedidos → leads).` : 'Desligada (HC_ERP_SYNC=off).'} Leads para: ${resp ? esc(resp.nome) : 'defina importando os leads manualmente uma vez'}.</p>`;
+    erp += u ? `<p class="msg ${u.ok ? 'ok' : 'erro'}">Última (${u.origem === 'manual' ? 'manual' : 'automática'}, ${hora(u.fim)} de ${esc(u.fim.slice(8, 10))}/${esc(u.fim.slice(5, 7))}): ${linhas.map(esc).join(' · ')}</p>` : '<p class="vazio">Ainda não rodou.</p>';
+    erp += `<button data-sincronizar="1" ${pode && !sy.emAndamento ? '' : 'disabled'}>${sy.emAndamento ? 'Sincronizando…' : 'Sincronizar agora'}</button>`;
+  }
   document.getElementById('cErp').innerHTML = erp;
 
   document.getElementById('cSaude').innerHTML = config.saude.ok
@@ -460,6 +470,15 @@ document.addEventListener('click', async (ev) => {
       } catch (e) { mensagem('mEquipe', e.message, false); }
       return;
     } else if (b.dataset.ativo) { await api('/api/agentes/ativo', { id: b.dataset.ativo, ativo: b.dataset.valor === '1' }); await carregarConfig(); return; }
+    else if (b.dataset.sincronizar) {
+      mensagem('mErp', 'Sincronizando com o ERP (clientes → produtos → pedidos → leads)…', true);
+      try {
+        const r = await api('/api/erp/sincronizar', {});
+        await carregarConfig();
+        mensagem('mErp', r.ok ? 'Sincronização concluída.' : 'Sincronização terminou com problemas (detalhes acima).', r.ok);
+      } catch (e) { mensagem('mErp', e.message, false); }
+      return;
+    }
     else if (b.dataset.importar) {
       mensagem('mErp', `Importando ${b.dataset.importar}…`, true);
       try {
