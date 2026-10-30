@@ -183,7 +183,7 @@ class Orquestrador {
         }
         continue;
       }
-      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro })) {
+      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro, ...this.enxuto() })) {
         this.vistos.add(chave);
         this.tentativas.set(kt, n + 1);
       }
@@ -203,7 +203,7 @@ class Orquestrador {
       .verificar()
       .then((trabalhos) => {
         for (const t of trabalhos) {
-          if (!this.enfileirar('vendedor', t)) this.leitorEmail.emFila.delete(t.chave.replace(/^email:/, ''));
+          if (!this.enfileirar('vendedor', { ...t, ...this.enxuto() })) this.leitorEmail.emFila.delete(t.chave.replace(/^email:/, ''));
         }
         if (trabalhos.length) this.eventos.emitir('email', { papel: 'vendedor', texto: `${trabalhos.length} e-mail(s) novo(s) para triagem.` });
         return this.despachar();
@@ -254,6 +254,11 @@ class Orquestrador {
     return job;
   }
 
+  /** Trabalhos de rotina (rotinas, e-mails, tarefas entre agentes): raciocínio enxuto e o modelo de rotina. */
+  enxuto() {
+    return { esforco: this.cfg.esforcoRotina, modelo: this.cfg.modeloRotina };
+  }
+
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
   tick() {
     // Importação diária do ERP: roda no horário dela (antes da abertura), mesmo fora do expediente dos agentes.
@@ -268,7 +273,7 @@ class Orquestrador {
     if (!aberto) return;
     for (const { rotina, slot } of vencidas(this.agora(), this.cfg, this.executadas, this.rotinas)) {
       this.executadas.add(`${rotina.id}@${slot}`);
-      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, esforco: this.cfg.esforcoRotina });
+      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto() });
     }
     this.salvarEstado();
     this.verificarEmail();
@@ -369,7 +374,7 @@ class Orquestrador {
   executarRotina(id) {
     const r = this.rotinas.find((x) => x.id === id);
     if (!r) return null;
-    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, esforco: this.cfg.esforcoRotina });
+    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, ...this.enxuto() });
   }
 
   estado() {

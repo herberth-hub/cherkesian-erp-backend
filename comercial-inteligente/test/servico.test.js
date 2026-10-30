@@ -382,3 +382,30 @@ test('painel: autenticação, estado, CSRF, decisão humana e eventos ao vivo', 
     srv.close();
   }
 });
+
+test('modo enxuto: rotinas, e-mails e tarefas usam o modelo de rotina com esforço baixo; custo pelo preço do modelo', async () => {
+  const { precosDe } = require('../servico/config');
+  const padrao = carregar({});
+  assert.equal(padrao.modeloRotina, 'claude-opus-5-5', 'sem escolha, nada muda de modelo');
+  assert.equal(padrao.limites.iteracoesPorTarefa, 8);
+  const c = carregar({ HC_MODELO_ROTINA: 'claude-sonnet-5-5' });
+  assert.equal(c.modeloRotina, 'claude-sonnet-5-5');
+  assert.equal(precosDe(c, 'claude-sonnet-5-5').entrada, 2);
+  assert.equal(precosDe(c, 'claude-opus-5-5').entrada, 4);
+
+  const b = baseDemo();
+  const cfg = { ...cfgTeste(b.dir, { modo: 'claude' }), modeloRotina: 'claude-haiku-5-5' };
+  const cliente = clienteFalso([{ stop_reason: 'end_turn', usage: { input_tokens: 1e6, output_tokens: 0 }, content: [{ type: 'text', text: 'ok' }] }]);
+  let usd = 0;
+  const o = new Orquestrador({ cfg, eventos: new Eventos({}), executarJob: criarExecutorClaude({ cfg, cliente }), agora: () => QUI_1000 });
+  const job = { origem: 'rotina', titulo: 'Ronda', instrucao: 'x', ...o.enxuto() };
+  await criarExecutorClaude({ cfg, cliente })('gerente', job, { ...ctlLivre([]), registrarTokens: (n, custo) => (usd += custo) });
+  const p = cliente.chamadas[0];
+  assert.equal(p.model, 'claude-haiku-5-5');
+  assert.equal(p.output_config.effort, 'low');
+  assert.equal(p.fallbacks, undefined, 'Haiku não tem fallback no servidor');
+  assert.equal(Math.round(usd * 100) / 100, 0.1, '1M de entrada no Haiku 5.5 = US$ 0,10');
+
+  const ronda = ROTINAS.filter((r) => r.id.startsWith('gerente-follow-up'));
+  assert.deepEqual(ronda.map((r) => r.hora), ['11:00', '15:30'], 'duas rondas por dia (antes: a cada 2 h)');
+});
