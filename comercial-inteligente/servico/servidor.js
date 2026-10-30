@@ -77,10 +77,90 @@ function lerBruto(req) {
   });
 }
 
+/** Primeira frase de um texto, cortada em `max` caracteres. */
+function primeiraFrase(texto, max = 110) {
+  const t = String(texto || '').replace(/\s+/g, ' ').trim();
+  // Fim da frase: . ! ? seguido de espaço, fora de parênteses.
+  let f = t;
+  for (let i = 0, nivel = 0; i < t.length; i++) {
+    if (t[i] === '(') nivel++;
+    else if (t[i] === ')') nivel = Math.max(0, nivel - 1);
+    else if (!nivel && '.!?'.includes(t[i]) && (i === t.length - 1 || t[i + 1] === ' ')) { f = t.slice(0, i + 1); break; }
+  }
+  return f.length > max ? `${f.slice(0, max - 1).trimEnd()}…` : f;
+}
+
+/** Alternativas que o agente listou como "(A) participar ... (B) declinar". */
+function extrairOpcoes(texto) {
+  const out = [];
+  const re = /\(([A-E])\)\s*([^;\n(]{3,90}?)(?=\s*(?:[;\n]|\([A-E]\)|\.\s|$))/g;
+  let m;
+  while ((m = re.exec(String(texto || ''))) && out.length < 4) {
+    if (!out.some((o) => o.letra === m[1])) out.push({ letra: m[1], texto: m[2].trim().replace(/[,.:]$/, '') });
+  }
+  return out;
+}
+
+/** Recomendação do agente, se ele escreveu uma ("Recomendo…", "Recomendação: …"). */
+function extrairRecomendacao(texto) {
+  const m = String(texto || '').replace(/\s+/g, ' ').match(/(recomend[^.:]*[:.]?\s*[^.]+\.)/i);
+  return m ? primeiraFrase(m[1], 220) : null;
+}
+
+/**
+ * Casos para o humano: cada solicitação que chegou até ele vira UM caso, com a cadeia
+ * (vendedor → gerente → diretor → CEO → você) resumida em uma linha por salto.
+ */
+function casosParaHumano(sols, paraHumano, hoje) {
+  const porId = new Map(sols.map((s) => [s.id, s]));
+  return paraHumano.map((s) => {
+    const cadeia = [];
+    for (let atual = s, i = 0; atual && i < 10; atual = porId.get(atual.origemId), i++) cadeia.unshift(atual);
+    const textoCompleto = [s.objetivo, s.dadosDisponiveis, ...(s.respostas || []).map((r) => r.texto)].filter(Boolean).join('\n\n');
+    const raiz = cadeia[0];
+    const urgente = Boolean(s.prazo && s.prazo <= hoje);
+    return {
+      id: s.id,
+      raizId: s.raizId || raiz.id,
+      titulo: primeiraFrase(s.objetivo, 120),
+      prazo: s.prazo || null,
+      urgente,
+      pedidoInformacao: s.solicitante === 'humano' && s.status === 'aguardando_informacao',
+      de: s.solicitante,
+      recomendacao: extrairRecomendacao(textoCompleto),
+      opcoes: extrairOpcoes(textoCompleto),
+      fatos: [
+        { k: 'Começou com', v: raiz.solicitante },
+        { k: 'Prazo', v: s.prazo || 'sem prazo' },
+        { k: 'Saltos', v: String(cadeia.length) },
+      ],
+      cadeia: cadeia.map((c) => ({ id: c.id, de: c.solicitante, para: c.responsavel, resumo: primeiraFrase(c.objetivo, 140) })),
+      textoCompleto: textoCompleto.slice(0, 6000),
+    };
+  });
+}
+
+/** Funil em 5 colunas com contagem e oportunidades paradas há mais de 5 dias. */
+const GRUPOS_FUNIL = [
+  ['Lead', ['lead_identificado', 'lead_qualificado', 'contato_realizado']],
+  ['Qualificado', ['necessidade_levantada']],
+  ['Cotação', ['cotacao_solicitada', 'proposta_em_preparacao']],
+  ['Proposta', ['proposta_enviada', 'negociacao', 'aguardando_decisao']],
+  ['Fechado', ['pedido_ganho']],
+];
+function resumoFunil(oportunidades, agoraMs = Date.now()) {
+  return GRUPOS_FUNIL.map(([nome, etapas]) => {
+    const itens = oportunidades.filter((o) => etapas.includes(o.etapa));
+    const paradas = nome === 'Fechado' ? 0 : itens.filter((o) => agoraMs - new Date(o.atualizadoEm || o.criadoEm || 0).getTime() > 5 * 86400000).length;
+    return { nome, total: itens.length, paradas };
+  });
+}
+
 /** Visão da base para o painel: o que está aberto e o que espera o humano. */
-function visaoBase(base) {
+function visaoBase(base, hoje = new Date().toISOString().slice(0, 10)) {
   const sols = base.listar('solicitacao');
   const abertas = sols.filter((s) => s.status !== 'concluida');
+  const paraHumanoSols = abertas.filter((s) => (s.responsavel === 'humano' && ['pendente', 'em_andamento'].includes(s.status)) || (s.solicitante === 'humano' && s.status === 'aguardando_informacao'));
   return {
     ficticia: base.ficticia,
     politicaConfigurada: Boolean(base.politica().configurado),
@@ -92,8 +172,9 @@ function visaoBase(base) {
         const av = prop && prop.avaliacao;
         return { id: a.id, objeto: `${a.objetoTipo} ${a.objetoId}`, alcada: a.alcadaNecessaria, solicitadoPor: a.solicitadoPor, motivos: a.motivos, valor: av ? av.valorTotal : null, margem: av && av.margem ? av.margem.percentual : null, desconto: av ? av.descontoPercent : null };
       }),
-    paraHumano: abertas
-      .filter((s) => (s.responsavel === 'humano' && ['pendente', 'em_andamento'].includes(s.status)) || (s.solicitante === 'humano' && s.status === 'aguardando_informacao'))
+    casos: casosParaHumano(sols, paraHumanoSols, hoje),
+    funil: resumoFunil(base.listar('oportunidade')),
+    paraHumano: paraHumanoSols
       .map((s) => ({ id: s.id, de: s.solicitante, para: s.responsavel, objetivo: s.objetivo, dados: s.dadosDisponiveis, prazo: s.prazo, status: s.status, ultima: s.respostas.length ? s.respostas[s.respostas.length - 1].texto : null })),
     solicitacoes: abertas.slice(-40).reverse().map((s) => ({ id: s.id, de: s.solicitante, para: s.responsavel, fluxo: s.fluxo, objetivo: s.objetivo, prazo: s.prazo, status: s.status })),
     tarefas: base.listar('tarefa').filter((t) => t.status !== 'concluida').slice(-40).reverse().map((t) => ({ id: t.id, titulo: t.titulo, de: t.atribuidaPor, para: t.responsavel, prazo: t.prazo, status: t.status })),
@@ -285,7 +366,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       const q = (url.searchParams.get('token') || '').trim().replace(/ /g, '+');
       if (q && iguais(q, token)) return entrar();
       if (!autenticado(req)) return paginaEntrada(res, q ? 'Senha do link incorreta.' : null);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
       return res.end(fs.readFileSync(HTML));
     }
 
@@ -353,7 +434,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
 
     try {
       if (req.method === 'GET' && url.pathname === '/api/estado') {
-        return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase()), eventos: eventos.recentes.slice(-120) });
+        return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase(), orquestrador.dataLocal()), eventos: eventos.recentes.slice(-120) });
       }
       if (req.method === 'GET' && url.pathname === '/api/config') {
         const vc = visaoConfig(orquestrador.abrirBase(), env);
@@ -383,4 +464,4 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
   });
 }
 
-module.exports = { criarServidor, visaoBase, visaoConfig };
+module.exports = { criarServidor, visaoBase, visaoConfig, extrairOpcoes, primeiraFrase };

@@ -409,3 +409,23 @@ test('modo enxuto: rotinas, e-mails e tarefas usam o modelo de rotina com esfor�
   const ronda = ROTINAS.filter((r) => r.id.startsWith('gerente-follow-up'));
   assert.deepEqual(ronda.map((r) => r.hora), ['11:00', '15:30'], 'duas rondas por dia (antes: a cada 2 h)');
 });
+
+test('painel: escalonamentos viram UM caso com a cadeia, opções e recomendação do agente', () => {
+  const { visaoBase, extrairOpcoes } = require('../servico/servidor');
+  const b = baseDemo();
+  const hoje = '2026-10-29';
+  const s1 = PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Pregão pede margem de 34%. Preciso de decisão.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const s2 = PR.criarSolicitacao(b, { agente: 'gerente', para: 'diretor', fluxo: 'escalonamento', origemId: s1.id, objetivo: 'Fora da minha alçada.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const s3 = PR.criarSolicitacao(b, { agente: 'diretor', para: 'ceo', fluxo: 'escalonamento', origemId: s2.id, objetivo: 'Fora da minha alçada.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  PR.criarSolicitacao(b, { agente: 'ceo', para: 'humano', fluxo: 'escalonamento', origemId: s3.id, objetivo: 'Pregão do Hospital (cliente estratégico). Opções: (A) participar com 34%; (B) declinar. Recomendo participar pelo volume.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const v = visaoBase(b, hoje);
+  assert.equal(v.casos.length, 1, 'quatro saltos, um caso só');
+  const c = v.casos[0];
+  assert.equal(c.titulo, 'Pregão do Hospital (cliente estratégico).');
+  assert.deepEqual(c.cadeia.map((x) => `${x.de}>${x.para}`), ['vendedor>gerente', 'gerente>diretor', 'diretor>ceo', 'ceo>humano']);
+  assert.deepEqual(c.opcoes.map((o) => o.letra), ['A', 'B']);
+  assert.match(c.recomendacao, /Recomendo participar/);
+  assert.equal(c.urgente, true, 'prazo hoje');
+  assert.equal(v.funil.length, 5);
+  assert.deepEqual(extrairOpcoes('sem alternativas aqui'), []);
+});
