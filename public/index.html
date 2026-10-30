@@ -9363,7 +9363,9 @@ function areaDaUnidade(u){ if(u.status==='quarentena') return 'quarentena'; if(u
 // Endereço da peça. COMODATO não é lugar no armazém: é a loja do cliente — e é
 // isso que precisa aparecer, senão a lista mostra "Col C" e ninguém sabe onde.
 function estEnderecoTxt(u){
-  if(u.status==='comodato'||u.coluna==='C') return '🤝 Comodato · '+(u.comodatoCliente||'cliente');
+  if(u.status==='comodato') return '🤝 Comodato · '+(u.comodatoCliente||'cliente');
+  // Pilar: mostrar "And —" só ocuparia espaço dizendo que falta algo que não existe.
+  if(colSoCaixa(u.coluna)) return `Col ${u.coluna} · Cx ${u.caixaMaster||'—'}`;
   return (u.coluna||u.andar!=null||u.caixaMaster) ? `Col ${u.coluna||'—'} · And ${u.andar!=null?u.andar:'—'} · Cx ${u.caixaMaster||'—'}` : null;
 }
 function estSet(campo, valor){ const E=window.__EST; E[campo] = (E[campo]===valor && campo!=='q') ? '' : valor; estRender(); }
@@ -9560,7 +9562,7 @@ function estRender(){
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;padding:10px 12px;background:#faf8f0;border:1px solid #efe2b8;border-radius:10px">
       <input id="est_q" class="inp" value="${esc(E.q)}" placeholder="🔎 buscar ou BIPAR: etiqueta, produto, matéria-prima, caixa ou QR  ( / )" oninput="APP.estBusca()" onkeydown="if(event.key==='Enter'){event.preventDefault();APP.estBip();}" style="flex:1;min-width:230px">
       <button class="btn-sm" style="font-weight:700;color:#8a6a0c;border-color:#e0cf96" title="Bipar várias etiquetas em sequência e movimentar ou excluir todas de uma vez" onclick="APP.estMultiAbrir()">🧺 Bipar várias${(window.__MB&&window.__MB.itens.length)?' ('+window.__MB.itens.length+')':''}</button>
-      <select class="inp" onchange="APP.estSet('col',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Coluna</option>${['A','B'].map(x=>`<option value="${x}"${E.col===x?' selected':''}>Coluna ${x}</option>`).join('')}${cnt(u=>u.coluna==='C')?`<option value="C"${E.col==='C'?' selected':''}>🤝 Comodato</option>`:''}</select>
+      <select class="inp" onchange="APP.estSet('col',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Coluna</option>${['A','B','C'].map(x=>`<option value="${x}"${E.col===x?' selected':''}>Coluna ${x}</option>`).join('')}</select>
       <select class="inp" onchange="APP.estSet('andar',this.value)" style="width:auto;font-size:12px;padding:6px 8px"><option value="">Andar</option>${[...new Set(todas.map(u=>u.andar).filter(x=>x!=null&&x!==''))].sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true})).map(a=>`<option value="${esc(a)}"${String(E.andar)===String(a)?' selected':''}>Andar ${esc(a)}</option>`).join('')}</select>
       ${semMetragemN?`<button class="btn-sm" onclick="APP.estToggleSemMetragem()" style="${E.semMetragem?'background:#c14a34;color:#fff;border-color:#c14a34;font-weight:700':'color:#c14a34;border-color:#e8bcae'}">Sem metragem · ${semMetragemN}</button>`:''}
       <select class="inp" onchange="APP.estVisao(this.value)" style="width:auto;font-size:12px;padding:6px 8px">
@@ -9814,7 +9816,7 @@ function estViewEndereco(arr){
     const mc=mapa.get(col); if(!mc.has(and)) mc.set(and,new Map());
     mc.get(and).set(cx,(mc.get(and).get(cx)||0)+1);
   }
-  const cols=['A','B'].filter(c=>mapa.has(c)).concat([...mapa.keys()].filter(c=>!['A','B'].includes(c)));
+  const cols=['A','B','C'].filter(c=>mapa.has(c)).concat([...mapa.keys()].filter(c=>!['A','B','C'].includes(c)));
   b.innerHTML = (semEnd.length?`<div class="card" style="background:#fff8e6;border-color:#e6d29a;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
       <div style="flex:1;min-width:220px;font-size:13px">📥 <b>${semEnd.length} unidade(s)</b> aguardando endereço — sem endereço elas não são achadas na separação.</div>
       <button class="btn-primary" onclick="APP.formEnderecar()">Endereçar agora</button></div>`:'')
@@ -9824,10 +9826,11 @@ function estViewEndereco(arr){
           `<button class="btn-sm" onclick="APP.estSet('q','${esc(String(cli).replace(/'/g,"\\'"))}')" style="border-radius:8px">${esc(cli)} <b style="color:#6b3fa0">${n}</b></button>`).join('')}</div></div>`:'')
     + (cols.length?cols.map(col=>{
         const andares=[...mapa.get(col).keys()].sort((a,b2)=>String(a).localeCompare(String(b2),'pt',{numeric:true}));
-        return `<div class="sect"><h3>Coluna ${esc(col)}</h3>${andares.map(a=>{
+        return `<div class="sect"><h3>Coluna ${esc(col)}${COL_LABEL[col]?` <span class="muted" style="font-weight:400;font-size:12px">${esc(COL_LABEL[col].replace(/^\w+ — /,''))}</span>`:''}</h3>${andares.map(a=>{
           const caixas=[...mapa.get(col).get(a).entries()].sort((x,y)=>String(x[0]).localeCompare(String(y[0]),'pt',{numeric:true}));
           const tot=caixas.reduce((s,[,n])=>s+n,0);
-          return `<div style="margin-bottom:8px"><div style="font-size:12px;color:#77746d;margin-bottom:4px">Andar ${esc(a)} · ${tot} un.</div>
+          // O pilar não tem andar: anunciar "Andar —" só confundiria quem procura.
+          return `<div style="margin-bottom:8px"><div style="font-size:12px;color:#77746d;margin-bottom:4px">${colSoCaixa(col)?'':'Andar '+esc(a)+' · '}${tot} un.</div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">${caixas.map(([cx,n])=>`<button class="btn-sm" onclick="APP.consultarCaixaCodigo('${esc(cx)}')" style="border-radius:8px">Cx ${esc(cx)} <b style="color:#1e7a44">${n}</b></button>`).join('')}</div></div>`;
         }).join('')}</div>`;
       }).join('') : (porLoja.size?'':'<div class="panel"><div class="empty">Nenhuma unidade endereçada neste filtro.</div></div>'));
@@ -10162,9 +10165,9 @@ async function dwMover(codigos){
     </div>
     <div id="dm_end">
       <div class="grid3">
-        <div><label class="fl">Coluna *</label><select id="dm_col" class="inp" onchange="APP.dmCx()"><option value="">—</option>${opc(o.colunas)}</select></div>
-        <div><label class="fl">Andar *</label><select id="dm_and" class="inp" onchange="APP.dmCx()"><option value="">—</option>${opc(o.andares)}</select></div>
-        <div><label class="fl">Caixa master</label><select id="dm_cx" class="inp"><option value="">— nenhuma —</option>${opc(masterListA('',''))}</select></div>
+        <div><label class="fl">Coluna *</label><select id="dm_col" class="inp" onchange="APP.dmCx()"><option value="">—</option>${o.colunas.map(c=>`<option value="${esc(c)}">${esc(COL_LABEL[c]||c)}</option>`).join('')}</select></div>
+        <div id="dm_andbox"><label class="fl">Andar *</label><select id="dm_and" class="inp" onchange="APP.dmCx()"><option value="">—</option>${opc(o.andares)}</select></div>
+        <div><label class="fl">Caixa master <span class="muted" id="dm_cxlabel"></span></label><select id="dm_cx" class="inp"><option value="">— nenhuma —</option>${opc(masterListA('',''))}</select></div>
       </div>
       <div class="muted" style="font-size:11px;margin-top:4px">As opções são os endereços que já existem no armazém — assim ninguém digita errado.</div>
     </div>
@@ -10182,9 +10185,15 @@ async function dwMover(codigos){
  */
 function dmCx(){
   const s=$('dm_cx'); if(!s) return;
+  const col=val('dm_col'), soCx=colSoCaixa(col);
+  // Pilar: o andar não existe — esconder o campo evita que alguém escolha um
+  // que o servidor vai jogar fora, e deixa claro que a caixa é o endereço.
+  const ab=$('dm_andbox'); if(ab) ab.style.display=soCx?'none':'';
+  const lb=$('dm_cxlabel'); if(lb) lb.textContent=soCx?'(obrigatória)':'';
   const atual=s.value;
-  const arr=masterListA(val('dm_col'), val('dm_and'));
-  s.innerHTML='<option value="">— nenhuma —</option>'+arr.map(x=>`<option>${esc(x)}</option>`).join('');
+  const arr=masterListA(col, soCx?'':val('dm_and'));
+  s.innerHTML=(soCx?'<option value="">— escolha a caixa —</option>':'<option value="">— nenhuma —</option>')
+    +arr.map(x=>`<option>${esc(x)}</option>`).join('');
   if(atual && arr.indexOf(atual)>=0) s.value=atual;
 }
 /* ===== VENDA DE COMODATO =====
@@ -10321,16 +10330,19 @@ async function dwMoverConfirmar(cods){
       const ok=await uiConfirm({tipo:'warn', titulo:'Mandar '+cods.length+' peça(s) em comodato?', ok:'Mandar em comodato', cancel:'Cancelar',
         msg:'As peças saem do armazém para a loja de '+nome+'. Continuam sendo nossas, mas deixam de contar como pronta-entrega — e só viram venda quando ele vender.'});
       if(!ok) return;
-      const r=await api('/estoque/enderecar-lote',{method:'POST',body:{codigos:cods, coluna:'C', comodatoClienteId:cli}});
+      const r=await api('/estoque/enderecar-lote',{method:'POST',body:{codigos:cods, coluna:COL_COMODATO, comodatoClienteId:cli}});
       closeModal(); estDrawerFechar();
       const bloq=(r.ignoradas&&(r.ignoradas.reservadasBloqueadas||[]).length)||0;
       toast(r.enderecadas+' peça(s) em comodato · '+(r.comodatoCliente||'')
         + (bloq?' · '+bloq+' recusada(s) (reservadas p/ expedição)':''),'ok');
       loadRoute(); return;
     }
-    const coluna=val('dm_col'), andar=val('dm_and');
-    if(!coluna||!andar){ toast('Escolha a coluna e o andar.','err'); return; }
-    const r=await api('/estoque/enderecar-lote',{method:'POST',body:{codigos:cods, coluna, andar, caixaMaster:val('dm_cx')||undefined}});
+    const coluna=val('dm_col'); const andar=colSoCaixa(coluna)?'':val('dm_and'); const caixa=val('dm_cx');
+    if(!coluna){ toast('Escolha a coluna.','err'); return; }
+    // No pilar não há andar para escolher — o que não pode faltar é a caixa.
+    if(colSoCaixa(coluna)){ if(!caixa){ toast('Coluna '+coluna+': escolha a caixa master — é ela que localiza a peça.','err'); return; } }
+    else if(!andar){ toast('Escolha a coluna e o andar.','err'); return; }
+    const r=await api('/estoque/enderecar-lote',{method:'POST',body:{codigos:cods, coluna, andar:andar||undefined, caixaMaster:caixa||undefined}});
     closeModal(); estDrawerFechar();
     const ign=(r.ignoradas&&(r.ignoradas.despachadas||[]).length)||0;
     toast(r.enderecadas+' etiqueta(s) em '+r.endereco
@@ -10743,15 +10755,20 @@ async function verCaixa(codigo){
 function etiquetasCaixasMaster(){
   const cur=Number(window.__MASTERMAX||14);
   openModal(`<h3>📦 Etiquetas de caixa master</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Crie ou reimprima etiquetas. Ao informar a <b>coluna e o andar</b>, a caixa é alocada nessa posição e passa a aparecer só nela no endereçamento.</div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Crie ou reimprima etiquetas. Ao informar a <b>coluna e o andar</b>, a caixa é alocada nessa posição e passa a aparecer só nela no endereçamento. Na coluna <b>C</b> (pilar) basta a coluna — lá não existe andar.</div>
     ${field('cxm_nums','Número(s) da caixa','placeholder="ex.: 23.000 · ou 20.000-23.000 · vazio = todas até '+cur+'"')}
     <div class="grid2">
-      <div class="mrow"><label class="fl">Coluna (onde alocar)</label><select id="cxm_col" class="inp" onchange="APP.cxmCol()"><option value="">— não definir agora —</option><option>A</option><option>B</option></select></div>
-      <div class="mrow"><label class="fl">Andar</label><select id="cxm_and" class="inp"><option value="">—</option></select></div>
+      <div class="mrow"><label class="fl">Coluna (onde alocar)</label><select id="cxm_col" class="inp" onchange="APP.cxmCol()"><option value="">— não definir agora —</option><option value="A">${COL_LABEL.A}</option><option value="B">${COL_LABEL.B}</option><option value="C">${COL_LABEL.C}</option></select></div>
+      <div class="mrow" id="cxm_andbox"><label class="fl">Andar</label><select id="cxm_and" class="inp"><option value="">—</option></select></div>
     </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button><button class="btn-primary" onclick="APP.gerarCaixasMaster()">Gerar + etiquetas</button></div>`);
 }
-function cxmCol(){ const col=val('cxm_col'); const a=$('cxm_and'); const arr=col?(ENDER_ANDAR[col]||[]):[]; if(a) a.innerHTML='<option value="">—</option>'+arr.map(x=>'<option>'+x+'</option>').join(''); }
+function cxmCol(){
+  const col=val('cxm_col'); const a=$('cxm_and'); const arr=col?(ENDER_ANDAR[col]||[]):[];
+  // Pilar: alocar a caixa é escolher só a coluna.
+  const ab=$('cxm_andbox'); if(ab) ab.style.display=colSoCaixa(col)?'none':'';
+  if(a){ a.innerHTML='<option value="">—</option>'+arr.map(x=>'<option>'+x+'</option>').join(''); if(colSoCaixa(col)) a.value=''; }
+}
 async function gerarCaixasMaster(){
   const t=(val('cxm_nums')||'').trim(); const col=val('cxm_col'), andar=val('cxm_and');
   let nums='';
@@ -10760,12 +10777,17 @@ async function gerarCaixasMaster(){
     if(mr){ const ini=Number(mr[1]), fim=Number(mr[2]); const arr=[]; for(let i=Math.min(ini,fim);i<=Math.max(ini,fim);i++) arr.push(i+'.000'); nums=arr.join(','); }
     else nums=t; // lista/único
   }
+  // No pilar a posição é só a coluna — exigir andar deixaria a caixa nova de
+  // fora do seletor da própria área que a criou.
+  const soCx=colSoCaixa(col);
+  const alocar = !!col && (soCx || andar!=='');
+  const andarPos = soCx ? '' : andar;
   let url='/estoque/caixas/etiquetas?base='+encodeURIComponent(location.origin);
   if(nums) url+='&nums='+encodeURIComponent(nums);
-  if(col&&andar!=='') url+='&col='+encodeURIComponent(col)+'&andar='+encodeURIComponent(andar);
+  if(alocar) url+='&col='+encodeURIComponent(col)+'&andar='+encodeURIComponent(andarPos);
   let d; try{ d=await api(url); }catch(e){ toast(e.message,'err'); return; }
   // Atualiza estado local (posição + máximo) para os seletores refletirem já.
-  if(col&&andar!==''){ window.__MASTERPOS=window.__MASTERPOS||{}; (d.etiquetas||[]).forEach(e=>{ window.__MASTERPOS[e.numero]={col,andar}; }); toast('Caixa(s) alocada(s) em Col '+col+' · And '+andar+'.','ok'); }
+  if(alocar){ window.__MASTERPOS=window.__MASTERPOS||{}; (d.etiquetas||[]).forEach(e=>{ window.__MASTERPOS[e.numero]={col,andar:andarPos}; }); toast('Caixa(s) alocada(s) em Col '+col+(soCx?'.':' · And '+andar+'.'),'ok'); }
   const maiorMil=Math.max(0,...(d.etiquetas||[]).map(e=>Math.round(Number(e.digitos||0)/1000))); if(maiorMil>Number(window.__MASTERMAX||14)) window.__MASTERMAX=maiorMil;
   closeModal();
   const n=(d.etiquetas||[]).length;
@@ -10889,7 +10911,7 @@ async function formEntradaEstoque(){
         </div>
       </div>
       <div id="en_end"><div style="border-top:1px solid var(--line);margin:6px 0;padding-top:6px"><b style="font-size:12px;color:var(--muted)">ENDEREÇAMENTO (opcional aqui — pode endereçar depois bipando)</b></div>
-        <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option>A</option><option value="C">🤝 Comodato (loja do cliente)</option><option>B</option></select></div>
+        <div class="grid3"><div class="mrow"><label class="fl">Coluna <span class="muted">(A=acabado · B=matéria-prima · C=pilar)</span></label><select id="en_col" class="inp" onchange="APP.enCol()"><option value="">—</option><option value="A">${COL_LABEL.A}</option><option value="C">${COL_LABEL.C}</option><option value="${COL_COMODATO}">🤝 Comodato (loja do cliente)</option><option value="B">${COL_LABEL.B}</option></select></div>
           <div class="mrow" id="en_andbox"><label class="fl">Andar</label><select id="en_and" class="inp" onchange="APP.enAndar()"><option value="">—</option></select></div>
           <div class="mrow" id="en_cxbox"><label class="fl">Caixa Master</label><select id="en_cx" class="inp"><option value="">—</option></select></div></div>
         <div id="en_combox" style="display:none;border:1px solid #d9c7f2;background:#faf7ff;border-radius:8px;padding:8px 10px;margin-top:4px">
@@ -11059,12 +11081,15 @@ async function saveEntradaEstoque(){
   if(val('en_dest')==='estoque'){
     if(val('en_col'))body.coluna=val('en_col');
     // Comodato: o endereço é o CLIENTE, não coluna/andar/caixa.
-    if(body.coluna==='C'){
+    if(body.coluna===COL_COMODATO){
       const cli=Number(val('en_comcli')||0);
       if(!cli){ toast('Comodato: escolha o cliente que vai guardar as peças.','err'); return; }
       body.comodatoClienteId=cli;
     } else {
-      if(val('en_and')!=='')body.andar=val('en_and'); if(val('en_cx'))body.caixaMaster=val('en_cx');
+      // Pilar: não existe andar — mandar um faria o servidor descartá-lo, mas a
+      // tela não deve nem oferecer o campo preenchido de outra coluna.
+      if(!colSoCaixa(body.coluna) && val('en_and')!=='')body.andar=val('en_and');
+      if(val('en_cx'))body.caixaMaster=val('en_cx');
     }
   }
   // Vincular o pedido é OPCIONAL: nem sempre se sabe o destino na hora da
@@ -11227,8 +11252,17 @@ function imprimirEtqUnidades(pecas, meta){
     </body></html>`);
   w.document.close();
 }
-// Esquemas de endereçamento por coluna: A = produto acabado; B = matéria-prima.
-const ENDER_ANDAR = { A:['0','1','2','3','4'], B:['A','B','C'] };
+// Esquemas de endereçamento por coluna: A = produto acabado; B = matéria-prima;
+// C = pilar da loja (produto acabado SEM ANDAR — a caixa master é o endereço).
+const ENDER_ANDAR = { A:['0','1','2','3','4'], B:['A','B','C'], C:[] };
+// Colunas sem andar. O pilar não tem altura escrita na prateleira: tem caixa.
+const COL_SO_CAIXA = ['C'];
+function colSoCaixa(c){ return COL_SO_CAIXA.indexOf(String(c||''))>=0; }
+// COMODATO não é coluna, é DESTINO: a peça vai para a loja do cliente e não
+// ocupa prateleira nenhuma. O valor só viaja no formulário; não é gravado.
+const COL_COMODATO = 'COM';
+// Rótulo da coluna nos seletores — a letra sozinha não diz o que cabe ali.
+const COL_LABEL = { A:'A — produto acabado', B:'B — matéria-prima', C:'C — pilar (só caixa master)' };
 // Caixas dependem do andar: coluna B, andar A -> A1..A12; andar B -> B1..B12; etc.
 // Coluna B também oferece caixas master próprias (além dos endereços por andar).
 const CAIXAS_MASTER_B = ['7.000','8.000','9.000'];
@@ -11251,8 +11285,11 @@ function masterListA(col, andar){
   // dentro, então precisa poder receber mais.
   (window.__UNIDS_ALL||[]).forEach(u=>{ const c=u&&u.caixaMaster; if(c&&!todas.includes(String(c))) todas.push(String(c)); });
   const pos=caixaPosMap();
-  const key=String(col||'')+'|'+String(andar!=null?andar:'');
-  const filtroPos = (col!=null && col!=='' && andar!=null && andar!=='');
+  // Na coluna sem andar a posição é só a coluna — a chave fecha com '|' vazio,
+  // igual ao que fica gravado na peça (andar null) e na caixa.
+  const soCx=colSoCaixa(col);
+  const key=String(col||'')+'|'+String(soCx?'':(andar!=null?andar:''));
+  const filtroPos = (col!=null && col!=='' && (soCx || (andar!=null && andar!=='')));
   const res=todas.filter(c=>{
     const p=pos.get(String(c));
     if(!p||p.size===0) return true;          // caixa vazia/nova: cabe em qualquer posição
@@ -11267,32 +11304,37 @@ function edCaixas(col, andar){
 }
 function edCol(){
   const col=val('ed_col')||'A'; const a=$('ed_and');
-  // Comodato: some andar/caixa e aparece o cliente — o lugar é a loja dele.
-  const com=col==='C';
-  const ab=$('ed_andbox'), cb=$('ed_cxbox'), box=$('ed_combox');
-  if(ab) ab.style.display=com?'none':'';
+  // Comodato: somem andar e caixa, aparece o cliente — o lugar é a loja dele.
+  // Pilar (coluna sem andar): some só o andar; a caixa vira obrigatória.
+  const com=col===COL_COMODATO, soCx=colSoCaixa(col);
+  const ab=$('ed_andbox'), cb=$('ed_cxbox'), box=$('ed_combox'), lb=$('ed_cxlabel');
+  if(ab) ab.style.display=(com||soCx)?'none':'';
   if(cb) cb.style.display=com?'none':'';
   if(box) box.style.display=com?'':'none';
+  if(lb) lb.textContent=soCx?'(obrigatória — é o endereço)':'(opcional)';
   if(com) return;
-  if(a) a.innerHTML=(ENDER_ANDAR[col]||ENDER_ANDAR.A).map(x=>'<option>'+x+'</option>').join('');
+  if(a){ a.innerHTML=(ENDER_ANDAR[col]||ENDER_ANDAR.A).map(x=>'<option>'+x+'</option>').join(''); if(soCx) a.value=''; }
   edAndar();
 }
 function edAndar(){
   const col=val('ed_col')||'A'; const c=$('ed_cx');
-  if(c) c.innerHTML='<option value="">— sem caixa (só coluna/andar) —</option>'+edCaixas(col, val('ed_and')).map(x=>'<option>'+x+'</option>').join('');
+  if(!c) return;
+  const soCx=colSoCaixa(col);
+  c.innerHTML=(soCx?'':'<option value="">— sem caixa (só coluna/andar) —</option>')
+    +edCaixas(col, val('ed_and')).map(x=>'<option>'+x+'</option>').join('');
 }
 function enCol(){
   const col=val('en_col'); const a=$('en_and');
   // Comodato não tem andar nem caixa: o lugar é a loja do cliente. Mostrar os
   // seletores vazios só convidaria a preencher uma posição que não existe.
-  const com=col==='C';
+  const com=col===COL_COMODATO, soCx=colSoCaixa(col);
   const ab=$('en_andbox'), cb=$('en_cxbox'), box=$('en_combox');
-  if(ab) ab.style.display=com?'none':'';
+  if(ab) ab.style.display=(com||soCx)?'none':'';
   if(cb) cb.style.display=com?'none':'';
   if(box) box.style.display=com?'':'none';
   if(com){ if(a) a.value=''; const c=$('en_cx'); if(c) c.value=''; return; }
   const andares=col?(ENDER_ANDAR[col]||[]):[];
-  if(a) a.innerHTML='<option value="">—</option>'+andares.map(x=>'<option>'+x+'</option>').join('');
+  if(a){ a.innerHTML='<option value="">—</option>'+andares.map(x=>'<option>'+x+'</option>').join(''); if(soCx) a.value=''; }
   enAndar();
 }
 function enAndar(){
@@ -11302,10 +11344,10 @@ function enAndar(){
 }
 async function formEnderecar(){
   openModal(`<h3>🏷 Endereçar unidades (bipar)</h3>
-    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima · <b>Comodato</b> = loja do cliente. As opções de andar e caixa mudam conforme a coluna.</div>
-    <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option>A</option><option value="C">🤝 Comodato (loja do cliente)</option><option>B</option></select></div>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima · Coluna <b>C</b> = pilar da loja (não tem andar: a <b>caixa</b> é o endereço) · <b>Comodato</b> = loja do cliente. As opções de andar e caixa mudam conforme a coluna.</div>
+    <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option value="A">${COL_LABEL.A}</option><option value="C">${COL_LABEL.C}</option><option value="${COL_COMODATO}">🤝 Comodato (loja do cliente)</option><option value="B">${COL_LABEL.B}</option></select></div>
       <div class="mrow" id="ed_andbox"><label class="fl">Andar *</label><select id="ed_and" class="inp" onchange="APP.edAndar()"></select></div>
-      <div class="mrow" id="ed_cxbox"><label class="fl">Caixa Master <span class="muted">(opcional)</span></label><select id="ed_cx" class="inp"></select></div></div>
+      <div class="mrow" id="ed_cxbox"><label class="fl">Caixa Master <span class="muted" id="ed_cxlabel">(opcional)</span></label><select id="ed_cx" class="inp"></select></div></div>
     <div id="ed_combox" style="display:none;border:1px solid #d9c7f2;background:#faf7ff;border-radius:8px;padding:8px 10px;margin-bottom:6px">
       <label class="fl">Cliente que vai guardar as peças *</label>
       <select id="ed_comcli" class="inp"><option value="">— escolha o cliente —</option></select>
@@ -11326,10 +11368,15 @@ async function enderecarBip(){
   const col=val('ed_col');
   const body={ codigo, coluna:col, andar:val('ed_and'), caixaMaster:val('ed_cx') };
   // Comodato: o destino é a loja do cliente — sem ele não dá para endereçar.
-  if(col==='C'){
+  if(col===COL_COMODATO){
     const cli=Number(val('ed_comcli')||0);
     if(!cli){ toast('Comodato: escolha o cliente antes de bipar.','err'); const s=$('ed_comcli'); if(s) s.focus(); return; }
     body.comodatoClienteId=cli; delete body.andar; delete body.caixaMaster;
+  }
+  // Pilar: não tem andar, e sem caixa a peça ficaria perdida na estante inteira.
+  else if(colSoCaixa(col)){
+    delete body.andar;
+    if(!body.caixaMaster){ toast('Coluna '+col+': escolha a caixa master — é ela que localiza a peça.','err'); const s=$('ed_cx'); if(s) s.focus(); return; }
   }
   try{
     let r=await api('/estoque/enderecar',{method:'POST',body});

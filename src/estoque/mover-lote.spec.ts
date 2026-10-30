@@ -140,7 +140,11 @@ describe('endereços usados', () => {
     };
     const svc = new EstoqueService(prisma as never);
     const r = await svc.enderecosUsados(1);
-    expect(r.colunas).toEqual(['A', 'B']);
+    // A, B e C saem SEMPRE, mesmo sem peça nenhuma: aqui não há nada na coluna
+    // C e ela aparece assim mesmo. Área recém-criada precisa poder receber a
+    // primeira peça — se a lista viesse só do que já está guardado, o pilar
+    // novo nunca apareceria para ser escolhido.
+    expect(r.colunas).toEqual(['A', 'B', 'C']);
     expect(r.andares).toEqual(['2', '10']); // numérico: 2 antes de 10, não "10" antes de "2"
     expect(r.caixas).toEqual(['1.000', '2.000']);
     expect(r.localizacoesMaterial).toEqual(['B3']);

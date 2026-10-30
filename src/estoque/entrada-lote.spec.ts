@@ -6,15 +6,18 @@
  * fechar a OP-0054 (PV54, 1.639 peças) morria logo no G, com 524. Agora é um
  * `createMany`, e o teto passou a ser a impressão, não o banco.
  */
-import { EstoqueService } from './estoque.service';
-
 /**
- * Timeout folgado para a suíte toda: o banco virou UMA escrita, mas o código de
- * barras é desenhado peça a peça (~3,4 ms cada), então lotes grandes levam
- * segundos de CPU — e mais ainda com os workers do jest disputando o
- * processador. É o custo real da impressão, não do Postgres.
+ * O desenho do código de barras é trocado por um carimbo.
+ *
+ * Estes testes são sobre o BANCO: o lote inteiro tem de virar uma escrita só.
+ * Desenhar 1.639 códigos de verdade custava ~20 s de CPU pura, e sob os workers
+ * do jest em paralelo isso passava do limite e o teste caía por TEMPO — vermelho
+ * sem defeito nenhum, que é o jeito mais rápido de ensinar uma equipe a ignorar
+ * o CI. O bwip-js tem cobertura nos caminhos que realmente imprimem.
  */
-jest.setTimeout(60000);
+jest.mock('bwip-js', () => ({ toBuffer: () => Promise.resolve(Buffer.from('bc')) }));
+
+import { EstoqueService } from './estoque.service';
 
 function servico(ultimoCodigoDoDia: string | null = null) {
   const lotes: Array<Array<Record<string, unknown>>> = [];
@@ -39,14 +42,8 @@ const ENTRADA = (quantidade: number, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('entrada de peças em lote', () => {
-  /**
-   * Os dois testes de lote grande geram código de barras DE VERDADE, um por
-   * peça — é isso que eles provam, e é isso que os faz demorar. Sob carga (o
-   * jest roda as suítes em paralelo) passavam do limite padrão de 5 s e caíam
-   * por tempo, não por erro. Alarme falso é o jeito mais rápido de ensinar uma
-   * equipe a ignorar o CI, então o limite aqui é explícito e folgado.
-   */
-  const LOTE_GRANDE = 60_000;
+  /** Folga para os lotes grandes: montar 1.639 linhas ainda leva algum tempo. */
+  const LOTE_GRANDE = 30_000;
 
   it('524 peças entram numa escrita só — não 524', async () => {
     const { svc, lotes } = servico();

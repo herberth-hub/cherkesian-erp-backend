@@ -17,9 +17,10 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsString() @MaxLength(10) unidadeMedida?: string;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
-  // C = COMODATO (loja do cliente). Nesse caso o lugar não é coluna/andar/caixa:
-  // é o cliente que está guardando a peça — por isso `comodatoClienteId`.
-  @IsOptional() @IsIn(['A', 'B', 'C']) coluna?: string;
+  // A = acabado · B = matéria-prima · C = pilar (só caixa master, sem andar).
+  // COM = COMODATO (loja do cliente): não é coluna, é destino — o lugar passa a
+  // ser o cliente que está guardando a peça, por isso `comodatoClienteId`.
+  @IsOptional() @IsIn(['A', 'B', 'C', 'COM']) coluna?: string;
   @IsOptional() @IsString() @MaxLength(4) andar?: string;
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
   @IsOptional() @IsInt() @IsPositive() comodatoClienteId?: number;
@@ -31,13 +32,15 @@ export class EntradaEstoqueDto {
 
 export class EnderecarDto {
   @IsString() @IsNotEmpty() codigo!: string;
-  @IsIn(['A', 'B', 'C']) coluna!: string;
-  // Andar é obrigatório nas colunas A e B e não existe no COMODATO (coluna C),
-  // onde o lugar é o cliente. Quem cobra é o serviço, que sabe qual é a coluna.
+  @IsIn(['A', 'B', 'C', 'COM']) coluna!: string;
+  // Andar é obrigatório nas colunas A e B; não existe na coluna C (o pilar, que
+  // é só caixa) nem no COMODATO, onde o lugar é o cliente. Quem cobra é o
+  // serviço, que sabe qual é a coluna.
   @IsOptional() @IsString() @MaxLength(4) andar?: string;
-  // Caixa Master é OPCIONAL — endereçar só por Coluna + Andar (gôndola aberta/prateleira).
+  // Caixa Master é OPCIONAL em A e B — endereçar só por Coluna + Andar (gôndola
+  // aberta/prateleira). Na coluna C ela é OBRIGATÓRIA: é o único endereço que há.
   @IsOptional() @IsString() @MaxLength(10) caixaMaster?: string;
-  /** Cliente que vai guardar a peça na loja dele (obrigatório na coluna C). */
+  /** Cliente que vai guardar a peça na loja dele (obrigatório no comodato). */
   @IsOptional() @IsInt() @IsPositive() comodatoClienteId?: number;
   @IsOptional() @IsBoolean() confirmar?: boolean;
 }

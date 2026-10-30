@@ -365,15 +365,17 @@ export class EstoqueService {
     if (segunda && !defeito) throw new BadRequestException('Informe o defeito da peça de segunda linha.');
 
     const paraExpedicao = dto.destino === 'expedicao';
-    // COMODATO (coluna C): a peça já nasce na loja do cliente. Não tem andar nem
+    // COMODATO: a peça já nasce na loja do cliente. Não tem coluna, andar nem
     // caixa — o "endereço" dela é o cliente que está guardando.
     const comodato = !paraExpedicao && dto.coluna === EstoqueService.COL_COMODATO;
+    // Coluna só de caixa (o pilar): endereço completo é coluna + caixa master.
+    const soCaixa = EstoqueService.semAndar(dto.coluna);
     const cliComodato = comodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
     const status = paraExpedicao
       ? 'reservado'
       : comodato
         ? 'comodato'
-        : (dto.coluna && dto.andar != null && dto.caixaMaster ? 'em_estoque' : 'aguardando_endereco');
+        : (dto.coluna && dto.caixaMaster && (soCaixa || dto.andar != null) ? 'em_estoque' : 'aguardando_endereco');
     const agora = new Date();
     const ymd = agora.toISOString().slice(0, 10).replace(/-/g, '');
     // Base = MAIOR sequencial do dia (não a contagem) — evita colisão de código
@@ -394,7 +396,10 @@ export class EstoqueService {
       empresaId, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
       descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
       ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
-      coluna: dto.coluna, andar: comodato ? null : dto.andar, caixaMaster: comodato ? null : dto.caixaMaster, status,
+      coluna: comodato ? null : dto.coluna,
+      andar: comodato || soCaixa ? null : dto.andar,
+      caixaMaster: comodato ? null : dto.caixaMaster,
+      status,
       ...(comodato ? { comodatoClienteId: cliComodato!.id, comodatoEm: agora, comodatoPor: usuario } : {}),
       pedidoId: paraExpedicao ? dto.pedidoId : undefined, loteEntrada, loteFornecedor: dto.loteFornecedor || null, criadoPor: usuario,
       ...(segunda ? { qualidade: 'segunda', defeito, qualidadeEm: agora, qualidadePor: usuario } : {}),
@@ -435,15 +440,38 @@ export class EstoqueService {
   }
 
   /**
-   * COMODATO — a coluna "C" não é um lugar no armazém: é a loja do cliente.
+   * COMODATO — não é um lugar no armazém: é a loja do cliente.
    *
    * A peça em comodato sai daqui e fica guardada no cliente, que vende e só
    * depois paga. Ela continua sendo NOSSA (não foi vendida, não tem nota de
    * venda), mas não está na prateleira: se contasse como estoque disponível, a
    * separação prometeria peça que não está aqui. Por isso vira status próprio,
    * fora de `em_estoque`, e fica de fora da pronta-entrega e do portal.
+   *
+   * `COM` é só o VALOR QUE CHEGA do formulário dizendo "o destino é a loja do
+   * cliente". Ele NÃO é gravado: a peça em comodato fica com `coluna: null`,
+   * porque não ocupa coluna nenhuma. Quem responde onde ela está é o status
+   * mais o `comodatoClienteId`. Nasceu como a letra "C" e foi trocado quando o
+   * C virou prateleira de verdade — letra de estante tem de significar estante.
    */
-  static readonly COL_COMODATO = 'C';
+  static readonly COL_COMODATO = 'COM';
+
+  /**
+   * Colunas SEM ANDAR: a peça é localizada pela CAIXA MASTER, não por altura.
+   *
+   * A coluna C é o pilar da loja — uma estante que não tem andar numerado; o
+   * que está escrito lá são as caixas. Exigir andar obrigaria o operador a
+   * inventar um número que não existe na prateleira, e número inventado é o
+   * jeito mais rápido de perder peça.
+   */
+  static readonly COL_SO_CAIXA = ['C'];
+
+  /** Colunas com andar: A = produto acabado, B = matéria-prima. */
+  static readonly COLUNAS = ['A', 'B'];
+
+  static semAndar(coluna?: string | null): boolean {
+    return !!coluna && EstoqueService.COL_SO_CAIXA.includes(String(coluna));
+  }
 
   /** Confere o cliente do comodato (existe e é desta empresa). */
   private async clienteComodato(clienteId: number | undefined, empresaId: number) {
@@ -459,11 +487,14 @@ export class EstoqueService {
   }
 
   private enderecoTxt(
-    d: { coluna?: string | null; andar?: string | null; caixaMaster?: string | null },
+    d: { coluna?: string | null; andar?: string | null; caixaMaster?: string | null; status?: string | null },
     comodatoCliente?: string | null,
   ): string | null {
-    if (d.coluna === EstoqueService.COL_COMODATO) return `🤝 Comodato · ${comodatoCliente || 'cliente'}`;
+    // Na ENTRADA o comodato chega como `COM` (o destino escolhido); na peça já
+    // gravada ele é o status — a coluna está vazia. Os dois precisam responder.
+    if (d.coluna === EstoqueService.COL_COMODATO || d.status === 'comodato') return `🤝 Comodato · ${comodatoCliente || 'cliente'}`;
     if (!d.coluna && d.andar == null && !d.caixaMaster) return null;
+    if (EstoqueService.semAndar(d.coluna)) return `Coluna ${d.coluna} · Caixa ${d.caixaMaster ?? '—'}`;
     return `Coluna ${d.coluna ?? '—'} · Andar ${d.andar ?? '—'} · Caixa ${d.caixaMaster ?? '—'}`;
   }
 
@@ -480,7 +511,13 @@ export class EstoqueService {
     if (un.status === 'despachado') throw new BadRequestException('Unidade já despachada.');
 
     const paraComodato = dto.coluna === EstoqueService.COL_COMODATO;
-    if (!paraComodato && !(dto.andar ?? '').trim()) throw new BadRequestException('Informe o andar.');
+    const soCaixa = EstoqueService.semAndar(dto.coluna);
+    if (!paraComodato && !soCaixa && !(dto.andar ?? '').trim()) throw new BadRequestException('Informe o andar.');
+    // Na coluna sem andar a caixa não é opcional: tirada ela, a peça fica com
+    // "coluna C" e mais nada — ninguém acha isso numa estante inteira.
+    if (soCaixa && !(dto.caixaMaster ?? '').trim()) {
+      throw new BadRequestException(`Coluna ${dto.coluna}: informe a caixa master — é ela que localiza a peça.`);
+    }
     const cli = paraComodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
     // Nome do cliente de ONDE a peça está hoje (se já estava em comodato), só
     // para a mensagem fazer sentido: "saiu da loja X, foi para a loja Y".
@@ -489,26 +526,32 @@ export class EstoqueService {
       : null;
     const nomeAtual = cliAtual ? cliAtual.fantasia || cliAtual.nome : null;
 
-    const fmt = (c?: string | null, a?: string | null, x?: string | null, nome?: string | null) =>
-      c === EstoqueService.COL_COMODATO
+    const fmt = (c?: string | null, a?: string | null, x?: string | null, nome?: string | null, st?: string | null) =>
+      c === EstoqueService.COL_COMODATO || st === 'comodato'
         ? `🤝 Comodato · ${nome || 'cliente'}`
-        : `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
+        : EstoqueService.semAndar(c)
+          ? `Coluna ${c} · Caixa ${x ?? '—'}`
+          : `Coluna ${c ?? '—'} · Andar ${a != null ? a : '—'} · Caixa ${x ?? '—'}`;
+    // A peça em comodato não tem coluna: quem prova que ela está endereçada é o
+    // cliente que a guarda.
     const jaEnderecado =
       (un.status === 'em_estoque' || un.status === 'comodato') &&
-      (un.coluna != null || un.andar != null || un.caixaMaster != null);
+      (un.coluna != null || un.andar != null || un.caixaMaster != null || un.comodatoClienteId != null);
     const mudou = paraComodato
-      ? un.coluna !== dto.coluna || un.comodatoClienteId !== cli!.id
-      : un.coluna !== dto.coluna || un.andar !== dto.andar || un.caixaMaster !== dto.caixaMaster;
+      ? un.status !== 'comodato' || un.comodatoClienteId !== cli!.id
+      : un.coluna !== dto.coluna ||
+        (!soCaixa && un.andar !== dto.andar) ||
+        un.caixaMaster !== ((dto.caixaMaster ?? '').trim() || null);
     // Já está EXATAMENTE neste endereço → não duplica, só avisa.
     if (jaEnderecado && !mudou) {
-      return { jaAqui: true, codigo, descricao: un.descricao, tamanho: un.tamanho, endereco: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual) };
+      return { jaAqui: true, codigo, descricao: un.descricao, tamanho: un.tamanho, endereco: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual, un.status) };
     }
     // Já está guardado em outro endereço e o operador escolheu um diferente → confirma antes.
     if (jaEnderecado && mudou && !dto.confirmar) {
       return {
         precisaConfirmar: true,
         codigo, descricao: un.descricao, tamanho: un.tamanho,
-        atual: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual),
+        atual: fmt(un.coluna, un.andar, un.caixaMaster, nomeAtual, un.status),
         novo: fmt(dto.coluna, dto.andar, dto.caixaMaster, cli?.nome),
       };
     }
@@ -516,10 +559,10 @@ export class EstoqueService {
     const upd = await this.prisma.unidadeEstoque.update({
       where: { codigo },
       data: paraComodato
-        ? { coluna: dto.coluna, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
+        ? { coluna: null, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
         : // Voltando para o armazém: o vínculo de comodato tem de sair junto,
           // senão a peça fica na prateleira ainda apontando para a loja do cliente.
-          { coluna: dto.coluna, andar: dto.andar, caixaMaster: dto.caixaMaster || null, status: 'em_estoque', comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
+          { coluna: dto.coluna, andar: soCaixa ? null : dto.andar, caixaMaster: (dto.caixaMaster ?? '').trim() || null, status: 'em_estoque', comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
     });
     return {
       codigo, descricao: upd.descricao, tamanho: upd.tamanho,
@@ -546,10 +589,14 @@ export class EstoqueService {
     if (codigos.length > 500) throw new BadRequestException('Máximo de 500 etiquetas por vez.');
     const coluna = String(dto.coluna ?? '').trim();
     const andar = String(dto.andar ?? '').trim();
-    // Coluna C = COMODATO: o lugar é a loja do cliente, não coluna+andar.
+    const caixa = String(dto.caixaMaster ?? '').trim();
+    // COMODATO: o lugar é a loja do cliente, não coluna+andar.
     const paraComodato = coluna === EstoqueService.COL_COMODATO;
+    // Coluna só de caixa (o pilar): o endereço é coluna + caixa master.
+    const soCaixa = EstoqueService.semAndar(coluna);
     const cli = paraComodato ? await this.clienteComodato(dto.comodatoClienteId, empresaId) : null;
-    if (!coluna || (!paraComodato && !andar)) throw new BadRequestException('Informe a coluna e o andar.');
+    if (!coluna || (!paraComodato && !soCaixa && !andar)) throw new BadRequestException('Informe a coluna e o andar.');
+    if (soCaixa && !caixa) throw new BadRequestException(`Coluna ${coluna}: informe a caixa master — é ela que localiza a peça.`);
 
     const uns = await this.prisma.unidadeEstoque.findMany({ where: { codigo: { in: codigos }, empresaId } });
     const achados = new Set(uns.map((u) => u.codigo));
@@ -574,17 +621,19 @@ export class EstoqueService {
     const reservadas = mover.filter((u) => u.status === 'reservado').length;
     const endereco = paraComodato
       ? `🤝 Comodato · ${cli!.nome}`
-      : `Coluna ${coluna} · Andar ${andar}${dto.caixaMaster ? ' · Caixa ' + dto.caixaMaster : ''}`;
+      : soCaixa
+        ? `Coluna ${coluna} · Caixa ${caixa}`
+        : `Coluna ${coluna} · Andar ${andar}${caixa ? ' · Caixa ' + caixa : ''}`;
 
     // Uma só escrita para o lote inteiro — Neon é pooled e 500 updates em
     // sequência estouravam o tempo da transação.
     const r = await this.prisma.unidadeEstoque.updateMany({
       where: { codigo: { in: mover.map((u) => u.codigo) }, empresaId },
       data: paraComodato
-        ? { coluna, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
+        ? { coluna: null, andar: null, caixaMaster: null, status: 'comodato', comodatoClienteId: cli!.id, comodatoEm: new Date(), comodatoPor: usuario }
         : // Voltando ao armazém, o vínculo de comodato sai junto: senão a peça
           // fica na prateleira ainda apontando para a loja do cliente.
-          { coluna, andar, caixaMaster: (dto.caixaMaster ?? '').trim() || null, comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
+          { coluna, andar: soCaixa ? null : andar, caixaMaster: caixa || null, comodatoClienteId: null, comodatoEm: null, comodatoPor: null },
     });
     // Só o que NÃO está reservado passa a "em estoque". A reservada tem expedição
     // atrás: mudar o status a soltaria do pedido — ela só muda de lugar.
@@ -688,7 +737,10 @@ export class EstoqueService {
         .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
     const mats = await this.prisma.material.findMany({ where: { empresaId }, select: { localizacao: true } });
     return {
-      colunas: uniq(uns.map((u) => u.coluna)),
+      // As colunas conhecidas entram SEMPRE, mesmo vazias. Área nova (o pilar,
+      // coluna C) não tem peça nenhuma — se a lista viesse só do que já está
+      // guardado, não haveria como guardar a primeira.
+      colunas: uniq([...uns.map((u) => u.coluna), ...EstoqueService.COLUNAS, ...EstoqueService.COL_SO_CAIXA]),
       andares: uniq(uns.map((u) => u.andar)),
       caixas: uniq(uns.map((u) => u.caixaMaster)),
       localizacoesMaterial: uniq(mats.map((m) => m.localizacao)),
@@ -1005,7 +1057,8 @@ export class EstoqueService {
     // Material vinculado (p/ movimentação/baixa manual da matéria-prima).
     const mat = un.materialId ? await this.prisma.material.findUnique({ where: { id: un.materialId }, select: { id: true, codigo: true, unidade: true, saldo: true } }) : null;
     const prod = un.produtoId ? await this.prisma.produto.findUnique({ where: { id: un.produtoId }, select: { codigo: true } }) : null;
-    const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null;
+    // Comodato tem endereço (a loja do cliente) sem ocupar coluna nenhuma.
+    const enderecado = un.coluna != null || un.andar != null || un.caixaMaster != null || un.status === 'comodato';
     const cliCom = un.comodatoClienteId
       ? await this.prisma.cliente.findUnique({ where: { id: un.comodatoClienteId }, select: { nome: true, fantasia: true } })
       : null;
@@ -1030,7 +1083,7 @@ export class EstoqueService {
       qualidadeEm: un.qualidadeEm,
       qualidadePor: un.qualidadePor,
       enderecado,
-      endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster }, nomeCom) : null,
+      endereco: enderecado ? this.enderecoTxt({ coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster, status: un.status }, nomeCom) : null,
       coluna: un.coluna, andar: un.andar, caixaMaster: un.caixaMaster,
       comodatoClienteId: un.comodatoClienteId, comodatoCliente: nomeCom, comodatoEm: un.comodatoEm,
       loteEntrada: un.loteEntrada,
@@ -1196,7 +1249,11 @@ export class EstoqueService {
     return {
       caixa: this.fmtCaixa(dig),
       digitos: dig,
-      endereco: primeira ? `Coluna ${primeira.coluna ?? '—'} · Andar ${primeira.andar ?? '—'}` : null,
+      endereco: primeira
+        ? (EstoqueService.semAndar(primeira.coluna)
+            ? `Coluna ${primeira.coluna}`
+            : `Coluna ${primeira.coluna ?? '—'} · Andar ${primeira.andar ?? '—'}`)
+        : null,
       totalPecas: dentro.length,
       itens: [...grupos.values()].sort((a, b) => b.quantidade - a.quantidade),
       unidades: dentro.map((u) => ({ codigo: u.codigo, descricao: u.descricao, cor: u.cor, tamanho: u.tamanho, status: u.status })),
@@ -1234,8 +1291,17 @@ export class EstoqueService {
     const maiorMil = Math.max(0, ...nums.map((n) => Math.round(Number(this.digitosCaixa(n) || 0) / 1000)));
     if (maiorMil > max) await this.setConfigCaixas(empresaId, maiorMil);
     // Posição informada na criação: grava coluna+andar de cada caixa gerada.
-    if (col && String(col).trim() && andar != null && String(andar).trim() !== '') {
-      await this.salvarPosicoesCaixa(empresaId, nums.map((n) => this.fmtCaixa(this.digitosCaixa(n))).filter(Boolean), String(col).trim(), String(andar).trim());
+    // Na coluna sem andar (o pilar) a posição é só a coluna — exigir andar aqui
+    // deixaria a caixa nova fora do seletor da própria área que a criou.
+    const colTrim = String(col ?? '').trim();
+    const temAndar = andar != null && String(andar).trim() !== '';
+    if (colTrim && (temAndar || EstoqueService.semAndar(colTrim))) {
+      await this.salvarPosicoesCaixa(
+        empresaId,
+        nums.map((n) => this.fmtCaixa(this.digitosCaixa(n))).filter(Boolean),
+        colTrim,
+        EstoqueService.semAndar(colTrim) ? '' : String(andar).trim(),
+      );
     }
     const baseUrl = (base ?? '').replace(/\/+$/, '');
     const etiquetas = [];
