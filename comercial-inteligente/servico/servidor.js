@@ -237,7 +237,8 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
     if (req.method === 'GET' && url.pathname === '/saude') return json(res, 200, { ok: true });
 
     if (req.method === 'GET' && url.pathname === '/') {
-      const q = url.searchParams.get('token');
+      // Tokens gerados pelo Render são base64 e podem ter "+", que na URL vira espaço: restaura antes de comparar.
+      const q = (url.searchParams.get('token') || '').trim().replace(/ /g, '+');
       if (q && iguais(q, token)) {
         res.writeHead(302, { 'Set-Cookie': `hc_painel=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`, Location: '/' });
         return res.end();
