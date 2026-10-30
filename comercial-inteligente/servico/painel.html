@@ -170,6 +170,51 @@ textarea { min-height: 72px; resize: vertical; margin-bottom: 8px; }
 .empresa-bloco { margin: 18px 0; } .empresa-bloco h3 { font-size: 16px; margin-bottom: 6px; }
 select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px; }
 
+/* Pipeline (quadro) */
+.quadro { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.coluna-q { background: var(--surface); border-top: 4px solid var(--text); min-height: 440px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.coluna-q.sobre { background: var(--n300); }
+.coluna-q header { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; } .coluna-q header b { font-size: 14px; font-weight: 800; } .coluna-q header span { font-size: 20px; font-weight: 800; }
+.cartao { background: var(--bg); border-left: 4px solid var(--text); padding: 10px; cursor: grab; font-size: 12px; }
+.cartao.parado { border-left-color: var(--accent); } .cartao[draggable="true"]:active { cursor: grabbing; }
+.cartao .topo-c { display: flex; justify-content: space-between; color: var(--n700); gap: 6px; } .cartao .topo-c .hot { color: var(--accent-700); font-weight: 600; }
+.cartao .cli { font-weight: 800; font-size: 14px; margin: 4px 0 2px; } .cartao .val { font-weight: 600; margin-top: 4px; }
+.cartao button { padding: 4px 0; min-height: 0; border: 0; text-decoration: underline; margin-top: 6px; font-size: 12px; background: none; }
+.coluna-q .vazia { border: 2px dashed var(--n400); color: var(--n700); padding: 16px 10px; font-size: 12px; }
+
+/* Escritório */
+.legenda { display: inline-flex; gap: 14px; } .legenda span { display: inline-flex; gap: 6px; align-items: center; }
+.replay { background: var(--surface); border-top: 2px solid var(--text); padding: 12px; display: grid; grid-template-columns: auto auto 1fr; gap: 16px; align-items: center; margin-bottom: 16px; }
+.replay b { display: block; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; } .replay small { font-size: 12px; color: var(--n700); }
+.trilho { position: relative; height: 14px; cursor: pointer; } .trilho::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 2px; background: var(--n400); }
+.trilho > i { position: absolute; left: 0; top: 6px; height: 2px; background: var(--accent); width: 0; }
+.trilho .marca { position: absolute; top: 1px; width: 12px; height: 12px; margin-left: -6px; background: var(--n400); border: 0; padding: 0; min-height: 0; }
+.trilho .marca.passou { background: var(--accent); }
+.planta { border: 6px solid var(--text); background: var(--text); display: grid; gap: 6px; }
+.salas { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 6px; overflow-x: auto; }
+.sala { background: var(--bg); background-image: linear-gradient(var(--n300) 1px, transparent 1px), linear-gradient(90deg, var(--n300) 1px, transparent 1px); background-size: 32px 32px; height: 300px; position: relative; display: flex; flex-direction: column; }
+.sala-cab { background: var(--bg); padding: 8px 10px; border-bottom: 2px solid var(--text); } .sala-cab b { display: block; font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .sala-cab small { font-size: 11px; color: var(--n700); display: flex; gap: 5px; align-items: center; }
+.mesa { position: absolute; left: 50%; top: 92px; transform: translateX(-50%); width: 140px; height: 46px; background: var(--n500); display: flex; justify-content: center; gap: 8px; padding-top: 6px; }
+.monitor { width: 52px; height: 28px; border: 3px solid #2d2b2b; background: #7d7979; position: relative; color: #fff; font-size: 7px; font-weight: 800; display: grid; place-items: center; letter-spacing: .04em; }
+.monitor.trab { background: #2d2b2b; } .monitor.espera { background: #ae1800; }
+.monitor.trab::after { content: ""; position: absolute; left: 3px; bottom: 2px; height: 2px; width: 40%; background: var(--accent); animation: tela 1.6s ease-in-out infinite; }
+@keyframes tela { 0% { width: 5% } 100% { width: 85% } }
+.pessoa { position: absolute; left: 50%; top: 150px; transform: translateX(-50%); }
+.pessoa.trab { animation: bobx 1.1s ease-in-out infinite; } @keyframes bobx { 0%,100% { transform: translate(-50%, 0) } 50% { transform: translate(-50%, -3px) } }
+.fala { position: absolute; left: 8px; right: 8px; bottom: 8px; background: var(--bg); border-left: 4px solid var(--n400); padding: 6px 8px; font-size: 11px; line-height: 1.35; max-height: 62px; overflow: hidden; }
+.fala.trab { border-left-color: var(--text); } .fala.espera { border-left-color: var(--accent); }
+.selo { position: absolute; top: 52px; right: 6px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 800; padding: 2px 6px; }
+.corredor { background: var(--n200); height: 64px; position: relative; } .corredor::before { content: ""; position: absolute; left: 2%; right: 2%; top: 31px; height: 2px; background: var(--n500); }
+.corredor .rot { position: absolute; left: 8px; top: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--n700); }
+.documento { position: absolute; top: 18px; width: 22px; height: 28px; margin-left: -11px; background: var(--accent); transition: left 1.2s cubic-bezier(.6,0,.3,1); }
+.documento span { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 800; white-space: nowrap; color: var(--accent-700); }
+.base-planta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.entrada, .sua-sala { background: var(--bg); padding: 12px; min-height: 160px; }
+.sua-sala { background: var(--accent-100); outline: 3px solid var(--accent); outline-offset: -3px; }
+.entrada h3, .sua-sala h3 { font-size: 13px; margin-bottom: 8px; }
+.canais { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; } .canais span { background: var(--surface); padding: 6px 8px; font-size: 11px; font-weight: 600; }
+@media (max-width: 720px) { .replay { grid-template-columns: 1fr; } .base-planta { grid-template-columns: 1fr; } }
+
 /* Gaveta do agente */
 .fundo { position: fixed; inset: 0; background: color-mix(in srgb, #2d2b2b 45%, transparent); z-index: 20; }
 .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--bg); z-index: 21; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; border-left: 2px solid var(--text); }
@@ -225,6 +270,8 @@ select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px;
   <nav class="abas" role="tablist">
     <button role="tab" data-vista="manha" aria-selected="true">Minha manhã <span class="badge" id="nManha" hidden>0</span></button>
     <button role="tab" data-vista="painel" aria-selected="false">Painel</button>
+    <button role="tab" data-vista="pipeline" aria-selected="false">Pipeline</button>
+    <button role="tab" data-vista="escritorio" aria-selected="false">Escritório</button>
     <button role="tab" data-vista="contas" aria-selected="false">Grandes Contas</button>
     <button role="tab" data-vista="config" aria-selected="false">Configurar</button>
   </nav>
@@ -253,6 +300,20 @@ select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px;
         <div id="pWhatsappBloco"><div class="secao-tit"><h2>WhatsApp</h2></div><div id="pWhatsapp"></div></div>
       </div>
     </div>
+  </section>
+
+  <section class="vista" id="v-pipeline" hidden>
+    <div class="secao-tit" style="border-top:0;padding-top:0"><h2 style="font-size:28px">Pipeline</h2><span id="qResumo"></span></div>
+    <p class="muted" style="margin:-6px 0 16px;font-size:13px">Arraste um cartão para outra coluna, ou use "Avançar →". Cartão com borda vermelha = parado há mais de 5 dias.</p>
+    <div class="quadro" id="qQuadro"><p class="vazio">Carregando…</p></div>
+  </section>
+
+  <section class="vista" id="v-escritorio" hidden>
+    <div class="secao-tit" style="border-top:0;padding-top:0"><h2 style="font-size:28px">Escritório</h2>
+      <span class="legenda"><span><i class="quad on"></i>Trabalhando</span><span><i class="quad hot"></i>Precisa de você</span><span><i class="quad"></i>Parado</span></span></div>
+    <p class="muted" style="margin:-6px 0 12px;font-size:13px">Os casos sobem pelo corredor até chegar à sua sala.</p>
+    <div class="replay"><button class="prim" id="bReplay">Rever o dia em 30 s</button><div><b id="rRelogio">ao vivo</b><small id="rLegenda">Agora, em tempo real</small></div><div class="trilho" id="rTrilho"><i id="rProg"></i></div></div>
+    <div class="planta" id="ePlanta"></div>
   </section>
 
   <section class="vista painel" id="v-contas" hidden>
@@ -637,15 +698,20 @@ function desenhar() {
   desenharManha();
   desenharPainel();
   desenharGaveta();
+  if (vista === 'escritorio' && !replay) desenharEscritorio();
+  if (vista === 'pipeline' && quadro) carregarQuadro().catch(() => {});
 }
 
 function mostrarVista(v) {
   vista = v;
   document.querySelectorAll('.topo .abas [data-vista]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.vista === v)));
-  for (const id of ['manha', 'painel', 'contas', 'config']) document.getElementById(`v-${id}`).hidden = id !== v;
+  for (const id of ['manha', 'painel', 'pipeline', 'escritorio', 'contas', 'config']) document.getElementById(`v-${id}`).hidden = id !== v;
+  if (v === 'pipeline') carregarQuadro().catch((e) => alert(e.message));
+  if (v === 'escritorio') desenharEscritorio();
   if (v === 'contas') carregarContas().catch((e) => alert(e.message));
   document.getElementById('bConfig').textContent = v === 'config' ? 'Fechar configuração' : 'Configurar';
   if (v === 'config') carregarConfig().catch((e) => alert(e.message));
+  if (v !== 'escritorio' && replay) { clearInterval(replay.timer); replay = null; }
   guardar('hc_vista', v === 'config' ? 'manha' : v);
   scrollTo(0, 0);
 }
@@ -668,6 +734,160 @@ async function carregar() {
     desenhar();
   } catch (e) { console.error(e); }
 }
+
+// ------------------------------------------------------------ Pipeline (quadro)
+let quadro = null;
+let arrastando = null;
+async function carregarQuadro() { quadro = await api('/api/pipeline'); desenharQuadro(); }
+const idade = (d, parada) => (d === 0 ? 'hoje' : parada ? `parado há ${d} dias` : d === 1 ? '1 dia' : `${d} dias`);
+function desenharQuadro() {
+  if (!quadro) return;
+  const abertas = quadro.cartoes.filter((c) => c.coluna !== 'Fechado');
+  document.getElementById('qResumo').textContent = `${abertas.length} em aberto · ${abertas.filter((c) => c.parada).length} parada(s)`;
+  const nomes = quadro.colunas.map((c) => c.nome);
+  document.getElementById('qQuadro').innerHTML = quadro.colunas.map((col, i) => {
+    const cs = quadro.cartoes.filter((c) => c.coluna === col.nome);
+    return `<div class="coluna-q" data-coluna="${esc(col.nome)}"><header><b>${esc(col.nome)}</b><span>${cs.length}</span></header>
+      ${cs.map((c) => `<div class="cartao ${c.parada ? 'parado' : ''}" draggable="true" data-cartao="${c.id}">
+        <div class="topo-c"><span>${esc(c.id)} · ${esc(c.responsavel)}</span><span class="${c.parada ? 'hot' : ''}">${idade(c.idadeDias, c.parada)}</span></div>
+        <div class="cli">${esc(c.cliente)}</div><div>${esc(c.titulo)}</div>
+        <div class="val">${c.valorEstimado == null ? '<span class="muted">sem valor estimado</span>' : moeda(c.valorEstimado)}</div>
+        ${i < nomes.length - 1 ? `<button data-avancar="${c.id}" data-para="${esc(nomes[i + 1])}">Avançar →</button>` : ''}</div>`).join('') || '<div class="vazia">Nenhuma oportunidade</div>'}
+    </div>`;
+  }).join('');
+}
+async function moverCartao(id, coluna) {
+  if (coluna === 'Fechado' && !confirm(`Marcar ${id} como pedido GANHO?\n\nUse só com o pedido confirmado pelo cliente.`)) return;
+  await api('/api/oportunidade/etapa', { id, coluna });
+  await carregarQuadro();
+}
+document.addEventListener('dragstart', (ev) => { const c = ev.target.closest && ev.target.closest('[data-cartao]'); if (c) { arrastando = c.dataset.cartao; ev.dataTransfer.setData('text/plain', arrastando); } });
+document.addEventListener('dragover', (ev) => { const col = ev.target.closest && ev.target.closest('[data-coluna]'); if (col && arrastando) { ev.preventDefault(); document.querySelectorAll('.coluna-q.sobre').forEach((x) => x !== col && x.classList.remove('sobre')); col.classList.add('sobre'); } });
+document.addEventListener('dragleave', (ev) => { const col = ev.target.closest && ev.target.closest('[data-coluna]'); if (col && !col.contains(ev.relatedTarget)) col.classList.remove('sobre'); });
+document.addEventListener('drop', (ev) => {
+  const col = ev.target.closest && ev.target.closest('[data-coluna]');
+  if (!col || !arrastando) return;
+  ev.preventDefault();
+  const id = arrastando; arrastando = null;
+  col.classList.remove('sobre');
+  moverCartao(id, col.dataset.coluna).catch((e) => alert(e.message));
+});
+document.addEventListener('dragend', () => { arrastando = null; document.querySelectorAll('.coluna-q.sobre').forEach((x) => x.classList.remove('sobre')); });
+
+// ------------------------------------------------------------ Escritório
+const SALAS = ['hunter', 'vendedor', 'gerente', 'diretor', 'ceo'];
+const TELAS = { hunter: ['WEB', 'CRM'], vendedor: ['E-MAIL', 'WHATS'], gerente: ['TAREFAS'], diretor: ['MARGEM'], ceo: ['METAS'] };
+const posSala = (p) => ((SALAS.indexOf(p) + 0.5) / SALAS.length) * 100;
+let replay = null; // { dia, inicio, fim, t, timer, pausado }
+
+/** Estado de cada sala: ao vivo (estado do serviço) ou no instante t do replay. */
+function salasEm(t) {
+  const out = {};
+  for (const p of SALAS) {
+    if (t == null) {
+      const a = estado.agentes.find((x) => x.papel === p);
+      if (!a) continue;
+      const e = errosHoje().find((x) => x.papel === p);
+      const [cls, txt] = statusAgente(a, e);
+      out[p] = { cls, txt, fala: a.ativos[0] ? a.ativos[0].titulo : a.ultimo ? `Último: ${a.ultimo.titulo}` : 'Sem trabalho hoje.' };
+    } else {
+      const evs = replay.dia.eventos.filter((ev) => ev.papel === p && new Date(ev.em).getTime() <= t);
+      const ini = [...evs].reverse().find((ev) => ev.tipo === 'inicio');
+      const fim = ini && evs.find((ev) => ev.tipo === 'fim' && ev.job === ini.job && new Date(ev.em) >= new Date(ini.em));
+      const erro = evs.filter((ev) => ev.tipo === 'fim' && ev.status === 'erro').pop();
+      if (ini && !fim) out[p] = { cls: 'trab', txt: 'Trabalhando', fala: ini.titulo };
+      else if (erro && (!ini || new Date(erro.em) >= new Date(ini.em))) out[p] = { cls: 'erro', txt: 'Erro', fala: `Falhou: ${erro.titulo}` };
+      else out[p] = { cls: 'parado', txt: 'Aguardando trabalho', fala: ini ? `Terminou: ${ini.titulo}` : 'Ainda não começou.' };
+    }
+  }
+  return out;
+}
+
+/** Onde está o caso mais recente no corredor (ao vivo: último escalonamento aberto; replay: até o instante t). */
+function casoNoCorredor(t) {
+  if (t == null) {
+    const c = estado.dados.casos[0];
+    if (c) return { id: c.id, sala: 'humano', texto: `${c.id} entregue na sua sala` };
+    const s = estado.dados.solicitacoes.find((x) => x.fluxo === 'escalonamento');
+    return s ? { id: s.id, sala: s.para, texto: `${s.id} com ${NOME_PAPEL[s.para] || s.para}` } : null;
+  }
+  const s = replay.dia.solicitacoes.filter((x) => new Date(x.em).getTime() <= t).pop();
+  return s ? { id: s.id, sala: s.para, texto: s.para === 'humano' ? `${s.id} entregue na sua sala` : `${s.id} aqui` } : null;
+}
+
+function desenharEscritorio() {
+  if (!estado || vista !== 'escritorio') return;
+  const t = replay ? replay.t : null;
+  const salas = salasEm(t);
+  const caso = casoNoCorredor(t);
+  const pos = caso ? (caso.sala === 'humano' ? 97 : SALAS.includes(caso.sala) ? posSala(caso.sala) : 50) : null;
+  const m = estado.email;
+  const casos = estado.dados.casos;
+  document.getElementById('ePlanta').innerHTML = `
+    <div class="salas">${SALAS.filter((p) => salas[p]).map((p) => {
+      const s = salas[p];
+      const tela = s.cls === 'trab' ? 'trab' : s.cls === 'erro' ? 'espera' : '';
+      return `<div class="sala"><div class="sala-cab"><b>${esc(AGENTES[p].nome)}</b><small><i class="quad ${s.cls === 'trab' ? 'on' : s.cls === 'erro' ? 'hot' : ''}"></i>${esc(s.txt)}</small></div>
+        ${caso && caso.sala === p ? `<span class="selo">${esc(caso.id)} aqui</span>` : ''}
+        <div class="mesa">${TELAS[p].map((x) => `<div class="monitor ${tela}">${x}</div>`).join('')}</div>
+        <div class="pessoa ${s.cls === 'trab' ? 'trab' : ''}"><div class="avatar ${s.cls === 'erro' ? '' : ''}" style="${s.cls === 'erro' ? 'background:var(--accent);color:#fff' : ''}">${AGENTES[p].sigla}</div></div>
+        <div class="fala ${tela === 'espera' ? 'espera' : tela}">${esc(s.fala || '')}</div></div>`;
+    }).join('')}</div>
+    <div class="corredor"><span class="rot">Corredor</span>${caso ? `<div class="documento" style="left:${pos}%"><span>${esc(caso.sala === 'humano' ? 'na sua sala' : caso.id)}</span></div>` : ''}</div>
+    <div class="base-planta">
+      <div class="entrada"><h3>Entrada · e-mail e WhatsApp</h3><div class="canais">${m ? m.contas.map((c) => `<span>${esc(c.conta.split('@')[0])}@ ${c.conectada ? '✓' : '✗'}</span>`).join('') : ''}<span>WhatsApp ${estado.whatsapp && estado.whatsapp.configurado ? '✓' : '✗'}</span></div>
+        <p class="muted" style="font-size:12px;margin:0">${m ? `${m.processadosHoje} e-mail(s) tratados hoje${m.falhas ? ` · ${m.falhas} com falha` : ''}${m.ignoradosHoje ? ` · ${m.ignoradosHoje} automáticos ignorados` : ''}` : 'E-mail desativado.'}</p></div>
+      <div class="sua-sala"><h3>Sua sala</h3>${casos.length ? casos.slice(0, 5).map((c) => `<div class="lista-linha"><div class="principal"><span><b>${esc(c.id)}</b> · ${esc(c.titulo)}</span></div><button data-decidir="${c.id}">Decidir</button></div>`).join('') : '<p class="vazio">Nenhum caso esperando você.</p>'}</div>
+    </div>`;
+  desenharTrilho();
+}
+
+const relogio = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: fuso() });
+function desenharTrilho() {
+  const tr = document.getElementById('rTrilho');
+  if (!replay) {
+    document.getElementById('rRelogio').textContent = 'ao vivo';
+    document.getElementById('rLegenda').textContent = 'Agora, em tempo real';
+    document.getElementById('bReplay').textContent = 'Rever o dia em 30 s';
+    tr.querySelectorAll('.marca').forEach((x) => x.remove());
+    document.getElementById('rProg').style.width = '0';
+    return;
+  }
+  const { inicio, fim, t } = replay;
+  const frac = (x) => ((x - inicio) / Math.max(1, fim - inicio)) * 100;
+  document.getElementById('rRelogio').textContent = relogio(t);
+  const ult = replay.dia.eventos.filter((e) => new Date(e.em).getTime() <= t && e.tipo === 'inicio').pop();
+  document.getElementById('rLegenda').textContent = ult ? `${AGENTES[ult.papel] ? AGENTES[ult.papel].nome : ult.papel}: ${ult.titulo}` : 'Início do expediente';
+  document.getElementById('rProg').style.width = `${frac(t)}%`;
+  document.getElementById('bReplay').textContent = replay.timer ? 'Parar' : t >= fim ? 'Rever de novo' : 'Continuar';
+  if (!tr.querySelector('.marca')) {
+    const marcos = [...replay.dia.eventos.filter((e) => e.tipo === 'inicio'), ...replay.dia.solicitacoes].map((e) => new Date(e.em).getTime());
+    tr.insertAdjacentHTML('beforeend', marcos.map((x) => `<button class="marca" data-ir-tempo="${x}" style="left:${frac(x)}%" aria-label="${relogio(x)}"></button>`).join(''));
+  }
+  tr.querySelectorAll('.marca').forEach((x) => x.classList.toggle('passou', Number(x.dataset.irTempo) <= t));
+}
+
+async function alternarReplay() {
+  if (replay && replay.timer) { clearInterval(replay.timer); replay.timer = null; return desenharTrilho(); }
+  if (!replay || replay.t >= replay.fim) {
+    const dia = await api('/api/dia');
+    const [h, m] = estado.expediente.abre.split(':').map(Number);
+    const tempos = [...dia.eventos, ...dia.solicitacoes].map((e) => new Date(e.em).getTime());
+    if (!tempos.length) return alert('Ainda não há atividade registrada hoje para rever.');
+    const primeiro = Math.min(...tempos);
+    const abertura = primeiro - ((minutosDe(primeiro) - (h * 60 + m)) * 60000);
+    const inicio = Math.min(primeiro, abertura);
+    replay = { dia, inicio, fim: Math.max(...tempos) + 5 * 60000, t: inicio, timer: null };
+  }
+  const passo = (replay.fim - replay.inicio) / 300; // 30 s em quadros de 100 ms
+  replay.timer = setInterval(() => {
+    replay.t = Math.min(replay.fim, replay.t + passo);
+    if (replay.t >= replay.fim) { clearInterval(replay.timer); replay.timer = null; }
+    desenharEscritorio();
+  }, 100);
+  desenharEscritorio();
+}
+function minutosDe(ms) { const [h, m] = relogio(ms).split(':').map(Number); return h * 60 + m; }
 
 // ------------------------------------------------------------ Grandes Contas
 let contas = null;
@@ -834,6 +1054,10 @@ document.addEventListener('click', async (ev) => {
   if (!b) return;
   // Navegação e interface local (sem servidor)
   if (b.dataset.vista) return mostrarVista(b.dataset.vista);
+  if (b.id === 'bReplay') return alternarReplay().catch((e) => alert(e.message));
+  if (b.dataset.irTempo && replay) { if (replay.timer) { clearInterval(replay.timer); replay.timer = null; } replay.t = Number(b.dataset.irTempo); return desenharEscritorio(); }
+  if (b.dataset.avancar) return moverCartao(b.dataset.avancar, b.dataset.para).catch((e) => alert(e.message));
+  if (b.dataset.decidir) { abertos.add(b.dataset.decidir); mostrarVista('painel'); desenhar(); setTimeout(() => { const el = document.querySelector(`[data-expandir="${b.dataset.decidir}"]`); if (el) el.closest('.caso').scrollIntoView({ behavior: 'smooth' }); }, 50); return; }
   if (b.dataset.ir) return mostrarVista(b.dataset.ir);
   if (b.id === 'bConfig') return mostrarVista(vista === 'config' ? 'manha' : 'config');
   if (b.id === 'bTema') { const escuro = document.getElementById('bTema').textContent === 'Tema escuro'; const t = escuro ? 'dark' : 'light'; guardar('hc_tema', t); return aplicarTema(t); }

@@ -429,3 +429,31 @@ test('painel: escalonamentos viram UM caso com a cadeia, opções e recomendaç�
   assert.equal(v.funil.length, 5);
   assert.deepEqual(extrairOpcoes('sem alternativas aqui'), []);
 });
+
+test('pipeline e escritório: quadro em 5 colunas com paradas e atividade do dia para o replay', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { quadroFunil, atividadeDoDia } = require('../servico/servidor');
+  const b = baseDemo();
+  const q = quadroFunil(b);
+  assert.deepEqual(q.colunas.map((c) => c.nome), ['Lead', 'Qualificado', 'Cotação', 'Proposta', 'Fechado']);
+  assert.ok(q.cartoes.length > 0);
+  for (const c of q.cartoes) {
+    assert.ok(q.colunas.some((col) => col.nome === c.coluna && col.etapas.includes(c.etapa)));
+    assert.equal(c.parada, c.coluna !== 'Fechado' && c.idadeDias > 5);
+    assert.ok(c.cliente && c.cliente !== '—', `${c.id} com cliente ou lead`);
+  }
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  fs.mkdirSync(path.join(b.dir, 'logs'), { recursive: true });
+  const agora = new Date().toISOString();
+  fs.writeFileSync(path.join(b.dir, 'logs', 'atividade.jsonl'), [
+    JSON.stringify({ em: '2020-01-01T10:00:00Z', tipo: 'inicio', papel: 'gerente', titulo: 'velho', job: 'J0' }),
+    JSON.stringify({ em: agora, tipo: 'inicio', papel: 'gerente', titulo: 'Reunião diária', job: 'J1' }),
+    JSON.stringify({ em: agora, tipo: 'nota', papel: 'gerente', texto: 'ruído' }),
+    JSON.stringify({ em: agora, tipo: 'fim', papel: 'gerente', titulo: 'Reunião diária', status: 'concluido', job: 'J1' }),
+  ].join('\n') + '\n');
+  const dia = atividadeDoDia(b, b.dir, hoje);
+  assert.deepEqual(dia.eventos.map((e) => e.tipo), ['inicio', 'fim'], 'só hoje e só os tipos do replay');
+  PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Caso de hoje. Detalhe.', prazo: '2099-01-01', resultadoEsperado: 'x' }, hoje);
+  assert.equal(atividadeDoDia(b, b.dir, hoje).solicitacoes.at(-1).resumo, 'Caso de hoje.');
+});

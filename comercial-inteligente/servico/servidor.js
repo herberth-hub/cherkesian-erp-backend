@@ -156,6 +156,66 @@ function resumoFunil(oportunidades, agoraMs = Date.now()) {
   });
 }
 
+/** Quadro do funil: oportunidades abertas e ganhas nos últimos 30 dias, por coluna. */
+function quadroFunil(base, agoraMs = Date.now()) {
+  const clientes = new Map(base.listar('cliente').map((c) => [c.id, c.nomeFantasia || c.razaoSocial]));
+  const leads = new Map(base.listar('lead').map((l) => [l.id, l.empresa]));
+  const agentes = new Map(base.listar('agente').map((a) => [a.id, a.nome]));
+  const coluna = (etapa) => (GRUPOS_FUNIL.find(([, etapas]) => etapas.includes(etapa)) || [null])[0];
+  const cartoes = base
+    .listar('oportunidade')
+    .map((o) => {
+      const col = coluna(o.etapa);
+      if (!col) return null;
+      const idade = Math.max(0, Math.floor((agoraMs - new Date(o.atualizadoEm || o.criadoEm).getTime()) / 86400000));
+      if (col === 'Fechado' && idade > 30) return null;
+      return {
+        id: o.id,
+        titulo: o.titulo,
+        cliente: clientes.get(o.clienteId) || leads.get(o.leadId) || '—',
+        responsavel: agentes.get(o.responsavelId) || o.responsavelId,
+        valorEstimado: o.valorEstimado,
+        etapa: o.etapa,
+        coluna: col,
+        idadeDias: idade,
+        parada: col !== 'Fechado' && idade > 5,
+        proximoPasso: o.proximoPasso || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.idadeDias - a.idadeDias);
+  return { colunas: GRUPOS_FUNIL.map(([nome, etapas]) => ({ nome, etapas })), cartoes };
+}
+
+/** Atividade do dia para o "rever o dia": trabalhos (início/fim), decisões e escalonamentos de hoje. */
+function atividadeDoDia(base, dir, hoje, fuso = 'America/Sao_Paulo') {
+  const dataLocal = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: fuso }).format(new Date(iso));
+  const eventos = [];
+  try {
+    const arq = path.join(dir, 'logs', 'atividade.jsonl');
+    const tam = fs.statSync(arq).size;
+    const fd = fs.openSync(arq, 'r');
+    const ler = Math.min(tam, 4 * 1024 * 1024); // só o fim do arquivo: o dia de hoje
+    const buf = Buffer.alloc(ler);
+    fs.readSync(fd, buf, 0, ler, tam - ler);
+    fs.closeSync(fd);
+    for (const linha of buf.toString('utf8').split('\n')) {
+      if (!linha.startsWith('{')) continue;
+      let ev;
+      try { ev = JSON.parse(linha); } catch { continue; }
+      if (!['inicio', 'fim', 'decisao-humana', 'alerta', 'rascunho'].includes(ev.tipo) || dataLocal(ev.em) !== hoje) continue;
+      eventos.push({ em: ev.em, tipo: ev.tipo, papel: ev.papel, titulo: ev.titulo || ev.texto || null, status: ev.status || null, job: ev.job || null });
+    }
+  } catch {
+    // sem log ainda: dia vazio
+  }
+  const solicitacoes = base
+    .listar('solicitacao')
+    .filter((s) => s.criadoEm && dataLocal(s.criadoEm) === hoje)
+    .map((s) => ({ em: s.criadoEm, id: s.id, de: s.solicitante, para: s.responsavel, fluxo: s.fluxo, resumo: primeiraFrase(s.objetivo, 100) }));
+  return { hoje, eventos, solicitacoes };
+}
+
 /** Visão da base para o painel: o que está aberto e o que espera o humano. */
 function visaoBase(base, hoje = new Date().toISOString().slice(0, 10)) {
   const sols = base.listar('solicitacao');
@@ -332,6 +392,19 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       eventos.emitir('decisao-humana', { papel: 'humano', texto: `${r.id}: responsável definido (${c.como === 'corporativo' ? 'corporativo' : c.unidade ? 'unidade' : 'grupo'})` });
       return r;
     },
+    'POST /api/oportunidade/etapa': (c) => {
+      // Mover no quadro: vai para a primeira etapa da coluna escolhida (decisão humana registrada no histórico).
+      const grupo = GRUPOS_FUNIL.find(([nome]) => nome === c.coluna);
+      if (!grupo) throw Object.assign(new Error('Coluna inválida.'), { status: 422 });
+      const base = orquestrador.abrirBase();
+      const atual = base.exigir('oportunidade', c.id);
+      if (grupo[1].includes(atual.etapa)) return atual;
+      const patch = { etapa: grupo[1][0] };
+      if (patch.etapa === 'pedido_ganho') patch.fechadoEm = orquestrador.dataLocal();
+      const r = C.atualizar(base, 'humano', 'oportunidade', c.id, patch);
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `${c.id} movida para ${c.coluna}` });
+      return r;
+    },
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
       const r = C.atualizarMeta(base, 'humano', c.id, { status: c.aprovar ? 'aprovada' : 'revogada' });
@@ -441,6 +514,11 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       if (req.method === 'GET' && url.pathname === '/api/estado') {
         return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase(), orquestrador.dataLocal()), eventos: eventos.recentes.slice(-120) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/pipeline') return json(res, 200, quadroFunil(orquestrador.abrirBase()));
+      if (req.method === 'GET' && url.pathname === '/api/dia') {
+        const base = orquestrador.abrirBase();
+        return json(res, 200, atividadeDoDia(base, base.dir, orquestrador.dataLocal(), orquestrador.cfg.fuso));
+      }
       if (req.method === 'GET' && url.pathname === '/api/contas') {
         const K = require('../src/contas');
         const base = orquestrador.abrirBase();
@@ -476,4 +554,4 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
   });
 }
 
-module.exports = { criarServidor, visaoBase, visaoConfig, extrairOpcoes, primeiraFrase };
+module.exports = { criarServidor, visaoBase, visaoConfig, extrairOpcoes, primeiraFrase, quadroFunil, atividadeDoDia };
