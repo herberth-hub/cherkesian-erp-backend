@@ -250,7 +250,7 @@ function requisitar(porta, caminho, { metodo = 'GET', cabecalhos = {}, corpo } =
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, corpo: d }));
     });
     req.on('error', reject);
-    if (corpo) req.write(JSON.stringify(corpo));
+    if (corpo) req.write(typeof corpo === 'string' ? corpo : JSON.stringify(corpo));
     req.end();
   });
 }
@@ -262,8 +262,8 @@ test('painel: token com "+" (base64 do Render) funciona mesmo quando o navegador
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   try {
     const porta = srv.address().port;
-    assert.equal((await requisitar(porta, '/?token=abc+def/ghi=jkl+mno123456')).status, 302, '+ cru na URL');
-    assert.equal((await requisitar(porta, `/?token=${encodeURIComponent(TOKEN)}`)).status, 302, 'token codificado');
+    assert.equal((await requisitar(porta, '/?token=abc+def/ghi=jkl+mno123456')).status, 303, '+ cru na URL');
+    assert.equal((await requisitar(porta, `/?token=${encodeURIComponent(TOKEN)}`)).status, 303, 'token codificado');
     assert.equal((await requisitar(porta, '/?token=abc+def/ghi=jkl+mno12345X')).status, 401, 'token errado continua recusado');
   } finally {
     srv.close();
@@ -283,13 +283,22 @@ test('painel: autenticação, estado, CSRF, decisão humana e eventos ao vivo', 
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const porta = srv.address().port;
   try {
-    assert.equal((await requisitar(porta, '/')).status, 401);
+    const entrada = await requisitar(porta, '/');
+    assert.equal(entrada.status, 401);
+    assert.match(entrada.corpo, /<form method="post" action="\/entrar">/, 'tela de entrada com campo de senha');
     assert.equal((await requisitar(porta, '/api/estado')).status, 401);
     assert.equal((await requisitar(porta, '/?token=errado')).status, 401);
+    const form = (senha) => requisitar(porta, '/entrar', { metodo: 'POST', cabecalhos: { 'Content-Type': 'application/x-www-form-urlencoded' }, corpo: `senha=${encodeURIComponent(senha)}` });
+    const errada = await form('senha-errada');
+    assert.equal(errada.status, 401);
+    assert.match(errada.corpo, /Senha incorreta/);
+    const viaForm = await form(TOKEN);
+    assert.equal(viaForm.status, 303);
+    assert.match(viaForm.headers['set-cookie'][0], /HttpOnly; Secure; SameSite=Lax/);
     const login = await requisitar(porta, `/?token=${TOKEN}`);
-    assert.equal(login.status, 302);
+    assert.equal(login.status, 303);
     const ck = login.headers['set-cookie'][0];
-    assert.match(ck, /HttpOnly; SameSite=Strict/);
+    assert.match(ck, /HttpOnly; Secure; SameSite=Lax/, 'Lax: funciona ao abrir o link a partir de outro site');
     const pagina = await requisitar(porta, '/', { cabecalhos: { Cookie: ck.split(';')[0] } });
     assert.equal(pagina.status, 200);
     assert.match(pagina.corpo, /Diretoria Comercial de IA/);
