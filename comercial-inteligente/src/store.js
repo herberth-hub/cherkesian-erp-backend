@@ -130,6 +130,11 @@ class Base {
       ['propostaId', 'proposta'],
       ['responsavelId', 'agente'],
       ['metaPaiId', 'meta'],
+      ['grupoId', 'grupo'],
+      ['empresaId', 'empresa'],
+      ['unidadeId', 'unidade'],
+      ['compradorId', 'comprador'],
+      ['responsavelCorporativoId', 'agente'],
     ]) {
       if (reg[campo] && !this.obter(alvo, reg[campo])) erros.push(`$.${campo}: ${alvo} ${reg[campo]} não existe.`);
     }
@@ -164,6 +169,34 @@ class Base {
             normalizar(r.titulo) === normalizar(reg.titulo),
         ) || null
       );
+    }
+    if (entidade === 'grupo') {
+      const nome = normalizar(reg.nome);
+      return lista.find((r) => normalizar(r.nome) === nome) || null;
+    }
+    if (entidade === 'empresa') {
+      const c = soDigitos(reg.cnpjMatriz);
+      const nome = normalizar(reg.razaoSocial);
+      return lista.find((r) => (c && soDigitos(r.cnpjMatriz).slice(0, 8) === c.slice(0, 8)) || normalizar(r.razaoSocial) === nome) || null;
+    }
+    if (entidade === 'unidade') {
+      const c = soDigitos(reg.cnpj);
+      const nome = normalizar(reg.nome);
+      const cidade = normalizar(reg.cidade);
+      const end = normalizar(reg.endereco);
+      return (
+        lista.find(
+          (r) =>
+            (c && soDigitos(r.cnpj) === c) ||
+            (r.grupoId === reg.grupoId && normalizar(r.nome) === nome && normalizar(r.cidade) === cidade) ||
+            (end && reg.cep && r.cep === reg.cep && normalizar(r.endereco) === end),
+        ) || null
+      );
+    }
+    if (entidade === 'comprador') {
+      const nome = normalizar(reg.nome);
+      const email = String(reg.email || '').toLowerCase();
+      return lista.find((r) => (email && String(r.email || '').toLowerCase() === email) || (r.grupoId === reg.grupoId && normalizar(r.nome) === nome)) || null;
     }
     if (entidade === 'contato' && reg.email) {
       return lista.find((r) => r.clienteId === reg.clienteId && String(r.email || '').toLowerCase() === reg.email.toLowerCase()) || null;

@@ -214,6 +214,14 @@ function registrar(base, agente, entidade, dados, hoje) {
       return definirMeta(base, agente, dados);
     case 'tarefa':
       return criarTarefa(base, { agente, ...dados, condicaoConclusao: dados.condicaoConclusao });
+    case 'grupo':
+    case 'empresa':
+    case 'unidade':
+    case 'comprador':
+      return require('./contas').registrarConta(base, agente, entidade, limpar(dados));
+    case 'oportunidade':
+      P.podeCriar(agente, entidade, dados);
+      return base.criar(entidade, require('./contas').conferirOportunidadeConta(base, limpar(dados)), agente);
     case 'solicitacao':
     case 'aprovacao':
     case 'historico':
@@ -236,6 +244,16 @@ function atualizar(base, agente, entidade, id, patch) {
     default: {
       const atual = base.exigir(entidade, id);
       P.podeAtualizar(agente, entidade, atual, patch);
+      if (entidade === 'comprador') require('./contas').conferirComprador(base, { ...atual, ...limpar(patch) });
+      if (entidade === 'oportunidade' && ['grupoId', 'unidadeId', 'canal', 'responsavelId'].some((k) => k in patch) && (atual.grupoId || patch.grupoId || patch.unidadeId)) {
+        const conferida = require('./contas').conferirOportunidadeConta(base, { ...atual, ...limpar(patch) });
+        return base.atualizar(entidade, id, { ...limpar(patch), grupoId: conferida.grupoId, canal: conferida.canal }, agente);
+      }
+      if (entidade === 'unidade') {
+        // CNPJ, empresa e funcionários locais passam pelas mesmas conferências do cadastro.
+        const conferida = require('./contas').conferirUnidade(base, { ...atual, ...limpar(patch) });
+        return base.atualizar(entidade, id, { ...limpar(patch), empresaId: conferida.empresaId || null }, agente);
+      }
       return base.atualizar(entidade, id, limpar(patch), agente);
     }
   }

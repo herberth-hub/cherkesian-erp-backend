@@ -12,4 +12,4 @@
 | Recomendações | Completar custos, justificar descontos, alinhar pedidos em risco, campanha de inativos |
 | Decisões pendentes | Aprovações nas alçadas diretor/ceo/humano; solicitações do diretor |
 
-**Análise do diretor:** leitura do funil por segmento, riscos de margem e capacidade, decisões que precisa do CEO (com alternativas).
+**Análise do diretor:** leitura do funil por segmento, riscos de margem e capacidade, decisões que precisam do CEO (com alternativas).

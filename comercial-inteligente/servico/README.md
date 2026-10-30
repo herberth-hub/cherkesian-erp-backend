@@ -1,6 +1,6 @@
 # Serviço autônomo — fases 1, 2 e 3
 
-Os quatro agentes (CEO, Diretor, Gerente, Vendedor) rodando **sozinhos e em paralelo**, de
+Os cinco agentes (CEO, Diretor, Gerente, Vendedor e Hunter) rodando **sozinhos e em paralelo**, de
 **segunda a sexta, das 06:30 às 22:00 (horário de São Paulo)**, com um **painel visual** para
 acompanhar o trabalho ao vivo, pausar agentes e tomar as decisões que são suas.
 
@@ -118,6 +118,15 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
   `ZAPI_WEBHOOK_SEGREDO` (texto longo que você inventa) e, na Z-API, o webhook "Ao receber":
   `https://<endereço-do-painel>/webhook/whatsapp?segredo=<ZAPI_WEBHOOK_SEGREDO>`.
 
+## Conversar e dar ordens aos agentes
+
+- Toque num agente (Painel ou Escritório) → aba **Conversa**: pergunte ou peça algo. A mensagem vira trabalho na fila do
+  agente (com as últimas mensagens como contexto) e a resposta volta para a conversa. Conversas ficam em `<base>/conversas.json`.
+- **Ctrl K** (ou "Buscar ou dar ordem"): busca casos, agentes, oportunidades, telas e ações; `vendedor, priorize o pregão`
+  envia a ordem direto para o agente.
+- A ordem não amplia permissões: o agente continua limitado pela CLI, pela hierarquia e pela alçada do próprio papel.
+  Fora do expediente, pausado ou com o teto de gasto atingido, a mensagem espera na fila. Cada mensagem consome IA (modelo de rotina).
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Uso |
@@ -143,6 +152,7 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 | `HC_WHATSAPP_AUTONOMIA` | `aprovacao` | `aprovacao` ou `automatico` (assuntos sensíveis sempre com aprovação). |
 | `HC_WHATSAPP_MSG_FORA_HORARIO` | — | Texto fixo enviado fora do expediente (opcional). |
 | `WHATSAPP_META_*` / `ZAPI_*` | — | Credenciais do provedor (ver Fase 3). |
+| `WHATSAPP_META_API_VERSION` | `v23.0` | Versão da Graph API da Meta usada no envio (atualize quando a Meta descontinuar a versão). |
 
 ## Implantação (Render ou outro servidor)
 

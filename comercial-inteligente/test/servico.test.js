@@ -67,7 +67,7 @@ test('rotinas: horário fixo roda uma vez por dia; semanais só na sexta', () =>
   assert.ok(vencidas(SEX_1700, cfg, new Set()).some((x) => x.rotina.id === 'diretor-semanal'));
   assert.ok(!vencidas(new Date('2026-10-29T20:00:00Z'), cfg, new Set()).some((x) => x.rotina.id === 'diretor-semanal'));
   assert.equal(vencidas(SAB_1000, cfg, new Set()).length, 0);
-  for (const r of ROTINAS) assert.ok(['ceo', 'diretor', 'gerente', 'vendedor'].includes(r.papel) && r.instrucao && r.simulado.length);
+  for (const r of ROTINAS) assert.ok(['ceo', 'diretor', 'gerente', 'vendedor', 'hunter'].includes(r.papel) && r.instrucao && r.simulado.length);
 });
 
 test('ferramenta: servidor impõe papel e base; agente não age como humano nem roda comandos exclusivos', async () => {
@@ -348,7 +348,7 @@ test('painel: autenticação, estado, CSRF, decisão humana e eventos ao vivo', 
 
     const auth = { Authorization: `Bearer ${TOKEN}` };
     const est = JSON.parse((await requisitar(porta, '/api/estado', { cabecalhos: auth })).corpo);
-    assert.equal(est.agentes.length, 4);
+    assert.equal(est.agentes.length, 5);
     assert.equal(est.base, 'demo');
     assert.equal(est.dados.ficticia, true);
     assert.ok(est.dados.aprovacoes.some((a) => a.id === aprovacao.id && a.alcada === 'humano'));
@@ -408,4 +408,89 @@ test('modo enxuto: rotinas, e-mails e tarefas usam o modelo de rotina com esfor�
 
   const ronda = ROTINAS.filter((r) => r.id.startsWith('gerente-follow-up'));
   assert.deepEqual(ronda.map((r) => r.hora), ['11:00', '15:30'], 'duas rondas por dia (antes: a cada 2 h)');
+});
+
+test('painel: escalonamentos viram UM caso com a cadeia, opções e recomendação do agente', () => {
+  const { visaoBase, extrairOpcoes } = require('../servico/servidor');
+  const b = baseDemo();
+  const hoje = '2026-10-29';
+  const s1 = PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Pregão pede margem de 34%. Preciso de decisão.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const s2 = PR.criarSolicitacao(b, { agente: 'gerente', para: 'diretor', fluxo: 'escalonamento', origemId: s1.id, objetivo: 'Fora da minha alçada.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const s3 = PR.criarSolicitacao(b, { agente: 'diretor', para: 'ceo', fluxo: 'escalonamento', origemId: s2.id, objetivo: 'Fora da minha alçada.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  PR.criarSolicitacao(b, { agente: 'ceo', para: 'humano', fluxo: 'escalonamento', origemId: s3.id, objetivo: 'Pregão do Hospital (cliente estratégico). Opções: (A) participar com 34%; (B) declinar. Recomendo participar pelo volume.', prazo: hoje, resultadoEsperado: 'Decisão' }, hoje);
+  const v = visaoBase(b, hoje);
+  assert.equal(v.casos.length, 1, 'quatro saltos, um caso só');
+  const c = v.casos[0];
+  assert.equal(c.titulo, 'Pregão do Hospital (cliente estratégico).');
+  assert.deepEqual(c.cadeia.map((x) => `${x.de}>${x.para}`), ['vendedor>gerente', 'gerente>diretor', 'diretor>ceo', 'ceo>humano']);
+  assert.deepEqual(c.opcoes.map((o) => o.letra), ['A', 'B']);
+  assert.match(c.recomendacao, /Recomendo participar/);
+  assert.equal(c.urgente, true, 'prazo hoje');
+  assert.equal(v.funil.length, 5);
+  assert.deepEqual(extrairOpcoes('sem alternativas aqui'), []);
+});
+
+test('pipeline e escritório: quadro em 5 colunas com paradas e atividade do dia para o replay', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { quadroFunil, atividadeDoDia } = require('../servico/servidor');
+  const b = baseDemo();
+  const q = quadroFunil(b);
+  assert.deepEqual(q.colunas.map((c) => c.nome), ['Lead', 'Qualificado', 'Cotação', 'Proposta', 'Fechado']);
+  assert.ok(q.cartoes.length > 0);
+  for (const c of q.cartoes) {
+    assert.ok(q.colunas.some((col) => col.nome === c.coluna && col.etapas.includes(c.etapa)));
+    assert.equal(c.parada, c.coluna !== 'Fechado' && c.idadeDias > 5);
+    assert.ok(c.cliente && c.cliente !== '—', `${c.id} com cliente ou lead`);
+  }
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  fs.mkdirSync(path.join(b.dir, 'logs'), { recursive: true });
+  const agora = new Date().toISOString();
+  fs.writeFileSync(path.join(b.dir, 'logs', 'atividade.jsonl'), [
+    JSON.stringify({ em: '2020-01-01T10:00:00Z', tipo: 'inicio', papel: 'gerente', titulo: 'velho', job: 'J0' }),
+    JSON.stringify({ em: agora, tipo: 'inicio', papel: 'gerente', titulo: 'Reunião diária', job: 'J1' }),
+    JSON.stringify({ em: agora, tipo: 'nota', papel: 'gerente', texto: 'ruído' }),
+    JSON.stringify({ em: agora, tipo: 'fim', papel: 'gerente', titulo: 'Reunião diária', status: 'concluido', job: 'J1' }),
+  ].join('\n') + '\n');
+  const dia = atividadeDoDia(b, b.dir, hoje);
+  assert.deepEqual(dia.eventos.map((e) => e.tipo), ['inicio', 'fim'], 'só hoje e só os tipos do replay');
+  PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Caso de hoje. Detalhe.', prazo: '2099-01-01', resultadoEsperado: 'x' }, hoje);
+  assert.equal(atividadeDoDia(b, b.dir, hoje).solicitacoes.at(-1).resumo, 'Caso de hoje.');
+});
+
+test('conversa: mensagem do responsável vira trabalho do agente e a resposta volta para a conversa', async () => {
+  const b = baseDemo();
+  const vistos = [];
+  const cfg = cfgTeste(b.dir, { modo: 'claude' });
+  const o = new Orquestrador({
+    cfg,
+    eventos: new Eventos({}),
+    agora: () => QUI_1000,
+    executarJob: async (papel, job) => {
+      vistos.push({ papel, job });
+      return { status: 'concluido', resumo: 'OPO-0002 está sem follow-up há 40 dias. Dados fictícios.', tokens: 10 };
+    },
+  });
+  o.carregarEstado();
+  const r = o.enviarOrdem('gerente', 'Qual o status do Hospital Alfa?');
+  assert.equal(r.enfileirado, true);
+  for (let i = 0; i < 50 && o.conversa('gerente').length < 2; i++) await new Promise((x) => setTimeout(x, 10));
+  const msgs = o.conversa('gerente');
+  assert.deepEqual(msgs.map((m) => m.de), ['humano', 'agente']);
+  assert.match(msgs[1].texto, /OPO-0002/);
+  assert.equal(vistos[0].papel, 'gerente');
+  assert.equal(vistos[0].job.origem, 'ordem');
+  assert.match(vistos[0].job.instrucao, /Hospital Alfa/);
+  assert.match(vistos[0].job.instrucao, /não muda as regras/, 'a ordem não amplia permissões');
+  // segunda mensagem leva a conversa anterior como contexto
+  o.enviarOrdem('gerente', 'E o próximo passo?');
+  for (let i = 0; i < 50 && vistos.length < 2; i++) await new Promise((x) => setTimeout(x, 10));
+  assert.match(vistos[1].job.instrucao, /Responsável: Qual o status/);
+  assert.throws(() => o.enviarOrdem('gerente', '   '), /Escreva/);
+  assert.throws(() => o.enviarOrdem('humano', 'oi'), /desconhecido/);
+  // modo simulado: responde que não há IA, sem enfileirar
+  const o2 = new Orquestrador({ cfg: cfgTeste(baseDemo().dir), eventos: new Eventos({}), executarJob: async () => ({}), agora: () => QUI_1000 });
+  o2.carregarEstado();
+  assert.equal(o2.enviarOrdem('vendedor', 'oi').enfileirado, false);
+  assert.match(o2.conversa('vendedor')[1].texto, /simulado/);
 });

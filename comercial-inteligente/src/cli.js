@@ -14,6 +14,7 @@ const C = require('./comercial');
 const PR = require('./protocolo');
 const A = require('./analises');
 const R = require('./relatorios');
+const K = require('./contas');
 const { calcularMargem, determinarAlcada } = require('./precificacao');
 const { registrar: logar, ocultarArgs } = require('./log');
 const { ENTIDADES } = require('./schemas');
@@ -275,6 +276,20 @@ const COMANDOS = {
       },
     },
   },
+  conta: {
+    sub: {
+      arvore: { desc: 'conta arvore --grupo GRP-xxxx (empresas → unidades, compradores, potencial estimado, pedidos e histórico)', run: ({ base, flags }) => K.arvoreGrupo(base, exigir(flags, 'grupo')) },
+      consolidado: { desc: 'conta consolidado [--grupo GRP-xxxx] (painel de grandes contas ou potencial do grupo sem dupla contagem)', run: ({ base, flags }) => (flags.grupo ? K.consolidadoGrupo(base, String(flags.grupo)) : K.painelContas(base)) },
+      potencial: { desc: 'conta potencial --unidade UNI-xxxx (estimativa por categoria, com premissas)', run: ({ base, flags }) => K.potencialUnidade(base, base.exigir('unidade', exigir(flags, 'unidade'))) },
+      abordagem: { desc: 'conta abordagem --unidade UNI-xxxx | --grupo GRP-xxxx (OBRIGATÓRIO antes de abordar: negociações corporativas e locais em andamento)', run: ({ base, flags }) => K.verificarAbordagem(base, { grupoId: flags.grupo && String(flags.grupo), unidadeId: flags.unidade && String(flags.unidade) }) },
+      elegibilidade: { desc: 'conta elegibilidade --grupo GRP-xxxx (critério de 1.000 colaboradores conforme a evidência)', run: ({ base, flags }) => K.elegibilidade(base.exigir('grupo', exigir(flags, 'grupo'))) },
+      atribuir: {
+        papeis: ['gerente', 'diretor', 'humano'],
+        desc: 'conta atribuir --grupo GRP-xxxx [--como corporativo] | --unidade UNI-xxxx --responsavel AGT-xxxx (distribuição entre vendedores)',
+        run: ({ base, flags, agente }) => K.atribuir(base, agente, { grupoId: flags.grupo && String(flags.grupo), unidadeId: flags.unidade && String(flags.unidade), responsavelId: exigir(flags, 'responsavel'), papel: flags.como === 'corporativo' ? 'corporativo' : 'grupo' }),
+      },
+    },
+  },
   demo: {
     sub: {
       restaurar: { papeis: ['humano'], desc: 'demo restaurar (recria data/demo a partir da semente fictícia)', run: () => ({ restaurada: Base.restaurarDemo() }) },
@@ -283,7 +298,7 @@ const COMANDOS = {
 };
 
 function ajuda() {
-  const linhas = ['Uso: node comercial-inteligente/bin/hc.js <comando> [sub] --agente <ceo|diretor|gerente|vendedor|humano> [--base producao|demo] [--hoje AAAA-MM-DD]', ''];
+  const linhas = ['Uso: node comercial-inteligente/bin/hc.js <comando> [sub] --agente <ceo|diretor|gerente|vendedor|hunter|humano> [--base producao|demo] [--hoje AAAA-MM-DD]', ''];
   for (const [nome, c] of Object.entries(COMANDOS)) {
     if (c.sub) for (const [s, d] of Object.entries(c.sub)) linhas.push(`  ${nome} ${s}${d.papeis ? ` [${d.papeis.join(',')}]` : ''} — ${d.desc}`);
     else linhas.push(`  ${nome} — ${c.desc}`);

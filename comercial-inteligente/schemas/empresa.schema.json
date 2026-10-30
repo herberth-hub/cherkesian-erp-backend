@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hc-quality/comercial/empresa.schema.json",
+  "title": "empresa",
+  "x-prefixo": "EMP",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^EMP-\\d{4,}$"
+    },
+    "ficticio": {
+      "type": "boolean"
+    },
+    "origem": {
+      "enum": [
+        "manual",
+        "erp",
+        "demo",
+        "agente"
+      ]
+    },
+    "erpId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "criadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "atualizadoEm": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "criadoPor": {
+      "enum": [
+        "ceo",
+        "diretor",
+        "gerente",
+        "vendedor",
+        "hunter",
+        "humano"
+      ]
+    },
+    "grupoId": {
+      "type": "string",
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "razaoSocial": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nomeFantasia": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cnpjMatriz": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{14}$"
+    },
+    "papelNoGrupo": {
+      "enum": [
+        "controladora",
+        "subsidiaria",
+        "coligada",
+        "desconhecido"
+      ]
+    },
+    "colaboradoresBrasil": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "valor": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "evidencia": {
+          "enum": [
+            "comprovado",
+            "estimado",
+            "nao_verificado"
+          ]
+        },
+        "fonte": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dataPesquisa": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "required": [
+        "valor",
+        "evidencia"
+      ]
+    },
+    "clienteId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CLI-\\d{4,}$"
+    },
+    "fontes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "descricao": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataPesquisa": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "required": [
+          "descricao"
+        ]
+      }
+    }
+  },
+  "required": [
+    "id",
+    "ficticio",
+    "criadoEm",
+    "grupoId",
+    "razaoSocial",
+    "papelNoGrupo"
+  ]
+}

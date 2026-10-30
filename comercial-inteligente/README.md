@@ -1,7 +1,7 @@
 # Inteligência Comercial — HC Quality (Grupo Cherkesian)
 
-Diretoria comercial de IA com **quatro agentes hierárquicos** — CEO, Diretor Comercial, Gerente
-Comercial e Vendedor/Atendente — implementados como subagentes nativos do Claude Code, com um motor
+Diretoria comercial de IA com **cinco agentes hierárquicos** — CEO, Diretor Comercial, Gerente
+Comercial, Vendedor/Atendente e Hunter de Grandes Contas — implementados como subagentes nativos do Claude Code, com um motor
 determinístico (CLI em Node.js, sem dependências) que aplica hierarquia, alçadas, permissões,
 validação de dados, cálculo de margem, relatórios padronizados, histórico e log de execução.
 
@@ -107,6 +107,23 @@ Sem `ANTHROPIC_API_KEY` ele roda em modo simulado
 ```bash
 cd comercial-inteligente && npm install && npm run servico:demo   # abre em http://localhost:3100/?token=...
 ```
+
+## Grandes contas e agente Hunter (módulo 9)
+
+Estrutura **grupo econômico → empresas → unidades** e **compradores** (corporativos e locais), com fonte,
+data e qualidade da evidência em cada número. Detalhes e estratégias: `workflows/grandes_contas.md`.
+
+- O **Hunter** (`--agente hunter`, abaixo do gerente) pesquisa na internet um grupo por dia útil (10:00),
+  registra empresas, unidades da Grande São Paulo e compradores, e escala o resumo ao gerente. Não contata ninguém.
+  No serviço, usa as ferramentas de busca e leitura web da API (`HC_HUNTER_BUSCAS`, padrão 8 buscas, e
+  `HC_HUNTER_PAGINAS`, padrão 6 páginas por rodada; `HC_HUNTER=off` desliga a rotina). Busca web tem custo próprio na API.
+- Regras aplicadas pela CLI: matriz × filial pelo CNPJ; vínculo da unidade à empresa pela raiz do CNPJ; funcionários
+  do grupo, do Brasil e da unidade nunca somados (a unidade não recebe o total do grupo); comprador "evidenciado" só com
+  evidência; duplicidade de grupo, empresa, unidade e comprador; potencial por unidade como **estimativa**
+  (`config/premissas_contas.json`) e consolidado sem dupla contagem entre compra corporativa e local; bloqueio de
+  abordagem paralela na mesma conta.
+- Comandos: `conta arvore|consolidado|potencial|abordagem|elegibilidade|atribuir` (`ajuda` lista os detalhes).
+- Painel: aba **Grandes Contas** (indicadores, grupos, mapa por cidade, árvore do grupo, compradores e distribuição entre vendedores).
 
 ## Como a delegação funciona
 

@@ -41,6 +41,7 @@
         "diretor",
         "gerente",
         "vendedor",
+        "hunter",
         "humano"
       ]
     },
@@ -54,6 +55,7 @@
         "diretor",
         "gerente",
         "vendedor",
+        "hunter",
         "humano"
       ]
     },
@@ -63,6 +65,7 @@
         "diretor",
         "gerente",
         "vendedor",
+        "hunter",
         "humano"
       ]
     },
@@ -123,6 +126,7 @@
             "diretor",
             "gerente",
             "vendedor",
+            "hunter",
             "humano"
           ]
         },

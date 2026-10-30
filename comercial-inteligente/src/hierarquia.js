@@ -16,6 +16,8 @@ function papel(p) {
 const nivel = (p) => papel(p).nivel;
 const superior = (p) => papel(p).superior;
 const subordinado = (p) => papel(p).subordinado;
+/** Subordinados diretos (o gerente tem dois: vendedor e hunter). */
+const subordinados = (p) => papel(p).subordinados || (papel(p).subordinado ? [papel(p).subordinado] : []);
 
 /** true se `a` está acima de `b` na cadeia (não necessariamente imediato). */
 const acimaDe = (a, b) => nivel(a) > nivel(b);
@@ -34,10 +36,10 @@ function cadeiaEscalonamento(p) {
 /** Delegação só para o subordinado direto. */
 function validarDelegacao(de, para) {
   papel(para);
-  if (subordinado(de) !== para) {
+  if (!subordinados(de).includes(para)) {
     throw new ErroNegocio(
       'HIERARQUIA_DELEGACAO',
-      `"${de}" só pode delegar ao subordinado direto ("${subordinado(de) || 'nenhum'}"), não a "${para}".`,
+      `"${de}" só pode delegar a subordinado direto ("${subordinados(de).join('", "') || 'nenhum'}"), não a "${para}".`,
     );
   }
 }
@@ -64,6 +66,7 @@ module.exports = {
   nivel,
   superior,
   subordinado,
+  subordinados,
   acimaDe,
   cadeiaEscalonamento,
   validarDelegacao,

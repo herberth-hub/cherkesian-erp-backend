@@ -41,6 +41,7 @@
         "diretor",
         "gerente",
         "vendedor",
+        "hunter",
         "humano"
       ]
     },
@@ -92,6 +93,27 @@
         "nota",
         null
       ]
+    },
+    "grupoId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^GRP-\\d{4,}$"
+    },
+    "unidadeId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^UNI-\\d{4,}$"
+    },
+    "compradorId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^CMP-\\d{4,}$"
     }
   },
   "required": [

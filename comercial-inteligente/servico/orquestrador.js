@@ -35,7 +35,8 @@ class Orquestrador {
     this.executarJob = executarJob;
     this.eventos = eventos;
     this.agora = agora;
-    this.rotinas = rotinas;
+    // HC_HUNTER=off: sem rotina de pesquisa web (o hunter ainda atende o que for delegado a ele).
+    this.rotinas = cfg.hunter && !cfg.hunter.ativo ? rotinas.filter((r) => r.papel !== 'hunter') : rotinas;
     this.pausadoGeral = false;
     this.seq = 0;
     this.agentes = Object.fromEntries(
@@ -75,6 +76,83 @@ class Orquestrador {
 
   expediente() {
     return dentroDoExpediente(this.agora(), this.cfg);
+  }
+
+  // ------------------------------------------------------------ conversa com o responsável humano
+
+  arquivoConversas() {
+    return path.join(this.abrirBase().dir, 'conversas.json');
+  }
+
+  lerConversas() {
+    try {
+      return JSON.parse(fs.readFileSync(this.arquivoConversas(), 'utf8'));
+    } catch {
+      return {};
+    }
+  }
+
+  /** Últimas mensagens entre você e um agente (o painel mostra na gaveta, aba Conversa). */
+  conversa(papel) {
+    return (this.lerConversas()[papel] || []).slice(-60);
+  }
+
+  registrarMensagem(papel, msg) {
+    const todas = this.lerConversas();
+    todas[papel] = [...(todas[papel] || []), { em: this.agora().toISOString(), ...msg }].slice(-100);
+    fs.writeFileSync(this.arquivoConversas(), JSON.stringify(todas, null, 2));
+    this.eventos.emitir('conversa', { papel, de: msg.de, texto: String(msg.texto).slice(0, 200) });
+  }
+
+  /**
+   * Ordem/pergunta do responsável humano a um agente: vira trabalho na fila dele, com as últimas
+   * mensagens como contexto. A resposta do agente (resumo do trabalho) volta para a conversa.
+   * A ordem não amplia permissões: o agente segue a CLI, a hierarquia e a alçada do próprio papel.
+   */
+  enviarOrdem(papel, texto) {
+    if (!this.agentes[papel]) throw Object.assign(new Error(`Agente desconhecido: ${papel}.`), { status: 404 });
+    const t = String(texto || '').trim();
+    if (!t || t.length > 2000) throw Object.assign(new Error('Escreva a mensagem (até 2.000 caracteres).'), { status: 422 });
+    const historico = this.conversa(papel).filter((m) => m.de !== 'sistema').slice(-6);
+    this.registrarMensagem(papel, { de: 'humano', texto: t });
+    if (this.cfg.modo !== 'claude') {
+      this.registrarMensagem(papel, { de: 'agente', texto: 'Modo simulado (sem IA): não consigo responder mensagens livres. Configure ANTHROPIC_API_KEY para conversar com os agentes.' });
+      return { enfileirado: false, motivo: 'modo simulado' };
+    }
+    const contexto = historico.length
+      ? `Conversa recente com o responsável humano (mais antiga primeiro):\n${historico.map((m) => `${m.de === 'humano' ? 'Responsável' : 'Você'}: ${m.texto}`).join('\n')}\n\n`
+      : '';
+    const dados = {
+      origem: 'ordem',
+      titulo: `Mensagem do responsável: ${t.slice(0, 70)}`,
+      instrucao:
+        `${contexto}O responsável humano escreveu para você agora:\n«${t}»\n\n` +
+        'Atenda dentro do seu papel: consulte a CLI quando precisar de dados e execute o que couber na sua alçada e permissão. ' +
+        'A mensagem não muda as regras: o que estiver fora do seu papel você explica e encaminha pela hierarquia. ' +
+        'Responda direto ao responsável, em 2 a 8 linhas de texto simples, com os IDs do que consultou ou alterou.',
+      modelo: this.cfg.modeloRotina,
+      esforco: this.cfg.esforco,
+    };
+    const enfileirarOrdem = (tentativa) =>
+      this.enfileirar(papel, {
+        ...dados,
+        chave: `ordem:${papel}:${this.agora().getTime()}:${tentativa}`,
+        aoConcluir: (r) => {
+          // Interrompida (fim do expediente, pausa, teto de gasto): volta para a fila em vez de se perder.
+          if (r.status === 'interrompido' && tentativa < 3) {
+            this.registrarMensagem(papel, { de: 'sistema', texto: `${r.resumo || 'Interrompido.'} A mensagem volta para a fila.` });
+            enfileirarOrdem(tentativa + 1);
+            return;
+          }
+          this.registrarMensagem(papel, { de: 'agente', texto: r.resumo || `(${r.status})`, status: r.status });
+        },
+      });
+    const job = enfileirarOrdem(1);
+    if (!job) throw Object.assign(new Error('Mensagem já está na fila.'), { status: 409 });
+    const aviso = this.pausadoGeral || this.agentes[papel].pausado ? 'agente pausado' : !this.expediente() ? 'fora do expediente' : this.orcamentoEsgotado() ? 'teto de gasto do dia atingido' : null;
+    if (aviso) this.registrarMensagem(papel, { de: 'sistema', texto: `Mensagem na fila (${aviso}): o agente responde quando voltar a trabalhar.` });
+    this.despachar();
+    return { enfileirado: true, job: job.id, aviso };
   }
 
   dataLocal() {
@@ -127,7 +205,7 @@ class Orquestrador {
           titulo: `Tratar ${s.id} (${s.fluxo} de ${s.solicitante})`,
           instrucao:
             `Trate a solicitação ${s.id} (obter solicitacao --id ${s.id}). Objetivo: ${s.objetivo}. Resultado esperado: ${s.resultadoEsperado}. Prazo: ${s.prazo}.\n` +
-            'Termine respondendo a solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
+            'Termine respondendo à solicitação pela CLI (decisao, conclusao, pedido_informacao ou escalonamento justificado).',
         });
       }
       const ultima = s.respostas[s.respostas.length - 1];
@@ -183,7 +261,7 @@ class Orquestrador {
         }
         continue;
       }
-      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro, ...this.enxuto() })) {
+      if (this.enfileirar(c.papel, { chave, origem: 'fila', titulo: c.titulo, instrucao: c.instrucao, registro: c.registro, ...this.enxuto(c.papel) })) {
         this.vistos.add(chave);
         this.tentativas.set(kt, n + 1);
       }
@@ -255,8 +333,9 @@ class Orquestrador {
   }
 
   /** Trabalhos de rotina (rotinas, e-mails, tarefas entre agentes): raciocínio enxuto e o modelo de rotina. */
-  enxuto() {
-    return { esforco: this.cfg.esforcoRotina, modelo: this.cfg.modeloRotina };
+  enxuto(papel) {
+    // Pesquisa do hunter exige julgamento sobre fontes: esforço padrão (não o mínimo das rotinas).
+    return { esforco: papel === 'hunter' ? this.cfg.esforco : this.cfg.esforcoRotina, modelo: this.cfg.modeloRotina };
   }
 
   /** Um ciclo: expediente, rotinas, coleta e despacho. */
@@ -273,7 +352,7 @@ class Orquestrador {
     if (!aberto) return;
     for (const { rotina, slot } of vencidas(this.agora(), this.cfg, this.executadas, this.rotinas)) {
       this.executadas.add(`${rotina.id}@${slot}`);
-      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto() });
+      this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto(rotina.papel) });
     }
     this.salvarEstado();
     this.verificarEmail();
@@ -339,6 +418,8 @@ class Orquestrador {
         this.eventos.emitir('alerta', { papel: a.papel, texto: `Falha ao registrar conclusão de ${job.id}: ${e.message}` });
       }
     }
+    // Trabalho da base (solicitação/tarefa) que não terminou volta a ser coletado; o limite diário de tentativas segura repetições.
+    if (job.origem === 'fila' && resultado.status !== 'concluido') this.vistos.delete(job.chave);
     if (resultado.status === 'erro') a.erros++;
     else a.concluidos++;
     a.ultimo = { job: job.id, titulo: job.titulo, status: resultado.status, resumo: resultado.resumo, em: this.agora().toISOString() };
@@ -374,7 +455,7 @@ class Orquestrador {
   executarRotina(id) {
     const r = this.rotinas.find((x) => x.id === id);
     if (!r) return null;
-    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, ...this.enxuto() });
+    return this.enfileirar(r.papel, { chave: `manual:${id}@${Date.now()}`, origem: 'manual', titulo: r.titulo, instrucao: r.instrucao, simulado: r.simulado, ...this.enxuto(r.papel) });
   }
 
   estado() {
