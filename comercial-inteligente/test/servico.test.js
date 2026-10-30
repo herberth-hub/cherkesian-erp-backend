@@ -255,6 +255,21 @@ function requisitar(porta, caminho, { metodo = 'GET', cabecalhos = {}, corpo } =
   });
 }
 
+test('painel: token com "+" (base64 do Render) funciona mesmo quando o navegador troca por espaço', async () => {
+  const TOKEN = 'abc+def/ghi=jkl+mno123456';
+  const { o, eventos } = orquestradorTeste({ executarJob: async () => ({ status: 'concluido', resumo: '', tokens: 0 }) });
+  const srv = criarServidor({ orquestrador: o, eventos, token: TOKEN });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const porta = srv.address().port;
+    assert.equal((await requisitar(porta, '/?token=abc+def/ghi=jkl+mno123456')).status, 302, '+ cru na URL');
+    assert.equal((await requisitar(porta, `/?token=${encodeURIComponent(TOKEN)}`)).status, 302, 'token codificado');
+    assert.equal((await requisitar(porta, '/?token=abc+def/ghi=jkl+mno12345X')).status, 401, 'token errado continua recusado');
+  } finally {
+    srv.close();
+  }
+});
+
 test('painel: autenticação, estado, CSRF, decisão humana e eventos ao vivo', async () => {
   const TOKEN = 'token-de-teste-1234567890';
   assert.throws(() => criarServidor({ orquestrador: {}, eventos: {}, token: 'curto' }), /PAINEL_TOKEN/);
