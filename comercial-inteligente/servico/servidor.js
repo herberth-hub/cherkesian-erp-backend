@@ -130,6 +130,26 @@ function visaoConfig(base, env = process.env) {
   };
 }
 
+/** Tela de entrada: campo para colar a senha do painel (PAINEL_TOKEN). */
+function paginaEntrada(res, erro) {
+  res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Diretoria Comercial</title>
+<style>
+:root{--bg:#f4f5f7;--painel:#fff;--borda:#e2e5ea;--texto:#1c2430;--suave:#5f6b7a;--marca:#0f5c8c;--erro:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1419;--painel:#171d24;--borda:#27313c;--texto:#e6ebf1;--suave:#a3afbd;--marca:#4aa3df;--erro:#ef6b5b}}
+body{margin:0;background:var(--bg);color:var(--texto);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:420px;margin:12vh auto 0;padding:0 16px}
+.card{background:var(--painel);border:1px solid var(--borda);border-radius:14px;padding:22px}
+h1{font-size:20px;margin:0 0 4px}p{color:var(--suave);font-size:14px;margin:0 0 16px}
+input{width:100%;box-sizing:border-box;font:inherit;padding:11px 12px;border:1px solid var(--borda);border-radius:10px;background:var(--bg);color:var(--texto)}
+button{margin-top:12px;width:100%;font:inherit;font-weight:600;padding:11px;border:0;border-radius:10px;background:var(--marca);color:#fff}
+.erro{color:var(--erro);font-size:14px;margin:0 0 12px}
+</style>
+<main><div class="card"><h1>Diretoria Comercial de IA</h1><p>HC Quality · cole a senha do painel (PAINEL_TOKEN, no Render → Environment).</p>
+${erro ? `<p class="erro">${erro.replace(/[&<>"']/g, '')}</p>` : ''}
+<form method="post" action="/entrar"><input name="senha" type="password" autocomplete="current-password" placeholder="Senha do painel" required autofocus><button type="submit">Entrar</button></form></div></main></html>`);
+}
+
 function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = process.env }) {
   if (!token || token.length < 16) throw new Error('PAINEL_TOKEN ausente ou curto (mínimo 16 caracteres).');
   const estadosOAuth = new Map(); // state -> { conta, expira }
@@ -236,17 +256,29 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
 
     if (req.method === 'GET' && url.pathname === '/saude') return json(res, 200, { ok: true });
 
+    // Entrada no painel: formulário com a senha (POST /entrar) ou link com ?token=.
+    // Cookie SameSite=Lax: é enviado quando o painel é aberto a partir de outro site (ex.: link no Render);
+    // as escritas continuam protegidas contra CSRF pelo cabeçalho X-Painel.
+    const entrar = () => {
+      res.writeHead(303, { 'Set-Cookie': `hc_painel=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`, Location: '/' });
+      return res.end();
+    };
+    if (req.method === 'POST' && url.pathname === '/entrar') {
+      let senha = '';
+      try {
+        senha = new URLSearchParams((await lerBruto(req)).toString('utf8')).get('senha') || '';
+      } catch {
+        senha = '';
+      }
+      if (iguais(senha.trim(), token)) return entrar();
+      await new Promise((r) => setTimeout(r, 400)); // freia tentativas em série
+      return paginaEntrada(res, 'Senha incorreta. Copie de novo o PAINEL_TOKEN no Render (Environment) e cole aqui.');
+    }
     if (req.method === 'GET' && url.pathname === '/') {
       // Tokens gerados pelo Render são base64 e podem ter "+", que na URL vira espaço: restaura antes de comparar.
       const q = (url.searchParams.get('token') || '').trim().replace(/ /g, '+');
-      if (q && iguais(q, token)) {
-        res.writeHead(302, { 'Set-Cookie': `hc_painel=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`, Location: '/' });
-        return res.end();
-      }
-      if (!autenticado(req)) {
-        res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
-        return res.end('Acesso negado. Abra o painel com /?token=<PAINEL_TOKEN>.');
-      }
+      if (q && iguais(q, token)) return entrar();
+      if (!autenticado(req)) return paginaEntrada(res, q ? 'Senha do link incorreta.' : null);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
       return res.end(fs.readFileSync(HTML));
     }
