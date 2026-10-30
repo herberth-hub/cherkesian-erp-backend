@@ -80,9 +80,28 @@ th { color: var(--fraco); font-weight: 600; font-size: 11px; text-transform: upp
 .tabela h2 { font-size: 14px; margin: 0 0 8px; }
 .rotina { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--borda); font-size: 12px; }
 .aviso { background: color-mix(in srgb, var(--alerta) 14%, transparent); color: var(--texto); border: 1px solid var(--alerta); border-radius: 10px; padding: 8px 12px; font-size: 12px; margin: 12px 20px 0; }
+.config { display: none; padding: 16px 20px 0; max-width: 1600px; margin: 0 auto; }
+.config.aberta { display: block; }
+.config-grade { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; }
+.config .card { padding: 14px; }
+.config h2 { font-size: 15px; margin: 0 0 4px; }
+.config h3 { font-size: 13px; margin: 14px 0 6px; }
+.config p.ajuda { color: var(--suave); font-size: 12px; margin: 0 0 10px; }
+.campo { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--suave); }
+.campo input, .campo select { font: inherit; font-size: 14px; color: var(--texto); background: var(--bg); border: 1px solid var(--borda); border-radius: 8px; padding: 7px 9px; width: 100%; }
+.linha { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.alcadas input { font: inherit; font-size: 14px; width: 100%; padding: 6px 8px; border: 1px solid var(--borda); border-radius: 8px; background: var(--bg); color: var(--texto); }
+.alcadas td, .alcadas th { padding: 4px 6px; }
+.alcadas input { min-width: 64px; }
+.alcadas td:last-child input { min-width: 104px; }
+.alcadas td:first-child { vertical-align: middle; }
+.interruptor { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 6px 0 12px; }
+.msg { font-size: 12px; margin-top: 8px; white-space: pre-line; }
+.msg.ok { color: var(--ok); } .msg.erro { color: var(--erro); }
+@media (max-width: 980px) { .config-grade { grid-template-columns: 1fr; } }
 @media (max-width: 1280px) { .agentes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 980px) { main { grid-template-columns: 1fr; } aside { order: -1; } .grade2 { grid-template-columns: 1fr; } }
-@media (max-width: 620px) { .agentes { grid-template-columns: 1fr; } header, main { padding-left: 16px; padding-right: 16px; } .aviso { margin: 12px 16px 0; } }
+@media (max-width: 620px) { .agentes { grid-template-columns: 1fr; } header, main, .config { padding-left: 16px; padding-right: 16px; } .aviso { margin: 12px 16px 0; } }
 </style>
 </head>
 <body>
@@ -93,10 +112,57 @@ th { color: var(--fraco); font-weight: 600; font-size: 11px; text-transform: upp
     <span class="pill" id="pModo">…</span>
     <span class="pill" title="Tokens usados hoje / orçamento diário"><span id="tTokens">0</span><span class="medidor"><i id="mTokens" style="width:0"></i></span></span>
     <span class="pill" id="pConexao"><span class="ponto"></span><span>conectando</span></span>
+    <button id="bConfig">Configurar</button>
     <button id="bPausaGeral">Pausar todos</button>
   </div>
 </header>
 <div id="avisos"></div>
+<section class="config" id="config">
+  <div class="config-grade">
+    <div class="card">
+      <h2>Política comercial</h2>
+      <p class="ajuda">Define até onde cada agente pode ir. Campo vazio = aquele nível não aprova e a decisão sobe. Abaixo da margem mínima geral, só você decide.</p>
+      <label class="interruptor"><input type="checkbox" id="pAtiva"> Política ativa (desligada = toda proposta vem para você)</label>
+      <div class="linha">
+        <label class="campo">Margem mínima geral (%)<input id="pMargem" inputmode="decimal"></label>
+        <label class="campo">Impostos sobre a venda (%)<input id="pImpostos" inputmode="decimal"></label>
+        <label class="campo">Comissão padrão (%)<input id="pComissao" inputmode="decimal"></label>
+        <label class="campo">Validade da proposta (dias)<input id="pValidade" inputmode="numeric"></label>
+      </div>
+      <h3>Alçadas</h3>
+      <div style="overflow-x:auto"><table class="alcadas"><thead><tr><th>Nível</th><th>Desconto máx. (%)</th><th>Margem mín. (%)</th><th>Valor máx. (R$)</th></tr></thead><tbody id="pAlcadas"></tbody></table></div>
+      <p class="ajuda">Valor máximo vazio = sem limite de valor para aquele nível.</p>
+      <button class="primario" id="bSalvarPolitica">Salvar política</button>
+      <div class="msg" id="mPolitica"></div>
+    </div>
+    <div>
+      <div class="card">
+        <h2>Equipe</h2>
+        <p class="ajuda">Vendedores (pessoas) e agentes de IA que recebem oportunidades. Cadastre também você como "responsável humano".</p>
+        <div id="cEquipe"></div>
+        <h3>Adicionar</h3>
+        <div class="linha">
+          <label class="campo">Nome<input id="eNome"></label>
+          <label class="campo">Papel<select id="ePapel"><option value="vendedor">Vendedor</option><option value="gerente">Gerente</option><option value="diretor">Diretor</option><option value="ceo">CEO</option><option value="humano">Responsável humano</option></select></label>
+          <label class="campo">Tipo<select id="eTipo"><option value="humano">Pessoa</option><option value="agente_ia">Agente de IA</option></select></label>
+          <label class="campo">E-mail (opcional)<input id="eEmail" inputmode="email"></label>
+        </div>
+        <button id="bAddEquipe">Adicionar</button>
+        <div class="msg" id="mEquipe"></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Importar do ERP</h2>
+        <p class="ajuda">Só leitura: nada é alterado no ERP. Reimportar atualiza sem duplicar. Ordem recomendada: clientes → produtos → pedidos → leads.</p>
+        <div id="cErp"></div>
+        <div class="msg" id="mErp"></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <h2>Saúde da base</h2>
+        <div id="cSaude"></div>
+      </div>
+    </div>
+  </div>
+</section>
 <main>
   <section>
     <div class="agentes" id="agentes"></div>
@@ -288,6 +354,71 @@ function desenhar() {
   document.getElementById('historico').innerHTML = e.historico.slice(0, 12).map((h) => `<div class="rotina"><span><b>${esc(AGENTES[h.papel] ? AGENTES[h.papel].nome : h.papel)}</b> · ${esc(h.titulo)}<br><span class="vazio">${hora(h.em)} · ${esc(h.status)}${h.tokens ? ` · ${h.tokens} tokens` : ''}</span></span></div>`).join('') || '<div class="vazio">Nenhum trabalho concluído ainda.</div>';
 }
 
+// ------------------------------------------------------------------ Configurar
+const NIVEIS = [['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['diretor', 'Diretor'], ['ceo', 'CEO']];
+const PAPEL_ROTULO = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', humano: 'Responsável humano' };
+let config = null;
+const val = (v) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
+const lerNum = (id) => document.getElementById(id).value.trim();
+
+function mensagem(id, texto, ok) {
+  const el = document.getElementById(id);
+  el.className = `msg ${ok ? 'ok' : 'erro'}`;
+  el.textContent = texto;
+}
+
+async function carregarConfig() {
+  config = await api('/api/config');
+  const p = config.politica;
+  document.getElementById('pAtiva').checked = p.configurado === true;
+  document.getElementById('pMargem').value = val(p.margemMinimaPercent);
+  document.getElementById('pImpostos').value = val((p.premissasPadrao || {}).impostosPercent);
+  document.getElementById('pComissao').value = val((p.premissasPadrao || {}).comissaoPercent);
+  document.getElementById('pValidade').value = val(p.validadePropostaDias);
+  document.getElementById('pAlcadas').innerHTML = NIVEIS.map(([n, r]) => {
+    const a = (p.alcadas || {})[n] || {};
+    return `<tr><td>${r}</td><td><input id="a-${n}-d" inputmode="decimal" value="${val(a.descontoMaxPercent)}"></td><td><input id="a-${n}-m" inputmode="decimal" value="${val(a.margemMinimaPercent)}"></td><td><input id="a-${n}-v" inputmode="decimal" value="${val(a.valorMaximoProposta)}"></td></tr>`;
+  }).join('');
+  const definida = p.definidaEm ? `Última alteração: ${esc(p.definidaPor || '')} em ${esc(p.definidaEm)}.` : '';
+  mensagem('mPolitica', `${config.base === 'demo' ? 'Base de demonstração: esta é a política FICTÍCIA da demo. ' : ''}${definida}`, true);
+
+  document.getElementById('cEquipe').innerHTML = config.agentes.length
+    ? config.agentes.map((a) => `<div class="rotina"><span><b>${esc(a.nome)}</b> <span class="vazio">${esc(a.id)}</span><br><span class="vazio">${esc(PAPEL_ROTULO[a.papel] || a.papel)} · ${a.tipo === 'agente_ia' ? 'agente de IA' : 'pessoa'}${a.ativo ? '' : ' · inativo'}</span></span><button data-ativo="${a.id}" data-valor="${a.ativo ? '0' : '1'}">${a.ativo ? 'Desativar' : 'Ativar'}</button></div>`).join('')
+    : '<div class="vazio">Ninguém cadastrado ainda.</div>';
+
+  const e = config.erp;
+  const vendedores = config.agentes.filter((a) => a.papel === 'vendedor' && a.ativo);
+  let erp = `<p class="vazio">${e.configurado ? `Conectado ao ERP em ${esc(e.host)}.` : 'Falta configurar ERP_API_URL, ERP_USUARIO e ERP_SENHA no servidor.'}${e.permitido ? '' : ' A importação só funciona na base de produção.'}</p>`;
+  erp += `<p class="vazio">Nesta base: ${config.contagem.cliente} clientes · ${config.contagem.produto} produtos · ${config.contagem.pedido} pedidos · ${config.contagem.lead} leads · ${config.contagem.oportunidade} oportunidades.</p>`;
+  const pode = e.configurado && e.permitido;
+  erp += `<div class="acoes">${['clientes', 'produtos', 'pedidos'].map((r) => `<button data-importar="${r}" ${pode ? '' : 'disabled'}>Importar ${r}</button>`).join('')}</div>`;
+  erp += `<div class="linha" style="margin-top:10px"><label class="campo">Leads do CRM do ERP: vendedor responsável<select id="iResp">${vendedores.map((v) => `<option value="${v.id}">${esc(v.nome)}</option>`).join('') || '<option value="">cadastre um vendedor primeiro</option>'}</select></label></div>`;
+  erp += `<button data-importar="leads" ${pode && vendedores.length ? '' : 'disabled'}>Importar leads</button>`;
+  document.getElementById('cErp').innerHTML = erp;
+
+  document.getElementById('cSaude').innerHTML = config.saude.ok
+    ? '<p class="msg ok">Todos os registros válidos.</p>'
+    : `<p class="msg erro">${config.saude.problemas.map(esc).join('<br>')}</p>`;
+}
+
+async function salvarPolitica() {
+  const politica = {
+    configurado: document.getElementById('pAtiva').checked,
+    margemMinimaPercent: lerNum('pMargem'),
+    premissasPadrao: { impostosPercent: lerNum('pImpostos'), comissaoPercent: lerNum('pComissao') },
+    validadePropostaDias: lerNum('pValidade'),
+    alcadas: Object.fromEntries(NIVEIS.map(([n]) => [n, { descontoMaxPercent: lerNum(`a-${n}-d`), margemMinimaPercent: lerNum(`a-${n}-m`), valorMaximoProposta: lerNum(`a-${n}-v`) }])),
+  };
+  try {
+    const r = await api('/api/politica', { politica });
+    await carregarConfig();
+    mensagem('mPolitica', `Política salva${r.configurado ? ' e ATIVA' : ' (ainda desligada)'}.`, true);
+    carregar();
+  } catch (e) {
+    mensagem('mPolitica', e.message, false);
+  }
+}
+
 let pendente = null;
 function agendarEstado() { clearTimeout(pendente); pendente = setTimeout(carregar, 400); }
 async function carregar() {
@@ -303,7 +434,32 @@ document.addEventListener('click', async (ev) => {
   if (!b) return;
   try {
     b.disabled = true;
-    if (b.id === 'bPausaGeral') await api(estado.pausadoGeral ? '/api/retomar' : '/api/pausar', {});
+    if (b.id === 'bConfig') {
+      const sec = document.getElementById('config');
+      sec.classList.toggle('aberta');
+      b.textContent = sec.classList.contains('aberta') ? 'Fechar configuração' : 'Configurar';
+      if (sec.classList.contains('aberta')) await carregarConfig();
+      return;
+    } else if (b.id === 'bSalvarPolitica') { await salvarPolitica(); return; }
+    else if (b.id === 'bAddEquipe') {
+      try {
+        await api('/api/agentes', { nome: document.getElementById('eNome').value, papel: document.getElementById('ePapel').value, tipo: document.getElementById('eTipo').value, email: document.getElementById('eEmail').value });
+        document.getElementById('eNome').value = ''; document.getElementById('eEmail').value = '';
+        await carregarConfig();
+        mensagem('mEquipe', 'Cadastrado.', true);
+      } catch (e) { mensagem('mEquipe', e.message, false); }
+      return;
+    } else if (b.dataset.ativo) { await api('/api/agentes/ativo', { id: b.dataset.ativo, ativo: b.dataset.valor === '1' }); await carregarConfig(); return; }
+    else if (b.dataset.importar) {
+      mensagem('mErp', `Importando ${b.dataset.importar}…`, true);
+      try {
+        const r = await api('/api/erp/importar', { recurso: b.dataset.importar, responsavel: b.dataset.importar === 'leads' ? document.getElementById('iResp').value : undefined });
+        await carregarConfig();
+        mensagem('mErp', `${r.recurso}: ${r.criados} novos, ${r.atualizados} atualizados, ${r.ignorados} ignorados${r.erros.length ? `, ${r.erros.length} com erro:\n${r.erros.slice(0, 5).join('\n')}` : '.'}`, !r.erros.length);
+      } catch (e) { mensagem('mErp', e.message, false); }
+      return;
+    }
+    else if (b.id === 'bPausaGeral') await api(estado.pausadoGeral ? '/api/retomar' : '/api/pausar', {});
     else if (b.dataset.agente) await api(b.dataset.pausado === 'true' ? '/api/retomar' : '/api/pausar', { papel: b.dataset.agente });
     else if (b.dataset.rotina) await api('/api/rotina', { id: b.dataset.rotina });
     else if (b.dataset.aprovar) {

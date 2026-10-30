@@ -21,6 +21,7 @@ Abra `http://<servidor>:<porta>/?token=<PAINEL_TOKEN>` uma vez; o navegador guar
 | Fila automática | `orquestrador.js` | Sem ninguém acionar: escalonamento do vendedor vira trabalho do gerente; decisão que volta retoma quem pediu; tarefa atribuída é executada; entrega é verificada por quem atribuiu; pedido de informação vai para quem solicitou. |
 | Agente | `agente.js` | Loop com a API do Claude (SDK oficial, modelo `claude-opus-5-5`, raciocínio adaptativo, cache do prompt de sistema, fallback automático do servidor em caso de recusa). |
 | Ferramenta | `ferramentas.js` | A única ferramenta dos agentes é a CLI comercial; o servidor impõe papel e base — nenhum agente age como outro, nem como humano, nem roda `erp`/`demo`. |
+| Configurar | `servidor.js`, `painel.html`, `../src/politica.js` | Área do painel para política comercial (com validação das alçadas), cadastro da equipe, importação do ERP e saúde da base. |
 | Painel | `servidor.js`, `painel.html` | 4 colunas ao vivo (status, trabalho atual, fila, cada comando executado e as notas do agente), "Aguardando você", fluxo de solicitações, tarefas, rotinas com "Executar agora", pausa por agente ou geral. |
 
 ### O que só você decide (pelo painel)
