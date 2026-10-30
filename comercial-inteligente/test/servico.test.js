@@ -105,6 +105,7 @@ test('executor claude: loop de ferramentas com modelo, raciocínio adaptativo, e
   assert.equal(p.fallbacks, 'default');
   assert.deepEqual(p.betas, ['server-side-fallback-2026-07-01']);
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' });
+  assert.deepEqual(p.cache_control, { type: 'ephemeral' }, 'cache automático da conversa');
   assert.match(p.system[0].text, /Gerente Comercial/);
   assert.equal(p.tools[0].name, 'hc');
   const resultado = cliente.chamadas[1].messages[2].content[0];
@@ -113,6 +114,48 @@ test('executor claude: loop de ferramentas com modelo, raciocínio adaptativo, e
   assert.match(resultado.content, /OPO-0002/);
   assert.ok(eventos.some((e) => e.tipo === 'ferramenta' && e.ok));
   assert.ok(eventos.some((e) => e.tipo === 'nota'));
+});
+
+test('custo: leitura de cache sai do contador de tokens e entra no custo a ~10%; rotina usa esforço baixo', async () => {
+  const { custoUsd } = require('../servico/agente');
+  const precos = carregar({}).precos;
+  // 1M de entrada (US$ 4) + 100k de saída (US$ 2) + 1M de cache lido (US$ 0,20)
+  assert.equal(Math.round(custoUsd({ input_tokens: 1e6, output_tokens: 1e5, cache_read_input_tokens: 1e6 }, precos) * 100) / 100, 6.2);
+  const b = baseDemo();
+  const cfg = cfgTeste(b.dir, { modo: 'claude' });
+  const cliente = clienteFalso([{ stop_reason: 'end_turn', usage: { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 50000 }, content: [{ type: 'text', text: 'ok' }] }]);
+  let regTokens = 0;
+  let regUsd = 0;
+  const r = await criarExecutorClaude({ cfg, cliente })('gerente', { origem: 'rotina', titulo: 't', instrucao: 't', esforco: 'low' }, { ...ctlLivre(), registrarTokens: (n, u) => ((regTokens += n), (regUsd += u)) });
+  assert.equal(regTokens, 1500, 'cache lido não conta como token cheio');
+  assert.ok(Math.abs(regUsd - (1000 * 4 + 500 * 20 + 50000 * 0.2) / 1e6) < 1e-9);
+  assert.equal(r.usd, regUsd);
+  assert.equal(cliente.chamadas[0].output_config.effort, 'low');
+  const { o } = orquestradorTeste({ agora: QUI_0630, executarJob: async () => ({ status: 'concluido', resumo: '', tokens: 0 }) });
+  o.carregarEstado();
+  o.tick();
+  const job = [...o.agentes.vendedor.ativos.values(), ...o.agentes.vendedor.fila][0];
+  assert.equal(job.esforco, 'low', 'rotinas entram com esforço baixo');
+});
+
+test('saída para o agente: JSON compacto sem campos internos, mantendo null (dado ausente)', () => {
+  const { compactar } = require('../servico/ferramentas');
+  const bruto = JSON.stringify([{ id: 'OPO-0003', valorEstimado: null, criadoEm: 'x', atualizadoEm: 'y', criadoPor: 'humano', origem: 'demo', ficticio: true, qualificacao: { tipoUniforme: 'jaleco', localEntrega: null } }], null, 2);
+  const c = compactar(bruto);
+  assert.equal(c, '[{"id":"OPO-0003","valorEstimado":null,"qualificacao":{"tipoUniforme":"jaleco","localEntrega":null}}]');
+  assert.ok(c.length < bruto.length / 2);
+  assert.equal(compactar('# Relatório\n\n\n\nTexto'), '# Relatório\n\nTexto', 'texto passa (só tira linhas em branco repetidas)');
+});
+
+test('orçamento em US$: atingido o teto do dia, nada novo começa', async () => {
+  const feitos = [];
+  const { o } = orquestradorTeste({ executarJob: async (p) => (feitos.push(p), { status: 'concluido', resumo: '', tokens: 0 }), extra: { limites: { usdPorDia: 2 } } });
+  o.registrarTokens(1000, 2.01);
+  o.enfileirar('ceo', { chave: 'c', origem: 't', titulo: 'c', instrucao: '' });
+  await o.despachar();
+  assert.deepEqual(feitos, []);
+  assert.equal(o.estado().tokens.usdHoje, 2.01);
+  assert.equal(o.estado().tokens.usdLimite, 2);
 });
 
 test('executor claude: recusa, limite de iterações e interrupção param o trabalho', async () => {

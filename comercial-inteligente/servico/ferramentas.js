@@ -10,7 +10,27 @@ const { executar } = require('../src/cli');
 
 const EXCLUSIVOS_HUMANO = ['erp', 'demo'];
 const FORCADOS = ['--agente', '--base', '--hoje'];
-const LIMITE_SAIDA = 20000;
+const LIMITE_SAIDA = 12000;
+/** Campos de controle que o agente não usa: saem da resposta para economizar tokens. */
+const CAMPOS_INTERNOS = new Set(['criadoEm', 'atualizadoEm', 'criadoPor', 'origem', 'erpId', 'ficticio']);
+
+/** JSON compacto e sem campos internos (null fica: significa dado ausente); texto passa sem mudança. */
+function compactar(saida) {
+  let dados;
+  try {
+    dados = JSON.parse(saida);
+  } catch {
+    return saida.replace(/\n{3,}/g, '\n\n');
+  }
+  const limpar = (v) => {
+    if (Array.isArray(v)) return v.map(limpar);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.entries(v).filter(([k]) => !CAMPOS_INTERNOS.has(k)).map(([k, x]) => [k, limpar(x)]));
+    }
+    return v;
+  };
+  return JSON.stringify(limpar(dados));
+}
 
 const DEFINICAO = {
   name: 'hc',
@@ -61,8 +81,9 @@ async function executarHc(papel, argumentos, { base, dataDir }) {
   const env = { ...process.env, HC_DATA_DIR: dataDir || '' };
   if (!dataDir) delete env.HC_DATA_DIR;
   const r = await executar([...limpos, '--agente', papel, '--base', base], env);
+  r.saida = r.codigo === 0 ? compactar(r.saida) : r.saida;
   const saida = r.saida.length > LIMITE_SAIDA ? `${r.saida.slice(0, LIMITE_SAIDA)}\n[... saída truncada em ${LIMITE_SAIDA} caracteres]` : r.saida;
   return { ok: r.codigo === 0, saida, argumentos: limpos };
 }
 
-module.exports = { DEFINICAO, sanitizar, executarHc, EXCLUSIVOS_HUMANO };
+module.exports = { DEFINICAO, sanitizar, executarHc, compactar, EXCLUSIVOS_HUMANO };
