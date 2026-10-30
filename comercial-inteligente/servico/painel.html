@@ -215,6 +215,26 @@ select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px;
 .canais { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; } .canais span { background: var(--surface); padding: 6px 8px; font-size: 11px; font-weight: 600; }
 @media (max-width: 720px) { .replay { grid-template-columns: 1fr; } .base-planta { grid-template-columns: 1fr; } }
 
+/* Conversa e paleta */
+kbd { font: 600 10px/1 var(--font); border: 1px solid currentColor; padding: 2px 4px; margin-left: 4px; opacity: .7; }
+.chat { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.bolha { max-width: 86%; padding: 8px 10px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+.bolha.b-humano { align-self: flex-end; background: var(--text); color: var(--bg); }
+.bolha.b-agente { align-self: flex-start; background: var(--surface); }
+.bolha.b-sistema { align-self: center; background: none; color: var(--n700); font-size: 12px; text-align: center; }
+.bolha time { display: block; font-size: 10px; opacity: .7; margin-top: 4px; }
+.digitando { color: var(--n700); font-size: 12px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; } .chips button { padding: 6px 10px; min-height: 0; font-size: 12px; border-width: 1px; }
+.envio { display: flex; gap: 8px; } .envio textarea { min-height: 44px; margin: 0; flex: 1; }
+.paleta-fundo { position: fixed; inset: 0; background: color-mix(in srgb, #2d2b2b 45%, transparent); z-index: 30; }
+.paleta { position: fixed; top: 12vh; left: 50%; transform: translateX(-50%); width: min(640px, calc(100% - 24px)); background: var(--bg); border: 2px solid var(--text); box-shadow: var(--shadow-lg); z-index: 31; }
+.paleta input { border: 0; border-bottom: 2px solid var(--text); font-size: 18px; padding: 14px 16px; }
+.paleta ul { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.paleta li { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 10px 16px; cursor: pointer; font-size: 14px; border-bottom: 1px solid var(--divider); }
+.paleta li.ativo { background: var(--n200); } .paleta li .tipo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--n700); font-weight: 600; padding-top: 2px; }
+.paleta li .dica { display: block; font-size: 12px; color: var(--n700); }
+.paleta .rodape { padding: 8px 16px; font-size: 11px; color: var(--n700); }
+
 /* Gaveta do agente */
 .fundo { position: fixed; inset: 0; background: color-mix(in srgb, #2d2b2b 45%, transparent); z-index: 20; }
 .gaveta { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--bg); z-index: 21; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; border-left: 2px solid var(--text); }
@@ -262,6 +282,7 @@ select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px;
       </div>
     </div>
     <div class="acoes">
+      <button id="bBusca" style="min-width:180px">Buscar ou dar ordem <kbd>Ctrl K</kbd></button>
       <button id="bTema">Tema escuro</button>
       <button id="bConfig">Configurar</button>
       <button id="bPausaGeral" class="prim">Pausar todos</button>
@@ -381,6 +402,7 @@ select.mini { width: auto; padding: 6px 8px; font-size: 12px; border-width: 1px;
 </main>
 
 <div id="gaveta"></div>
+<div id="paleta"></div>
 
 <script>
 const AGENTES = {
@@ -668,18 +690,117 @@ function desenharGaveta() {
   const a = estado.agentes.find((x) => x.papel === p);
   const [, txt] = statusAgente(a, errosHoje().find((x) => x.papel === p));
   const aba = gavetaAberta.aba;
-  const corpo = aba === 'fila'
+  const corpo = aba === 'conversa'
+    ? `<div class="chat" id="chat">${(conversas[p] || []).map((m) => `<div class="bolha b-${m.de}">${m.de === 'agente' ? md(m.texto) : esc(m.texto)}<time>${hora(m.em)}</time></div>`).join('') || '<p class="vazio">Escreva para o agente: uma pergunta, um pedido de status ou uma ordem. Ele responde dentro do papel e das regras dele.</p>'}
+        ${aguardandoResposta(p) ? `<div class="digitando">${esc(AGENTES[p].nome)} está trabalhando na sua mensagem…</div>` : ''}</div>
+       <div class="chips">${['Qual o status?', 'Resuma o dia', 'O que precisa de mim?'].map((c) => `<button data-chip="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+       <div class="envio">${campo(`chat-${p}`, `Mensagem para ${AGENTES[p].nome}`)}<button class="prim" data-enviar-chat="${p}">Enviar</button></div>`
+    : aba === 'fila'
     ? `${a.ativos.map((j) => `<div class="lista-linha"><div class="principal"><span><b>Agora:</b> ${esc(j.titulo)}</span><span class="sub">${esc(j.origem)} · desde ${hora(j.iniciadoEm)}</span></div></div>`).join('')}
        ${a.fila.map((j, i) => `<div class="lista-linha"><span class="h" style="width:28px;font-weight:800">${i + 1}</span><div class="principal"><span>${esc(j.titulo)}</span><span class="sub">${esc(j.origem)}</span></div></div>`).join('') || '<p class="vazio">Fila vazia.</p>'}`
     : `${a.ultimo ? `<div class="kicker">Último trabalho</div><p style="margin:4px 0 16px"><b>${esc(a.ultimo.titulo)}</b> · ${esc(a.ultimo.status)}<br>${md(a.ultimo.resumo || '')}</p>` : ''}
        <div class="kicker">Atividade de hoje</div>${feeds[p].map(linhaEvento).join('') || '<p class="vazio">Sem atividade ainda.</p>'}`;
   g.innerHTML = `<div class="fundo" data-fechar-gaveta="1"></div><aside class="gaveta" role="dialog" aria-label="${esc(AGENTES[p].nome)}">
     <div class="gaveta-cab"><div class="avatar">${AGENTES[p].sigla}</div><div><h2>${esc(AGENTES[p].nome)}</h2><span class="muted" style="font-size:13px">${esc(AGENTES[p].cargo)} · ${esc(txt)}</span></div><button data-fechar-gaveta="1" aria-label="Fechar">✕</button></div>
-    <nav class="abas"><button data-aba-gaveta="atividade" aria-selected="${aba !== 'fila'}">Atividade</button><button data-aba-gaveta="fila" aria-selected="${aba === 'fila'}">Fila (${a.fila.length})</button></nav>
+    <nav class="abas"><button data-aba-gaveta="conversa" aria-selected="${aba === 'conversa'}">Conversa</button><button data-aba-gaveta="atividade" aria-selected="${aba === 'atividade'}">Atividade</button><button data-aba-gaveta="fila" aria-selected="${aba === 'fila'}">Fila (${a.fila.length})</button></nav>
     <div class="gaveta-corpo">${corpo}</div>
     <div style="padding:16px;border-top:2px solid var(--text)"><button data-agente="${p}" data-pausado="${a.pausado}">${a.pausado ? 'Retomar agente' : 'Pausar agente'}</button></div>
   </aside>`;
 }
+
+// ------------------------------------------------------------ conversa com os agentes
+const conversas = {};
+function aguardandoResposta(p) {
+  const msgs = conversas[p] || [];
+  const ult = [...msgs].reverse().find((m) => m.de !== 'sistema');
+  return Boolean(ult && ult.de === 'humano' && estado && estado.modo === 'claude');
+}
+async function carregarConversa(p) {
+  const r = await api(`/api/agentes/conversa?papel=${encodeURIComponent(p)}`);
+  conversas[p] = r.mensagens;
+  if (gavetaAberta && gavetaAberta.papel === p && gavetaAberta.aba === 'conversa') {
+    const ativo = document.activeElement && document.activeElement.matches(`[data-texto="chat-${p}"]`);
+    desenharGaveta();
+    const chat = document.getElementById('chat');
+    if (chat) chat.scrollIntoView({ block: 'end' });
+    if (ativo) { const el = document.querySelector(`[data-texto="chat-${p}"]`); if (el) el.focus(); }
+  }
+}
+function abrirAgente(p, aba = 'conversa') {
+  gavetaAberta = { papel: p, aba };
+  desenharGaveta();
+  if (aba === 'conversa') carregarConversa(p).catch(() => {});
+}
+async function enviarChat(p, texto) {
+  const r = await api('/api/agentes/mensagem', { papel: p, texto });
+  await carregarConversa(p);
+  return r;
+}
+
+// ------------------------------------------------------------ paleta (Ctrl K): buscar ou dar ordem
+const semAcento = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+let paleta = null; // { q, itens, i }
+function itensPaleta(q) {
+  const n = semAcento(q).trim();
+  const out = [];
+  // Ordem: "<agente>, <instrução>"
+  const m = /^([^,]{2,}),\s*(.+)$/.exec(q.trim());
+  if (m) {
+    const alvo = ORDEM.find((p) => semAcento(AGENTES[p].nome).startsWith(semAcento(m[1]).trim()) || p.startsWith(semAcento(m[1]).trim()));
+    if (alvo) out.push({ tipo: 'Ordem', titulo: `Enviar para ${AGENTES[alvo].nome}: "${m[2]}"`, dica: 'O agente recebe na conversa e responde lá.', fazer: () => { abrirAgente(alvo); return enviarChat(alvo, m[2]); } });
+  }
+  const casa = (...xs) => !n || xs.some((x) => semAcento(x).includes(n));
+  const vistas = [['manha', 'Minha manhã'], ['painel', 'Painel'], ['pipeline', 'Pipeline'], ['escritorio', 'Escritório'], ['contas', 'Grandes Contas'], ['config', 'Configurar']];
+  for (const [v, rot] of vistas) if (casa(rot, 'ir para')) out.push({ tipo: 'Ir para', titulo: rot, fazer: () => mostrarVista(v) });
+  for (const c of (estado && estado.dados.casos) || []) if (casa(c.id, c.titulo)) out.push({ tipo: 'Caso', titulo: `${c.id} · ${c.titulo}`, dica: c.prazo ? `Prazo ${dm(c.prazo)}` : '', fazer: () => { abertos.add(c.id); mostrarVista('painel'); desenhar(); } });
+  for (const p of ORDEM) if (casa(AGENTES[p].nome, AGENTES[p].cargo, p)) out.push({ tipo: 'Agente', titulo: AGENTES[p].nome, dica: `${AGENTES[p].cargo} · conversar`, fazer: () => abrirAgente(p) });
+  for (const c of (quadro && quadro.cartoes) || []) if (n && casa(c.id, c.cliente, c.titulo)) out.push({ tipo: 'Oportunidade', titulo: `${c.id} · ${c.cliente}`, dica: `${c.titulo} · ${c.coluna}`, fazer: () => mostrarVista('pipeline') });
+  const acoes = [
+    [estado && estado.pausadoGeral ? 'Retomar todos os agentes' : 'Pausar todos os agentes', () => api(estado.pausadoGeral ? '/api/retomar' : '/api/pausar', {}).then(carregar)],
+    ['Trocar tema (claro/escuro)', () => document.getElementById('bTema').click()],
+    ...((estado && estado.rotinas) || []).map((r) => [`Executar agora: ${r.titulo}`, () => api('/api/rotina', { id: r.id }).then(carregar)]),
+  ];
+  for (const [rot, fazer] of acoes) if (casa(rot, 'acao')) out.push({ tipo: 'Ação', titulo: rot, fazer });
+  return out.slice(0, 30);
+}
+function abrirPaleta() {
+  paleta = { q: '', i: 0, itens: itensPaleta('') };
+  if (!quadro) api('/api/pipeline').then((q) => { quadro = q; if (paleta) { paleta.itens = itensPaleta(paleta.q); desenharPaleta(false); } }).catch(() => {});
+  desenharPaleta(true);
+}
+function fecharPaleta() { paleta = null; document.getElementById('paleta').innerHTML = ''; }
+function desenharPaleta(foco) {
+  const el = document.getElementById('paleta');
+  if (!paleta) { el.innerHTML = ''; return; }
+  if (foco || !el.querySelector('input')) {
+    el.innerHTML = `<div class="paleta-fundo" data-fechar-paleta="1"></div><div class="paleta" role="dialog" aria-label="Buscar ou dar ordem"><input id="pInput" placeholder='Buscar, ou dar ordem: "vendedor, priorize o pregão"' autocomplete="off"><ul id="pLista"></ul><div class="rodape">↑↓ escolher · Enter executar · Esc fechar · ordem = "nome do agente, instrução"</div></div>`;
+    const inp = document.getElementById('pInput');
+    inp.value = paleta.q;
+    inp.focus();
+  }
+  document.getElementById('pLista').innerHTML = paleta.itens.map((it, i) => `<li class="${i === paleta.i ? 'ativo' : ''}" data-item-paleta="${i}"><span class="tipo">${esc(it.tipo)}</span><span>${esc(it.titulo)}${it.dica ? `<span class="dica">${esc(it.dica)}</span>` : ''}</span></li>`).join('') || '<li><span class="tipo">—</span><span>Nada encontrado</span></li>';
+  const at = document.querySelector('#pLista li.ativo');
+  if (at) at.scrollIntoView({ block: 'nearest' });
+}
+function executarItem(i) {
+  const it = paleta && paleta.itens[i];
+  if (!it) return;
+  fecharPaleta();
+  Promise.resolve(it.fazer()).catch((e) => alert(e.message));
+}
+document.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); return paleta ? fecharPaleta() : abrirPaleta(); }
+  if (!paleta) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); return fecharPaleta(); }
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); paleta.i = (paleta.i + (ev.key === 'ArrowDown' ? 1 : -1) + paleta.itens.length) % Math.max(1, paleta.itens.length); return desenharPaleta(false); }
+  if (ev.key === 'Enter') { ev.preventDefault(); return executarItem(paleta.i); }
+});
+document.addEventListener('input', (ev) => { if (ev.target.id === 'pInput' && paleta) { paleta.q = ev.target.value; paleta.i = 0; paleta.itens = itensPaleta(paleta.q); desenharPaleta(false); } });
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest('[data-fechar-paleta]')) return fecharPaleta();
+  const li = ev.target.closest('[data-item-paleta]');
+  if (li) executarItem(Number(li.dataset.itemPaleta));
+});
 
 // ------------------------------------------------------------ cabeçalho e desenho geral
 function desenhar() {
@@ -718,6 +839,7 @@ function mostrarVista(v) {
 
 // ------------------------------------------------------------ eventos ao vivo
 function receberEvento(ev, redesenhar = true) {
+  if (ev.tipo === 'conversa') { if (redesenhar && gavetaAberta && gavetaAberta.papel === ev.papel) carregarConversa(ev.papel); return; }
   if (feeds[ev.papel]) feeds[ev.papel] = [ev, ...feeds[ev.papel]].slice(0, 80);
   if (redesenhar && gavetaAberta && gavetaAberta.papel === ev.papel && gavetaAberta.aba !== 'fila') desenharGaveta();
   if (['inicio', 'fim', 'pausa', 'expediente', 'decisao-humana', 'enfileirado', 'rascunho', 'email', 'whatsapp', 'whatsapp-proposta'].includes(ev.tipo)) agendarEstado();
@@ -1043,7 +1165,11 @@ document.addEventListener('change', async (ev) => {
 });
 document.addEventListener('input', (ev) => { const t = ev.target.closest('[data-texto]'); if (t) textos[t.dataset.texto] = t.value; });
 document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || !document.activeElement.matches('textarea[data-texto], input, select')) agendarEstado(); }, 50));
-document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && gavetaAberta) { gavetaAberta = null; desenharGaveta(); } });
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && gavetaAberta && !paleta) { gavetaAberta = null; desenharGaveta(); }
+  const chat = ev.target.closest && ev.target.closest('textarea[data-texto^="chat-"]');
+  if (chat && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); const bt = document.querySelector(`[data-enviar-chat="${chat.dataset.texto.slice(5)}"]`); if (bt) bt.click(); }
+});
 
 document.addEventListener('click', async (ev) => {
   const link = ev.target.closest('a[data-rascunho]');
@@ -1062,9 +1188,12 @@ document.addEventListener('click', async (ev) => {
   if (b.id === 'bConfig') return mostrarVista(vista === 'config' ? 'manha' : 'config');
   if (b.id === 'bTema') { const escuro = document.getElementById('bTema').textContent === 'Tema escuro'; const t = escuro ? 'dark' : 'light'; guardar('hc_tema', t); return aplicarTema(t); }
   if (b.dataset.expandir) { abertos.has(b.dataset.expandir) ? abertos.delete(b.dataset.expandir) : abertos.add(b.dataset.expandir); return desenhar(); }
-  if (b.dataset.abrirAgente) { gavetaAberta = { papel: b.dataset.abrirAgente, aba: 'atividade' }; return desenharGaveta(); }
+  if (b.dataset.abrirAgente) { abrirAgente(b.dataset.abrirAgente, 'conversa'); return; }
+  if (b.id === 'bBusca') return abrirPaleta();
+  if (b.dataset.chip && gavetaAberta) return enviarChat(gavetaAberta.papel, b.dataset.chip).catch((e) => alert(e.message));
+  if (b.dataset.enviarChat) { const t = lerTexto(`chat-${b.dataset.enviarChat}`); if (!t) return; delete textos[`chat-${b.dataset.enviarChat}`]; return enviarChat(b.dataset.enviarChat, t).catch((e) => alert(e.message)); }
   if (b.dataset.fecharGaveta) { gavetaAberta = null; return desenharGaveta(); }
-  if (b.dataset.abaGaveta) { gavetaAberta.aba = b.dataset.abaGaveta; return desenharGaveta(); }
+  if (b.dataset.abaGaveta) { gavetaAberta.aba = b.dataset.abaGaveta; if (b.dataset.abaGaveta === 'conversa') carregarConversa(gavetaAberta.papel); return desenharGaveta(); }
   if (b.dataset.dispensar) { const d = guardado('hc_dispensados', {}); d[b.dataset.dispensar] = new Date().toISOString(); guardar('hc_dispensados', d); marcarResolvido(); return desenhar(); }
   if (b.dataset.rascunhoVisto) { marcarRascunhoVisto(b.dataset.rascunhoVisto); return desenhar(); }
   try {

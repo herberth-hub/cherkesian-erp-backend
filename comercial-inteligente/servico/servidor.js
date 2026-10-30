@@ -405,6 +405,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       eventos.emitir('decisao-humana', { papel: 'humano', texto: `${c.id} movida para ${c.coluna}` });
       return r;
     },
+    'POST /api/agentes/mensagem': (c) => orquestrador.enviarOrdem(c.papel, c.texto),
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
       const r = C.atualizarMeta(base, 'humano', c.id, { status: c.aprovar ? 'aprovada' : 'revogada' });
@@ -514,6 +515,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       if (req.method === 'GET' && url.pathname === '/api/estado') {
         return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase(), orquestrador.dataLocal()), eventos: eventos.recentes.slice(-120) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/agentes/conversa') return json(res, 200, { papel: url.searchParams.get('papel'), mensagens: orquestrador.conversa(url.searchParams.get('papel')) });
       if (req.method === 'GET' && url.pathname === '/api/pipeline') return json(res, 200, quadroFunil(orquestrador.abrirBase()));
       if (req.method === 'GET' && url.pathname === '/api/dia') {
         const base = orquestrador.abrirBase();

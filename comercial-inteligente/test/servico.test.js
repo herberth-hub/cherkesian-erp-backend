@@ -457,3 +457,40 @@ test('pipeline e escritório: quadro em 5 colunas com paradas e atividade do dia
   PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Caso de hoje. Detalhe.', prazo: '2099-01-01', resultadoEsperado: 'x' }, hoje);
   assert.equal(atividadeDoDia(b, b.dir, hoje).solicitacoes.at(-1).resumo, 'Caso de hoje.');
 });
+
+test('conversa: mensagem do responsável vira trabalho do agente e a resposta volta para a conversa', async () => {
+  const b = baseDemo();
+  const vistos = [];
+  const cfg = cfgTeste(b.dir, { modo: 'claude' });
+  const o = new Orquestrador({
+    cfg,
+    eventos: new Eventos({}),
+    agora: () => QUI_1000,
+    executarJob: async (papel, job) => {
+      vistos.push({ papel, job });
+      return { status: 'concluido', resumo: 'OPO-0002 está sem follow-up há 40 dias. Dados fictícios.', tokens: 10 };
+    },
+  });
+  o.carregarEstado();
+  const r = o.enviarOrdem('gerente', 'Qual o status do Hospital Alfa?');
+  assert.equal(r.enfileirado, true);
+  for (let i = 0; i < 50 && o.conversa('gerente').length < 2; i++) await new Promise((x) => setTimeout(x, 10));
+  const msgs = o.conversa('gerente');
+  assert.deepEqual(msgs.map((m) => m.de), ['humano', 'agente']);
+  assert.match(msgs[1].texto, /OPO-0002/);
+  assert.equal(vistos[0].papel, 'gerente');
+  assert.equal(vistos[0].job.origem, 'ordem');
+  assert.match(vistos[0].job.instrucao, /Hospital Alfa/);
+  assert.match(vistos[0].job.instrucao, /não muda as regras/, 'a ordem não amplia permissões');
+  // segunda mensagem leva a conversa anterior como contexto
+  o.enviarOrdem('gerente', 'E o próximo passo?');
+  for (let i = 0; i < 50 && vistos.length < 2; i++) await new Promise((x) => setTimeout(x, 10));
+  assert.match(vistos[1].job.instrucao, /Responsável: Qual o status/);
+  assert.throws(() => o.enviarOrdem('gerente', '   '), /Escreva/);
+  assert.throws(() => o.enviarOrdem('humano', 'oi'), /desconhecido/);
+  // modo simulado: responde que não há IA, sem enfileirar
+  const o2 = new Orquestrador({ cfg: cfgTeste(baseDemo().dir), eventos: new Eventos({}), executarJob: async () => ({}), agora: () => QUI_1000 });
+  o2.carregarEstado();
+  assert.equal(o2.enviarOrdem('vendedor', 'oi').enfileirado, false);
+  assert.match(o2.conversa('vendedor')[1].texto, /simulado/);
+});
