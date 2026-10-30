@@ -9,7 +9,7 @@ entrando com a mesma conta que publica o ERP.
 | 1. Criar o app | Painel no ar com os agentes em **modo demonstração** (dados fictícios, sem IA, custo de IA zero) | Conta do Render |
 | 2. Abrir o painel | Você vê os 4 agentes trabalhando | Senha gerada pelo Render |
 | 3. Ligar a IA | Agentes pensando de verdade (ainda com dados fictícios) | Chave da API do Claude |
-| 4. Dados reais | Agentes trabalhando a carteira da HC | Política comercial + usuário do ERP |
+| 4. Dados reais | Agentes trabalhando a carteira da HC (tudo pelo painel) | Política comercial + usuário do ERP |
 | 5. Endereço próprio | `diretoria.hcqualitycorp.com.br` | Acesso ao DNS (Wix) |
 | 6. E-mail e 7. WhatsApp | Cotações por e-mail e atendimento no WhatsApp | Google Cloud / Meta ou Z-API |
 
@@ -69,24 +69,25 @@ Não compartilhe o link com o token: quem tiver o token aprova decisões no seu 
 
 ## 4. Dados reais da HC
 
-> Hoje esta etapa usa o **Shell** do Render (aba **Shell** do serviço, disponível em planos pagos). Se preferir fazer
-> tudo pelo painel, peça a próxima melhoria: telas de **política comercial** e **importar do ERP** no próprio painel.
+Tudo pelo painel, no botão **Configurar** (topo da tela):
 
-1. **Trocar para a base de produção** — Environment: `HC_BASE` = `producao` e `HC_DATA_DIR` = `/var/data/producao` → Save.
+1. **Trocar para a base de produção** — no Render → Environment: `HC_BASE` = `producao` e `HC_DATA_DIR` = `/var/data/producao` → Save.
+   (O painel deixa de mostrar o aviso "dados fictícios".)
 2. **Usuário de leitura no ERP** — no ERP, crie um usuário com perfil **comercial** (ex.: `agentes`). No Render → Environment:
    `ERP_API_URL` = `https://<endereço-do-ERP>/api/v1`, `ERP_USUARIO`, `ERP_SENHA` → Save.
-3. **Política comercial** — sem ela, toda proposta cai para você decidir. No Shell, na pasta `comercial-inteligente`, crie o arquivo
-   `/var/data/producao/politica_comercial.json` a partir do modelo `config/politica_comercial.json`, preenchendo margem mínima,
-   alçadas (desconto, margem e valor por papel), impostos e comissão, e `"configurado": true`. (Os valores são decisão sua.)
-4. **Cadastrar quem vende** (Shell, pasta `comercial-inteligente`), um comando por pessoa/agente, por exemplo:
-   `node bin/hc.js registrar agente --agente humano --json '{"nome":"Fulano","papel":"vendedor","tipo":"humano","ativo":true}'`
-   (cadastre também os 4 agentes de IA com `"tipo":"agente_ia"` e você com `"papel":"humano"`).
-5. **Importar do ERP** (somente leitura, nada é alterado no ERP):
-   `node bin/hc.js erp importar --recurso clientes --agente humano`
-   `node bin/hc.js erp importar --recurso produtos --agente humano`
-   `node bin/hc.js erp importar --recurso pedidos --agente humano`
-   `node bin/hc.js erp importar --recurso leads --agente humano --responsavel AGT-0001` (ID de um vendedor cadastrado)
-6. Confira: `node bin/hc.js validar --agente humano` deve responder `"ok": true`.
+3. **Configurar → Política comercial** — preencha margem mínima geral, impostos, comissão, validade e as alçadas
+   (desconto máximo, margem mínima e valor máximo por nível), marque **Política ativa** e toque **Salvar política**.
+   O painel recusa combinações incoerentes (ex.: vendedor com mais desconto que o gerente) e explica o motivo.
+   Os valores são decisão sua; enquanto a política estiver desligada, toda proposta vem para você.
+4. **Configurar → Equipe** — cadastre os vendedores (pessoas), os 4 agentes de IA (tipo "Agente de IA") e você
+   (papel "Responsável humano").
+5. **Configurar → Importar do ERP** — toque, nesta ordem: **Importar clientes**, **Importar produtos**, **Importar pedidos**;
+   depois escolha o vendedor responsável e toque **Importar leads**. É só leitura: nada muda no ERP, e reimportar atualiza sem duplicar.
+6. **Configurar → Saúde da base** deve mostrar "Todos os registros válidos".
+
+> Alternativa por linha de comando (Shell do Render, pasta `comercial-inteligente`): `node bin/hc.js politica definir --agente humano --json '{...}'`,
+> `node bin/hc.js registrar agente --agente humano --json '{...}'`, `node bin/hc.js erp importar --recurso clientes --agente humano` e
+> `node bin/hc.js validar --agente humano`.
 
 ## 5. Endereço próprio (opcional)
 

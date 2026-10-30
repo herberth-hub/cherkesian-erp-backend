@@ -98,6 +98,11 @@ const COMANDOS = {
   politica: {
     sub: {
       mostrar: { desc: 'Mostra a política comercial efetiva e se está configurada.', run: ({ base }) => base.politica() },
+      definir: {
+        papeis: ['humano'],
+        desc: "politica definir --json '{...}' (valida coerência das alçadas e grava na base)",
+        run: ({ base, flags, hoje }) => require('./politica').salvarPolitica(base, json(flags), { hoje }),
+      },
     },
   },
   listar: { desc: 'listar <entidade> [--filtro campo=valor]', run: ({ base, pos, flags }) => {

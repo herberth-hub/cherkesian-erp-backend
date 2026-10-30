@@ -17,6 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const C = require('../src/comercial');
 const { assinaturaMetaValida } = require('./whatsapp');
+const { salvarPolitica } = require('../src/politica');
 const PR = require('../src/protocolo');
 
 const HTML = path.join(__dirname, 'painel.html');
@@ -108,7 +109,28 @@ function paginaSimples(res, status, titulo, texto) {
     `<h2 style="margin-top:0">${esc(titulo)}</h2><p>${esc(texto)}</p><p><a href="/">Voltar ao painel</a></p></div></body>`);
 }
 
-function criarServidor({ orquestrador, eventos, token }) {
+/** Configuração para a área "Configurar" do painel (nada de segredo sai daqui). */
+function visaoConfig(base, env = process.env) {
+  const { _arquivo, ...politica } = base.politica();
+  let erpHost = null;
+  try {
+    erpHost = env.ERP_API_URL ? new URL(env.ERP_API_URL).host : null;
+  } catch {
+    erpHost = 'endereço inválido';
+  }
+  const problemas = base.auditar();
+  return {
+    base: base.ficticia ? 'demo' : 'producao',
+    politica,
+    politicaArquivo: _arquivo,
+    agentes: base.listar('agente').map((a) => ({ id: a.id, nome: a.nome, papel: a.papel, tipo: a.tipo, ativo: a.ativo, email: a.email || null })),
+    erp: { configurado: Boolean(env.ERP_API_URL && env.ERP_USUARIO && env.ERP_SENHA), host: erpHost, permitido: !base.ficticia },
+    contagem: Object.fromEntries(['cliente', 'produto', 'pedido', 'lead', 'oportunidade'].map((e) => [e, base.listar(e).length])),
+    saude: { ok: problemas.length === 0, problemas: problemas.slice(0, 10).map((x) => `${x.entidade} ${x.id}: ${x.erros[0]}`) },
+  };
+}
+
+function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = process.env }) {
   if (!token || token.length < 16) throw new Error('PAINEL_TOKEN ausente ou curto (mínimo 16 caracteres).');
   const estadosOAuth = new Map(); // state -> { conta, expira }
 
@@ -164,6 +186,39 @@ function criarServidor({ orquestrador, eventos, token }) {
       w.assumir(c.telefone, true);
       await w.enviarTexto(c.telefone, texto, 'humano');
       return { ok: true };
+    },
+    'POST /api/politica': (c) => {
+      const base = orquestrador.abrirBase();
+      const r = salvarPolitica(base, c.politica);
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `Política comercial ${r.configurado ? 'ativada' : 'salva (não ativa)'}` });
+      return r;
+    },
+    'POST /api/agentes': (c) => {
+      const base = orquestrador.abrirBase();
+      const r = C.registrar(base, 'humano', 'agente', {
+        nome: String(c.nome || '').trim(),
+        papel: c.papel,
+        tipo: c.tipo,
+        email: c.email ? String(c.email).trim() : null,
+        superiorId: null,
+        ativo: true,
+      });
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `Cadastrado ${r.nome} (${r.papel})` });
+      return r;
+    },
+    'POST /api/agentes/ativo': (c) => C.atualizar(orquestrador.abrirBase(), 'humano', 'agente', c.id, { ativo: Boolean(c.ativo) }),
+    'POST /api/erp/importar': async (c) => {
+      const base = orquestrador.abrirBase();
+      if (base.ficticia) throw Object.assign(new Error('A importação do ERP só funciona na base de produção (HC_BASE=producao).'), { status: 422 });
+      const { importar } = require('../integracoes/erp');
+      let resumo;
+      try {
+        resumo = await importar(base, c.recurso, { responsavelPadraoId: c.responsavel || undefined, cliente: erpCliente || undefined });
+      } catch (e) {
+        throw Object.assign(e, { status: e.status || 422 });
+      }
+      eventos.emitir('decisao-humana', { papel: 'humano', texto: `Importação do ERP (${c.recurso}): ${resumo.criados} novos, ${resumo.atualizados} atualizados, ${resumo.erros.length} com erro` });
+      return resumo;
     },
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
@@ -261,6 +316,9 @@ function criarServidor({ orquestrador, eventos, token }) {
       if (req.method === 'GET' && url.pathname === '/api/estado') {
         return json(res, 200, { ...orquestrador.estado(), dados: visaoBase(orquestrador.abrirBase()), eventos: eventos.recentes.slice(-120) });
       }
+      if (req.method === 'GET' && url.pathname === '/api/config') {
+        return json(res, 200, visaoConfig(orquestrador.abrirBase(), env));
+      }
       if (req.method === 'GET' && url.pathname === '/api/eventos') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
         res.write(': conectado\n\n');
@@ -284,4 +342,4 @@ function criarServidor({ orquestrador, eventos, token }) {
   });
 }
 
-module.exports = { criarServidor, visaoBase };
+module.exports = { criarServidor, visaoBase, visaoConfig };
