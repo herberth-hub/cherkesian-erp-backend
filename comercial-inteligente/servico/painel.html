@@ -379,7 +379,7 @@ kbd { font: 600 10px/1 var(--font); border: 1px solid currentColor; padding: 2px
           <div class="kicker" style="margin:16px 0 8px">Adicionar</div>
           <div class="linha">
             <label class="campo">Nome<input id="eNome"></label>
-            <label class="campo">Papel<select id="ePapel"><option value="vendedor">Vendedor</option><option value="gerente">Gerente</option><option value="diretor">Diretor</option><option value="ceo">CEO</option><option value="humano">Responsável humano</option></select></label>
+            <label class="campo">Papel<select id="ePapel"><option value="vendedor">Vendedor</option><option value="gerente">Gerente</option><option value="diretor">Diretor</option><option value="ceo">CEO</option><option value="hunter">Hunter (grandes contas)</option><option value="humano">Responsável humano</option></select></label>
             <label class="campo">Tipo<select id="eTipo"><option value="humano">Pessoa</option><option value="agente_ia">Agente de IA</option></select></label>
             <label class="campo">E-mail (opcional)<input id="eEmail" inputmode="email"></label>
           </div>
@@ -1091,7 +1091,7 @@ function desenharDetalheGrupo() {
 
 // ------------------------------------------------------------------ Configurar
 const NIVEIS = [['vendedor', 'Vendedor'], ['gerente', 'Gerente'], ['diretor', 'Diretor'], ['ceo', 'CEO']];
-const PAPEL_ROTULO = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', humano: 'Responsável humano' };
+const PAPEL_ROTULO = { vendedor: 'Vendedor', gerente: 'Gerente', diretor: 'Diretor', ceo: 'CEO', hunter: 'Hunter', humano: 'Responsável humano' };
 let config = null;
 const val = (v) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 const lerNum = (id) => document.getElementById(id).value.trim();
