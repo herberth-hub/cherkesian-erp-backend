@@ -494,3 +494,29 @@ test('conversa: mensagem do responsável vira trabalho do agente e a resposta vo
   assert.equal(o2.enviarOrdem('vendedor', 'oi').enfileirado, false);
   assert.match(o2.conversa('vendedor')[1].texto, /simulado/);
 });
+
+test('Hunter fora do expediente: só ele trabalha quando você libera; os outros continuam parados', async () => {
+  const b = baseDemo();
+  const rodou = [];
+  const cfg = cfgTeste(b.dir, { modo: 'claude' });
+  const o = new Orquestrador({ cfg, eventos: new Eventos({}), agora: () => SAB_1000, executarJob: async (papel) => (rodou.push(papel), { status: 'concluido', resumo: 'ok', tokens: 0 }) });
+  o.carregarEstado();
+  o.executarRotina('hunter-pesquisa');
+  o.executarRotina('vendedor-abertura');
+  o.tick();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(rodou, [], 'sábado: ninguém trabalha sem liberação');
+  o.liberarHunter(true);
+  await new Promise((r) => setTimeout(r, 20));
+  o.tick();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(rodou, ['hunter'], 'só o Hunter rodou');
+  assert.equal(o.estado().hunterLiberado, true);
+  assert.equal(o.agentes.vendedor.fila.length, 1, 'vendedor segue esperando o expediente');
+  // a liberação sobrevive a reinício e é desligada por você
+  const o2 = new Orquestrador({ cfg, eventos: new Eventos({}), agora: () => SAB_1000, executarJob: async () => ({}) });
+  o2.carregarEstado();
+  assert.equal(o2.hunterLiberado, true);
+  o2.liberarHunter(false);
+  assert.equal(o2.emExpediente('hunter'), false);
+});
