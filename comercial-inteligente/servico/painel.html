@@ -815,6 +815,7 @@ function desenhar() {
   if (e.dados.ficticia) avisos.push('Base de DEMONSTRAÇÃO: todos os dados são fictícios.');
   if (!e.dados.politicaConfigurada) avisos.push('Política comercial não configurada: toda proposta vai para a sua decisão.');
   if (e.modo === 'simulado') avisos.push('Modo simulado: os agentes rodam as rotinas com comandos fixos, sem IA. Configure ANTHROPIC_API_KEY para ligar a IA.');
+  for (const m of (e.modelos && e.modelos.desconhecidos) || []) avisos.push(`Modelo de IA "${m}" não reconhecido: os agentes que usam esse modelo vão falhar. No Render, corrija ${m === e.modelos.rotina && m !== e.modelos.principal ? 'HC_MODELO_ROTINA' : 'HC_MODELO'} (por exemplo, claude-sonnet-5-5 ou claude-opus-5-5, tudo em minúsculas).`);
   if (e.tokens.usdLimite && e.tokens.usdHoje >= e.tokens.usdLimite) avisos.push(`Teto de gasto do dia atingido (US$ ${e.tokens.usdLimite.toFixed(2)}): os agentes param até amanhã. Para continuar hoje, aumente HC_ORCAMENTO_USD_DIA no Render.`);
   document.getElementById('avisos').innerHTML = avisos.map((a) => `<div class="aviso">${esc(a)}</div>`).join('');
   desenharManha();
