@@ -486,6 +486,8 @@ class Orquestrador {
       base: this.cfg.base,
       expediente: { aberto: this.expediente(), ...this.cfg.expediente, fuso: this.cfg.fuso },
       hunterLiberado: Boolean(this.hunterLiberado),
+      // Modelos fora da tabela conhecida (ex.: digitado errado no Render) viram aviso no painel.
+      modelos: { principal: this.cfg.modelo, rotina: this.cfg.modeloRotina, desconhecidos: [...new Set([this.cfg.modelo, this.cfg.modeloRotina])].filter((m) => !Object.keys(require('./config').TABELA_PRECOS).includes(m)) },
       pausadoGeral: this.pausadoGeral,
       tokens: {
         hoje: this.tokens.data === this.dataLocal() ? this.tokens.total : 0,
