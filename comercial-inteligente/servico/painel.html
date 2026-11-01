@@ -339,6 +339,7 @@ kbd { font: 600 10px/1 var(--font); border: 1px solid currentColor; padding: 2px
 
   <section class="vista painel" id="v-contas" hidden>
     <div class="secao-tit" style="border-top:0;padding-top:0"><h2 style="font-size:28px">Grandes Contas</h2><span>Grupos empresariais, unidades e compradores. Potencial = estimativa por premissa; pedidos e receita = confirmados.</span></div>
+    <div class="caso" id="cHunter"></div>
     <div class="kpis" id="cKpis"><p class="vazio" style="padding:16px">Carregando…</p></div>
     <div class="duas">
       <div class="coluna">
@@ -704,7 +705,7 @@ function desenharGaveta() {
     <div class="gaveta-cab"><div class="avatar">${AGENTES[p].sigla}</div><div><h2>${esc(AGENTES[p].nome)}</h2><span class="muted" style="font-size:13px">${esc(AGENTES[p].cargo)} · ${esc(txt)}</span></div><button data-fechar-gaveta="1" aria-label="Fechar">✕</button></div>
     <nav class="abas"><button data-aba-gaveta="conversa" aria-selected="${aba === 'conversa'}">Conversa</button><button data-aba-gaveta="atividade" aria-selected="${aba === 'atividade'}">Atividade</button><button data-aba-gaveta="fila" aria-selected="${aba === 'fila'}">Fila (${a.fila.length})</button></nav>
     <div class="gaveta-corpo">${corpo}</div>
-    <div style="padding:16px;border-top:2px solid var(--text)"><button data-agente="${p}" data-pausado="${a.pausado}">${a.pausado ? 'Retomar agente' : 'Pausar agente'}</button></div>
+    <div class="acoes" style="padding:16px;border-top:2px solid var(--text)"><button data-agente="${p}" data-pausado="${a.pausado}">${a.pausado ? 'Retomar agente' : 'Pausar agente'}</button>${p === 'hunter' && !estado.expediente.aberto ? `<button class="${estado.hunterLiberado ? '' : 'prim'}" data-hunter-liberar="${estado.hunterLiberado ? '0' : '1'}">${estado.hunterLiberado ? 'Desligar fora do expediente' : 'Liberar fora do expediente'}</button>` : ''}</div>
   </aside>`;
 }
 
@@ -805,7 +806,7 @@ document.addEventListener('click', (ev) => {
 // ------------------------------------------------------------ cabeçalho e desenho geral
 function desenhar() {
   const e = estado;
-  document.getElementById('fExpediente').innerHTML = `<i class="quad ${e.expediente.aberto ? 'on' : ''}"></i>${e.expediente.aberto ? 'Expediente' : 'Fora do expediente'} ${esc(e.expediente.abre)}–${esc(e.expediente.fecha)}`;
+  document.getElementById('fExpediente').innerHTML = `<i class="quad ${e.expediente.aberto ? 'on' : ''}"></i>${e.expediente.aberto ? 'Expediente' : 'Fora do expediente'} ${esc(e.expediente.abre)}–${esc(e.expediente.fecha)}${!e.expediente.aberto && e.hunterLiberado ? ' · <b style="color:var(--accent-700)">Hunter liberado</b>' : ''}`;
   document.getElementById('fModo').textContent = `${e.modo === 'claude' ? 'IA ativa' : 'Modo simulado'} · ${e.base === 'producao' ? 'produção' : e.base}`;
   const frac = e.tokens.usdLimite ? e.tokens.usdHoje / e.tokens.usdLimite : e.tokens.hoje / e.tokens.limite;
   document.getElementById('fCusto').innerHTML = `${e.tokens.usdLimite ? `US$ ${e.tokens.usdHoje.toFixed(2).replace('.', ',')} / ${e.tokens.usdLimite.toFixed(2).replace('.', ',')} hoje` : `${(e.tokens.hoje / 1000).toFixed(0)}k tokens`} <span class="medidor ${frac >= 1 ? 'cheio' : ''}"><i style="width:${Math.min(100, frac * 100)}%"></i></span>`;
@@ -820,6 +821,7 @@ function desenhar() {
   desenharPainel();
   desenharGaveta();
   if (vista === 'escritorio' && !replay) desenharEscritorio();
+  if (vista === 'contas' && contas) document.getElementById('cHunter').innerHTML = controleHunter();
   if (vista === 'pipeline' && quadro) carregarQuadro().catch(() => {});
 }
 
@@ -1033,8 +1035,22 @@ async function carregarContas() {
   desenharContas();
 }
 
+/** Controle do Hunter fora do expediente (só ele; os outros agentes seguem o horário). */
+function controleHunter() {
+  if (!estado) return '';
+  const aberto = estado.expediente.aberto;
+  const lib = estado.hunterLiberado;
+  const h = estado.agentes.find((a) => a.papel === 'hunter');
+  const ocupado = h && (h.ativos.length || h.fila.length);
+  return `<div class="caso-cab"><span class="tag ${lib && !aberto ? 'hot' : ''}">Hunter</span><span class="id">${aberto ? 'Expediente aberto: o Hunter pesquisa às 10:00 nos dias úteis.' : lib ? 'Liberado fora do expediente: ele faz o que você mandar. Desligue quando terminar.' : 'Fora do expediente: parado. Libere só o Hunter para pesquisar agora.'}${ocupado ? ` · ${h.ativos.length ? 'trabalhando agora' : `${h.fila.length} na fila`}` : ''}</span></div>
+    <div class="acoes" style="margin-top:10px"><button class="prim" data-hunter-agora="1">Pesquisar agora</button>
+    ${aberto ? '' : `<button data-hunter-liberar="${lib ? '0' : '1'}">${lib ? 'Desligar Hunter fora do expediente' : 'Liberar Hunter fora do expediente'}</button>`}
+    <button class="link" data-abrir-agente="hunter">Conversar com o Hunter</button></div>`;
+}
+
 function desenharContas() {
   if (!contas) return;
+  document.getElementById('cHunter').innerHTML = controleHunter();
   const t = contas.totais;
   const kpi = (rot, v, sub) => `<div class="kpi"><span class="kicker">${rot}</span><b>${v}</b><small>${sub}</small></div>`;
   document.getElementById('cKpis').innerHTML = [
@@ -1227,6 +1243,17 @@ document.addEventListener('click', async (ev) => {
     if (b.id === 'bPausaGeral') await api(estado.pausadoGeral ? '/api/retomar' : '/api/pausar', {});
     else if (b.dataset.agente) await api(b.dataset.pausado === 'true' ? '/api/retomar' : '/api/pausar', { papel: b.dataset.agente });
     else if (b.dataset.rotina) await api('/api/rotina', { id: b.dataset.rotina });
+    else if (b.dataset.hunterLiberar) {
+      const liberar = b.dataset.hunterLiberar === '1';
+      if (liberar && !confirm('Liberar só o Hunter para trabalhar fora do expediente?\n\nEle faz o que você mandar (pesquisa ou mensagem) e gasta IA normalmente. Os outros agentes continuam parados. Desligue quando terminar.')) return;
+      await api('/api/hunter/fora-expediente', { liberar });
+    } else if (b.dataset.hunterAgora) {
+      if (!estado.expediente.aberto && !estado.hunterLiberado) {
+        if (!confirm('Fora do expediente. Liberar o Hunter e pesquisar agora?\n\nSó o Hunter trabalha; desligue depois em Grandes Contas.')) return;
+        await api('/api/hunter/fora-expediente', { liberar: true });
+      }
+      await api('/api/rotina', { id: 'hunter-pesquisa' });
+    }
     else if (b.dataset.opcao) {
       if (!confirm(`Enviar sua decisão para ${b.dataset.opcao}?\n\n${b.dataset.textoOpcao}`)) return;
       await api('/api/solicitacao', { id: b.dataset.opcao, texto: b.dataset.textoOpcao });

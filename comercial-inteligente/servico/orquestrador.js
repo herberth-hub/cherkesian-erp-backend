@@ -63,19 +63,37 @@ class Orquestrador {
     try {
       const e = JSON.parse(fs.readFileSync(this.estadoArquivo, 'utf8'));
       this.executadas = new Set(e.executadas || []);
+      this.hunterLiberado = e.hunterLiberado === true;
     } catch {
       this.executadas = new Set();
+      this.hunterLiberado = false;
     }
   }
 
   salvarEstado() {
     if (!this.estadoArquivo) return;
     const ultimos = [...this.executadas].slice(-500);
-    fs.writeFileSync(this.estadoArquivo, JSON.stringify({ executadas: ultimos }, null, 2));
+    fs.writeFileSync(this.estadoArquivo, JSON.stringify({ executadas: ultimos, hunterLiberado: Boolean(this.hunterLiberado) }, null, 2));
   }
 
   expediente() {
     return dentroDoExpediente(this.agora(), this.cfg);
+  }
+
+  /**
+   * Pode trabalhar agora? Todos no expediente; fora dele, só o Hunter e só se você o liberou pelo
+   * painel (os outros agentes continuam parados). Liberar não agenda nada: ele faz o que você mandar.
+   */
+  emExpediente(papel) {
+    return this.expediente() || (papel === 'hunter' && Boolean(this.hunterLiberado));
+  }
+
+  liberarHunter(liberar) {
+    this.hunterLiberado = Boolean(liberar);
+    this.salvarEstado();
+    this.eventos.emitir('pausa', { papel: 'hunter', texto: liberar ? 'Hunter liberado para trabalhar fora do expediente' : 'Hunter volta ao expediente normal' });
+    if (liberar) this.despachar();
+    return { hunterLiberado: this.hunterLiberado };
   }
 
   // ------------------------------------------------------------ conversa com o responsável humano
@@ -149,7 +167,7 @@ class Orquestrador {
       });
     const job = enfileirarOrdem(1);
     if (!job) throw Object.assign(new Error('Mensagem já está na fila.'), { status: 409 });
-    const aviso = this.pausadoGeral || this.agentes[papel].pausado ? 'agente pausado' : !this.expediente() ? 'fora do expediente' : this.orcamentoEsgotado() ? 'teto de gasto do dia atingido' : null;
+    const aviso = this.pausadoGeral || this.agentes[papel].pausado ? 'agente pausado' : !this.emExpediente(papel) ? 'fora do expediente' : this.orcamentoEsgotado() ? 'teto de gasto do dia atingido' : null;
     if (aviso) this.registrarMensagem(papel, { de: 'sistema', texto: `Mensagem na fila (${aviso}): o agente responde quando voltar a trabalhar.` });
     this.despachar();
     return { enfileirado: true, job: job.id, aviso };
@@ -349,7 +367,11 @@ class Orquestrador {
       this.eventos.emitir('expediente', { aberto });
       this.expedienteAnterior = aberto;
     }
-    if (!aberto) return;
+    if (!aberto) {
+      // Fora do expediente só o Hunter liberado trabalha (o que você mandou; nenhuma rotina é agendada).
+      if (this.hunterLiberado) this.despachar();
+      return;
+    }
     for (const { rotina, slot } of vencidas(this.agora(), this.cfg, this.executadas, this.rotinas)) {
       this.executadas.add(`${rotina.id}@${slot}`);
       this.enfileirar(rotina.papel, { chave: `rotina:${rotina.id}@${slot}`, origem: 'rotina', titulo: rotina.titulo, instrucao: rotina.instrucao, simulado: rotina.simulado, ...this.enxuto(rotina.papel) });
@@ -366,7 +388,7 @@ class Orquestrador {
   }
 
   podeIniciar(a) {
-    if (this.pausadoGeral || a.pausado || !this.expediente()) return false;
+    if (this.pausadoGeral || a.pausado || !this.emExpediente(a.papel)) return false;
     if (this.orcamentoEsgotado()) return false;
     const umaHora = this.agora().getTime() - 3600000;
     a.inicios = a.inicios.filter((t) => t > umaHora);
@@ -397,7 +419,7 @@ class Orquestrador {
       deveParar: () => {
         if (this.pausadoGeral) return 'pausa geral';
         if (a.pausado) return 'agente pausado';
-        if (!this.expediente()) return 'fim do expediente';
+        if (!this.emExpediente(a.papel)) return 'fim do expediente';
         if (this.orcamentoEsgotado()) return 'orçamento diário atingido';
         return null;
       },
@@ -463,6 +485,7 @@ class Orquestrador {
       modo: this.cfg.modo,
       base: this.cfg.base,
       expediente: { aberto: this.expediente(), ...this.cfg.expediente, fuso: this.cfg.fuso },
+      hunterLiberado: Boolean(this.hunterLiberado),
       pausadoGeral: this.pausadoGeral,
       tokens: {
         hoje: this.tokens.data === this.dataLocal() ? this.tokens.total : 0,

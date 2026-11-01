@@ -413,6 +413,7 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       return r;
     },
     'POST /api/agentes/mensagem': (c) => orquestrador.enviarOrdem(c.papel, c.texto),
+    'POST /api/hunter/fora-expediente': (c) => orquestrador.liberarHunter(Boolean(c.liberar)),
     'POST /api/meta': (c) => {
       const base = orquestrador.abrirBase();
       const r = C.atualizarMeta(base, 'humano', c.id, { status: c.aprovar ? 'aprovada' : 'revogada' });
