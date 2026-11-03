@@ -129,7 +129,7 @@ function casosParaHumano(sols, paraHumano, hoje) {
     return {
       id: s.id,
       raizId: s.raizId || raiz.id,
-      titulo: primeiraFrase(s.objetivo, 120),
+      titulo: primeiraFrase(String(s.objetivo).replace(/^(Decidir:\s*)+/, ''), 120),
       prazo: s.prazo || null,
       urgente,
       pedidoInformacao: s.solicitante === 'humano' && s.status === 'aguardando_informacao',
