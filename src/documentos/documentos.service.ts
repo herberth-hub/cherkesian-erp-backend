@@ -2062,6 +2062,9 @@ export class DocumentosService {
     if (produto && produto.empresaId !== empresaId) {
       throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
     }
+    // A foto do modelo costuma estar no bucket (`arq:…`): sem trocar pela imagem
+    // de verdade, a ficha sai com a moldura vazia e a piloteira costura no escuro.
+    await this.resolverAnexos(produto, ['fotoModelo', 'fotoModelagem']);
     const cliente = piloto.clienteId ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } }) : null;
     const pedido = piloto.pedidoId ? await this.prisma.pedido.findUnique({ where: { id: piloto.pedidoId }, select: { numero: true } }) : null;
 
@@ -2206,6 +2209,9 @@ export class DocumentosService {
     if (!piloto || (piloto.empresaId != null && piloto.empresaId !== empresaId)) throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
     const produto = piloto.produtoId ? await this.prisma.produto.findUnique({ where: { id: piloto.produtoId } }) : null;
     if (produto && produto.empresaId !== empresaId) throw new NotFoundException(`Peça piloto ${pilotoId} não encontrada.`);
+    // A foto do modelo costuma estar no bucket (`arq:…`): sem trocar pela imagem
+    // de verdade, a ficha sai com a moldura vazia e a piloteira costura no escuro.
+    await this.resolverAnexos(produto, ['fotoModelo', 'fotoModelagem']);
     const cliente = piloto.clienteId ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } }) : null;
 
     // Índice de campos do briefing por rótulo (sem acento) → valor.
@@ -2248,8 +2254,18 @@ export class DocumentosService {
     // Desenho / modelo da peça
     const hDes = 180;
     box(x0, y, W, hDes, 'Desenho / modelo da peça');
-    if (produto?.fotoModelo) { try { doc.image(Buffer.from(String(produto.fotoModelo).split(',').pop() || '', 'base64'), x0 + 8, y + 18, { fit: [W - 16, hDes - 26], align: 'center', valign: 'center' }); } catch { /* ignora imagem inválida */ } }
-    else { doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('(anexe o desenho técnico / foto — frente e costas)', x0, y + hDes / 2, { width: W, align: 'center' }); doc.fillColor(TIN); }
+    // Foto do modelo; não havendo, o desenho da modelagem serve de referência.
+    let desenhou = false;
+    for (const fonte of [produto?.fotoModelo, produto?.fotoModelagem]) {
+      if (!fonte || desenhou) continue;
+      try {
+        doc.image(Buffer.from(String(fonte).split(',').pop() || '', 'base64'), x0 + 8, y + 18, { fit: [W - 16, hDes - 26], align: 'center', valign: 'center' });
+        desenhou = true;
+      } catch { /* imagem ilegível — cai no aviso abaixo */ }
+    }
+    // Moldura vazia e muda é o jeito mais rápido de alguém cortar achando que
+    // não havia foto: ou aparece a peça, ou aparece escrito que falta.
+    if (!desenhou) { doc.fillColor('#a99a63').font('Helvetica').fontSize(10).text('(anexe o desenho técnico / foto — frente e costas)', x0, y + hDes / 2, { width: W, align: 'center' }); doc.fillColor(TIN); }
     y += hDes + 8;
 
     // Produto (esq) + Tecido (dir)
