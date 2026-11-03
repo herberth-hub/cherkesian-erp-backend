@@ -96,3 +96,15 @@ test('custo: buscas na web do Hunter entram no teto em US$; base demo não agend
   const s = new SincronizacaoErp({ cfg: { ...carregar({ HC_BASE: 'demo' }), dataDir: b.dir }, dir: b.dir, eventos: new Eventos({}), abrirBase: () => b, env: { ERP_API_URL: 'https://x.invalid/api/v1', ERP_USUARIO: 'a', ERP_SENHA: 'b' }, agora: () => QUI_1000 });
   assert.equal(s.devidaAgora(), false);
 });
+
+test('escalonamento em vários saltos não empilha "Decidir:" no objetivo nem no título do caso', () => {
+  const { visaoBase } = require('../servico/servidor');
+  const b = baseDemo();
+  const hoje = '2026-10-29';
+  const s1 = PR.criarSolicitacao(b, { agente: 'vendedor', para: 'gerente', fluxo: 'escalonamento', objetivo: 'Alerta de prazo do pedido X.', prazo: '2026-11-05', resultadoEsperado: 'Decisão' }, hoje);
+  const s2 = PR.responderSolicitacao(b, { agente: 'gerente', id: s1.id, tipo: 'escalonamento', texto: 'Fora da minha alçada' }, hoje);
+  const s3 = PR.responderSolicitacao(b, { agente: 'diretor', id: s2.id, tipo: 'escalonamento', texto: 'Sobe' }, hoje);
+  assert.equal((s3.objetivo.match(/Decidir:/g) || []).length, 1);
+  const casos = visaoBase(b, hoje).casos;
+  for (const c of casos) assert.ok(!/^Decidir:/.test(c.titulo), c.titulo);
+});

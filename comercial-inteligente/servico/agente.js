@@ -158,7 +158,8 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
     // Fallback no servidor: só Opus/Sonnet aceitam (o Haiku não tem).
     const fallbacks = cfg.fallbacks && !/haiku/.test(modelo);
 
-    for (let i = 0; i < cfg.limites.iteracoesPorTarefa; i++) {
+    const limite = papel === 'hunter' ? cfg.limites.iteracoesHunter || cfg.limites.iteracoesPorTarefa : cfg.limites.iteracoesPorTarefa;
+    for (let i = 0; i < limite; i++) {
       const parar = ctl.deveParar();
       if (parar) return { status: 'interrompido', resumo: `Interrompido: ${parar}.`, tokens, usd };
 
@@ -212,7 +213,7 @@ function criarExecutorClaude({ cfg, cliente, leitorEmail = null, whatsapp = null
       }
       messages.push({ role: 'user', content: resultados });
     }
-    return { status: 'limite', resumo: `Parado no limite de ${cfg.limites.iteracoesPorTarefa} iterações.`, tokens, usd };
+    return { status: 'limite', resumo: `Parado no limite de ${limite} iterações.`, tokens, usd };
   };
 }
 

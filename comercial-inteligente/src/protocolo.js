@@ -180,7 +180,8 @@ function responderSolicitacao(base, { agente, id, tipo, texto, informacoesFaltan
           fluxo: 'escalonamento',
           origemId: id,
           referencia: sol.referencia,
-          objetivo: `Decidir: ${sol.objetivo}`,
+          // Um prefixo só, mesmo após vários saltos (antes virava "Decidir: Decidir: Decidir: ...").
+          objetivo: `Decidir: ${String(sol.objetivo).replace(/^(Decidir:\s*)+/, '')}`,
           dadosDisponiveis: `Justificativa do escalonamento: ${conteudo}${sol.dadosDisponiveis ? `\nDados: ${sol.dadosDisponiveis}` : ''}`,
           informacoesFaltantes: sol.informacoesFaltantes,
           prazo: prazo || sol.prazo,

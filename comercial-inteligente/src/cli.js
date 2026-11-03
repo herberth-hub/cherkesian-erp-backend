@@ -17,7 +17,7 @@ const R = require('./relatorios');
 const K = require('./contas');
 const { calcularMargem, determinarAlcada } = require('./precificacao');
 const { registrar: logar, ocultarArgs } = require('./log');
-const { ENTIDADES } = require('./schemas');
+const { ENTIDADES, SCHEMAS } = require('./schemas');
 
 function parse(argv) {
   const pos = [];
@@ -115,6 +115,10 @@ const COMANDOS = {
     }
     return regs;
   } },
+  formato: {
+    desc: 'formato <entidade> (campos aceitos no --json: tipo, valores permitidos e obrigatórios; com exemplo para grandes contas)',
+    run: ({ pos }) => formatoEntidade(exigirEntidade(pos[0])),
+  },
   obter: { desc: 'obter <entidade> --id ID', run: ({ base, pos, flags }) => base.exigir(exigirEntidade(pos[0]), exigir(flags, 'id')) },
   registrar: { desc: "registrar <entidade> --json '{...}' (valida, checa duplicidade e permissão)", run: ({ base, pos, flags, agente, hoje }) => C.registrar(base, agente, exigirEntidade(pos[0]), json(flags), hoje) },
   atualizar: { desc: "atualizar <entidade> --id ID --json '{...}'", run: ({ base, pos, flags, agente }) => C.atualizar(base, agente, exigirEntidade(pos[0]), exigir(flags, 'id'), json(flags)) },
@@ -297,6 +301,30 @@ const COMANDOS = {
   },
 };
 
+/** Exemplos prontos de --json para grandes contas (dados ilustrativos: substitua pelos pesquisados). */
+const EXEMPLOS = {
+  grupo: { nome: 'Grupo Exemplo', controladora: 'Exemplo Participações SA', segmentos: ['industria'], presencaGeografica: 'SP, MG', colaboradoresGrupo: { valor: 12000, evidencia: 'comprovado', fonte: 'relatório anual 2025', dataPesquisa: '2026-11-03' }, colaboradoresBrasil: { valor: 8000, evidencia: 'estimado', fonte: 'site institucional', dataPesquisa: '2026-11-03' }, modeloCompra: 'desconhecido', fontes: [{ descricao: 'Site institucional', url: 'https://exemplo.com.br', dataPesquisa: '2026-11-03' }] },
+  empresa: { grupoId: 'GRP-0001', razaoSocial: 'Exemplo Indústria SA', cnpjMatriz: '11222333000181', papelNoGrupo: 'controladora', colaboradoresBrasil: { valor: 5000, evidencia: 'estimado', fonte: 'notícia', dataPesquisa: '2026-11-03' }, fontes: [{ descricao: 'Consulta CNPJ', url: null, dataPesquisa: '2026-11-03' }] },
+  unidade: { grupoId: 'GRP-0001', empresaId: 'EMP-0001', nome: 'Fábrica Barueri', tipo: 'fabrica', cnpj: '11222333000262', endereco: 'Av. Exemplo, 100', cidade: 'Barueri', uf: 'SP', cep: '06454000', telefone: null, funcionariosLocais: { valor: 800, evidencia: 'estimado', fonte: 'vagas e notícia', dataPesquisa: '2026-11-03' }, fontes: [{ descricao: 'Página de unidades', url: 'https://exemplo.com.br/unidades', dataPesquisa: '2026-11-03' }], dataPesquisa: '2026-11-03' },
+  comprador: { grupoId: 'GRP-0001', unidadeId: null, nivel: 'corporativo', nome: 'Nome Sobrenome', cargo: 'Gerente de Suprimentos', funcao: 'gerente_suprimentos', papelNaCompra: 'decide', confirmacao: 'presumida_pelo_cargo', evidenciaFuncao: null, fontes: [{ descricao: 'Perfil profissional público', url: null, dataPesquisa: '2026-11-03' }], dataPesquisa: '2026-11-03' },
+};
+const CONTROLE = new Set(['id', 'ficticio', 'origem', 'erpId', 'criadoEm', 'atualizadoEm', 'criadoPor']);
+
+/** Campos aceitos de uma entidade, a partir do schema (para o agente acertar o --json de primeira). */
+function formatoEntidade(ent) {
+  const sch = SCHEMAS[ent];
+  const desc = (p) => {
+    if (p.enum) return `um de: ${p.enum.filter((v) => v !== null).join(', ')}${p.enum.includes(null) ? ' (ou null)' : ''}`;
+    if (p.properties) return `objeto { ${Object.entries(p.properties).map(([k, v]) => `${k}: ${desc(v)}`).join('; ')} }${p.required ? ` obrigatórios: ${p.required.join(', ')}` : ''}`;
+    if (p.type === 'array' || (Array.isArray(p.type) && p.type.includes('array'))) return `lista de ${p.items ? desc(p.items) : 'itens'}`;
+    const t = Array.isArray(p.type) ? p.type.filter((x) => x !== 'null').join('|') + (p.type.includes('null') ? ' ou null' : '') : p.type;
+    return `${t}${p.pattern ? ` (formato ${p.pattern})` : ''}${p.format ? ` (${p.format})` : ''}`;
+  };
+  const campos = Object.fromEntries(Object.entries(sch.properties).filter(([k]) => !CONTROLE.has(k)).map(([k, v]) => [k, desc(v)]));
+  const automaticos = { grupo: ['modeloCompra', 'status'], unidade: ['status'] }[ent] || []; // preenchidos pela CLI se faltarem
+  return { entidade: ent, obrigatorios: sch.required.filter((k) => !CONTROLE.has(k) && !automaticos.includes(k)), campos, exemplo: EXEMPLOS[ent] || null, observacao: 'Use só estes campos (nomes exatos). CNPJ: 14 dígitos; CEP: 8 dígitos; datas AAAA-MM-DD.' };
+}
+
 function ajuda() {
   const linhas = ['Uso: node comercial-inteligente/bin/hc.js <comando> [sub] --agente <ceo|diretor|gerente|vendedor|hunter|humano> [--base producao|demo] [--hoje AAAA-MM-DD]', ''];
   for (const [nome, c] of Object.entries(COMANDOS)) {
@@ -344,4 +372,4 @@ async function executar(argv, env = process.env) {
   }
 }
 
-module.exports = { executar, parse, COMANDOS, ANALISES, resolver };
+module.exports = { executar, parse, COMANDOS, ANALISES, resolver, formatoEntidade };

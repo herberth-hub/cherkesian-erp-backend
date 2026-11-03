@@ -388,9 +388,21 @@ function conferirComprador(base, dados) {
 }
 
 /** Criação de registros de grandes contas com as conferências deste módulo. */
+/** CNPJ e CEP com pontuação ("11.222.333/0001-81", "06454-000") viram só dígitos. */
+function normalizarDocumentos(dados) {
+  const out = { ...dados };
+  for (const [campo, tam] of [['cnpj', 14], ['cnpjMatriz', 14], ['cep', 8]]) {
+    if (typeof out[campo] === 'string') {
+      const d = out[campo].replace(/\D/g, '');
+      out[campo] = d.length === tam ? d : d ? out[campo] : null;
+    }
+  }
+  return out;
+}
+
 function registrarConta(base, agente, entidade, dados) {
   P.podeCriar(agente, entidade, dados);
-  let d = dados;
+  let d = (dados = normalizarDocumentos(dados));
   if (entidade === 'unidade') d = conferirUnidade(base, { status: 'nao_explorada', potencialContrato: 'desconhecido', ...dados });
   if (entidade === 'empresa') base.exigir('grupo', dados.grupoId);
   if (entidade === 'comprador') conferirComprador(base, dados);
@@ -414,5 +426,6 @@ module.exports = {
   arvoreGrupo,
   painelContas,
   registrarConta,
+  normalizarDocumentos,
   conferirComprador,
 };
