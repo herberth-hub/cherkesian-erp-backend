@@ -278,3 +278,16 @@ test('filtro sem IA: newsletter e notificação saem antes do agente; portal de 
   assert.equal(eAutomatico({ from: 'no-reply@ariba.com', subject: 'Cotação 22895741 - jalecos' }), false);
   assert.equal(eAutomatico({ from: 'Compras <compras@hospital.org.br>', subject: 'Uniformes' }), false);
 });
+
+test('gmail: corpo em ISO-8859-1/Windows-1252 é lido com os acentos certos', () => {
+  const { extrairPartes } = require('../servico/gmail');
+  const b64 = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+  const latin = Buffer.from('Cotação: está pendente, não há pregão.', 'latin1');
+  const p1 = extrairPartes({ mimeType: 'text/plain', headers: [{ name: 'Content-Type', value: 'text/plain; charset="ISO-8859-1"' }], body: { data: b64(latin) } });
+  assert.equal(p1.texto, 'Cotação: está pendente, não há pregão.');
+  // declarado UTF-8, mas na verdade Latin-1
+  const p2 = extrairPartes({ mimeType: 'text/plain', headers: [{ name: 'Content-Type', value: 'text/plain; charset=UTF-8' }], body: { data: b64(latin) } });
+  assert.equal(p2.texto, 'Cotação: está pendente, não há pregão.');
+  const p3 = extrairPartes({ mimeType: 'text/plain', body: { data: b64(Buffer.from('Orçamento em UTF-8 já certo', 'utf8')) } });
+  assert.equal(p3.texto, 'Orçamento em UTF-8 já certo');
+});

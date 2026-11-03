@@ -34,6 +34,11 @@ Responsável humano (nível 5)
 - `--base demo` usa dados **fictícios**; `--base producao` (padrão) usa dados reais em `data/producao/` (fora do git).
 - Protocolo de solicitações: `workflows/delegacao_e_escalonamento.md`. Orquestração: `workflows/orquestracao.md`.
 
+## Idioma
+
+- Tudo em **português do Brasil**, com acentuação correta. Nunca espanhol.
+- Texto de origem com caracteres trocados ("�", "ý" no lugar de acentos) é corrigido ao registrar.
+
 ## Dados: confirmados × estimativas
 
 - **Nunca** invente clientes, contatos, valores, interações, pedidos, preços, descontos, prazos, custos,
