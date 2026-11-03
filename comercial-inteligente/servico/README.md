@@ -141,6 +141,7 @@ Endereço de recebimento (webhook): `https://<endereço-do-painel>/webhook/whats
 | `HC_FALLBACKS` | ligado | `off` desliga o fallback automático do servidor em recusas. |
 | `HC_MODELO_ROTINA` | igual a `HC_MODELO` | Modelo de rotinas, e-mails e tarefas entre agentes (ex.: `claude-sonnet-5-5`, metade do preço do Opus 5.5). WhatsApp com cliente usa sempre `HC_MODELO`. |
 | `HC_ORCAMENTO_TOKENS_DIA`, `HC_MAX_TAREFAS_HORA`, `HC_MAX_ITERACOES` | 3000000, 10, 8 | Limites. |
+| `HC_MAX_ITERACOES_HUNTER` | `20` | Passos por pesquisa do Hunter (buscar, ler e registrar grupo, empresas, unidades e compradores). |
 | `HC_PARALELO_CEO/DIRETOR/GERENTE/VENDEDOR` | 1/1/1/3 | Trabalhos simultâneos por agente. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Credencial OAuth do Google (fase 2). |
 | `HC_URL_PUBLICA` | — | Endereço público do painel (para o retorno do login Google). |

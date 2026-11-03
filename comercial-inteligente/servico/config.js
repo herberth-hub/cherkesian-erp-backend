@@ -59,6 +59,8 @@ function carregar(env = process.env) {
     fallbacks: env.HC_FALLBACKS !== 'off',
     limites: {
       iteracoesPorTarefa: inteiro(env.HC_MAX_ITERACOES, 8),
+      // Pesquisa do Hunter tem mais passos (buscar, ler, registrar grupo, empresas, unidades, compradores).
+      iteracoesHunter: inteiro(env.HC_MAX_ITERACOES_HUNTER, 20),
       tarefasPorHoraPorAgente: inteiro(env.HC_MAX_TAREFAS_HORA, 10),
       tokensPorDia: inteiro(env.HC_ORCAMENTO_TOKENS_DIA, 3000000),
       // Teto principal: custo estimado do dia em US$ (cache lido custa ~10% da entrada).
