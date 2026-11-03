@@ -31,6 +31,25 @@ function htmlParaTexto(html) {
     .trim();
 }
 
+/**
+ * Texto de uma parte MIME no charset que ela declara (muitos e-mails brasileiros vêm em
+ * ISO-8859-1/Windows-1252: lidos como UTF-8, "está" virava "est�" e os acentos se perdiam).
+ */
+function decodificarParte(p) {
+  const bruto = deB64url(p.body.data);
+  const ct = ((p.headers || []).find((h) => String(h.name).toLowerCase() === 'content-type') || {}).value || '';
+  const m = /charset="?([\w.:-]+)"?/i.exec(ct);
+  const charset = m ? m[1].toLowerCase() : 'utf-8';
+  try {
+    const texto = new TextDecoder(charset).decode(bruto);
+    // Declarado UTF-8 mas não é (acontece): tenta Windows-1252, que cobre o ISO-8859-1.
+    if (texto.includes('\uFFFD') && /utf-?8/.test(charset)) return new TextDecoder('windows-1252').decode(bruto);
+    return texto;
+  } catch {
+    return bruto.toString('utf8');
+  }
+}
+
 /** Percorre as partes MIME: corpo em texto e lista de anexos. */
 function extrairPartes(payload) {
   let texto = '';
@@ -42,9 +61,9 @@ function extrairPartes(payload) {
     if (p.filename && p.body && (p.body.attachmentId || p.body.data)) {
       anexos.push({ nome: p.filename, mime, tamanho: p.body.size || 0, attachmentId: p.body.attachmentId || null, dados: p.body.data || null });
     } else if (mime === 'text/plain' && p.body && p.body.data) {
-      texto += deB64url(p.body.data).toString('utf8');
+      texto += decodificarParte(p);
     } else if (mime === 'text/html' && p.body && p.body.data) {
-      html += deB64url(p.body.data).toString('utf8');
+      html += decodificarParte(p);
     }
     (p.parts || []).forEach(visitar);
   };
