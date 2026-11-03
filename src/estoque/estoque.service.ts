@@ -612,11 +612,19 @@ export class EstoqueService {
     const reservadasBloqueadas = paraComodato ? mover.filter((u) => u.status === 'reservado').map((u) => u.codigo) : [];
     if (reservadasBloqueadas.length) mover = mover.filter((u) => u.status !== 'reservado');
     if (!mover.length) {
-      throw new BadRequestException(
-        reservadasBloqueadas.length
-          ? `As ${reservadasBloqueadas.length} etiqueta(s) estão RESERVADAS para expedição e não podem ir para comodato — solte a reserva antes.`
-          : 'Nenhuma etiqueta pôde ser endereçada (despachadas ou inexistentes).',
-      );
+      if (reservadasBloqueadas.length) {
+        throw new BadRequestException(`As ${reservadasBloqueadas.length} etiqueta(s) estão RESERVADAS para expedição e não podem ir para comodato — solte a reserva antes.`);
+      }
+      /**
+       * "Despachadas ou inexistentes" juntava duas coisas MUITO diferentes e não
+       * dizia nenhuma: peça que já saiu do armazém é uma conversa (ela voltou?),
+       * código que não existe mais na lista é outra (a tela está velha). Com 152
+       * etiquetas recusadas de uma vez, o operador ficava sem saber o que fazer.
+       */
+      const partes: string[] = [];
+      if (despachadas.length) partes.push(`${despachadas.length} já saíram do armazém (despachadas) — peça despachada não tem endereço; se voltou, dê entrada de novo`);
+      if (naoAchadas.length) partes.push(`${naoAchadas.length} não estão mais no estoque — atualize a tela`);
+      throw new BadRequestException(`Nenhuma etiqueta pôde ser endereçada: ${partes.join(' · ')}.`);
     }
     const reservadas = mover.filter((u) => u.status === 'reservado').length;
     const endereco = paraComodato

@@ -9984,9 +9984,19 @@ async function estMultiBip(){
     beepErro&&beepErro();
     msg('❌ '+(r.motivo||'Não é etiqueta de peça (UN-…).'),'#c14a34'); el.focus(); return;
   }
-  beepOk&&beepOk();
-  MB.itens.push(r.unidade);
-  msg('✓ '+r.unidade.codigo+' · '+String(r.unidade.descricao||'').slice(0,30)+(r.unidade.tamanho?(' · '+r.unidade.tamanho):''),'#1e7a44');
+  const u=r.unidade;
+  MB.itens.push(u);
+  const resumo=u.codigo+' · '+String(u.descricao||'').slice(0,30)+(u.tamanho?(' · '+u.tamanho):'');
+  // Etiqueta DESPACHADA entra na cesta (dá para reimprimir, consultar), mas tem
+  // de avisar na hora: ela já saiu do armazém e não se guarda nem se movimenta.
+  // Avisar só no fim, depois de 150 bipagens, é avisar tarde demais.
+  if(u.status==='despachado'){
+    beepErro&&beepErro();
+    msg('⚠️ '+resumo+' — JÁ SAIU do armazém (despachada). Não dá para guardar.','#c14a34');
+  }else{
+    beepOk&&beepOk();
+    msg('✓ '+resumo,'#1e7a44');
+  }
   estMultiRender();
   el.focus();
 }
@@ -10016,7 +10026,8 @@ function estMultiRender(){
     + (seg?` · <span style="color:#111;font-weight:700">${seg} de 2ª linha</span>`:'')
     + `</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button class="btn-primary" onclick="APP.estMultiMover()">📍 Movimentar as ${n}</button>
+      ${n-desp? `<button class="btn-primary" onclick="APP.estMultiMover()">📍 Movimentar as ${n-desp}</button>`
+        : `<span class="muted" style="font-size:12px;align-self:center">Nenhuma pode ser movimentada — todas já saíram do armazém.</span>`}
       ${com?`<button class="btn-sm" style="background:#6b3fa0;color:#fff;border-color:#6b3fa0;font-weight:700" title="O cliente vendeu: baixa do estoque, gera o pedido e lança o título" onclick="APP.estMultiComodatoVenda()">💰 Cliente vendeu (${com})</button>`:''}
       <button class="btn-sm" onclick="APP.estMultiReimprimir()">🏷 Reimprimir todas</button>
       <button class="btn-sm" style="background:#111;color:#fff;border-color:#111" title="Marcar as etiquetas bipadas como peça de segunda linha (defeito leve)" onclick="APP.estSegundaForm()">⚠ Segunda linha</button>
@@ -10078,7 +10089,22 @@ async function estSegundaEnviar(qualidade, defeito, codigos){
 function estMultiTirar(i){ const MB=window.__MB; if(!MB) return; MB.itens.splice(i,1); estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
 function estMultiLimpar(){ window.__MB={itens:[]}; estMultiRender(); const el=$('mb_bip'); if(el) el.focus(); }
 function estMultiCods(){ return (window.__MB&&window.__MB.itens||[]).map(u=>u.codigo); }
-function estMultiMover(){ const c=estMultiCods(); if(!c.length) return; closeModal(); dwMover(c); }
+/**
+ * Movimentar só o que PODE ser movimentado. A cesta aceita etiqueta despachada
+ * (para consultar e reimprimir), mas mandar a cesta inteira fazia o servidor
+ * recusar o lote todo — 152 bipadas, uma recusa só, nenhum motivo na tela.
+ */
+function estMultiMover(){
+  const itens=(window.__MB&&window.__MB.itens)||[];
+  const fora=itens.filter(u=>u.status==='despachado').length;
+  const c=itens.filter(u=>u.status!=='despachado').map(u=>u.codigo);
+  if(!c.length){
+    toast(fora? ('As '+fora+' etiqueta(s) bipada(s) já saíram do armazém. Peça despachada não tem endereço — se ela voltou, dê entrada de novo pelo "+ Entrada (etiqueta)".') : 'Bipe as etiquetas primeiro.','err');
+    return;
+  }
+  if(fora) toast(fora+' etiqueta(s) já despachada(s) ficaram de fora.','err');
+  closeModal(); dwMover(c);
+}
 /** Vender só as bipadas que ESTÃO em comodato — o resto da cesta não é venda. */
 function estMultiComodatoVenda(){
   const MB=window.__MB||{itens:[]};
