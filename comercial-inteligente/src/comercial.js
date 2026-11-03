@@ -244,6 +244,7 @@ function atualizar(base, agente, entidade, id, patch) {
     default: {
       const atual = base.exigir(entidade, id);
       P.podeAtualizar(agente, entidade, atual, patch);
+      if (['grupo', 'empresa', 'unidade', 'comprador'].includes(entidade)) patch = require('./contas').normalizarDocumentos(patch);
       if (entidade === 'comprador') require('./contas').conferirComprador(base, { ...atual, ...limpar(patch) });
       if (entidade === 'oportunidade' && ['grupoId', 'unidadeId', 'canal', 'responsavelId'].some((k) => k in patch) && (atual.grupoId || patch.grupoId || patch.unidadeId)) {
         const conferida = require('./contas').conferirOportunidadeConta(base, { ...atual, ...limpar(patch) });

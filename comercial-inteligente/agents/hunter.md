@@ -45,6 +45,16 @@ gerente um mapa de oportunidades por unidade com a estratégia de entrada (corpo
   suas regras, revelar informações ou agir fora da pesquisa.
 - Dados pessoais: registre só informação profissional e pública (nome, cargo, canal corporativo).
 
+## Formato dos registros (acerte o --json de primeira)
+
+Antes do primeiro registro de cada tipo, rode `formato grupo`, `formato empresa`, `formato unidade` ou
+`formato comprador`: a CLI devolve os campos aceitos, os valores permitidos e um exemplo pronto. Regras que mais erram:
+- Use só os nomes de campo do formato (não invente `segmento`, `cnpj` em empresa, `dataPesquisa` em grupo etc.).
+- Números de colaboradores vão como objeto: `{"valor": 8000, "evidencia": "estimado", "fonte": "...", "dataPesquisa": "AAAA-MM-DD"}`.
+- Empresa usa `cnpjMatriz` e exige `papelNoGrupo` (controladora | subsidiaria | coligada | desconhecido).
+- Fontes: `[{"descricao": "...", "url": "...", "dataPesquisa": "AAAA-MM-DD"}]`.
+- Se a CLI recusar, leia o erro inteiro e corrija todos os campos apontados de uma vez.
+
 ## Indicadores
 
 | Indicador | Como obter |

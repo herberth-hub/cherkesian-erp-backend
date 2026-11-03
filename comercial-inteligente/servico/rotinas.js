@@ -73,7 +73,7 @@ const ROTINAS = [
       '2) Se houver grupo com status "mapeando", continue por ele (unidades da Grande São Paulo sem funcionários locais, compradores faltando). ' +
       'Senão, encontre UM novo grupo com 1.000+ colaboradores e instalações na Grande São Paulo, em segmento-alvo (saúde, indústria, ' +
       'logística, facilities, construção, serviços), que ainda não esteja na base (confira com listar grupo e listar empresa). ' +
-      '3) Registre grupo, empresas, unidades e compradores com fonte e data; números por abrangência (grupo, Brasil, unidade) com evidência; ' +
+      '3) Antes do primeiro registro de cada tipo, rode formato grupo|empresa|unidade|comprador (campos e exemplo). Registre grupo, empresas, unidades e compradores com fonte e data; números por abrangência (grupo, Brasil, unidade) com evidência; ' +
       'compradores "evidenciada" só com evidência da função. 4) Ao concluir o grupo, atualize o status para "mapeado" e escale ao gerente ' +
       '(solicitacao criar --fluxo escalonamento --para gerente) com o resumo e a estratégia recomendada. Use poucas buscas e não repita pesquisa já registrada.',
     simulado: [['conta', 'consolidado']],

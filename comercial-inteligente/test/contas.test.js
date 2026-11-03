@@ -149,3 +149,23 @@ test('[9] integração: painel de grandes contas, Grande SP, CLI e permissões d
   const atr = await cli(b.dir, ['conta', 'atribuir', '--grupo', g.id, '--responsavel', 'AGT-0001', '--agente', 'vendedor'], { base: 'producao' });
   assert.notEqual(atr.codigo, 0, 'vendedor não distribui contas');
 });
+
+test('hunter: CNPJ/CEP com pontuação são aceitos e a CLI mostra o formato de cada registro', async () => {
+  const { formatoEntidade } = require('../src/cli');
+  const b = baseVazia();
+  const g = C.registrar(b, 'hunter', 'grupo', { nome: 'Grupo Pontuação' });
+  const e = C.registrar(b, 'hunter', 'empresa', { grupoId: g.id, razaoSocial: 'Pontuação SA', cnpjMatriz: '11.222.333/0001-81', papelNoGrupo: 'controladora' });
+  assert.equal(e.cnpjMatriz, '11222333000181');
+  const u = C.registrar(b, 'hunter', 'unidade', { grupoId: g.id, nome: 'Filial Osasco', tipo: 'filial', cidade: 'Osasco', cnpj: '11.222.333/0002-62', cep: '06454-000' });
+  assert.equal(u.cnpj, '11222333000262');
+  assert.equal(u.cep, '06454000');
+  assert.equal(u.empresaId, e.id);
+  const f = formatoEntidade('empresa');
+  assert.deepEqual(f.obrigatorios, ['grupoId', 'razaoSocial', 'papelNoGrupo']);
+  assert.match(f.campos.papelNoGrupo, /controladora/);
+  assert.ok(f.exemplo.cnpjMatriz);
+  assert.ok(!formatoEntidade('unidade').obrigatorios.includes('status'), 'status é preenchido pela CLI');
+  const r = await cli(b.dir, ['formato', 'comprador', '--agente', 'hunter'], { base: 'producao' });
+  assert.equal(r.codigo, 0);
+  assert.equal(r.json.entidade, 'comprador');
+});

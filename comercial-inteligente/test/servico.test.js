@@ -520,3 +520,10 @@ test('Hunter fora do expediente: só ele trabalha quando você libera; os outros
   o2.liberarHunter(false);
   assert.equal(o2.emExpediente('hunter'), false);
 });
+
+test('Hunter tem limite próprio de passos (pesquisa e registro em sequência)', () => {
+  const c = carregar({});
+  assert.equal(c.limites.iteracoesPorTarefa, 8);
+  assert.equal(c.limites.iteracoesHunter, 20);
+  assert.equal(carregar({ HC_MAX_ITERACOES_HUNTER: '12' }).limites.iteracoesHunter, 12);
+});
