@@ -2551,6 +2551,7 @@ async function pedParciais(id){
 // Canal do RESIDUAL — o que falta expedir do pedido original por conta dos envios parciais.
 async function pedResidual(id){
   let d; try{ d=await api('/pedidos/'+id+'/parciais'); }catch(e){ toast(e.message,'err'); return; }
+  window.__RESIDUAL=d; // guarda p/ a impressão, que sai da mesma tela
   const r=(d.residual||[]);
   const rows = r.length? r.map(x=>{
     const gf=Object.entries(x.faltaGrade||{}).map(([t,q])=>esc(t)+':'+q).join(' · ');
@@ -2559,7 +2560,36 @@ async function pedResidual(id){
   openModal(`<h3>📊 Residual de ${esc(d.pedido.numero)}${d.pedido.cliente?' · '+esc(d.pedido.cliente):''}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">O que ainda falta expedir do pedido original, por conta dos envios parciais. Faltam <b>${d.totalFalta}</b> peça(s).</div>
     <div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e"><th style="padding:5px 8px;text-align:left">Item</th><th style="padding:5px 8px">Pedido</th><th style="padding:5px 8px">Expedido</th><th style="padding:5px 8px">Falta</th><th style="padding:5px 8px;text-align:left">Falta por tam.</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="mactions">${(d.filhos&&d.filhos.length)?`<button class="btn-sm" onclick="APP.pedParciais(${d.pedido.id})">🧩 Ver parciais (${d.filhos.length})</button>`:''}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+    <div class="mactions"><button class="btn-sm" onclick="APP.imprimirResidual()">🖨 Imprimir</button>${(d.filhos&&d.filhos.length)?`<button class="btn-sm" onclick="APP.pedParciais(${d.pedido.id})">🧩 Ver parciais (${d.filhos.length})</button>`:''}<button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`, {wide:true});
+}
+/**
+ * Folha do residual para levar para o chão de fábrica / mandar ao cliente.
+ * A tela é ótima para consultar, mas quem vai conferir peça na prateleira
+ * precisa de papel — e vinha copiando a grade à mão, que é onde nasce erro de
+ * tamanho. Vai com quadradinho de conferência e linha de assinatura.
+ */
+function imprimirResidual(){
+  const d=window.__RESIDUAL; if(!d){ toast('Abra o residual do pedido primeiro.','err'); return; }
+  const r=(d.residual||[]);
+  const linhas = r.length? r.map(x=>{
+    const gf=Object.entries(x.faltaGrade||{}).sort((a,b)=>ordemTam(a[0],b[0])).map(([t,q])=>esc(t)+': '+q).join(' · ');
+    return `<tr><td style="text-align:center">☐</td><td>${esc(x.descricao)}${x.cor?'<div class="cor">'+esc(x.cor)+'</div>':''}</td><td style="text-align:center">${x.quantidade}</td><td style="text-align:center">${x.expedida}</td><td style="text-align:center;font-weight:700">${x.falta}</td><td>${gf||'—'}</td></tr>`;
+  }).join('') : '<tr><td colspan="6">Nada pendente — tudo expedido.</td></tr>';
+  const w=abrirJanelaDoc('Documento');
+  w.document.write(`<html><head><meta charset=utf-8><title>Residual ${esc(d.pedido.numero)}</title>
+    <style>*{font-family:Arial}h2{margin:0 0 2px}.sub{color:#555;font-size:12px;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}td,th{border:1px solid #999;padding:5px 7px;font-size:12px;text-align:left}
+    th{background:#eee}.cor{color:#666;font-size:10px}tfoot td{font-weight:700;background:#f6f6f6}
+    @media print{.noprint{display:none}}</style></head><body>
+    <h2>Residual do pedido ${esc(d.pedido.numero)}</h2>
+    <div class="sub">${d.pedido.cliente?esc(d.pedido.cliente)+' · ':''}o que ainda falta expedir, por conta dos envios parciais · emitido em ${new Date().toLocaleString('pt-BR')}</div>
+    <table><thead><tr><th style="width:28px">OK</th><th>Item</th><th style="width:60px">Pedido</th><th style="width:66px">Expedido</th><th style="width:52px">Falta</th><th style="width:200px">Falta por tamanho</th></tr></thead>
+    <tbody>${linhas}</tbody>
+    <tfoot><tr><td colspan="4" style="text-align:right">Total que falta expedir</td><td style="text-align:center">${d.totalFalta}</td><td>peça(s)</td></tr></tfoot></table>
+    <p style="margin-top:24px;font-size:12px">Conferido por: __________________________  ·  Data: ____ / ____ / ______</p>
+    <div class="noprint" style="margin-top:12px"><button onclick="window.print()">🖨 Imprimir</button></div>
+    <script>window.print()<\/script></body></html>`);
+  w.document.close();
 }
 // Normaliza o tamanho p/ casar grade x estoque (ex.: "G1 (FRISO VERMELHO)" -> "G1").
 function normTam(s){ return String(s||'').trim().toUpperCase().split(/[\s(]/)[0]; }
@@ -16478,7 +16508,7 @@ window.APP = {
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
   formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
-  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
+  renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, imprimirResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
   prodAba, prodMargemLive,
   formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
