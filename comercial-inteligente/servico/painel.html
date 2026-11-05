@@ -684,9 +684,16 @@ function linhaEvento(ev) {
   return '';
 }
 
+let rolarChatAoFim = false; // só ao abrir a conversa ou enviar uma mensagem
 function desenharGaveta() {
   const g = document.getElementById('gaveta');
   if (!gavetaAberta || !estado) { g.innerHTML = ''; return; }
+  // Guarda onde você estava lendo: o redesenho ao vivo não pode mudar a rolagem.
+  const corpoAntes = g.querySelector('.gaveta-corpo');
+  const chave = `${gavetaAberta.papel}:${gavetaAberta.aba}`;
+  const antes = corpoAntes && g.dataset.chave === chave
+    ? { topo: corpoAntes.scrollTop, noFim: corpoAntes.scrollHeight - corpoAntes.scrollTop - corpoAntes.clientHeight < 40 }
+    : null;
   const p = gavetaAberta.papel;
   const a = estado.agentes.find((x) => x.papel === p);
   const [, txt] = statusAgente(a, errosHoje().find((x) => x.papel === p));
@@ -707,6 +714,13 @@ function desenharGaveta() {
     <div class="gaveta-corpo">${corpo}</div>
     <div class="acoes" style="padding:16px;border-top:2px solid var(--text)"><button data-agente="${p}" data-pausado="${a.pausado}">${a.pausado ? 'Retomar agente' : 'Pausar agente'}</button>${p === 'hunter' && !estado.expediente.aberto ? `<button class="${estado.hunterLiberado ? '' : 'prim'}" data-hunter-liberar="${estado.hunterLiberado ? '0' : '1'}">${estado.hunterLiberado ? 'Desligar fora do expediente' : 'Liberar fora do expediente'}</button>` : ''}</div>
   </aside>`;
+  g.dataset.chave = chave;
+  const rolagem = g.querySelector('.gaveta-corpo');
+  if (rolagem) {
+    if (gavetaAberta.aba === 'conversa' && (rolarChatAoFim || !antes || antes.noFim)) rolagem.scrollTop = rolagem.scrollHeight; // segue as mensagens novas só se você já estava no fim
+    else if (antes) rolagem.scrollTop = antes.topo;
+  }
+  rolarChatAoFim = false;
 }
 
 // ------------------------------------------------------------ conversa com os agentes
@@ -722,18 +736,18 @@ async function carregarConversa(p) {
   if (gavetaAberta && gavetaAberta.papel === p && gavetaAberta.aba === 'conversa') {
     const ativo = document.activeElement && document.activeElement.matches(`[data-texto="chat-${p}"]`);
     desenharGaveta();
-    const chat = document.getElementById('chat');
-    if (chat) chat.scrollIntoView({ block: 'end' });
     if (ativo) { const el = document.querySelector(`[data-texto="chat-${p}"]`); if (el) el.focus(); }
   }
 }
 function abrirAgente(p, aba = 'conversa') {
   gavetaAberta = { papel: p, aba };
+  rolarChatAoFim = true;
   desenharGaveta();
   if (aba === 'conversa') carregarConversa(p).catch(() => {});
 }
 async function enviarChat(p, texto) {
   const r = await api('/api/agentes/mensagem', { papel: p, texto });
+  rolarChatAoFim = true;
   await carregarConversa(p);
   return r;
 }
