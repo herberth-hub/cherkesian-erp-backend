@@ -84,9 +84,11 @@ function lerBruto(req, limite = LIMITE_CORPO) {
   });
 }
 
+const { desescapar } = require('../src/cli');
+
 /** Primeira frase de um texto, cortada em `max` caracteres. */
 function primeiraFrase(texto, max = 110) {
-  const t = String(texto || '').replace(/\s+/g, ' ').trim();
+  const t = desescapar(String(texto || '')).replace(/\s+/g, ' ').trim();
   // Fim da frase: . ! ? seguido de espaço, fora de parênteses.
   let f = t;
   for (let i = 0, nivel = 0; i < t.length; i++) {
@@ -142,7 +144,7 @@ function casosParaHumano(sols, paraHumano, hoje) {
         { k: 'Saltos', v: String(cadeia.length) },
       ],
       cadeia: cadeia.map((c) => ({ id: c.id, de: c.solicitante, para: c.responsavel, resumo: primeiraFrase(c.objetivo, 140) })),
-      textoCompleto: textoCompleto.slice(0, 6000),
+      textoCompleto: desescapar(textoCompleto).slice(0, 6000),
     };
   });
 }
@@ -411,6 +413,14 @@ function criarServidor({ orquestrador, eventos, token, erpCliente = null, env = 
       const r = C.atualizar(base, 'humano', 'oportunidade', c.id, patch);
       eventos.emitir('decisao-humana', { papel: 'humano', texto: `${c.id} movida para ${c.coluna}` });
       return r;
+    },
+    'POST /api/email/rascunhos/sincronizar': async () => {
+      if (!orquestrador.leitorEmail) throw Object.assign(new Error('E-mail não habilitado.'), { status: 404 });
+      return orquestrador.leitorEmail.sincronizarRascunhos();
+    },
+    'POST /api/email/rascunho/tratado': (c) => {
+      if (!orquestrador.leitorEmail) throw Object.assign(new Error('E-mail não habilitado.'), { status: 404 });
+      return orquestrador.leitorEmail.marcarRascunhoTratado(c.conta, c.emailId);
     },
     'POST /api/agentes/mensagem': (c) => orquestrador.enviarOrdem(c.papel, c.texto),
     'POST /api/hunter/fora-expediente': (c) => orquestrador.liberarHunter(Boolean(c.liberar)),

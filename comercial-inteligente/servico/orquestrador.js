@@ -302,7 +302,8 @@ class Orquestrador {
           if (!this.enfileirar('vendedor', { ...t, ...this.enxuto() })) this.leitorEmail.emFila.delete(t.chave.replace(/^email:/, ''));
         }
         if (trabalhos.length) this.eventos.emitir('email', { papel: 'vendedor', texto: `${trabalhos.length} e-mail(s) novo(s) para triagem.` });
-        return this.despachar();
+        this.despachar();
+        return this.leitorEmail.sincronizarRascunhos();
       })
       .catch((e) => this.eventos.emitir('alerta', { papel: 'vendedor', texto: `Falha ao verificar e-mails: ${e.message}` }))
       .finally(() => {

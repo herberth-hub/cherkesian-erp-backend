@@ -272,10 +272,54 @@ class LeitorEmail {
     const cx = this.caixa(email.conta);
     if (!cx) throw new Error(`Caixa ${email.conta} não está conectada.`);
     const r = await cx.criarRascunho(email, corpo);
-    const reg = { conta: email.conta, emailId: email.id, assunto: email.assunto, para: email.responderPara, link: r.link, papel, em: new Date().toISOString() };
+    const reg = { conta: email.conta, emailId: email.id, threadId: r.threadId || email.threadId || null, draftId: r.id || null, assunto: email.assunto, para: email.responderPara, link: r.link, papel, status: 'pendente', em: new Date().toISOString() };
     this.estadoDisco.rascunhos.unshift(reg);
     this.salvarEstado();
     this.eventos.emitir('rascunho', { papel, texto: `Rascunho de resposta para ${email.responderPara}: "${email.assunto}"`, link: r.link });
+    return r;
+  }
+
+  /**
+   * Confere no Gmail quais rascunhos ainda existem: o que você enviou ou apagou sai da lista
+   * "Rascunhos para enviar". Rascunhos antigos (sem id) são conferidos pela conversa (thread).
+   */
+  async sincronizarRascunhos() {
+    const pendentes = this.estadoDisco.rascunhos.filter((r) => r.status !== 'tratado');
+    let mudou = 0;
+    for (const conta of [...new Set(pendentes.map((r) => r.conta))]) {
+      const cx = this.caixa(conta);
+      if (!cx) continue;
+      try {
+        const existentes = await cx.listarRascunhos();
+        const ids = new Set(existentes.map((x) => x.id));
+        const threads = new Set(existentes.map((x) => x.threadId).filter(Boolean));
+        for (const r of pendentes.filter((x) => x.conta === conta)) {
+          if (!r.threadId && !r.draftId && r.emailId) r.threadId = await cx.threadDaMensagem(r.emailId).catch(() => null);
+          const existe = r.draftId ? ids.has(r.draftId) : r.threadId ? threads.has(r.threadId) : true;
+          if (!existe) {
+            r.status = 'tratado';
+            r.tratadoEm = new Date().toISOString();
+            mudou++;
+          }
+        }
+      } catch (e) {
+        this.status.set(conta, { ...(this.status.get(conta) || {}), erroRascunhos: e.message });
+      }
+    }
+    if (mudou) {
+      this.salvarEstado();
+      this.eventos.emitir('email', { papel: 'vendedor', texto: `${mudou} rascunho(s) já enviado(s) ou descartado(s) saíram da lista.` });
+    }
+    return { tratados: mudou, pendentes: this.estadoDisco.rascunhos.filter((r) => r.status !== 'tratado').length };
+  }
+
+  /** "Já enviei / pular" no painel: tira o rascunho da lista mesmo sem conferir no Gmail. */
+  marcarRascunhoTratado(conta, emailId) {
+    const r = this.estadoDisco.rascunhos.find((x) => x.conta === conta && x.emailId === emailId && x.status !== 'tratado');
+    if (!r) throw Object.assign(new Error('Rascunho não encontrado ou já tratado.'), { status: 404 });
+    r.status = 'tratado';
+    r.tratadoEm = new Date().toISOString();
+    this.salvarEstado();
     return r;
   }
 
@@ -290,7 +334,9 @@ class LeitorEmail {
       processadosHoje: proc.filter((p) => p.status === 'processado' && !p.ignorado && String(p.em).startsWith(hoje)).length,
       ignoradosHoje: proc.filter((p) => p.ignorado && String(p.em).startsWith(hoje)).length,
       falhas: proc.filter((p) => p.status === 'falhou').length,
-      rascunhos: this.estadoDisco.rascunhos.slice(0, 15),
+      rascunhos: this.estadoDisco.rascunhos.filter((r) => r.status !== 'tratado').slice(0, 30),
+      rascunhosPendentes: this.estadoDisco.rascunhos.filter((r) => r.status !== 'tratado').length,
+      rascunhosTratadosHoje: this.estadoDisco.rascunhos.filter((r) => r.status === 'tratado' && String(r.tratadoEm || '').startsWith(hoje)).length,
     };
   }
 }

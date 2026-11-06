@@ -291,3 +291,39 @@ test('gmail: corpo em ISO-8859-1/Windows-1252 é lido com os acentos certos', ()
   const p3 = extrairPartes({ mimeType: 'text/plain', body: { data: b64(Buffer.from('Orçamento em UTF-8 já certo', 'utf8')) } });
   assert.equal(p3.texto, 'Orçamento em UTF-8 já certo');
 });
+
+test('rascunhos: enviados ou apagados no Gmail saem da lista; "Já enviei" tira na hora; link próprio por rascunho', async () => {
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hc-rasc-'));
+  const leitor = new LeitorEmail({ cfg: {}, dir, eventos: new Eventos({}), env: {} });
+  leitor.estadoDisco.rascunhos = [
+    { conta: 'contato@x.com', emailId: 'e1', draftId: 'd1', threadId: 't1', assunto: 'A', status: 'pendente', em: new Date().toISOString() },
+    { conta: 'contato@x.com', emailId: 'e2', draftId: 'd2', threadId: 't2', assunto: 'B', status: 'pendente', em: new Date().toISOString() },
+    { conta: 'contato@x.com', emailId: 'e3', assunto: 'C (antigo, sem id)', em: new Date().toISOString() },
+    { conta: 'contato@x.com', emailId: 'e4', assunto: 'D (antigo, ainda em rascunho)', em: new Date().toISOString() },
+  ];
+  const threads = { e3: 't3', e4: 't4' };
+  leitor.caixa = () => ({ listarRascunhos: async () => [{ id: 'd1', threadId: 't1' }, { id: 'dx', threadId: 't4' }], threadDaMensagem: async (id) => threads[id] });
+  const r = await leitor.sincronizarRascunhos();
+  assert.deepEqual(r, { tratados: 2, pendentes: 2 });
+  assert.deepEqual(leitor.estado().rascunhos.map((x) => x.assunto), ['A', 'D (antigo, ainda em rascunho)']);
+  assert.equal(leitor.estado().rascunhosTratadosHoje, 2);
+  leitor.marcarRascunhoTratado('contato@x.com', 'e1');
+  assert.deepEqual(leitor.estado().rascunhos.map((x) => x.assunto), ['D (antigo, ainda em rascunho)']);
+  assert.throws(() => leitor.marcarRascunhoTratado('contato@x.com', 'e1'), /já tratado/);
+  // o link do rascunho aponta para ele mesmo, não para a pasta
+  const cx = new CaixaGmail({ conta: 'contato@x.com', clientId: 'a', clientSecret: 'b', refreshToken: 'c', fetchImpl: async () => ({}) });
+  cx.chamar = async () => ({ id: 'd9', message: { id: 'm9', threadId: 't9' } });
+  const novo = await cx.criarRascunho({ responderPara: 'a@b.com', assunto: 'x', threadId: 't9' }, 'corpo');
+  assert.match(novo.link, /#drafts\?compose=m9$/);
+  assert.equal(novo.threadId, 't9');
+});
+
+test('texto com acentos em código (\\u00ea) é gravado e exibido com o caractere certo', () => {
+  const { parse, desescapar } = require('../src/cli');
+  const { primeiraFrase } = require('../servico/servidor');
+  assert.equal(parse(['x', '--objetivo', 'Pedido n\\u00ba 29 da loja Sodi\\u00ea']).flags.objetivo, 'Pedido nº 29 da loja Sodiê');
+  assert.equal(parse(['x', '--json', '{"a":"\\u0022"}']).flags.json, '{"a":"\\u0022"}', '--json fica para o JSON.parse');
+  assert.equal(primeiraFrase('Confer\\u00eancia do pagamento. Resto.'), 'Conferência do pagamento.');
+  assert.equal(desescapar('sem escape'), 'sem escape');
+});

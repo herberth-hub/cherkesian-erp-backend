@@ -441,8 +441,13 @@ function guardar(chave, v) { try { localStorage.setItem(chave, JSON.stringify(v)
 /** Itens resolvidos hoje (só para a barra de progresso de "Minha manhã"). */
 function resolvidosHoje() { const r = guardado('hc_resolvidos', {}); return r.data === dataLocal() ? r.n : 0; }
 function marcarResolvido() { guardar('hc_resolvidos', { data: dataLocal(), n: resolvidosHoje() + 1 }); }
-const rascunhosVistos = () => new Set(guardado('hc_rascunhos_vistos', []));
-function marcarRascunhoVisto(link) { const s = rascunhosVistos(); s.add(link); guardar('hc_rascunhos_vistos', [...s].slice(-300)); marcarResolvido(); }
+/** Rascunhos: o servidor confere no Gmail o que você já enviou ou apagou (no máx. a cada 60 s). */
+let ultimaSyncRascunhos = 0;
+function sincronizarRascunhos(forcar) {
+  if (!estado || !estado.email || (!forcar && Date.now() - ultimaSyncRascunhos < 60000)) return Promise.resolve();
+  ultimaSyncRascunhos = Date.now();
+  return api('/api/email/rascunhos/sincronizar', {}).then((r) => { if (r.tratados) carregar(); return r; }).catch(() => {});
+}
 
 async function api(caminho, corpo) {
   const r = await fetch(caminho, corpo ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Painel': '1' }, body: JSON.stringify(corpo) } : {});
@@ -503,8 +508,7 @@ function pendencias() {
   for (const p of (estado.whatsapp && estado.whatsapp.propostas) || []) {
     itens.push({ chave: `wz:${p.id}`, ordem: 1, prazo: '0', tag: 'WhatsApp', quente: true, meta: 'cliente aguardando', tipo: 'whatsapp', prop: p, titulo: `Resposta para ${p.rotulo}`, texto: `Proposta do vendedor · ${p.motivo}` });
   }
-  const vistos = rascunhosVistos();
-  const rasc = ((estado.email && estado.email.rascunhos) || []).filter((r) => !vistos.has(r.link));
+  const rasc = (estado.email && estado.email.rascunhos) || [];
   if (rasc.length) itens.push({ chave: 'rascunhos', ordem: 3, tag: 'Rascunhos', meta: `${rasc.length} na fila`, tipo: 'rascunhos', rasc, titulo: `${rasc.length} e-mail(s) pronto(s) para você revisar e enviar`, texto: `O próximo: "${rasc[0].assunto}" para ${rasc[0].para}.` });
   return itens.sort((a, b) => a.ordem - b.ordem || String(a.prazo || '').localeCompare(String(b.prazo || '')));
 }
@@ -538,7 +542,7 @@ function acoesItem(it) {
   if (it.tipo === 'aprovacao') return `${campo(`j-${it.aprov.id}`, 'Justificativa (obrigatória)')}<div class="acoes"><button class="prim" data-aprovar="${it.aprov.id}" data-decisao="aprovada">Aprovar</button><button data-aprovar="${it.aprov.id}" data-decisao="recusada">Recusar</button></div>`;
   if (it.tipo === 'meta') return `<div class="acoes"><button class="prim" data-meta="${it.metaObj.id}" data-aprovar-meta="1">Aprovar meta</button><button data-meta="${it.metaObj.id}" data-aprovar-meta="0">Revogar</button></div>`;
   if (it.tipo === 'whatsapp') { const k = `w-${it.prop.id}`; return `<textarea data-texto="${k}" style="min-height:120px">${esc(textos[k] ?? it.prop.texto)}</textarea><div class="acoes"><button class="prim" data-wenviar="${it.prop.id}">Enviar</button><button data-wdescartar="${it.prop.id}">Descartar</button></div>`; }
-  if (it.tipo === 'rascunhos') { const r = it.rasc[0]; return `<div class="acoes"><a class="botao prim" href="${esc(r.link)}" target="_blank" rel="noopener" data-rascunho="${esc(r.link)}">Abrir no Gmail</a><button data-rascunho-visto="${esc(r.link)}">Já enviei / pular</button></div>`; }
+  if (it.tipo === 'rascunhos') { const r = it.rasc[0]; return `<div class="acoes"><a class="botao prim" href="${esc(r.link)}" target="_blank" rel="noopener" data-rascunho="${esc(r.link)}">Abrir no Gmail</a><button data-rascunho-tratado="${esc(r.emailId)}" data-conta="${esc(r.conta)}">Já enviei / pular</button></div>`; }
   return '';
 }
 
@@ -630,8 +634,9 @@ function desenharPainel() {
     ? `<table class="tabela"><thead><tr><th style="width:90px">ID</th><th>Tarefa</th><th class="col-de" style="width:130px">De → para</th><th class="col-prazo" style="width:70px">Prazo</th><th style="width:110px">Status</th></tr></thead><tbody>${d.tarefas.map((t) => `<tr><td>${esc(t.id)}</td><td>${esc(t.titulo)}</td><td class="col-de">${esc(NOME_PAPEL[t.de] || t.de)} → ${esc(NOME_PAPEL[t.para] || t.para)}</td><td class="col-prazo">${esc(dm(t.prazo))}</td><td><span class="chip ${t.status === 'em_andamento' ? 'ink' : ''}">${esc(t.status.replace(/_/g, ' '))}</span></td></tr>`).join('')}</tbody></table>`
     : '<p class="vazio">Nenhuma tarefa aberta.</p>';
 
-  const vistos = rascunhosVistos();
-  document.getElementById('pRascunhos').innerHTML = rasc.slice(0, 10).map((r) => `<div class="lista-linha"><div class="principal"><span>${vistos.has(r.link) ? '✓ ' : ''}${esc(r.assunto)}</span><span class="sub">${esc(r.para)} · ${esc(r.conta.split('@')[0])}@ · ${hora(r.em)}</span></div><a class="botao" href="${esc(r.link)}" target="_blank" rel="noopener" data-rascunho="${esc(r.link)}">Revisar</a></div>`).join('') || '<p class="vazio">Nenhum rascunho por enquanto.</p>';
+  const tratadosHoje = (estado.email && estado.email.rascunhosTratadosHoje) || 0;
+  document.getElementById('pRascunhos').innerHTML = (rasc.slice(0, 12).map((r) => `<div class="lista-linha"><div class="principal"><span>${esc(r.assunto)}</span><span class="sub">${esc(r.para)} · ${esc(r.conta.split('@')[0])}@ · ${hora(r.em)}</span></div><a class="botao" href="${esc(r.link)}" target="_blank" rel="noopener" data-rascunho="${esc(r.link)}">Revisar</a><button class="link" data-rascunho-tratado="${esc(r.emailId)}" data-conta="${esc(r.conta)}" title="Tirar da lista">Já enviei</button></div>`).join('') || '<p class="vazio">Nenhum rascunho esperando você.</p>')
+    + `<p class="vazio" style="margin-top:8px">${rasc.length > 12 ? `+${rasc.length - 12} na fila · ` : ''}${tratadosHoje} enviado(s) ou descartado(s) hoje · a lista confere o Gmail sozinha <button class="link" data-sync-rascunhos="1">Atualizar agora</button></p>`;
 
   const agora = minutosAgora();
   const hoje = rotinasHoje();
@@ -1204,7 +1209,7 @@ document.addEventListener('keydown', (ev) => {
 
 document.addEventListener('click', async (ev) => {
   const link = ev.target.closest('a[data-rascunho]');
-  if (link) { marcarRascunhoVisto(link.dataset.rascunho); setTimeout(desenhar, 300); return; }
+  if (link) return; // abre o Gmail; ao voltar, a lista confere o que você enviou
   const linhaGrupo = ev.target.closest('tr[data-grupo]');
   if (linhaGrupo) { grupoSel = linhaGrupo.dataset.grupo === grupoSel ? null : linhaGrupo.dataset.grupo; arvore = null; carregarContas().then(() => { const d = document.getElementById('cDetalhe'); if (grupoSel && d) d.scrollIntoView({ behavior: 'smooth' }); }).catch((e) => alert(e.message)); return; }
   const b = ev.target.closest('button');
@@ -1226,7 +1231,8 @@ document.addEventListener('click', async (ev) => {
   if (b.dataset.fecharGaveta) { gavetaAberta = null; return desenharGaveta(); }
   if (b.dataset.abaGaveta) { gavetaAberta.aba = b.dataset.abaGaveta; if (b.dataset.abaGaveta === 'conversa') carregarConversa(gavetaAberta.papel); return desenharGaveta(); }
   if (b.dataset.dispensar) { const d = guardado('hc_dispensados', {}); d[b.dataset.dispensar] = new Date().toISOString(); guardar('hc_dispensados', d); marcarResolvido(); return desenhar(); }
-  if (b.dataset.rascunhoVisto) { marcarRascunhoVisto(b.dataset.rascunhoVisto); return desenhar(); }
+  if (b.dataset.syncRascunhos) { b.disabled = true; return sincronizarRascunhos(true).finally(() => { b.disabled = false; }); }
+  if (b.dataset.rascunhoTratado) { return api('/api/email/rascunho/tratado', { conta: b.dataset.conta, emailId: b.dataset.rascunhoTratado }).then(() => { marcarResolvido(); return carregar(); }).catch((e) => alert(e.message)); }
   try {
     b.disabled = true;
     let resolveu = false;
@@ -1309,8 +1315,10 @@ function conectar() {
   fonte.onerror = () => { el.innerHTML = '<i class="quad"></i>reconectando'; };
 }
 
+window.addEventListener('focus', () => sincronizarRascunhos(false));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sincronizarRascunhos(false); });
 mostrarVista(guardado('hc_vista', 'manha'));
-carregar().then(conectar);
+carregar().then(() => { conectar(); sincronizarRascunhos(true); });
 setInterval(carregar, 30000);
 setInterval(() => { if (vista === 'contas' && !(document.activeElement && document.activeElement.matches('select'))) carregarContas().catch(() => {}); }, 60000);
 </script>
