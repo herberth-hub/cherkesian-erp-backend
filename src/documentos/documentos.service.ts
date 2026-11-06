@@ -2219,8 +2219,20 @@ export class DocumentosService {
     const flat: Array<{ label: string; valor: string }> = [];
     for (const s of brief?.secoes ?? []) for (const c of s.campos ?? []) if (c.valor != null && String(c.valor).trim() !== '') flat.push({ label: c.label, valor: String(c.valor) });
     const norm = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    /**
+     * Procura o campo do briefing pelo rótulo. Faz DUAS passadas: primeiro
+     * rótulo igual, depois rótulo que contém o pedaço. Sem a passada exata,
+     * pedir "modelagem" trazia "Tamanho base da modelagem" (= "M"), e a ficha
+     * ia para a modelista dizendo que a modelagem da peça era "M".
+     */
     const campo = (...subs: string[]): string => {
+      for (const sub of subs) { const f = flat.find((x) => norm(x.label) === norm(sub)); if (f) return f.valor; }
       for (const sub of subs) { const f = flat.find((x) => norm(x.label).includes(norm(sub))); if (f) return f.valor; }
+      return '';
+    };
+    /** Só rótulo IGUAL. Para o campo em que chutar por aproximação engana. */
+    const campoExato = (...rotulos: string[]): string => {
+      for (const r of rotulos) { const f = flat.find((x) => norm(x.label) === norm(r)); if (f) return f.valor; }
       return '';
     };
     const secaoCampos = (sub: string) => (brief?.secoes ?? []).find((s) => norm(s.sec).includes(norm(sub)))?.campos?.filter((c) => c.valor != null && String(c.valor).trim() !== '') ?? [];
@@ -2272,10 +2284,16 @@ export class DocumentosService {
     const colH = 132, lw = W * 0.52, rw = W - lw - 10, rx = x0 + lw + 10;
     box(x0, y, lw, colH, 'Produto');
     linhas(x0 + 8, y + 18, lw - 16, [
-      ['Nome', piloto.briefingProduto || produto?.descricao || campo('nome do produto') || '—'],
-      ['Modelagem', campo('modelagem', 'modelo') || piloto.modelagem || '—'],
+      // Descrição do produto PRIMEIRO: "CALÇA MECÂNICO DE AERONAVES" diz à
+      // piloteira qual peça é; "CALÇA" (o tipo do briefing) não diz nada.
+      // O tipo só entra quando a piloto é avulsa e não tem produto.
+      ['Nome', produto?.descricao || piloto.briefingProduto || campo('nome do produto') || '—'],
+      // Rótulo EXATO nos dois: "Tamanho base da modelagem" contém "modelagem" e
+      // contém "tamanho base", e por aproximação ia parar nestas duas linhas —
+      // a ficha saía dizendo que a modelagem da peça era "M".
+      ['Modelagem', campoExato('modelagem') || piloto.modelagem || '—'],
       ['Segmento / público', campo('público', 'segmento') || '—'],
-      ['Grade', campo('tamanhos da piloto', 'tamanho base') || produto?.grade || '—'],
+      ['Grade', campoExato('tamanhos da piloto') || produto?.grade || campoExato('tamanho base da modelagem') || '—'],
       ['Cor / variante', piloto.cor || campo('cor') || produto?.cor || '—'],
       ['Cliente', cliente?.nome || piloto.clienteNome || '—'],
     ]);
