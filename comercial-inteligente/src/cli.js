@@ -19,6 +19,9 @@ const { calcularMargem, determinarAlcada } = require('./precificacao');
 const { registrar: logar, ocultarArgs } = require('./log');
 const { ENTIDADES, SCHEMAS } = require('./schemas');
 
+/** Acentos escritos como código ("Sodi\\u00ea", "n\\u00ba") viram o caractere certo ("Sodiê", "nº"). */
+const desescapar = (v) => (typeof v === 'string' ? v.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))) : v);
+
 function parse(argv) {
   const pos = [];
   const flags = {};
@@ -31,7 +34,9 @@ function parse(argv) {
       else flags[k] = true;
     } else pos.push(a);
   }
-  return { pos, flags };
+  // Texto livre (exceto --json, que o JSON.parse já decodifica certo).
+  for (const k of Object.keys(flags)) if (k !== 'json') flags[k] = desescapar(flags[k]);
+  return { pos: pos.map(desescapar), flags };
 }
 
 const exigir = (flags, k, desc) => {
@@ -372,4 +377,4 @@ async function executar(argv, env = process.env) {
   }
 }
 
-module.exports = { executar, parse, COMANDOS, ANALISES, resolver, formatoEntidade };
+module.exports = { desescapar, executar, parse, COMANDOS, ANALISES, resolver, formatoEntidade };

@@ -179,7 +179,29 @@ class CaixaGmail {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: { raw: b64url(raw), threadId: email.threadId } }),
     });
-    return { id: d.id, link: `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(this.conta)}#drafts` };
+    const msg = d.message || {};
+    // Link do próprio rascunho (antes todos apontavam para a pasta Rascunhos).
+    const link = `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(this.conta)}#drafts${msg.id ? `?compose=${encodeURIComponent(msg.id)}` : ''}`;
+    return { id: d.id, messageId: msg.id || null, threadId: msg.threadId || email.threadId || null, link };
+  }
+
+  /** Rascunhos que ainda existem na caixa: [{ id, threadId }]. Enviado ou apagado = some daqui. */
+  async listarRascunhos() {
+    const out = [];
+    let pagina = null;
+    for (let i = 0; i < 5; i++) {
+      const q = new URLSearchParams({ maxResults: '500', ...(pagina ? { pageToken: pagina } : {}) });
+      const d = await this.chamar(`/drafts?${q}`);
+      for (const x of d.drafts || []) out.push({ id: x.id, threadId: (x.message && x.message.threadId) || null });
+      pagina = d.nextPageToken;
+      if (!pagina) break;
+    }
+    return out;
+  }
+
+  async threadDaMensagem(id) {
+    const m = await this.chamar(`/messages/${encodeURIComponent(id)}?format=minimal`);
+    return m.threadId || null;
   }
 
   async perfil() {
