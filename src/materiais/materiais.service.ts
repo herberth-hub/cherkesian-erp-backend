@@ -38,6 +38,10 @@ export class MateriaisService {
           empresaId,
           codigo,
           categoria: dto.categoria,
+          // A família é o artigo genérico sem cor ("BRIM MISTO"), e é por ela que
+          // a ficha técnica acha o material. Ela estava no DTO mas não era gravada
+          // nem aqui nem no update: quem preenchia na tela via o campo voltar vazio.
+          familia: dto.familia,
           descricao: dto.descricao,
           cor: dto.cor,
           unidade: dto.unidade ?? 'un',
@@ -65,6 +69,7 @@ export class MateriaisService {
       where: { id },
       data: {
         categoria: dto.categoria,
+        familia: dto.familia,
         descricao: dto.descricao,
         cor: dto.cor,
         unidade: dto.unidade,
