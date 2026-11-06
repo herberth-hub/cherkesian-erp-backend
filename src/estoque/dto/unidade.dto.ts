@@ -28,6 +28,16 @@ export class EntradaEstoqueDto {
   @IsOptional() @IsIn(['entrada', 'producao']) origem?: string;
   /** Etiqueta de lote personalizada (ex.: OP-123) p/ reimpressão por OP. */
   @IsOptional() @IsString() @MaxLength(40) loteEntrada?: string;
+  /**
+   * `false` = o saldo JÁ entrou pela NF; aqui só se etiqueta o rolo. É o que a
+   * tela de nota de entrada manda, e sem declarar aqui o ValidationPipe
+   * (forbidNonWhitelisted) derrubava a emissão inteira com "property somarSaldo
+   * should not exist" — a nota ficava lançada e os rolos sem etiqueta.
+   */
+  @IsOptional() @IsBoolean() somarSaldo?: boolean;
+  /** Peça que já nasce de segunda linha (o serviço exige o defeito junto). */
+  @IsOptional() @IsIn(['primeira', 'segunda']) qualidade?: 'primeira' | 'segunda';
+  @IsOptional() @IsString() @MaxLength(255) defeito?: string;
 }
 
 export class EnderecarDto {

@@ -8914,8 +8914,13 @@ async function devEmitir(id){
 // Reabre o pop-up de destino/etiquetas para uma NF que ainda não etiquetou.
 async function emitirEtiquetasNF(id){
   let n; try{ n=await api('/notas-entrada/'+id); }catch(e){ toast(e.message,'err'); return; }
-  const itens=(n.itens||[]).map(it=>({ descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un' }));
-  if(!itens.length){ toast('Esta NF não tem itens para etiquetar.','err'); return; }
+  // Leva o materialId: é ele que liga a etiqueta à ficha do material. Sem isso a
+  // etiqueta reimpressa por aqui nascia SOLTA — o rolo existia na prateleira e a
+  // ficha do material dizia "não tem nenhuma etiqueta".
+  // Produto de revenda não etiqueta aqui: já entrou no estoque do produto (mesma
+  // regra de quando a nota é salva).
+  const itens=(n.itens||[]).filter(it=>!it.produtoId).map(it=>({ materialId:it.materialId||undefined, descricao:it.descricao, quantidade:Number(it.quantidade), unidade:it.unidade||'un' }));
+  if(!itens.length){ toast('Esta NF não tem matéria-prima para etiquetar.','err'); return; }
   window.__NEVOL=0;
   perguntarDestinoMP(itens, id);
 }
