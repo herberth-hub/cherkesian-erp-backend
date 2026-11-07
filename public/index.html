@@ -9423,6 +9423,68 @@ function estBuscaAplica(){
   // Chips: só o da busca muda aqui; os outros filtros já redesenham a tela toda.
   estRenderChips();
   estRenderLista();
+  estBuscaNoBanco();
+}
+/**
+ * "Nada neste filtro" NÃO quer dizer que a peça não existe.
+ *
+ * Esta tela filtra um RETRATO do armazém, baixado quando ela abriu. Etiqueta
+ * criada ou endereçada depois disso não está no retrato — e a tela respondia
+ * "Nada neste filtro", como se a peça não existisse. Foi o que aconteceu com as
+ * 3 etiquetas da NF 1569: estavam endereçadas no banco (Coluna B · Andar B ·
+ * Caixa B12) e a tela dizia que não existiam.
+ *
+ * Então: quando nada bate E o termo tem cara de código, pergunta ao servidor e
+ * conta a verdade — onde a peça está, e que a lista daqui é que está velha.
+ */
+async function estBuscaNoBanco(){
+  const E=window.__EST; const termo=(E.q||'').trim();
+  const box=$('est_bip'); if(!box) return;
+  const limpa=()=>{ if(window.__ESTBIPBD){ window.__ESTBIP=''; window.__ESTBIPBD=false; box.innerHTML=''; box.style.display='none'; } };
+  // Só vale a pena perguntar quando a lista não achou NADA e o termo parece um
+  // código (UN-…, MP-…, caixa, QR). Palavra digitada é busca de texto, não código.
+  if(!termo || termo.length<5 || estEhTexto(termo) || estFiltradas().length){ window.__ESTBQ=''; limpa(); return; }
+  if(window.__ESTBQ===termo) return; // já perguntei por este termo
+  window.__ESTBQ=termo;
+  let r; try{ r=await api('/estoque/resolver?codigo='+encodeURIComponent(termo)); }catch(_){ return; }
+  if(window.__EST.q.trim()!==termo) return; // já digitou outra coisa
+  const pinta=html=>{ window.__ESTBIP=html; window.__ESTBIPBD=true; box.innerHTML=html; box.style.display=''; };
+  const caixa=(cor,fundo,borda,c)=>`<div style="padding:10px 12px;background:${fundo};border:1px solid ${borda};border-left:4px solid ${cor};border-radius:10px;font-size:13px;line-height:1.5">${c}</div>`;
+  if(!r.achou){
+    pinta(caixa('#c14a34','#fdf1ee','#e8bcae',`❌ <b>Não existe "${esc(r.lido)}"</b> — procurei no banco inteiro.<div style="margin-top:3px">${esc(r.motivo||'')}</div>`));
+    return;
+  }
+  if(r.tipo==='unidade'){
+    const u=r.unidade;
+    const noRetrato=(window.__UNIDS_ALL||[]).some(x=>x.codigo===u.codigo);
+    pinta(caixa('#b5731a','#fff6e6','#efd9a0',
+      `🏷 <b>${esc(u.codigo)}</b> existe: ${esc(u.descricao)}${u.tamanho?' · tam <b>'+esc(u.tamanho)+'</b>':''}`
+      +`<div style="margin-top:3px">📍 <b>${esc(u.endereco||'sem endereço')}</b> · situação: <b>${esc(u.statusLabel)}</b></div>`
+      +(u.status==='despachado'
+        ? `<div style="margin-top:4px">Esta peça <b>já foi despachada</b> — o armazém não a mostra. Veja em <b>🚚 Despachadas</b>.</div>`
+        : noRetrato
+          ? `<div style="margin-top:4px">Ela não está na lista desta tela porque <b>a lista foi carregada antes dela existir</b>.</div>`
+            +`<div style="margin-top:5px"><button class="btn-sm" style="background:var(--gold);color:#3a2f08;font-weight:700" onclick="APP.estRecarregar()">🔄 Atualizar a lista</button></div>`
+          : `<div style="margin-top:4px">Não apareceu na lista porque <b>algum filtro acima a está escondendo</b> (categoria, status, coluna, andar ou segunda linha).</div>`)));
+    return;
+  }
+  // Produto/material/caixa/expedição: o bipe completo já sabe montar o cartão.
+  estBip();
+}
+/** Rebaixa o retrato do armazém sem sair da tela nem perder os filtros. */
+async function estRecarregar(){
+  try{
+    const [unidades, contagem] = await Promise.all([
+      api('/estoque/unidades'),
+      api('/estoque/unidades/contagem').catch(()=>null),
+    ]);
+    window.__UNIDS_ALL = unidades||[];
+    if(contagem) window.__UNIDS_DESP_N = Number(contagem.despachadas)||0;
+    window.__UNIDS_DESP = null;
+    window.__ESTBQ=''; window.__ESTBIP=''; window.__ESTBIPBD=false;
+    estRender();
+    toast(window.__UNIDS_ALL.length+' etiqueta(s) no armazém — lista atualizada.','ok');
+  }catch(e){ toast(e.message,'err'); }
 }
 /** Só a área da lista (mantém o campo de busca vivo e com o cursor onde está).
  *  As views recebem a lista JÁ FILTRADA — sem o argumento elas estouram no
@@ -9516,8 +9578,8 @@ async function estBip(){
     return;
   }
 }
-function estLimparBip(){ window.__ESTBIP=''; window.__EST.q=''; estRender(); const i=$('est_q'); if(i) i.focus(); }
-function estLimpar(){ window.__EST=Object.assign(window.__EST,{cat:'',status:'',q:'',col:'',andar:'',semMetragem:false}); estRender(); }
+function estLimparBip(){ window.__ESTBIP=''; window.__ESTBIPBD=false; window.__ESTBQ=''; window.__EST.q=''; estRender(); const i=$('est_q'); if(i) i.focus(); }
+function estLimpar(){ window.__ESTBQ=''; window.__EST=Object.assign(window.__EST,{cat:'',status:'',q:'',col:'',andar:'',semMetragem:false}); estRender(); }
 
 /** Unidades que passam nos filtros. Despachada NUNCA entra (histórico à parte). */
 function estFiltradas(){
@@ -16529,7 +16591,7 @@ window.APP = {
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBuscaNoBanco, estRecarregar, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
