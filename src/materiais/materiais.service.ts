@@ -13,9 +13,17 @@ import { proximoCodigo } from '../common/utils/codigo.util';
 export class MateriaisService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(empresaId: number): Promise<Material[]> {
+  /**
+   * Por padrão devolve só os ATIVOS: esta lista é o que as telas oferecem para
+   * escolher (ficha técnica, nota de entrada, ordem de compra), e cadastro morto
+   * aparecendo lá é como alguém escolhe o material errado.
+   *
+   * `incluirInativos` é para as telas de CADASTRO (Matéria-prima e Aviamentos),
+   * que precisam mostrar o inativo — com selo — para dar para reativar.
+   */
+  findAll(empresaId: number, incluirInativos = false): Promise<Material[]> {
     return this.prisma.material.findMany({
-      where: { empresaId },
+      where: { empresaId, ...(incluirInativos ? {} : { ativo: true }) },
       orderBy: { codigo: 'asc' },
     });
   }
@@ -56,6 +64,7 @@ export class MateriaisService {
           largura: dto.largura,
           gramatura: dto.gramatura,
           gramaturaLinear: dto.gramaturaLinear,
+          ativo: dto.ativo ?? true,
         },
       });
     } catch (err) {
@@ -84,6 +93,7 @@ export class MateriaisService {
         largura: dto.largura,
         gramatura: dto.gramatura,
         gramaturaLinear: dto.gramaturaLinear,
+        ativo: dto.ativo,
       },
     });
   }
@@ -96,9 +106,12 @@ export class MateriaisService {
     return { removido: true, id };
   }
 
-  /** Materiais com saldo abaixo do mínimo — apoio a compras/estoque. */
+  /**
+   * Materiais com saldo abaixo do mínimo — apoio a compras/estoque.
+   * Inativo fica de fora: ninguém deve ser cobrado a repor o que saiu de linha.
+   */
   async abaixoDoMinimo(empresaId: number): Promise<Material[]> {
-    const materiais = await this.prisma.material.findMany({ where: { empresaId } });
+    const materiais = await this.prisma.material.findMany({ where: { empresaId, ativo: true } });
     return materiais.filter((m) => m.saldo.lessThan(m.minimo));
   }
 

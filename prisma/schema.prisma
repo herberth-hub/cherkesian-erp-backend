@@ -767,6 +767,11 @@ model Material {
   largura         Decimal? @db.Decimal(6,2)  // metros (ex.: 1,60)
   gramatura       Decimal? @db.Decimal(8,2)  // g/m² (ex.: 127,00)
   gramaturaLinear Decimal? @db.Decimal(8,3)  // g/ml (ex.: 0,215)
+  // INATIVO = cadastro velho/duplicado que não se compra mais. Continua existindo
+  // (nota, receita e OC antigas ainda apontam para ele), mas some das buscas que
+  // OFERECEM material — ficha técnica, nota de entrada, OC — para ninguém escolher
+  // por engano. As telas de cadastro continuam mostrando, com selo e botão.
+  ativo     Boolean  @default(true)
   consumo   Consumo[]
 }
 

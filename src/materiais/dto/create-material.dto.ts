@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -78,4 +79,12 @@ export class CreateMaterialDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) largura?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) gramatura?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) gramaturaLinear?: number;
+
+  /**
+   * `false` tira o material das buscas que OFERECEM material (ficha técnica, nota
+   * de entrada, ordem de compra) sem apagar nada. Precisa estar declarado aqui:
+   * o ValidationPipe global roda com `forbidNonWhitelisted`, e campo que a tela
+   * manda sem o DTO conhecer derruba a requisição inteira.
+   */
+  @IsOptional() @IsBoolean() ativo?: boolean;
 }

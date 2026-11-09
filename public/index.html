@@ -1984,21 +1984,31 @@ function prodFotosObservar(){
   alvos.forEach(a=>window.__PRODOBS.observe(a));
 }
 async function viewMateriais(c){
-  const todos = await api('/materiais');
+  // `?inativos=1`: só a tela de CADASTRO enxerga o inativo, p/ dar para reativar.
+  const todos = await api('/materiais?inativos=1');
   // Famílias já usadas — alimenta o autocompletar do cadastro (evita "MALHA PV" e
   // "Malha Pv" virarem duas famílias).
-  window.__FAMILIAS=[...new Set(todos.map(m=>m.familia).filter(Boolean))].sort();
+  window.__FAMILIAS=[...new Set(todos.filter(m=>m.ativo!==false).map(m=>m.familia).filter(Boolean))].sort();
   const list = todos.filter(m=>!m.codigo.startsWith('AVI-'));
-  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais')) + panelTable(
+  const nIna = list.filter(m=>m.ativo===false).length;
+  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais'))
+    + (nIna?`<div class="card" style="background:#f6f4ee;border-color:#ddd5c2;font-size:11.5px;margin-bottom:8px">${nIna} material(is) <b>inativo(s)</b> — continuam aqui e no histórico, mas não aparecem mais para escolher na ficha técnica, na nota de entrada nem na ordem de compra.</div>`:'')
+    + panelTable(
     ['Código','Família','Descrição','Un.','Saldo','Mínimo','Custo','Ações'],
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
+      const off = m.ativo===false;
       return [
-        `<span class="mono gold">${esc(m.codigo)}</span>`,
-        m.familia?`<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px">${esc(m.familia)}</span>`:'<span class="muted" style="font-size:11px">—</span>',
-        esc(m.descricao)+(m.cor?` <span class="pill" style="background:#f0e7d0;color:#7a5b12;font-size:10px">${esc(m.cor)}</span>`:''), esc(m.unidade),
-        `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
-        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formMaterial(${m.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
+        `<span class="mono gold" style="${off?'opacity:.55':''}">${esc(m.codigo)}</span>`,
+        m.familia?`<span class="pill" style="background:#eef3ff;color:#2b4a8b;font-size:10px;${off?'opacity:.6':''}">${esc(m.familia)}</span>`:'<span class="muted" style="font-size:11px">—</span>',
+        `<span style="${off?'opacity:.6;text-decoration:line-through':''}">${esc(m.descricao)}</span>`
+          +(m.cor?` <span class="pill" style="background:#f0e7d0;color:#7a5b12;font-size:10px;${off?'opacity:.6':''}">${esc(m.cor)}</span>`:'')
+          +(off?' <span class="pill" style="background:#eee9dd;color:#6a675e;font-size:9.5px" title="Não aparece para escolher na ficha técnica, nota de entrada nem OC">inativo</span>':''),
+        esc(m.unidade),
+        `<b style="${baixo&&!off?'color:#c14a34':(off?'opacity:.6':'')}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
+        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" onclick="APP.formMaterial(${m.id})">Editar</button>`
+          +`<button class="btn-sm" onclick="APP.matAtivo(${m.id},${off?'true':'false'})" title="${off?'Voltar a oferecer este material nas telas de escolha':'Tirar das telas de escolha, sem apagar nada'}">${off?'↩ Reativar':'🚫 Inativar'}</button>`
+          +`<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
       ];
     }), list.length?null:'Nenhum material ainda.');
 }
@@ -12679,16 +12689,42 @@ function calcPreco(){
 }
 
 async function viewAviamentos(c){
-  const list = (await api('/materiais')).filter(m=>m.codigo.startsWith('AVI-'));
-  c.innerHTML = toolbar('Aviamentos (botões, zíperes, etiquetas...)', 'Novo aviamento', 'APP.formAviamento()') + panelTable(
-    ['Código','Descrição','Un.','Saldo','Mínimo','Custo'],
+  // `?inativos=1`: a tela de CADASTRO precisa enxergar o inativo p/ dar para
+  // reativar. As telas que OFERECEM material chamam sem isso e não o veem.
+  const list = (await api('/materiais?inativos=1')).filter(m=>m.codigo.startsWith('AVI-'));
+  const nIna = list.filter(m=>m.ativo===false).length;
+  c.innerHTML = toolbar('Aviamentos (botões, zíperes, etiquetas...)', 'Novo aviamento', 'APP.formAviamento()')
+    + (nIna?`<div class="card" style="background:#f6f4ee;border-color:#ddd5c2;font-size:11.5px;margin-bottom:8px">${nIna} aviamento(s) <b>inativo(s)</b> — continuam aqui e no histórico, mas não aparecem mais para escolher na ficha técnica, na nota de entrada nem na ordem de compra.</div>`:'')
+    + panelTable(
+    ['Código','Descrição','Cor','Un.','Saldo','Mínimo','Custo',''],
     list.map(m=>{
       const baixo = Number(m.saldo) < Number(m.minimo);
+      const off = m.ativo===false;
+      const nome = esc(m.descricao) + (off?' <span class="pill" style="background:#eee9dd;color:#6a675e;font-size:9.5px" title="Não aparece para escolher na ficha técnica, nota de entrada nem OC">inativo</span>':'');
       return [
-        `<span class="mono gold">${esc(m.codigo)}</span>`, esc(m.descricao), esc(m.unidade),
-        `<b style="${baixo?'color:#c14a34':''}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo)
+        `<span class="mono gold" style="${off?'opacity:.55':''}">${esc(m.codigo)}</span>`,
+        `<span style="${off?'opacity:.6;text-decoration:line-through':''}">${nome}</span>`,
+        esc(m.cor||'-'), esc(m.unidade),
+        `<b style="${baixo&&!off?'color:#c14a34':(off?'opacity:.6':'')}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
+        `<button class="btn-sm" onclick="APP.matAtivo(${m.id},${off?'true':'false'})" title="${off?'Voltar a oferecer este aviamento nas telas de escolha':'Tirar das telas de escolha, sem apagar nada'}">${off?'↩ Reativar':'🚫 Inativar'}</button>`
       ];
     }), list.length?null:'Nenhum aviamento cadastrado.');
+}
+/**
+ * Liga/desliga um material. Não apaga: nota, receita e OC antigas continuam
+ * apontando para ele; ele só para de ser OFERECIDO para escolher.
+ */
+async function matAtivo(id, ativar){
+  if(!ativar){
+    const ok = await uiConfirm({tipo:'warn', titulo:'Inativar este material?', ok:'Inativar', cancel:'Cancelar',
+      msg:'Ele continua no cadastro e no histórico — nada é apagado.\n\nO que muda: deixa de aparecer para escolher na ficha técnica, na nota de entrada e na ordem de compra, e não entra mais no alerta de estoque mínimo.'});
+    if(!ok) return;
+  }
+  try{
+    await api('/materiais/'+id,{method:'PATCH',body:{ativo:!!ativar}});
+    toast(ativar?'Material reativado.':'Material inativado — some das telas de escolha.','ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function formAviamento(){
   openModal(`<h3>Novo aviamento</h3>
@@ -16665,7 +16701,7 @@ window.APP = {
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
-  formAviamento, saveAviamento, gerarDoc,
+  formAviamento, saveAviamento, matAtivo, gerarDoc,
   notifCiente, notifCienteTodas, notifImprimir,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,

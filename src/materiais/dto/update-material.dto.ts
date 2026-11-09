@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
@@ -63,4 +64,12 @@ export class UpdateMaterialDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) largura?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) gramatura?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) gramaturaLinear?: number;
+
+  /**
+   * `false` tira o material das buscas que OFERECEM material (ficha técnica, nota
+   * de entrada, ordem de compra) sem apagar nada. É o que o botão "Inativar" da
+   * tela de cadastro manda — e precisa estar declarado aqui, senão o
+   * ValidationPipe (`forbidNonWhitelisted`) derruba a requisição inteira.
+   */
+  @IsOptional() @IsBoolean() ativo?: boolean;
 }

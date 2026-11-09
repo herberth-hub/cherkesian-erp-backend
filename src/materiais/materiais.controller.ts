@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { MateriaisService } from './materiais.service';
 import { CreateMaterialDto } from './dto/create-material.dto';
@@ -21,9 +22,16 @@ import { AuthUser } from '../auth/auth.types';
 export class MateriaisController {
   constructor(private readonly materiaisService: MateriaisService) {}
 
+  /**
+   * Lista os materiais ATIVOS. `?inativos=1` traz também os inativos — é o que a
+   * tela de cadastro usa, para mostrar o inativo com selo e dar para reativar.
+   * As telas que OFERECEM material chamam sem o parâmetro e nunca veem cadastro
+   * morto.
+   */
   @Get()
-  findAll(@CurrentUser() user: AuthUser) {
-    return this.materiaisService.findAll(user.empresaId);
+  findAll(@CurrentUser() user: AuthUser, @Query('inativos') inativos?: string) {
+    const incluir = inativos === '1' || inativos === 'true';
+    return this.materiaisService.findAll(user.empresaId, incluir);
   }
 
   @Get('abaixo-minimo')
