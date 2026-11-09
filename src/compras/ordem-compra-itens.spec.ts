@@ -161,6 +161,70 @@ describe('receber a ordem', () => {
   });
 });
 
+describe('corrigir quantidade/preço dos itens', () => {
+  const comItens = (extra: Record<string, unknown> = {}) => ({
+    id: 7, numero: 'OC-0062', status: 'aguardando', enviadaEm: null, materialId: null,
+    quantidade: D(243), unidade: 'm', valor: D('3547.80'), fornecedor: { empresaId: 1, nome: 'VINATEX' },
+    itens: [
+      { id: 71, descricao: 'BRIM · PRETO', quantidade: D(240), unidade: 'm', valorUnit: D('14.60'), valor: D('3504.00'), grade: null },
+      { id: 72, descricao: 'BRIM · BRANCO', quantidade: D(3), unidade: 'm', valorUnit: D('14.60'), valor: D('43.80'), grade: null },
+    ],
+    ...extra,
+  });
+
+  it('muda a quantidade e recalcula a linha E o total da ordem', async () => {
+    const { svc, atualizadas } = servico({ ocs: [comItens()] });
+    await svc.atualizarItens(7, [{ id: 71, quantidade: 200 }], 1);
+    const d = atualizadas[0].data as Record<string, unknown>;
+    expect(Number(d.valor)).toBeCloseTo(200 * 14.6 + 3 * 14.6, 2); // 2963,80
+    expect(Number(d.quantidade)).toBe(203);
+    const upd = (d.itens as { update: Array<{ where: { id: number }; data: Record<string, unknown> }> }).update;
+    expect(upd).toHaveLength(1);
+    expect(upd[0].where.id).toBe(71);
+    expect(Number(upd[0].data.valor)).toBeCloseTo(2920, 2);
+  });
+
+  it('mudar só o preço também recalcula', async () => {
+    const { svc, atualizadas } = servico({ ocs: [comItens()] });
+    await svc.atualizarItens(7, [{ id: 72, valorUnit: 10 }], 1);
+    const upd = ((atualizadas[0].data as Record<string, unknown>).itens as { update: Array<{ data: Record<string, unknown> }> }).update;
+    expect(Number(upd[0].data.valor)).toBeCloseTo(30, 2); // 3 m x 10
+  });
+
+  it('recusa ordem JÁ ENVIADA — o pedido do fornecedor ficaria diferente do nosso', async () => {
+    const { svc } = servico({ ocs: [comItens({ enviadaEm: new Date('2026-11-09') })] });
+    await expect(svc.atualizarItens(7, [{ id: 71, quantidade: 200 }], 1)).rejects.toThrow(/já foi enviada/i);
+  });
+
+  it('recusa ordem que já andou', async () => {
+    const { svc } = servico({ ocs: [comItens({ status: 'recebida' })] });
+    await expect(svc.atualizarItens(7, [{ id: 71, quantidade: 200 }], 1)).rejects.toThrow(/não está aguardando/i);
+  });
+
+  it('recusa quantidade zero — tirar item é cancelar a ordem', async () => {
+    const { svc } = servico({ ocs: [comItens()] });
+    await expect(svc.atualizarItens(7, [{ id: 71, quantidade: 0 }], 1)).rejects.toThrow(/maior que zero/i);
+  });
+
+  it('recusa item de outra ordem', async () => {
+    const { svc } = servico({ ocs: [comItens()] });
+    await expect(svc.atualizarItens(7, [{ id: 999, quantidade: 1 }], 1)).rejects.toThrow(/não é desta ordem/i);
+  });
+
+  /** Mudar o total sem mexer na grade deixaria os dois discordando dentro do item. */
+  it('recusa mexer na quantidade de item comprado por GRADE', async () => {
+    const oc = comItens();
+    oc.itens[0].grade = { P: 10, M: 20 } as never;
+    const { svc } = servico({ ocs: [oc] });
+    await expect(svc.atualizarItens(7, [{ id: 71, quantidade: 200 }], 1)).rejects.toThrow(/grade de tamanhos/i);
+  });
+
+  it('ordem de linha única não tem item para editar', async () => {
+    const { svc } = servico({ ocs: [{ ...comItens(), itens: [] }] });
+    await expect(svc.atualizarItens(7, [{ id: 71, quantidade: 1 }], 1)).rejects.toThrow(/linha única/i);
+  });
+});
+
 describe('unificar ordens', () => {
   const base = (id: number, numero: string, extra: Record<string, unknown> = {}) => ({
     id, numero, status: 'aguardando', fornecedorId: 106, filialId: 3, enviadaEm: null,

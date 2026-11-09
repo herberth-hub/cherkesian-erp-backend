@@ -327,6 +327,70 @@ export class ComprasService {
     return { ...nova, unificou: ocs.map((o) => o.numero) };
   }
 
+  /**
+   * Corrige a QUANTIDADE e/ou o PREÇO de linhas de uma ordem.
+   *
+   * Só mexe no que ainda não andou: ordem recebida ou cancelada está fechada, e
+   * ordem já ENVIADA o fornecedor já leu — mudar o número por trás dele é como
+   * a compra chega errada. Nesses casos, cancele e faça outra.
+   *
+   * O total da linha e o resumo do cabeçalho são sempre RECALCULADOS: não existe
+   * caminho em que a soma da ordem discorde das linhas.
+   */
+  async atualizarItens(
+    id: number,
+    alteracoes: Array<{ id: number; quantidade?: number; valorUnit?: number }>,
+    empresaId: number,
+  ) {
+    const oc = await this.findOne(id, empresaId) as OrdemCompra & { itens: OrdemCompraItem[] };
+    if (oc.status !== 'aguardando') throw new ConflictException(`${oc.numero} não está aguardando (status: ${oc.status}).`);
+    if (oc.enviadaEm) throw new ConflictException(`${oc.numero} já foi enviada ao fornecedor em ${oc.enviadaEm.toISOString().slice(0, 10)}. Mudar a quantidade agora deixaria o pedido dele diferente do nosso — cancele e faça outra.`);
+    if (!oc.itens.length) throw new ConflictException(`${oc.numero} não tem itens: é uma ordem de linha única (edite a ordem inteira).`);
+    if (!alteracoes.length) throw new BadRequestException('Informe ao menos um item para alterar.');
+
+    const porId = new Map(oc.itens.map((i) => [i.id, i]));
+    const novos = new Map<number, { quantidade: Prisma.Decimal; valorUnit: Prisma.Decimal; valor: Prisma.Decimal }>();
+    for (const a of alteracoes) {
+      const item = porId.get(a.id);
+      if (!item) throw new NotFoundException(`Item ${a.id} não é desta ordem.`);
+      const quantidade = a.quantidade != null ? new Prisma.Decimal(a.quantidade) : item.quantidade;
+      const valorUnit = a.valorUnit != null ? new Prisma.Decimal(a.valorUnit) : item.valorUnit;
+      if (quantidade.lessThanOrEqualTo(0)) throw new BadRequestException(`Quantidade de "${item.descricao}" deve ser maior que zero. Para tirar o item, cancele a ordem e faça outra.`);
+      if (valorUnit.lessThanOrEqualTo(0)) throw new BadRequestException(`Preço de "${item.descricao}" deve ser maior que zero.`);
+      novos.set(a.id, { quantidade, valorUnit, valor: quantidade.mul(valorUnit).toDecimalPlaces(2) });
+    }
+
+    // A grade por tamanho descreve a quantidade antiga; mudar a quantidade na mão
+    // sem mexer na grade deixaria as duas discordando dentro do mesmo item.
+    for (const [itemId, n] of novos) {
+      const item = porId.get(itemId)!;
+      if (item.grade && !n.quantidade.equals(item.quantidade)) {
+        throw new ConflictException(`"${item.descricao}" é comprado por grade de tamanhos — altere a grade, não a quantidade total.`);
+      }
+    }
+
+    const finais = oc.itens.map((i) => ({ ...i, ...(novos.get(i.id) ?? {}) }));
+    const resumo = this.resumoDosItens(finais);
+
+    // Um update só: cabeçalho e linhas mudam juntos ou não mudam.
+    return this.prisma.ordemCompra.update({
+      where: { id },
+      data: {
+        descricao: resumo.descricao,
+        quantidade: resumo.quantidade,
+        unidade: resumo.unidade,
+        valor: resumo.valor,
+        itens: {
+          update: [...novos].map(([itemId, n]) => ({
+            where: { id: itemId },
+            data: { quantidade: n.quantidade, valorUnit: n.valorUnit, valor: n.valor },
+          })),
+        },
+      },
+      include: { itens: ComprasService.INCLUI_ITENS },
+    });
+  }
+
   async cancelar(id: number, empresaId: number): Promise<OrdemCompra> {
     const oc = await this.findOne(id, empresaId);
     if (oc.status !== 'aguardando') {

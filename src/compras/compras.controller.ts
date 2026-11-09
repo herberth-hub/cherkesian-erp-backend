@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -51,6 +52,19 @@ export class ComprasController {
   @HttpCode(HttpStatus.CREATED)
   unificar(@Body() body: { ids?: number[] }, @CurrentUser() user: AuthUser) {
     return this.comprasService.unificar(body?.ids ?? [], user.empresaId);
+  }
+
+  /**
+   * Corrige quantidade/preço das LINHAS de uma ordem que ainda não foi enviada.
+   * O total de cada linha e o resumo do cabeçalho são recalculados aqui.
+   */
+  @Patch(':id/itens')
+  atualizarItens(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { itens?: Array<{ id: number; quantidade?: number; valorUnit?: number }> },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.comprasService.atualizarItens(id, body?.itens ?? [], user.empresaId);
   }
 
   /** Gera OCs sugeridas do tecido/insumo faltante (demanda em aberto x estoque). */
