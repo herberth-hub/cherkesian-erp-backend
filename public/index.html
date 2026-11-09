@@ -841,12 +841,96 @@ function abrirArquivo(url, nome){
     return true;
   }catch(_){ try{ location.href=url; return true; }catch(__){ return false; } }
 }
-async function loadRoute(){
+// ===== TELAS QUE SE ATUALIZAM SOZINHAS =====
+// Uma tela aberta é a FOTO do instante em que ela carregou. Quando o líder de
+// produção movimenta uma OP, quem já estava com a Produção aberta continua
+// vendo a foto velha — e conclui que ninguém movimentou nada. O dado sempre
+// esteve certo no servidor; o que faltava era a tela buscar de novo.
+// Por isso as telas operacionais recarregam sozinhas, recarregam ao voltar o
+// foco da janela, e carimbam na barra a hora em que os dados chegaram.
+const ROTAS_AO_VIVO = { producao:20000, pcp:25000, expedicao:30000, kits:30000, estoque:45000, compras:45000, entrada:45000 };
+let _autoTimer=null, _autoEm=null, _autoOk=true;
+
+function autoRefreshParar(){ if(_autoTimer){ clearInterval(_autoTimer); _autoTimer=null; } }
+
+/** Não atualiza por cima de quem está trabalhando: janela aberta, campo em
+ *  foco, OP sendo arrastada, texto selecionado ou aba em segundo plano
+ *  seguram o ciclo até a próxima volta. */
+function autoRefreshPode(){
+  if(!ROTAS_AO_VIVO[S.route]) return false;
+  if(document.hidden) return false;
+  if((window.__wins||[]).some(w=>!w.minimized)) return false;
+  if(window.__opDragId) return false;
+  const a=document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
+  try{ if(String(window.getSelection()||'').length>0) return false; }catch(_){}
+  return true;
+}
+
+async function autoRefreshCiclo(){
+  if(!autoRefreshPode()) return;
+  const y=window.scrollY;
+  await loadRoute(true);
+  window.scrollTo(0,y); // atualizar não pode fazer a tela saltar pro topo
+}
+
+/** Atualiza AGORA, no clique do ↻ — aqui vale mesmo com janela aberta,
+ *  porque foi o usuário que pediu. */
+async function autoRefreshAgora(){ const y=window.scrollY; await loadRoute(true); window.scrollTo(0,y); }
+
+function autoRefreshIniciar(ok){
+  _autoOk = ok!==false;
+  if(_autoOk) _autoEm = new Date();
+  autoRefreshCarimbo();
+  autoRefreshParar();
+  const ms = ROTAS_AO_VIVO[S.route];
+  if(ms) _autoTimer = setInterval(()=>{ autoRefreshCiclo().catch(()=>{}); }, ms);
+}
+
+/** Carimbo de hora na barra: ninguém deve confiar num número sem saber de
+ *  quando ele é. Classe (e não id) porque há tela com duas barras. */
+function autoRefreshCarimbo(){
+  const els=document.querySelectorAll('.auto-carimbo'); if(!els.length) return;
+  const h=_autoEm?_autoEm.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'--:--';
+  const html=_autoOk
+    ? `atualizado às ${h}`
+    : `<span style="color:#c14a34">⚠ sem atualizar desde ${h}</span>`;
+  els.forEach(el=>{ el.innerHTML=html; });
+}
+
+function autoRefreshBotao(){
+  if(!ROTAS_AO_VIVO[S.route]) return '';
+  return `<span class="auto-carimbo muted" style="font-size:11px" title="Esta tela se atualiza sozinha enquanto estiver aberta."></span>`
+    + `<button class="btn-sm" title="Atualizar agora" onclick="APP.autoRefreshAgora()">↻</button>`;
+}
+
+// Voltar à janela depois de um tempo fora é o momento mais provável de estar
+// olhando dado velho — então atualiza na hora, sem esperar o ciclo.
+window.addEventListener('focus', ()=>{ autoRefreshCiclo().catch(()=>{}); });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) autoRefreshCiclo().catch(()=>{}); });
+
+async function loadRoute(silencioso){
   const c = $('content'); if(!c) return;
   if(S._tv){ clearInterval(S._tv); S._tv=null; } // encerra auto-refresh do modo TV
-  if(!READY.has(S.route)){ c.innerHTML = `<div class="empty">A tela <b>${esc((TITLES[S.route]||[S.route])[0])}</b> ainda não faz parte desta fatia vertical.<br>Já funciona no backend — será conectada nas próximas etapas.</div>`; return; }
-  c.innerHTML = `<div class="spin"></div>`;
+  if(!silencioso) autoRefreshParar();
+  if(!READY.has(S.route)){ autoRefreshParar(); c.innerHTML = `<div class="empty">A tela <b>${esc((TITLES[S.route]||[S.route])[0])}</b> ainda não faz parte desta fatia vertical.<br>Já funciona no backend — será conectada nas próximas etapas.</div>`; return; }
+  // No refresh silencioso a tela continua na frente do usuário enquanto os
+  // dados novos chegam: trocar pelo spinner faria a tela piscar toda hora.
+  if(!silencioso) c.innerHTML = `<div class="spin"></div>`;
   try{
+    const r = await despacharRota(c);
+    autoRefreshIniciar(true);
+    return r;
+  }catch(e){
+    // Falha num refresh silencioso NÃO apaga o que está na tela — só marca o
+    // carimbo como vencido, para ninguém tomar decisão achando que está vendo
+    // o agora. O próximo ciclo tenta de novo.
+    if(silencioso){ autoRefreshIniciar(false); return; }
+    c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`;
+  }
+}
+
+async function despacharRota(c){
     if(S.route==='dashboard') return await viewDashboard(c);
     if(S.route==='diretoria') return await viewDiretoria(c);
     if(S.route==='clientes') return await viewClientes(c);
@@ -892,7 +976,6 @@ async function loadRoute(){
     if(S.route==='pct') return await viewPCT(c);
     if(S.route==='sgq') return await viewSGQ(c);
     if(S.route==='engenharia') return await viewEngenharia(c);
-  }catch(e){ c.innerHTML = `<div class="empty" style="color:#c14a34">Erro ao carregar: ${esc(e.message)}</div>`; }
 }
 
 // ---------- Telas ----------
@@ -2772,7 +2855,8 @@ async function saveExpParcial(pedidoId){
 }
 function toolbar(title, btn, action, extra){
   const primary = btn?`<button class="btn-primary" onclick="${action}">+ ${esc(btn)}</button>`:'';
-  const right = (extra||'')+primary;
+  // Nas telas operacionais entra o carimbo de "atualizado às HH:MM" + o ↻.
+  const right = autoRefreshBotao()+(extra||'')+primary;
   return `<div class="toolbar"><h3 style="font-size:15px">${esc(title)}</h3>${right?`<div style="display:flex;gap:8px;align-items:center">${right}</div>`:''}</div>`;
 }
 function relBtn(tipo){ return `<button class="btn-sm" onclick="APP.relatorio('${tipo}')">📄 Relatório</button>`; }
@@ -16771,6 +16855,7 @@ window.APP = {
   cancelGate(){ S.gate=null; renderLogin(); },
   logout(){ logout(); },
   recarregar(){ try{ toast('Atualizando a página…','ok'); }catch(_){} setTimeout(()=>location.reload(true),120); },
+  autoRefreshAgora,
   go(r){ go(r); }, irCobranca, navGo, novaAba,
   toggleNav, viewPCT, pctToggle, pctAddTeste, pctDelTeste, pctDiag,
   viewEngenharia, engRender, formMockupAsset, saveMockupAsset, delMockupAsset, montarMockup,
