@@ -11,6 +11,8 @@
  * o cliente contestasse a entrega. Por isso o serviço confere a assinatura
  * %PDF- nos bytes, não o que o data URI diz ser.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { BadRequestException } from '@nestjs/common';
 import { ExpedicoesService } from './expedicoes.service';
 
@@ -102,6 +104,73 @@ describe('canhoto assinado', () => {
       await expect(svc.salvarCanhoto(7, 1, pdfGrande)).resolves.toMatchObject({ ok: true });
       const fotoGrande = FOTO + 'A'.repeat(9_000_000);
       await expect(svc.salvarCanhoto(7, 1, fotoGrande)).rejects.toThrow(/resolução menor/);
+    });
+  });
+
+  /**
+   * ABRIR O PDF NA TELA.
+   *
+   * O canhoto em PDF subia certo e aparecia como uma janela PRETA: só abria se
+   * o usuário baixasse. O console do navegador deu o motivo exato -- não era
+   * capricho do Chrome, era o CSP da propria casa (src/main.ts):
+   *
+   *   Loading plugin data from 'data:application/pdf;base64,...' violates the
+   *   following Content Security Policy directive: "object-src 'self' blob:"
+   *
+   * A política aceita `blob:` e recusa `data:`. Entao a tela converte o data
+   * URI em Blob e usa o MESMO caminho de todos os outros documentos do sistema
+   * (romaneio, proposta, OC), que sempre funcionaram.
+   *
+   * O que este teste prende é a CONVERSÃO: se ela corromper um byte, o PDF
+   * abre em branco ou nem abre, e é prova de entrega.
+   */
+  describe('conversão data URI -> Blob (a correção da janela preta)', () => {
+    const codigo = (() => {
+      const html = readFileSync(join(__dirname, '..', '..', 'public', 'index.html'), 'utf8');
+      const ini = html.indexOf('function dataUriParaBlob(');
+      const fim = html.indexOf('async function verCanhoto(');
+      expect(ini).toBeGreaterThan(-1);
+      expect(fim).toBeGreaterThan(ini);
+      return html.slice(ini, fim);
+    })();
+
+    /** Roda a função que está no index.html, com um Blob de mentira que guarda os bytes. */
+    const converter = (uri: string) => {
+      const fabrica = new Function(
+        'atob', 'Blob', 'Uint8Array',
+        `${codigo} return dataUriParaBlob;`,
+      );
+      class BlobFalso {
+        constructor(public partes: Uint8Array[], public opts: { type: string }) {}
+        get type() { return this.opts.type; }
+        get bytes() { return Buffer.from(this.partes[0]); }
+      }
+      const fn = fabrica(
+        (b64: string) => Buffer.from(b64, 'base64').toString('latin1'),
+        BlobFalso, Uint8Array,
+      );
+      return fn(uri) as BlobFalso;
+    };
+
+    it('devolve os bytes EXATOS do PDF, sem perder nem trocar nenhum', () => {
+      const original = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n');
+      const uri = 'data:application/pdf;base64,' + original.toString('base64');
+      const blob = converter(uri);
+      expect(blob.bytes.equals(original)).toBe(true);
+      expect(blob.type).toBe('application/pdf');
+    });
+
+    it('aguenta byte alto (0x80-0xFF), que é onde conversão ingênua estraga', () => {
+      // PDF real é binário: imagem digitalizada tem byte acima de 127 em todo
+      // lugar. Converter via string sem cuidado troca esses bytes por '?'.
+      const original = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x80, 0xff, 0xfe, 0x00, 0x7f, 0xc3, 0xa9]);
+      const blob = converter('data:application/pdf;base64,' + original.toString('base64'));
+      expect(blob.bytes.equals(original)).toBe(true);
+    });
+
+    it('lê o tipo do próprio data URI (foto continua foto)', () => {
+      const blob = converter('data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff]).toString('base64'));
+      expect(blob.type).toBe('image/jpeg');
     });
   });
 

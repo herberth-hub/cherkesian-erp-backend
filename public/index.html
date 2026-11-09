@@ -12155,21 +12155,34 @@ function canhotoExp(id, tem){
   };
   inp.click();
 }
+/** data URI -> Blob. O navegador RECUSA renderizar PDF vindo de `data:` dentro
+ *  de <embed>/<iframe> (política do Chrome): a janela abria preta e só o botão
+ *  de baixar funcionava. Com `blob:` o visualizador nativo abre normalmente. */
+function dataUriParaBlob(uri){
+  const s=String(uri||''); const virg=s.indexOf(',');
+  const tipo=(s.slice(0,virg).match(/data:([^;]+)/)||[])[1]||'application/octet-stream';
+  const bin=atob(s.slice(virg+1));
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new Blob([bytes],{type:tipo});
+}
 async function verCanhoto(id){
   try{ const r=await api('/expedicoes/'+id+'/canhoto');
     const ehPdf = r.tipo==='pdf' || String(r.img||'').startsWith('data:application/pdf');
+    const quando = r.canhotoEm ? new Date(r.canhotoEm).toLocaleString('pt-BR') : '';
+    // PDF segue o MESMO caminho de todos os outros documentos do sistema
+    // (romaneio, proposta, OC): abre já renderizado, com imprimir, baixar e
+    // nova aba, e no celular com os botões de abrir/baixar.
+    if(ehPdf){
+      return abrirPdfBlob(dataUriParaBlob(r.img), {
+        titulo: '📎 Canhoto assinado'+(quando?' · '+quando:''),
+        nome: 'canhoto'+(quando?'-'+quando.slice(0,10).replace(/\//g,'-'):''),
+      });
+    }
     const w=abrirJanelaDoc('Canhoto assinado');
-    // PDF do canhoto abre no visualizador do próprio navegador, que já traz
-    // zoom, várias páginas e impressão — <img> mostraria uma caixa quebrada.
-    const corpo = ehPdf
-      ? '<embed src="'+r.img+'" type="application/pdf" style="width:100%;height:calc(100vh - 42px);border:0">'
-      : '<img src="'+r.img+'" style="max-width:100%;height:auto">';
-    const btn = ehPdf
-      ? '<a href="'+r.img+'" download="canhoto.pdf" style="color:#e6c34a">Baixar PDF</a>'
-      : '<button onclick="window.print()">Imprimir</button>';
     w.document.write('<html><head><meta charset=utf-8><title>Canhoto assinado</title></head><body style="margin:0;background:#222;text-align:center">'
-      +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(ehPdf?' (PDF)':'')+(r.canhotoEm?(' — '+new Date(r.canhotoEm).toLocaleString("pt-BR")):'')+' &nbsp; '+btn+'</div>'
-      +corpo+'</body></html>'); w.document.close();
+      +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(quando?(' — '+quando):'')+' &nbsp; <button onclick="window.print()">Imprimir</button></div>'
+      +'<img src="'+r.img+'" style="max-width:100%;height:auto"></body></html>'); w.document.close();
   }catch(e){ toast(e.message,'err'); }
 }
 async function viewExpedicao(c){
