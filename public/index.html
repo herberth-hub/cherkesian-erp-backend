@@ -7766,7 +7766,7 @@ function formOp(o){
     <div style="margin:-4px 0 6px;display:flex;gap:4px;flex-wrap:wrap">${['PP','P','M','G','GG','G1','G2','G3'].map(t=>`<button class="btn-sm" type="button" onclick="APP.gradeAddTam('${t}')">+${t}</button>`).join('')}</div>
     <div class="muted" style="font-size:11px;margin-bottom:8px">Clique nos tamanhos para adicionar à grade. Aparece em caixinhas no PDF da OP e vira 1 kit por tamanho.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-sm" onclick="APP.opConcluirEtiquetas(${o.id})" title="Gerar etiqueta por peça ao finalizar a fabricação">🏭 Concluir → Etiquetas</button>
+      <button class="btn-sm" onclick="APP.opConcluirEtiquetas(${o.id})" title="Finalizar a OP: gerar etiqueta por peça — ou, se a peça já foi entregue, dar baixa sem etiqueta">🏭 Concluir / dar baixa</button>
       <button class="btn-primary" onclick="APP.saveOp(${o.id})">Salvar</button></div>`);
 }
 
