@@ -22,6 +22,7 @@ const OP_BASE = {
 function servico(op: Partial<typeof OP_BASE> = {}) {
   const estado = { ...OP_BASE, ...op };
   const gravado: Array<Record<string, unknown>> = [];
+  const logs: Array<Record<string, unknown>> = [];
   const prisma = {
     oP: {
       findUnique: () => Promise.resolve(estado),
@@ -31,10 +32,16 @@ function servico(op: Partial<typeof OP_BASE> = {}) {
         return Promise.resolve({ ...estado });
       },
     },
+    log: {
+      create: ({ data }: { data: Record<string, unknown> }) => {
+        logs.push(data);
+        return Promise.resolve(data);
+      },
+    },
   };
   const svc = new OpsService(prisma as never, {} as never);
   (svc as unknown as { findOne: () => Promise<unknown> }).findOne = () => Promise.resolve(estado);
-  return { svc, gravado, estado };
+  return { svc, gravado, logs, estado };
 }
 
 describe('conclusão parcial da OP', () => {
@@ -98,6 +105,76 @@ describe('conclusão parcial da OP', () => {
     expect(r.totalBase).toBe(28);
     expect(r.totalConcluido).toBe(28);
     expect(r.finalizada).toBe(true);
+  });
+});
+
+/**
+ * BAIXA SEM ETIQUETA.
+ *
+ * OP de peça JÁ ENTREGUE ficava presa em produção/acabamento: a única forma de
+ * fechá-la era gerar etiqueta, e isso somava ao estoque peça que já saiu da
+ * fábrica — duplicidade. A baixa fecha a ordem sem criar nada no estoque.
+ *
+ * Quem cria a etiqueta é a TELA, chamando /estoque/entrada antes de registrar a
+ * conclusão; `concluirParcial` nunca gerou etiqueta. Então o que estes testes
+ * garantem é o contrato da baixa: o motivo é obrigatório, a OP fica marcada, e
+ * fica o rastro de quem fez.
+ */
+describe('baixa sem etiqueta', () => {
+  it('fecha a OP, marca a baixa e guarda o motivo', async () => {
+    const { svc, gravado } = servico();
+    const r = await svc.concluirParcial(516, { G: 16, GG: 10 }, 1, {
+      semEtiqueta: true, motivo: 'pecas entregues em 12/09/2026, NF 1480', usuario: 'herberth',
+    });
+    expect(r.finalizada).toBe(true);
+    expect(r.semEtiqueta).toBe(true);
+    expect(gravado[0].baixaSemEtiqueta).toBe(true);
+    expect(gravado[0].baixaMotivo).toBe('pecas entregues em 12/09/2026, NF 1480');
+    expect(r.quantidadeConcluida).toBe(26);
+  });
+
+  it('deixa o rastro de quem baixou, com as peças e o motivo', async () => {
+    const { svc, logs } = servico();
+    await svc.concluirParcial(516, { G: 16 }, 1, { semEtiqueta: true, motivo: 'entregue em agosto, NF 1301', usuario: 'herberth', ip: '1.2.3.4' });
+    expect(logs).toHaveLength(1);
+    expect(logs[0].acao).toBe('OP baixada SEM ETIQUETA');
+    expect(logs[0].usuario).toBe('herberth');
+    expect(logs[0].entidadeId).toBe('516');
+    expect(String(logs[0].detalhe)).toContain('OP-0209');
+    expect(String(logs[0].detalhe)).toContain('G: 16');
+    expect(String(logs[0].detalhe)).toContain('NF 1301');
+  });
+
+  it('sem motivo não baixa', async () => {
+    const { svc } = servico();
+    await expect(svc.concluirParcial(516, { G: 16 }, 1, { semEtiqueta: true })).rejects.toThrow(/pelo menos 10 letras/i);
+    await expect(svc.concluirParcial(516, { G: 16 }, 1, { semEtiqueta: true, motivo: 'entregue' })).rejects.toThrow(/pelo menos 10 letras/i);
+  });
+
+  it('baixa PARCIAL deixa o resto na fase atual', async () => {
+    const { svc, gravado } = servico();
+    const r = await svc.concluirParcial(516, { G: 16 }, 1, { semEtiqueta: true, motivo: 'G entregue em 02/10/2026' });
+    expect(r.finalizada).toBe(false);
+    expect(r.restante).toEqual({ GG: 10 });
+    expect(gravado[0].status).toBeUndefined();
+    expect(gravado[0].baixaSemEtiqueta).toBe(true);
+  });
+
+  /** A conclusão normal (com etiqueta) não pode sair marcada como baixa. */
+  it('conclusão com etiqueta NÃO marca a OP e não gera log de baixa', async () => {
+    const { svc, gravado, logs } = servico();
+    const r = await svc.concluirParcial(516, { G: 16, GG: 10 }, 1);
+    expect(r.semEtiqueta).toBe(false);
+    expect(gravado[0].baixaSemEtiqueta).toBeUndefined();
+    expect(gravado[0].baixaMotivo).toBeUndefined();
+    expect(logs).toHaveLength(0);
+  });
+
+  /** As travas de quantidade valem igual: baixa não é passe livre. */
+  it('não deixa baixar mais peças do que a OP tem', async () => {
+    const { svc } = servico();
+    await expect(svc.concluirParcial(516, { G: 20 }, 1, { semEtiqueta: true, motivo: 'tudo entregue em setembro' }))
+      .rejects.toThrow(/faltam 16 peça/i);
   });
 });
 

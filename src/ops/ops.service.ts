@@ -468,8 +468,25 @@ export class OpsService {
    * planejado — se o corte foi parcial, não há o que esperar das peças que nunca
    * foram cortadas). Enquanto falta, ela fica na fase em que está.
    */
-  async concluirParcial(id: number, grade: Record<string, unknown>, empresaId: number) {
+  async concluirParcial(
+    id: number,
+    grade: Record<string, unknown>,
+    empresaId: number,
+    // BAIXA SEM ETIQUETA: fecha a ordem sem criar peça no estoque. É para OP que
+    // ficou aberta no sistema depois da peça JÁ ter sido entregue — etiquetar
+    // agora duplicaria o estoque. Exige motivo porque não há etiqueta nenhuma
+    // depois para provar o que foi feito: o motivo é o único rastro.
+    baixa?: { semEtiqueta?: boolean; motivo?: string; usuario?: string; ip?: string },
+  ) {
     const op = await this.findOne(id, empresaId);
+    const semEtiqueta = baixa?.semEtiqueta === true;
+    const motivo = (baixa?.motivo ?? '').trim();
+    if (semEtiqueta) {
+      if (motivo.length < 10) {
+        throw new BadRequestException('Explique em pelo menos 10 letras por que esta OP fecha sem etiqueta (ex.: "peças entregues em 12/09, NF 1480").');
+      }
+      if (motivo.length > 255) throw new BadRequestException('Motivo muito longo (máx. 255 letras).');
+    }
     const base = this.baseDaConclusao(op);
     // TETO = o maior entre o cortado e o PLANEJADO, tamanho a tamanho.
     //
@@ -548,6 +565,9 @@ export class OpsService {
       data: {
         gradeConcluida: novo as Prisma.InputJsonValue,
         quantidadeConcluida: totalConcluido,
+        // Marca a ordem para sempre: ela fechou SEM peça no estoque. É o que
+        // explica, meses depois, por que não existe etiqueta desta OP.
+        ...(semEtiqueta ? { baixaSemEtiqueta: true, baixaMotivo: motivo } : {}),
         ...(corteAcertado ?? {}),
         ...(fases ? { gradeFases: fases as Prisma.InputJsonValue } : {}),
         // Completou: fecha. Não completou: NÃO mexe em status — o resto da OP
@@ -557,8 +577,30 @@ export class OpsService {
           : (resumo && resumo.faseMaisAtrasada ? { setorAtual: resumo.faseMaisAtrasada, progresso: resumo.progresso } : {})),
       },
     });
+    // Rastro de quem fechou sem etiqueta e por quê. O interceptor de auditoria
+    // só grava "PATCH /ops/12/concluir-parcial", sem o motivo nem as peças — e é
+    // justamente o motivo que vai ser perguntado depois.
+    // Falhar o log não pode desfazer a baixa (a OP já está gravada), então o
+    // erro morre aqui — mas a baixa em si fica registrada na auditoria global.
+    if (semEtiqueta) {
+      try {
+        await this.prisma.log.create({
+          data: {
+            usuario: baixa?.usuario ?? 'sistema',
+            acao: 'OP baixada SEM ETIQUETA',
+            entidade: 'ops',
+            entidadeId: String(id),
+            ip: baixa?.ip,
+            detalhe: `${op.numero} · ${somaAgora} peça(s) sem entrada no estoque (${Object.entries(agora).map(([t, n]) => `${t || 'lote único'}: ${n}`).join(' · ')}) · motivo: ${motivo}`,
+          },
+        });
+      } catch {
+        /* log é rastro, não pré-requisito */
+      }
+    }
     return {
       ...atualizada,
+      semEtiqueta,
       concluidoAgora: agora,
       totalConcluido,
       totalBase,

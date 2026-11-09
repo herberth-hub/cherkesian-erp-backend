@@ -9,7 +9,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { OpsService } from './ops.service';
 import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
@@ -115,15 +117,35 @@ export class OpsController {
     return this.opsService.registrarCorte(id, body?.grade ?? {}, body?.obs, user.empresaId);
   }
 
-  /** Conclusão PARCIAL: fecha só a grade que ficou pronta; o resto segue na fase atual. */
+  /**
+   * Conclusão PARCIAL: fecha só a grade que ficou pronta; o resto segue na fase atual.
+   *
+   * `semEtiqueta: true` = BAIXA SEM ETIQUETA: fecha a ordem sem criar peça no
+   * estoque, para OP cuja peça já foi entregue (etiquetar agora duplicaria o
+   * estoque). Nesse caso o `motivo` é obrigatório. Quem gera as etiquetas é a
+   * tela, chamando /estoque/entrada antes — aqui nunca nasce etiqueta.
+   */
   @Areas('pcp', 'producao')
   @Patch(':id/concluir-parcial')
   concluirParcial(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { grade?: Record<string, unknown> },
+    @Body() body: { grade?: Record<string, unknown>; semEtiqueta?: boolean; motivo?: string },
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ) {
-    return this.opsService.concluirParcial(id, body?.grade ?? {}, user.empresaId);
+    return this.opsService.concluirParcial(id, body?.grade ?? {}, user.empresaId, {
+      semEtiqueta: body?.semEtiqueta === true,
+      motivo: body?.motivo,
+      usuario: user.usuario,
+      ip: this.ipDoPedido(req),
+    });
+  }
+
+  /** IP real por trás do proxy do Render (mesma regra da auditoria global). */
+  private ipDoPedido(req: Request): string | undefined {
+    const fwd = req?.headers?.['x-forwarded-for'];
+    if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
+    return req?.ip ?? req?.socket?.remoteAddress ?? undefined;
   }
 
   /** Avança PARTE da grade de fase (priorizar um tamanho sem levar o resto junto). */

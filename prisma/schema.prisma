@@ -915,6 +915,12 @@ model OP {
   // a OP só é finalizada quando chega no total cortado.
   gradeConcluida Json?    // quantidade já concluída/etiquetada por tamanho
   quantidadeConcluida Int @default(0) // total já concluído (soma da gradeConcluida)
+  // BAIXA SEM ETIQUETA: a OP ficou aberta no sistema (produção/acabamento) mas a
+  // peça JÁ FOI ENTREGUE ao cliente. Etiquetar agora criaria peça no estoque que
+  // não existe na prateleira — duplicidade. Então a ordem fecha sem etiqueta, e
+  // estes dois campos registram que ela fechou assim e por quê.
+  baixaSemEtiqueta Boolean @default(false)
+  baixaMotivo    String?  // justificativa obrigatória da baixa sem etiqueta
   // ONDE CADA TAMANHO ESTÁ. A OP tinha uma fase só para tudo, então priorizar um
   // tamanho (adiantar o GG para entregar parcial) era impossível: avançar levava
   // a grade inteira junto. Formato: { "<fase>": { "<tamanho>": qtd } }.

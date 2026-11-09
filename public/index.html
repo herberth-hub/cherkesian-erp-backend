@@ -7115,7 +7115,10 @@ function opFaseIdx(o){
 }
 function opFaseBtn(o){
   const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
-  if(!prox) return '<span class="pill green" style="font-weight:700">✓ Finalizado</span>';
+  if(!prox) return '<span class="pill green" style="font-weight:700">✓ Finalizado</span>'
+    // Sem este selo, OP fechada sem etiqueta fica idêntica a uma normal — e meses
+    // depois alguém procura no estoque etiqueta que nunca existiu.
+    + (o.baixaSemEtiqueta ? ` <span class="pill" style="background:#fff5e6;color:#8a5a00;font-weight:700" title="${esc('Baixada sem etiqueta — nada entrou no estoque. Motivo: '+(o.baixaMotivo||'(não informado)'))}">🚫 sem etiqueta</span>` : '');
   const fim = prox.nome==='Finalizado';
   const r = opRestante(o);
   // Já houve conclusão parcial: o rótulo diz o que FALTA, senão a pessoa clica
@@ -7630,7 +7633,7 @@ async function saveOpAvulsa(){
 // Botões de ação de uma OP (reusado na lista agrupada e na lista plana ordenada).
 function opAcoesHtml(o){
   const _adminOp = S.user.acesso==='total';
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'&&!o.baixaSemEtiqueta?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
 }
 // Data curta pt-BR (vencimento da OP).
 function opDataBR(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}); }catch(_){ return ''; } }
@@ -7821,17 +7824,44 @@ async function opConcluirEtiquetas(id, limite){
       <div style="padding:7px 0;font-size:12.5px">Total a etiquetar agora: <b id="oc_soma">${totalRest}</b> de ${totalRest}
         <span id="oc_aviso" class="muted" style="margin-left:8px"></span></div></div>
     <div class="mrow"><label class="fl">Destino das peças *</label>
-      <select id="oc_dest" class="inp">
+      <select id="oc_dest" class="inp" onchange="APP.opConcluirDestino()">
         <option value="estoque">📦 Estocar (endereçar depois)</option>
         <option value="expedicao">🚚 Ir direto pra expedição (despachar pro cliente)</option>
+        <option value="sem_etiqueta">🚫 Não gerar etiqueta — só dar baixa na OP (peça já entregue)</option>
       </select></div>
-    <div class="grid2">${field('oc_ref','Ref (código do produto)','value="'+esc(refProd)+'"')}<div><label class="fl">Cor <span class="muted" style="font-weight:400">(puxada do pedido)</span></label><input id="oc_cor" class="inp" value="${esc(d.cor&&d.cor!=='-'?d.cor:'')}" readonly title="A cor vem do cadastro/pedido e não pode ser alterada aqui" style="background:#f4f2ed;color:#3a2f08;font-weight:600;cursor:not-allowed"></div></div>
-    ${(!d.cor||d.cor==='-')?'<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:11.5px;margin:-2px 0 8px">⚠️ Este produto está <b>sem cor</b> no cadastro. Cadastre a cor no produto para a etiqueta sair correta.</div>':''}
-    ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
-    <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
+    <div id="oc_sem" style="display:none">
+      <div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:11.5px;margin:-2px 0 8px">
+        <b>Nenhuma etiqueta será gerada e nada entra no estoque.</b> Use só quando a peça <b>já saiu da fábrica</b> e a OP ficou aberta no sistema por engano — etiquetar agora criaria no estoque peça que não existe na prateleira.
+        <div style="margin-top:4px">A OP fecha com as quantidades acima registradas como produzidas, e fica marcada como <b>baixada sem etiqueta</b>.</div>
+      </div>
+      ${field('oc_motivo','Por que esta OP fecha sem etiqueta? *','placeholder="ex.: peças entregues em 12/09/2026, NF 1480" maxlength="255"')}
+    </div>
+    <div id="oc_etqcampos">
+      <div class="grid2">${field('oc_ref','Ref (código do produto)','value="'+esc(refProd)+'"')}<div><label class="fl">Cor <span class="muted" style="font-weight:400">(puxada do pedido)</span></label><input id="oc_cor" class="inp" value="${esc(d.cor&&d.cor!=='-'?d.cor:'')}" readonly title="A cor vem do cadastro/pedido e não pode ser alterada aqui" style="background:#f4f2ed;color:#3a2f08;font-weight:600;cursor:not-allowed"></div></div>
+      ${(!d.cor||d.cor==='-')?'<div class="card" style="background:#fff5e6;border-color:#f0c987;color:#8a5a00;font-size:11.5px;margin:-2px 0 8px">⚠️ Este produto está <b>sem cor</b> no cadastro. Cadastre a cor no produto para a etiqueta sair correta.</div>':''}
+      ${field('oc_desc','Nome da peça (descrição)','value="'+esc(descProd)+'"')}
+      <div class="muted" style="font-size:11px;margin:2px 0 8px">Gera 1 etiqueta única por peça (ref + nome + tamanho + código de barras). Estoque: ficam "aguardando endereço". Expedição: já saem reservadas ao pedido.</div>
+    </div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(paresRest)}, ${d.quantidade}, ${d.pedidoId||'null'}, ${d.produtoId||'null'}, ${JSON.stringify(d.gradeObj||{})})'>Gerar etiquetas</button></div>`);
+      <button class="btn-primary" id="oc_ok" onclick='APP.opConcluirGerar(${id}, ${JSON.stringify(paresRest)}, ${d.quantidade}, ${d.pedidoId||'null'}, ${d.produtoId||'null'}, ${JSON.stringify(d.gradeObj||{})})'>Gerar etiquetas</button></div>`);
   opConcluirSoma();
+  opConcluirDestino();
+}
+/**
+ * Troca a cara do formulário conforme o destino. "Não gerar etiqueta" é uma
+ * baixa administrativa: esconde os campos da etiqueta, mostra o aviso e cobra o
+ * motivo — é o único rastro que vai sobrar, já que não nasce etiqueta nenhuma.
+ */
+function opConcluirDestino(){
+  const sem = val('oc_dest')==='sem_etiqueta';
+  const bxSem=$('oc_sem'), bxEtq=$('oc_etqcampos'), ok=$('oc_ok');
+  if(bxSem) bxSem.style.display = sem?'':'none';
+  if(bxEtq) bxEtq.style.display = sem?'none':'';
+  if(ok){
+    ok.textContent = sem ? 'Dar baixa na OP (sem etiqueta)' : 'Gerar etiquetas';
+    ok.style.background = sem ? '#8a5a00' : '';
+  }
+  if(sem){ const m=$('oc_motivo'); if(m) m.focus(); }
 }
 /** Soma o que foi digitado e avisa se a conclusão vai ficar parcial. */
 function opConcluirSoma(){
@@ -7868,6 +7898,10 @@ async function opOferecerExpedicao(pedidoId){
 }
 async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePedido){
   const destino = val('oc_dest');
+  // BAIXA SEM ETIQUETA: caminho separado de propósito. Não passa por
+  // /estoque/entrada, então não nasce peça, não nasce reserva e não se oferece
+  // expedição — só registra na OP o que foi produzido, com o motivo.
+  if(destino==='sem_etiqueta') return opBaixarSemEtiqueta(id, pares, qtdTotal);
   const descricao = val('oc_desc').trim();
   const cor = val('oc_cor').trim();
   const ref = val('oc_ref').trim();
@@ -7939,6 +7973,41 @@ async function opConcluirGerar(id, pares, qtdTotal, pedidoId, produtoId, gradePe
     // Concluir a OP reserva as peças, mas NÃO cria a expedição — e sem ela o
     // pedido não aparece na tela de Expedição para conferir. Era o que faltava.
     if(destino==='expedicao' && pedidoId && fim && fim.finalizada) await opOferecerExpedicao(pedidoId);
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
+/**
+ * BAIXA SEM ETIQUETA: fecha a OP sem criar NADA no estoque.
+ *
+ * Existe porque OP de peça JÁ ENTREGUE ficava presa em "produção"/"acabamento":
+ * a única forma de fechá-la era gerar etiqueta, e isso somava ao estoque peça
+ * que já saiu da fábrica — duplicidade. Aqui a ordem fecha, a produção fica
+ * registrada na grade concluída, e a OP é marcada como baixada sem etiqueta
+ * (com motivo e autor no log), para ninguém procurar etiqueta que não existe.
+ */
+async function opBaixarSemEtiqueta(id, pares, qtdTotal){
+  const motivo = val('oc_motivo').trim();
+  if(motivo.length<10){ toast('Escreva o motivo da baixa (mín. 10 letras) — é o único registro que vai sobrar.','err'); const m=$('oc_motivo'); if(m) m.focus(); return; }
+  // Mesma leitura de quantidade da conclusão normal: dá para baixar só parte.
+  const grade={}; let total=0;
+  if(pares && pares.length){
+    for(const [t,max] of pares){
+      const el=$('ocq_'+t);
+      const q = el ? Math.max(0, Math.min(Number(el.value)||0, Number(max)||0)) : Number(max)||0;
+      if(q>0){ grade[t]=q; total+=q; }
+    }
+  } else { grade['']=Number(qtdTotal)||0; total=Number(qtdTotal)||0; }
+  if(total<=0){ toast('Informe ao menos 1 peça para dar baixa.','err'); return; }
+  const ok = await uiConfirm({tipo:'warn', titulo:'Dar baixa em '+total+' peça(s) SEM etiqueta?', ok:'Dar baixa', cancel:'Cancelar',
+    msg:'Nenhuma etiqueta será impressa e NADA entra no estoque — '+total+' peça(s) ficam registradas como produzidas apenas na OP.\n\n'
+      +'Só confirme se estas peças já saíram da fábrica. Se elas estão na prateleira, cancele e escolha "Estocar".'});
+  if(!ok) return;
+  try{
+    const fim = await api('/ops/'+id+'/concluir-parcial',{method:'PATCH',body:{grade, semEtiqueta:true, motivo}});
+    closeModal();
+    const falta = fim && fim.restante ? Object.entries(fim.restante).map(([t,q])=>t+': '+q).join(' · ') : '';
+    toast('Baixa sem etiqueta: '+total+' peça(s) · nada entrou no estoque'
+      + (fim && fim.finalizada ? ' · OP finalizada.' : falta ? ' · OP segue na fase atual, faltam '+falta : ''),'ok');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -16585,7 +16654,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
   formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
