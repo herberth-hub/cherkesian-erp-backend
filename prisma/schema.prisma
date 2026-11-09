@@ -364,6 +364,14 @@ model Usuario {
   senhaHash     String
   cargo         String?
   setor         String?
+  // SETORES DA PRODUÇÃO que este usuário pode MOVIMENTAR na OP (corte, costura,
+  // acabamento...). Vazio = sem limite, que é como todo mundo sempre trabalhou:
+  // a trava é opt-in, o administrador marca pessoa por pessoa. Vale inclusive
+  // para o perfil `total` — o líder de produção costuma ter acesso total e é
+  // justamente quem precisa ficar dentro do setor dele.
+  // Nome parecido com `setor` acima de propósito: aquele é texto livre de RH,
+  // este é permissão. Só este manda em quem movimenta o quê.
+  setoresOp     String[] @default([])
   acesso        Acesso   @default(comercial)
   clienteId     Int?     // quando acesso=cliente: vincula o login ao Cliente (escopo do Portal)
   email         String?  // e-mail do comprador (Portal): recebe cópia dos pedidos que ele envia

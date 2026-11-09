@@ -1,5 +1,8 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
+  IsIn,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -10,6 +13,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Acesso } from '@prisma/client';
+import { SETORES_OP } from '../../common/rbac/setores-op';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -46,6 +50,18 @@ export class CreateUsuarioDto {
   @IsString()
   @MaxLength(120)
   setor?: string;
+
+  /**
+   * Setores da produção que este usuário pode MOVIMENTAR na OP.
+   * Lista vazia (ou ausente) = sem limite, como sempre foi: a trava é opt-in.
+   * Precisa estar declarado aqui porque o ValidationPipe global roda com
+   * forbidNonWhitelisted — campo não declarado derruba a requisição inteira.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(SETORES_OP as unknown as string[], { each: true, message: 'Setor de produção inválido.' })
+  setoresOp?: string[];
 
   @IsOptional()
   @Matches(HHMM, { message: 'horarioInicio deve estar no formato HH:mm.' })

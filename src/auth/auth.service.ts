@@ -27,6 +27,10 @@ export interface TokensResposta {
     usuario: string;
     acesso: string;
     setor: string | null;
+    /** Setores da producao que este usuario pode MOVIMENTAR na OP. Vazio = sem
+     *  limite. A TELA usa isto so para nao oferecer botao que a API vai negar;
+     *  quem barra de verdade e o servidor. */
+    setoresOp: string[];
     cargo: string | null;
     /** E-mail do comprador (Portal) — o campo de cópia do pedido já vem preenchido. */
     email: string | null;
@@ -208,6 +212,7 @@ export class AuthService {
         usuario: user.usuario,
         acesso: user.acesso,
         setor: user.setor,
+        setoresOp: user.setoresOp ?? [],
         cargo: user.cargo,
         email: user.email ?? null,
         areas: ACESSO_AREAS[user.acesso] ?? [],

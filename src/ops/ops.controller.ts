@@ -94,7 +94,7 @@ export class OpsController {
     @Body() dto: UpdateOpStatusDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.opsService.updateStatus(id, dto, user.empresaId);
+    return this.opsService.updateStatus(id, dto, user.empresaId, user.sub);
   }
 
   @Patch(':id/grade')
@@ -114,7 +114,7 @@ export class OpsController {
     @Body() body: { grade?: Record<string, unknown>; obs?: string },
     @CurrentUser() user: AuthUser,
   ) {
-    return this.opsService.registrarCorte(id, body?.grade ?? {}, body?.obs, user.empresaId);
+    return this.opsService.registrarCorte(id, body?.grade ?? {}, body?.obs, user.empresaId, user.sub);
   }
 
   /**
@@ -137,6 +137,7 @@ export class OpsController {
       semEtiqueta: body?.semEtiqueta === true,
       motivo: body?.motivo,
       usuario: user.usuario,
+      usuarioId: user.sub,
       ip: this.ipDoPedido(req),
     });
   }
@@ -156,7 +157,7 @@ export class OpsController {
     @Body() body: { de?: string; para?: string; grade?: Record<string, unknown> },
     @CurrentUser() user: AuthUser,
   ) {
-    return this.opsService.avancarFaseParcial(id, String(body?.de ?? ''), String(body?.para ?? ''), body?.grade ?? {}, user.empresaId);
+    return this.opsService.avancarFaseParcial(id, String(body?.de ?? ''), String(body?.para ?? ''), body?.grade ?? {}, user.empresaId, user.sub);
   }
 
   @Patch(':id/progresso')

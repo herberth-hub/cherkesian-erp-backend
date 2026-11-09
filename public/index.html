@@ -7210,7 +7210,31 @@ function opFaseIdx(o){
   if(o.status==='em_producao') return 5;
   return -1; // a_iniciar / aguardando — ainda não entrou no fluxo
 }
+// ===== TRAVA DE SETOR, DO LADO DE CÁ =====
+// Quem barra de verdade é o servidor. Aqui é só para a pessoa não clicar num
+// botão que já se sabe que vai dar erro — e, quando clicar, ouvir o motivo na
+// hora em vez de esperar o ida-e-volta.
+const FASE_SETOR_UI = { 'Risco CAD':'cad', 'Corte':'corte', 'Separação 1':'separacao', 'Estamparia/Bordado':'estamparia',
+  'Separação 2':'separacao', 'Costura':'costura', 'Acabamento':'acabamento', 'Finalizado':'acabamento' };
+const SETOR_NOME_UI = { pcp:'PCP / Planejamento', cad:'Risco CAD', corte:'Corte', separacao:'Separação',
+  estamparia:'Estamparia / Bordado', costura:'Costura', acabamento:'Acabamento / Finalização' };
+/** Sem setor marcado, movimenta tudo — é o padrão de todo mundo hoje. */
+function euMovimento(fase){
+  const meus = (S.user && S.user.setoresOp) || [];
+  if(!meus.length) return true;
+  return meus.includes(FASE_SETOR_UI[String(fase||'').trim()] || 'pcp');
+}
+function recadoSetor(fase){
+  const meus = ((S.user && S.user.setoresOp) || []).map(s=>SETOR_NOME_UI[s]||s);
+  const dona = SETOR_NOME_UI[FASE_SETOR_UI[String(fase||'').trim()] || 'pcp'];
+  return `"${String(fase||'').trim()||'a iniciar'}" é do setor ${dona} e você responde por ${meus.join(', ')}.`;
+}
 function opFaseBtn(o){
+  // A OP está numa etapa que não é minha: mostro em que pé está, sem o botão.
+  if(!euMovimento(o.setorAtual)){
+    const dona = SETOR_NOME_UI[FASE_SETOR_UI[String(o.setorAtual||'').trim()] || 'pcp'];
+    return `<span class="pill" style="background:#eeece5;color:#6d6857" title="${esc(recadoSetor(o.setorAtual))}">🔒 com ${esc(dona)}</span>`;
+  }
   const idx=opFaseIdx(o); const prox=OP_FASES[idx+1];
   if(!prox) return '<span class="pill green" style="font-weight:700">✓ Finalizado</span>'
     // Sem este selo, OP fechada sem etiqueta fica idêntica a uma normal — e meses
@@ -7523,6 +7547,8 @@ async function opDrop(e,ci){ e.preventDefault(); const k=e.currentTarget; if(k){
 // Move a OP para a fase da coluna soltada — arrastar = avança direto para aquela etapa.
 async function opKanbanMover(opId, targetIdx){
   const o=(window.__OPS||[]).find(x=>x.id===opId); if(!o){ toast('OP não encontrada — recarregue.','err'); return; }
+  // Arrastar é movimentar: vale a mesma trava, e com o motivo na hora.
+  if(!euMovimento(o.setorAtual)){ toast(recadoSetor(o.setorAtual),'err'); return; }
   const curIdx=opFaseIdx(o);
   if(targetIdx===curIdx) return; // mesma coluna
   const alvo = targetIdx<0 ? null : OP_FASES[targetIdx];
@@ -12439,6 +12465,36 @@ async function viewUsuarios(c){
         + (u.acesso!=='total'?`<button class="btn-sm" onclick="APP.removeUsuario(${u.id})">Desativar</button>`:'') + `</div>`
     ]), list.length?null:'Nenhum usuário.');
 }
+// ===== TRAVA DE MOVIMENTAÇÃO POR SETOR =====
+// Precisa casar com SETORES_OP de src/common/rbac/setores-op.ts: é lá que a
+// API valida. Setor que não existir no backend derruba o salvamento inteiro.
+const SETORES_OP = [
+  ['pcp','PCP / Planejamento','solta a OP para a produção'],
+  ['cad','Risco CAD','Risco CAD'],
+  ['corte','Corte','Corte'],
+  ['separacao','Separação','Separação 1 e 2'],
+  ['estamparia','Estamparia / Bordado','Estamparia/Bordado'],
+  ['costura','Costura','Costura'],
+  ['acabamento','Acabamento / Finalização','Acabamento e Finalizado'],
+];
+function setoresOpCampo(u, ehCliente){
+  const meus = new Set((u&&u.setoresOp)||[]);
+  const chk = SETORES_OP.map(([v,nome,etapas])=>
+    `<label style="display:flex;gap:7px;align-items:flex-start;padding:5px 7px;border:1px solid var(--line);border-radius:7px;cursor:pointer;font-size:12.5px">
+      <input type="checkbox" class="f_setop" value="${v}" ${meus.has(v)?'checked':''} style="margin-top:2px">
+      <span><b>${esc(nome)}</b><br><span class="muted" style="font-size:10.5px">${esc(etapas)}</span></span>
+    </label>`).join('');
+  return `<div class="mrow" id="f_setop_wrap" style="${ehCliente?'display:none':''}">
+    <label class="fl">Setores que pode movimentar na produção</label>
+    <div class="muted" style="font-size:11px;margin:-2px 0 7px">
+      Nenhum marcado = <b>movimenta tudo</b>, como é hoje. Marcando, esta pessoa só movimenta OP que esteja numa etapa do setor dela — vale inclusive para perfil <b>total</b>.
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px">${chk}</div>
+  </div>`;
+}
+function setoresOpMarcados(){
+  return [...document.querySelectorAll('.f_setop')].filter(c=>c.checked).map(c=>c.value);
+}
 async function formUsuario(u){
   u = u||{};
   const ao = ACESSOS.map(a=>`<option value="${a}" ${a===u.acesso?'selected':''}>${a}</option>`).join('');
@@ -12457,6 +12513,7 @@ async function formUsuario(u){
     </div>
     <div class="grid2" id="f_extra" style="${ehCliente?'display:none':''}">${field('f_cargo','Cargo','value="'+esc(u.cargo||'')+'"')}${field('f_setor','Setor','value="'+esc(u.setor||'')+'"')}</div>
     <div class="grid2" id="f_hor" style="${ehCliente?'display:none':''}">${field('f_hi','Horário início','type="time" value="'+esc(u.horarioInicio||'')+'"')}${field('f_hf','Horário fim','type="time" value="'+esc(u.horarioFim||'')+'"')}</div>
+    ${setoresOpCampo(u, ehCliente)}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveUsuario(${u.id||0})">Salvar</button></div>`);
 }
@@ -12465,13 +12522,17 @@ function usuAcessoToggle(){
   const ehCliente = val('f_acesso')==='cliente';
   const cw=$('f_cli_wrap'), ex=$('f_extra'), hr=$('f_hor');
   if(cw) cw.style.display = ehCliente?'':'none';
+  const sw=$('f_setop_wrap'); if(sw) sw.style.display = ehCliente?'none':'';
   if(ex) ex.style.display = ehCliente?'none':'';
   if(hr) hr.style.display = ehCliente?'none':'';
 }
 async function saveUsuario(id){
   const acesso = val('f_acesso');
   const body = { nome:val('f_nome'), acesso, cargo:val('f_cargo')||undefined, setor:val('f_setor')||undefined,
-    horarioInicio:val('f_hi')||undefined, horarioFim:val('f_hf')||undefined };
+    horarioInicio:val('f_hi')||undefined, horarioFim:val('f_hf')||undefined,
+    // Sempre manda a lista, inclusive vazia: vazia é o jeito de DESMARCAR todos
+    // os setores e devolver a pessoa ao "movimenta tudo".
+    setoresOp: acesso==='cliente' ? [] : setoresOpMarcados() };
   if(!id) body.usuario=val('f_user');
   const s=val('f_senha'); if(s) body.senha=s;
   if(!body.nome||(!id&&!body.usuario)||(!id&&!s)){ toast('Nome, login e senha são obrigatórios.','err'); return; }

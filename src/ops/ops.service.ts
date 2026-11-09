@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { OP, OPStatus, Prioridade, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
@@ -6,6 +6,7 @@ import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
 import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { podeMoverFase, recadoDeBloqueio } from '../common/rbac/setores-op';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
@@ -327,8 +328,12 @@ export class OpsService {
     return { ok: true, gravados };
   }
 
-  async updateStatus(id: number, dto: UpdateOpStatusDto, empresaId: number): Promise<OP> {
-    await this.findOne(id, empresaId);
+  async updateStatus(id: number, dto: UpdateOpStatusDto, empresaId: number, usuarioId?: number): Promise<OP> {
+    const atual = await this.findOne(id, empresaId);
+    // É daqui que sai o arrasto do kanban. A trava olha a etapa de ONDE a OP
+    // está saindo: puxar para a sua coluna uma OP que ainda está em outro setor
+    // é exatamente o que a trava existe para impedir.
+    await this.exigirSetor(usuarioId, atual.setorAtual);
     const data: Record<string, unknown> = {
       status: dto.status,
       setorAtual: dto.setorAtual,
@@ -401,7 +406,10 @@ export class OpsService {
     grade: Record<string, unknown>,
     obs: string | undefined,
     empresaId: number,
+    usuarioId?: number,
   ): Promise<OP> {
+    // Apontar corte é do CORTE, sempre — independente de onde a OP esteja.
+    await this.exigirSetor(usuarioId, 'Corte');
     const op = await this.findOne(id, empresaId);
     const limpa: Record<string, number> = {};
     let total = 0;
@@ -476,9 +484,11 @@ export class OpsService {
     // ficou aberta no sistema depois da peça JÁ ter sido entregue — etiquetar
     // agora duplicaria o estoque. Exige motivo porque não há etiqueta nenhuma
     // depois para provar o que foi feito: o motivo é o único rastro.
-    baixa?: { semEtiqueta?: boolean; motivo?: string; usuario?: string; ip?: string },
+    baixa?: { semEtiqueta?: boolean; motivo?: string; usuario?: string; ip?: string; usuarioId?: number },
   ) {
     const op = await this.findOne(id, empresaId);
+    // Fechar peça é entregar o que está na mão: vale a etapa em que a OP está.
+    await this.exigirSetor(baixa?.usuarioId, op.setorAtual);
     const semEtiqueta = baixa?.semEtiqueta === true;
     const motivo = (baixa?.motivo ?? '').trim();
     if (semEtiqueta) {
@@ -782,7 +792,27 @@ export class OpsService {
    * Avança parte da grade para a próxima fase. Serve para priorizar um tamanho —
    * adiantar o GG para entregar parcial — sem arrastar a grade inteira junto.
    */
-  async avancarFaseParcial(id: number, de: string, para: string, grade: Record<string, unknown>, empresaId: number) {
+  /**
+   * TRAVA POR SETOR. A área (`@Areas`) diz em que tela o usuário entra; não
+   * basta no chão de fábrica, onde todo mundo da produção usa a MESMA tela e
+   * qualquer um podia empurrar qualquer OP de qualquer etapa.
+   *
+   * A etapa de ORIGEM é que manda: quem entrega é quem terminou o serviço.
+   * Lê os setores do banco a cada movimento, e não do token, para que tirar ou
+   * dar um setor valha na hora — permissão que só entra no próximo login é
+   * permissão que não serve quando mais se precisa dela.
+   *
+   * Sem usuário identificado (rotina interna, script), não trava.
+   */
+  private async exigirSetor(usuarioId: number | undefined, fase: string | null | undefined): Promise<void> {
+    if (!usuarioId) return;
+    const u = await this.prisma.usuario.findUnique({ where: { id: usuarioId }, select: { setoresOp: true } });
+    if (podeMoverFase(u?.setoresOp, fase)) return;
+    throw new ForbiddenException(recadoDeBloqueio(u?.setoresOp, fase));
+  }
+
+  async avancarFaseParcial(id: number, de: string, para: string, grade: Record<string, unknown>, empresaId: number, usuarioId?: number) {
+    await this.exigirSetor(usuarioId, de);
     const op = await this.findOne(id, empresaId);
     const iDe = OpsService.FASES.indexOf(de);
     const iPara = OpsService.FASES.indexOf(para);

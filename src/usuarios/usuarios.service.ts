@@ -80,6 +80,7 @@ export class UsuariosService {
           clienteId,
           cargo: dto.cargo,
           setor: dto.setor,
+          setoresOp: dto.setoresOp ?? [],
           horarioInicio: dto.horarioInicio,
           horarioFim: dto.horarioFim,
           ativo: dto.ativo ?? true,
@@ -124,6 +125,8 @@ export class UsuariosService {
       acesso: dto.acesso,
       cargo: dto.cargo,
       setor: dto.setor,
+      // undefined = nao mexe; lista vazia = tirar todos os setores (sem limite).
+      ...(dto.setoresOp !== undefined ? { setoresOp: { set: dto.setoresOp } } : {}),
       horarioInicio: dto.horarioInicio,
       horarioFim: dto.horarioFim,
       ativo: dto.ativo,
