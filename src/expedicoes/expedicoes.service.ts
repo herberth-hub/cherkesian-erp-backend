@@ -437,12 +437,34 @@ export class ExpedicoesService {
     return exp;
   }
 
-  /** Arquiva a foto do canhoto assinado da NF (base64). */
+  /**
+   * Arquiva o canhoto assinado da NF (base64): FOTO ou PDF.
+   *
+   * A foto é o caso do motorista, que fotografa o canhoto na entrega. O PDF é o
+   * caso da transportadora, que devolve o comprovante digitalizado por e-mail —
+   * e esse não dá para "tirar de novo menor", porque chega pronto de fora.
+   *
+   * O canhoto é prova de entrega, então um PDF tem de ser PDF de verdade: um
+   * arquivo com o rótulo trocado seria arquivado como comprovante e só se
+   * descobriria no dia em que o cliente contestasse a entrega.
+   */
   async salvarCanhoto(id: number, empresaId: number, img: string) {
     await this.garantirExp(id, empresaId);
     const s = (img ?? '').trim();
-    if (!/^data:image\/[a-zA-Z+]+;base64,/.test(s)) throw new BadRequestException('Envie uma imagem (foto do canhoto).');
-    if (s.length > 8_000_000) throw new BadRequestException('Imagem muito grande. Tire a foto com resolução menor (máx ~6 MB).');
+    const ehPdf = s.startsWith('data:application/pdf;base64,');
+    const ehImagem = /^data:image\/[a-zA-Z+]+;base64,/.test(s);
+    if (!ehPdf && !ehImagem) {
+      throw new BadRequestException('Envie uma foto ou um PDF do canhoto assinado.');
+    }
+    if (ehPdf) {
+      if (s.length > 12_000_000) throw new BadRequestException('PDF muito grande (máx ~9 MB). Peça à transportadora um arquivo menor ou envie só a página do canhoto.');
+      const partes = ArquivosService.partesDoDataUri(s);
+      if (!partes || partes.bytes.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        throw new BadRequestException('O arquivo não é um PDF válido.');
+      }
+    } else if (s.length > 8_000_000) {
+      throw new BadRequestException('Imagem muito grande. Tire a foto com resolução menor (máx ~6 MB).');
+    }
     // Com bucket configurado a foto vai para lá e a coluna guarda só a
     // referência; sem bucket, `guardar` devolve o próprio data URI.
     const guardado = await this.arquivos.guardar(s, 'canhotos');
@@ -459,7 +481,15 @@ export class ExpedicoesService {
   async getCanhoto(id: number, empresaId: number) {
     const exp = await this.garantirExp(id, empresaId);
     if (!exp.canhotoImg) throw new NotFoundException('Nenhum canhoto arquivado para esta expedição.');
-    return { img: await this.arquivos.dataUri(exp.canhotoImg), canhotoEm: exp.canhotoEm };
+    const img = await this.arquivos.dataUri(exp.canhotoImg);
+    // A expedição diz que tem canhoto, mas o arquivo não voltou do armazenamento.
+    // Antes isso virava uma imagem quebrada na tela; dizer que sumiu é melhor do
+    // que deixar alguém achar que a prova de entrega está guardada.
+    if (!img) throw new NotFoundException('O canhoto desta expedição está registrado, mas o arquivo não foi encontrado no armazenamento.');
+    // `tipo` poupa a tela de adivinhar pelo prefixo: PDF abre em visualizador,
+    // foto abre como imagem.
+    const tipo = img.startsWith('data:application/pdf') ? 'pdf' : 'imagem';
+    return { img, tipo, canhotoEm: exp.canhotoEm };
   }
 
   async create(dto: CreateExpedicaoDto, empresaId: number): Promise<Expedicao> {

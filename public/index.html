@@ -12115,11 +12115,27 @@ async function estornarExp(id, numero){
   catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 // Canhoto assinado da NF: anexa foto (câmera/arquivo, comprimida) ou visualiza o arquivado.
+// Canhoto assinado: FOTO (motorista fotografa na entrega) ou PDF (a
+// transportadora devolve o comprovante digitalizado por e-mail). Sem `capture`
+// no input: forçar a câmera impediria escolher o PDF que chegou no celular.
 function canhotoExp(id, tem){
   if(tem) return verCanhoto(id);
-  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf';
   inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f) return;
     const rd=new FileReader();
+    // PDF vai inteiro: não dá para redimensionar num canvas como foto, e
+    // recomprimir um comprovante de entrega só pioraria a leitura.
+    if(f.type==='application/pdf' || /\.pdf$/i.test(f.name||'')){
+      rd.onload=async()=>{
+        const data=String(rd.result||'');
+        if(!data.startsWith('data:application/pdf;base64,')) return toast('Arquivo não é um PDF válido.','err');
+        if(data.length>12000000) return toast('PDF muito grande (máx ~9 MB). Peça só a página do canhoto.','err');
+        try{ toast('Enviando canhoto…','ok'); await api('/expedicoes/'+id+'/canhoto',{method:'POST',body:{img:data}}); toast('Canhoto arquivado ✅','ok'); loadRoute(); }
+        catch(e){ toast('Falha: '+(e.message||e),'err'); }
+      };
+      rd.readAsDataURL(f);
+      return;
+    }
     rd.onload=()=>{ const img=new Image();
       img.onload=async()=>{
         const max=1600; let w=img.width,h=img.height;
@@ -12138,10 +12154,19 @@ function canhotoExp(id, tem){
 }
 async function verCanhoto(id){
   try{ const r=await api('/expedicoes/'+id+'/canhoto');
+    const ehPdf = r.tipo==='pdf' || String(r.img||'').startsWith('data:application/pdf');
     const w=abrirJanelaDoc('Canhoto assinado');
+    // PDF do canhoto abre no visualizador do próprio navegador, que já traz
+    // zoom, várias páginas e impressão — <img> mostraria uma caixa quebrada.
+    const corpo = ehPdf
+      ? '<embed src="'+r.img+'" type="application/pdf" style="width:100%;height:calc(100vh - 42px);border:0">'
+      : '<img src="'+r.img+'" style="max-width:100%;height:auto">';
+    const btn = ehPdf
+      ? '<a href="'+r.img+'" download="canhoto.pdf" style="color:#e6c34a">Baixar PDF</a>'
+      : '<button onclick="window.print()">Imprimir</button>';
     w.document.write('<html><head><meta charset=utf-8><title>Canhoto assinado</title></head><body style="margin:0;background:#222;text-align:center">'
-      +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(r.canhotoEm?(' — '+new Date(r.canhotoEm).toLocaleString("pt-BR")):'')+' &nbsp; <button onclick="window.print()">Imprimir</button></div>'
-      +'<img src="'+r.img+'" style="max-width:100%;height:auto"></body></html>'); w.document.close();
+      +'<div style="color:#fff;font-family:Arial;padding:8px;font-size:13px">📎 Canhoto assinado'+(ehPdf?' (PDF)':'')+(r.canhotoEm?(' — '+new Date(r.canhotoEm).toLocaleString("pt-BR")):'')+' &nbsp; '+btn+'</div>'
+      +corpo+'</body></html>'); w.document.close();
   }catch(e){ toast(e.message,'err'); }
 }
 async function viewExpedicao(c){
@@ -12208,7 +12233,7 @@ function renderExpTable(){
     arr.map(e=>[
       `<span class="mono gold">${esc(e.numero)}</span>${e.pedidoNumero?`<div class="muted mono" style="font-size:10px">${esc(e.pedidoNumero)}</div>`:''}`, esc(e.clienteNome||nome[e.clienteId]||('#'+e.clienteId)),
       `${e.pecasConferidas||0}/${e.pecas}`,
-      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar foto do canhoto assinado'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
+      `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">${e.nf?`<span class="mono gold">${esc(e.nf)}</span>`:`<button class="btn-sm" onclick="APP.emitirNfePrompt(${e.id},${e.pecas||1},${e.pedidoId||0})">Emitir NF-e</button><button class="btn-sm" style="color:#1e5aa8;border-color:#bcd3ef" title="NF de Remessa (entrega futura) — usa quando o pedido já foi faturado. Referencia a NF de faturamento, sem nova cobrança." onclick="APP.emitirRemessaFuturaPrompt(${e.id},${e.pecas||1})">🧾 NF Remessa (fut.)</button>`}<button class="btn-sm" style="${e.canhotoEm?'color:#1e7a44':'color:#8a5a00'}" title="${e.canhotoEm?'Ver canhoto assinado arquivado':'Anexar o canhoto assinado — foto ou PDF da transportadora'}" onclick="APP.canhotoExp(${e.id},${e.canhotoEm?1:0})">📎 ${e.canhotoEm?'Canhoto ✓':'Anexar canhoto'}</button></div>`,
       confPill(e.conferenciaStatus),
       (e.dataSaida?dfmtL(e.dataSaida):'<span class="muted">—</span>')+expRastreioCel(e),
       `<button class="btn-sm" onclick="APP.formConferencia(${e.id})">✅ Conferir/Despachar</button> <button class="btn-sm" onclick="APP.formCaixas(${e.id})">📦 Caixas</button> <button class="btn-sm" onclick="APP.etiquetaExpedicaoPrompt(${e.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.gerarDoc('romaneio',${e.id})">Romaneio 🖨</button> <button class="btn-sm"${e.nf?'':' style="color:#8a5a00;font-weight:700"'} title="${e.nf?'Declaração do conteúdo desta remessa (conferência do cliente)':'Sai sem NF — este é o papel que vai com a carga para o cliente conferir'}" onclick="APP.gerarDoc('declaracao_conteudo',${e.id})">📄 Declaração</button> <button class="btn-sm" title="Informar/corrigir o código de rastreio do transportador" onclick="APP.expRastreioForm(${e.id})">📦 ${e.rastreioTransp?'Rastreio ✓':'Rastreio'}</button>${e.cobrancaPendente?` <button class="btn-sm" style="color:#fff;background:#B3372B;border-color:#B3372B" title="Saiu sem NF e sem título em contas a receber — lance a cobrança" onclick="APP.expCobrancaForm(${e.id})">💸 Lançar cobrança</button>`:''}${e.conferenciaStatus!=='despachado'?` <button class="btn-sm" style="color:#c14a34" title="Voltar a operação pro pedido de venda (p/ reexpedir parcial)" onclick="APP.estornarExp(${e.id},'${esc(e.numero)}')">↩ Voltar p/ pedido</button>`:''}`
