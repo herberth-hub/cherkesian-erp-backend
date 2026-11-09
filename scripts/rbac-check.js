@@ -89,6 +89,36 @@ for (const perfil of Object.keys(ACESSO_AREAS)) {
   if (!(perfil in ACCESS)) problemas.push(`perfil "${perfil}" existe no backend e não no ACCESS do frontend`);
 }
 
+// 6) O SENTIDO INVERSO: menu esconde, API entrega.
+//
+// O check 4 prova que o menu não promete tela que a API nega — isso evita o
+// usuário levar "acesso negado" na cara. Mas o furo perigoso é o contrário:
+// a tela não aparece no menu e MESMO ASSIM a API responde a quem chamar a URL.
+// Foi exatamente o caso do Painel do Diretor, que mostra faturamento do mês e
+// inadimplência: escondido de comercial, produção e expedição no menu, e aberto
+// para todos eles na API, porque exigia só a área `dashboard`.
+//
+// Esconder no menu NÃO é controle de acesso — é arrumação de tela. Quem precisa
+// barrar é a área. Aqui a tela escondida cuja API ainda atende vira AVISO (nem
+// sempre é erro: um endpoint pode servir legitimamente a outra tela que o perfil
+// tem), com destaque para as telas de dinheiro, onde é quase sempre erro.
+const TELAS_SENSIVEIS = new Set(['diretoria', 'bi', 'receber', 'pagar', 'fluxo', 'impostos', 'banco', 'comissoes', 'rh', 'usuarios', 'logs']);
+for (const [perfil, rotas] of Object.entries(ACCESS)) {
+  if (rotas === '*') continue;
+  const areasDoPerfil = ACESSO_AREAS[perfil];
+  if (!areasDoPerfil || areasDoPerfil === '*') continue;
+  const temNoMenu = new Set(rotas);
+  for (const r of rotasDoMenu) {
+    if (temNoMenu.has(r)) continue;
+    const exige = ROTA_AREAS[r];
+    if (!exige) continue; // tela local, sem API
+    if (!exige.some((a) => areasDoPerfil.includes(a))) continue; // API nega: ok
+    const msg = `${perfil}: menu ESCONDE "${r}", mas a API aceita (exige [${exige.join('|')}], perfil tem essa área)`;
+    if (TELAS_SENSIVEIS.has(r)) problemas.push(msg + ' — tela sensível');
+    else avisos.push(msg);
+  }
+}
+
 // ---- --mapa: o menu real de cada perfil, família por família ----
 if (process.argv.includes('--mapa')) {
   const SIGLA = literal('NAV_SIGLA', '{', '}');

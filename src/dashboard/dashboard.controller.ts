@@ -20,13 +20,24 @@ export class DashboardController {
     return this.dashboardService.kpis(user.empresaId, user.acesso, user);
   }
 
-  /** Painel do Diretor: índices (0–100) por pilar da empresa. */
+  /**
+   * Painel do Diretor: índices (0–100) por pilar da empresa.
+   *
+   * Área `diretoria`, NÃO `dashboard`: o pilar Faturamento traz faturado no mês,
+   * mês anterior, a receber em aberto e inadimplência em reais, e o de Pedidos
+   * traz ticket médio e pipeline. O menu já não oferecia esta tela ao comercial,
+   * à produção e à expedição — mas o endpoint aceitava qualquer um com
+   * `dashboard`, que é quase todo mundo. Quem soubesse a URL via tudo.
+   */
+  @Areas('diretoria')
   @Get('indices')
   indices(@CurrentUser() user: AuthUser) {
     return this.dashboardService.indices(user.empresaId);
   }
 
-  /** Mapa mental de causa raiz de um pilar (drill-down até o registro). */
+  /** Mapa mental de causa raiz de um pilar (drill-down até o registro).
+   *  Mesma área do painel: o drill de Faturamento desce até o título em aberto. */
+  @Areas('diretoria')
   @Get('drill')
   drill(@CurrentUser() user: AuthUser, @Query('pilar') pilar: string) {
     return this.dashboardService.drill(user.empresaId, pilar || '');

@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { Acesso } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
 
 const H = 3_600_000; // ms por hora
 
@@ -8,7 +10,8 @@ export class BiService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** BI de produtividade da cadeia produtiva (corte → facção → retorno → expedição). */
-  async producao(empresaId: number) {
+  async producao(empresaId: number, acesso: Acesso) {
+    const verDinheiro = podeVerDinheiroDaEmpresa(acesso);
     const [pedidos, ops, kits, filiais, notas] = await Promise.all([
       this.prisma.pedido.findMany({ where: { empresaId }, select: { etapa: true, valorTotal: true, filialId: true, prazoEntrega: true } }),
       this.prisma.oP.findMany({ where: { pedido: { empresaId } }, select: { status: true, quantidade: true, entregaPrev: true } }),
@@ -106,8 +109,16 @@ export class BiService {
       porModelo,
       porTamanho: tamMap,
       atrasos: { opsAtrasadas, pedidosAtrasados },
-      faturamentoVsProducao,
-      produtividadeMensal: meses,
+      // O BI é de PRODUTIVIDADE, e a consultoria externa depende dele. Mas duas
+      // séries dele são dinheiro da empresa: faturamento por CNPJ e faturamento
+      // mês a mês. Para quem não tem visão financeira, saem as peças e some o R$
+      // — a leitura de produtividade continua inteira, o retrato financeiro não.
+      faturamentoVsProducao: verDinheiro
+        ? faturamentoVsProducao
+        : faturamentoVsProducao.map(({ faturamentoNfe: _f, ...resto }) => resto),
+      produtividadeMensal: verDinheiro
+        ? meses
+        : meses.map(({ faturamento: _f, ...resto }) => resto),
       observacao: 'Indicadores calculados a partir de pedidos, OPs, kits e NF-e. Quanto mais o fluxo de kits for usado, mais preciso o lead time por etapa.',
     };
   }

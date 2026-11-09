@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Acesso } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../auth/auth.types';
-import { Area, perfilPodeAcessar } from '../common/rbac/acesso.config';
+import { Area, perfilPodeAcessar, podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { RhService } from '../rh/rh.service';
@@ -312,6 +312,7 @@ export class AgenteService {
 
   // ===== Registro de ferramentas (consultas + ações) =====
   private montarFerramentas(user: AuthUser, propostas: PropostaAcao[]): Ferramenta[] {
+    const verDinheiro = podeVerDinheiroDaEmpresa(user.acesso);
     const acao = (
       name: keyof typeof ACOES_AREAS,
       def: Anthropic.Tool,
@@ -339,8 +340,17 @@ export class AgenteService {
       // ===== CONSULTAS =====
       {
         areas: ['dashboard'],
-        def: { name: 'consultar_dashboard', description: 'Visão geral: pedidos por etapa, OPs por status, total a receber em aberto, títulos vencidos e materiais abaixo do mínimo.', input_schema: { type: 'object', properties: {} } },
-        run: (empresaId) => this.dashboard(empresaId),
+        // A descrição muda com o perfil DE PROPÓSITO: é ela que o modelo lê para
+        // decidir se usa a ferramenta. Prometer "total a receber" a quem não pode
+        // ver faria o assistente oferecer um número que depois não vem.
+        def: {
+          name: 'consultar_dashboard',
+          description: verDinheiro
+            ? 'Visão geral: pedidos por etapa, OPs por status, total a receber em aberto, títulos vencidos e materiais abaixo do mínimo.'
+            : 'Visão geral operacional: pedidos por etapa, OPs por status e materiais abaixo do mínimo. NÃO traz valores financeiros.',
+          input_schema: { type: 'object', properties: {} },
+        },
+        run: (empresaId) => this.dashboard(empresaId, verDinheiro),
       },
       {
         areas: ['vendas'],
@@ -522,7 +532,10 @@ export class AgenteService {
   }
 
   // ===== Consultas (leitura) =====
-  private async dashboard(empresaId: number) {
+  /** `verDinheiro` false: devolve só a leitura operacional. O assistente é um
+   *  caminho de leitura como qualquer outro — se o número não pode aparecer na
+   *  tela, também não pode sair daqui numa conversa. */
+  private async dashboard(empresaId: number, verDinheiro: boolean) {
     const [pedidos, ops, receber, materiais] = await Promise.all([
       this.prisma.pedido.groupBy({ by: ['etapa'], where: { empresaId }, _count: { _all: true } }),
       this.prisma.oP.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -535,8 +548,12 @@ export class AgenteService {
     return {
       pedidos_por_etapa: Object.fromEntries(pedidos.map((p) => [p.etapa, p._count._all])),
       ordens_producao_por_status: Object.fromEntries(ops.map((o) => [o.status, o._count._all])),
-      contas_a_receber_em_aberto: Number(receberAberto.toFixed(2)),
-      titulos_a_receber_vencidos: receber.filter((c) => c.vencimento < hoje).length,
+      ...(verDinheiro
+        ? {
+            contas_a_receber_em_aberto: Number(receberAberto.toFixed(2)),
+            titulos_a_receber_vencidos: receber.filter((c) => c.vencimento < hoje).length,
+          }
+        : {}),
       materiais_abaixo_do_minimo: abaixoMinimo,
     };
   }

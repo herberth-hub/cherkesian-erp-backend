@@ -10,8 +10,13 @@ import { AuthUser } from '../../auth/auth.types';
  *
  * Mexe em dinheiro (dá baixa em título), então fica atrás das áreas do
  * financeiro — quem só emite nota ou movimenta estoque não concilia banco.
+ *
+ * SEM `receber`: o comercial tem essa área para acompanhar a cobrança da
+ * carteira dele, e com ela estava entrando AQUI — lendo o extrato da conta da
+ * empresa inteira, entrada por entrada. O menu escondia a Conciliação dele, mas
+ * esconder no menu não barra quem chama a URL. Caixa da empresa é `pagar`/`fluxo`.
  */
-@Areas('receber', 'pagar', 'fluxo')
+@Areas('pagar', 'fluxo')
 @Controller('bancos/extrato')
 export class ExtratoController {
   constructor(private readonly extrato: ExtratoService) {}

@@ -340,13 +340,16 @@ const ACCESS = {
  * Rota ausente = tela sem chamada protegida (ex.: Categorias & Regras, local).
  */
 const ROTA_AREAS = {
-  dashboard:['dashboard'], diretoria:['dashboard'], bi:['dashboard'], tv:['dashboard','tv'], agente:['dashboard'],
+  // Painel do Diretor exige a área PRÓPRIA `diretoria`, não `dashboard`: ele mostra
+  // faturamento do mês, inadimplência, ticket e pipeline em reais. Enquanto a área
+  // era `dashboard`, só o menu escondia a tela — a API atendia qualquer perfil.
+  dashboard:['dashboard'], diretoria:['diretoria'], bi:['bi'], tv:['dashboard','tv'], agente:['dashboard'],
   vendas:['vendas'], crm:['crm'], anomalias:['anomalias'], contratos:['vendas','clientes'],
   clientes:['clientes','cadastros'], representantes:['clientes','cadastros'], medidas:['medidas'],
   comissoes:['comissoes'], precificacao:['cadastros','vendas'],
   pcp:['pcp'], producao:['pcp','producao'], kits:['pcp','producao','expedicao','estoque'], piloto:['piloto'], compras:['compras'],
   estoque:['estoque'], expedicao:['expedicao'], notas:['vendas','expedicao','receber'], entrada:['compras'],
-  receber:['receber'], pagar:['pagar'], banco:['receber','pagar','fluxo'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
+  receber:['receber'], pagar:['pagar'], banco:['pagar','fluxo'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
   sgq:['dashboard','tv','producao','estoque','expedicao','vendas','rh','pcp','usuarios'],
   produtos:['cadastros','vendas'], engenharia:['cadastros'], materia:['cadastros','estoque','compras'],
   aviamentos:['cadastros','estoque','compras'], fornecedores:['cadastros','compras'],

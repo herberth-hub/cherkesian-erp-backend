@@ -8,6 +8,16 @@ import { Acesso } from '@prisma/client';
 export type Area =
   | 'dashboard'
   | 'tv'
+  // DINHEIRO DA EMPRESA: faturamento, margem, inadimplência, caixa — o retrato
+  // financeiro do negócio inteiro, não o valor de um pedido. Fica com o dono e
+  // com quem toca contas a pagar/receber. Precisa ser área PRÓPRIA porque não dá
+  // para derivar de `receber`: o comercial tem `receber` (acompanha a cobrança da
+  // carteira dele) e ainda assim não vê o faturamento da empresa.
+  | 'diretoria'
+  // BI de produtividade: leitura analítica da cadeia produtiva. Área própria
+  // porque o menu só oferece a tela ao dono e à consultoria externa — enquanto
+  // dependia de `dashboard`, a API também atendia produção, expedição e comercial.
+  | 'bi'
   | 'vendas'
   | 'crm'
   | 'clientes'
@@ -74,10 +84,11 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
   producao: ['pcp', 'producao', 'piloto', 'compras', 'estoque', 'medidas', 'cadastros', 'dashboard', 'tv'],
   chao: ['tv', 'producao', 'piloto', 'estoque'],
   expedicao: ['dashboard', 'tv', 'estoque', 'expedicao', 'anomalias'],
-  financeiro: ['dashboard', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh', 'anomalias'],
+  financeiro: ['dashboard', 'diretoria', 'tv', 'receber', 'pagar', 'fluxo', 'impostos', 'comissoes', 'rh', 'anomalias'],
   // Contabilidade: leitura de tudo que gera relatório fiscal/financeiro + NF-e + RH.
   contabilidade: [
     'dashboard',
+    'diretoria',
     'tv',
     'receber',
     'pagar',
@@ -96,6 +107,7 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
   // SEM `comissoes`: a consultoria não enxerga quanto a casa paga de comissão.
   consultoria: [
     'dashboard',
+    'bi',
     'tv',
     'pcp',
     'producao',
@@ -115,4 +127,20 @@ export function perfilPodeAcessar(acesso: Acesso, area: Area): boolean {
   const areas = ACESSO_AREAS[acesso];
   if (areas === ALL_AREAS) return true;
   return areas.includes(area);
+}
+
+/**
+ * O perfil pode ver O DINHEIRO DA EMPRESA?
+ *
+ * Isto é: faturamento, margem, caixa, inadimplência, curva ABC — o retrato
+ * financeiro do negócio. NÃO é o valor de um pedido: o comercial precisa saber
+ * quanto custa o que ele está vendendo, e isso continua liberado.
+ *
+ * Existe como função única porque a regra estava repetida à mão em cada tela
+ * que mostra dinheiro, e regra copiada é regra que um dia diverge — bastava
+ * esquecer um lugar para o faturamento vazar por ali. Quem responde "sim" é
+ * quem tem a área `diretoria`: o dono e quem toca contas a pagar/receber.
+ */
+export function podeVerDinheiroDaEmpresa(acesso: Acesso): boolean {
+  return perfilPodeAcessar(acesso, 'diretoria');
 }

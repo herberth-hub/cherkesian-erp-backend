@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Acesso, Prisma } from '@prisma/client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { AuthUser } from '../auth/auth.types';
 import { escopoCarteira } from '../common/rbac/carteira';
+import { podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
 
 /** Conta ocorrências de uma chave num array (ex.: etapas de pedido). */
 function contar<T extends string>(itens: { [k: string]: unknown }[], campo: string): Record<T, number> {
@@ -220,7 +221,9 @@ export class DashboardService {
 
     // ===== Visibilidade financeira por perfil =====
     const admin = acesso === 'total';
-    const verFinanceiro = admin || acesso === 'financeiro' || acesso === 'contabilidade';
+    // Mesma regra do resto do sistema, de uma fonte só: regra copiada é regra
+    // que um dia diverge, e aqui divergir significa faturamento vazando.
+    const verFinanceiro = !!acesso && podeVerDinheiroDaEmpresa(acesso as Acesso);
 
     // ===== Cobrar / Pagar HOJE: títulos VENCIDOS + que VENCEM HOJE (ação imediata) =====
     // Só para perfis financeiros. Diz "a quem cobrar" (a receber) e "a quem pagar" (a pagar).
