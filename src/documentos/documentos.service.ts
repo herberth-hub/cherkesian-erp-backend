@@ -1044,7 +1044,7 @@ export class DocumentosService {
   private async pdfCompra(ocId: number, empresaId: number, numero: string): Promise<Pdf> {
     const oc = await this.prisma.ordemCompra.findUnique({
       where: { id: ocId },
-      include: { fornecedor: true },
+      include: { fornecedor: true, itens: { orderBy: [{ ordem: 'asc' }, { id: 'asc' }] } },
     });
     if (!oc || oc.fornecedor.empresaId !== empresaId) {
       throw new NotFoundException(`Ordem de compra ${ocId} não encontrada.`);
@@ -1089,7 +1089,43 @@ export class DocumentosService {
     // Título de seção compacto (sublinhado dourado).
     const tituloSecao = (t: string) => { doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(9).text(t.toUpperCase(), X, doc.y, { characterSpacing: 0.5 }); doc.moveTo(X, doc.y + 2).lineTo(W - X, doc.y + 2).lineWidth(0.6).strokeColor(LINHA).stroke(); doc.moveDown(0.6); doc.fillColor(TINTA); };
 
-    // ===== ITEM =====
+    // ===== ITENS (várias linhas numa ordem só) =====
+    const itens = (oc as unknown as { itens?: Array<{ descricao: string; codigoFornecedor: string | null; quantidade: unknown; unidade: string; valorUnit: unknown; valor: unknown }> }).itens ?? [];
+    if (itens.length) {
+      tituloSecao(`Itens (${itens.length})`);
+      const colsW = [CW - 300, 90, 95, 115];
+      const ty0 = doc.y + 2;
+      // Cabeçalho da tabela
+      doc.rect(X, ty0, CW, 18).fillColor('#f2eee2').fill();
+      const th = (i: number, t: string, alinha: 'left' | 'right' = 'left') => {
+        const cx = X + colsW.slice(0, i).reduce((s, w) => s + w, 0);
+        doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(7.5).text(t, cx + 8, ty0 + 6, { width: colsW[i] - 16, align: alinha });
+      };
+      th(0, 'DESCRIÇÃO'); th(1, 'QTD', 'right'); th(2, 'VALOR UNIT.', 'right'); th(3, 'TOTAL', 'right');
+      let ly = ty0 + 18;
+      for (const it of itens) {
+        const desc = it.codigoFornecedor ? `${it.descricao}\n${it.codigoFornecedor}` : it.descricao;
+        const hL = doc.font('Helvetica-Bold').fontSize(9.5).heightOfString(it.descricao, { width: colsW[0] - 16 })
+          + (it.codigoFornecedor ? 10 : 0);
+        const linhaH = Math.max(22, hL + 10);
+        if (ly + linhaH > doc.page.height - 90) { doc.addPage(); ly = 60; }
+        doc.moveTo(X, ly).lineTo(X + CW, ly).lineWidth(0.5).strokeColor(LINHA).stroke();
+        const td = (i: number, t: string, neg = false, alinha: 'left' | 'right' = 'left') => {
+          const cx = X + colsW.slice(0, i).reduce((s, w) => s + w, 0);
+          doc.fillColor(TINTA).font(neg ? 'Helvetica-Bold' : 'Helvetica').fontSize(9.5).text(t, cx + 8, ly + 6, { width: colsW[i] - 16, align: alinha });
+        };
+        doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9.5).text(it.descricao, X + 8, ly + 6, { width: colsW[0] - 16 });
+        if (it.codigoFornecedor) doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(`cód. no fornecedor: ${it.codigoFornecedor}`, X + 8, ly + 6 + hL - 8, { width: colsW[0] - 16 });
+        td(1, `${this.qtdBR(it.quantidade as never)} ${it.unidade}`, false, 'right');
+        td(2, money(Number(it.valorUnit)), false, 'right');
+        td(3, money(Number(it.valor)), true, 'right');
+        ly += linhaH;
+      }
+      doc.moveTo(X, ly).lineTo(X + CW, ly).lineWidth(0.8).strokeColor(LINHA).stroke();
+      doc.y = ly + 12; doc.x = X;
+    } else {
+
+    // ===== ITEM ÚNICO (ordem de uma linha só) =====
     tituloSecao('Item');
     const grade = (oc.grade && typeof oc.grade === 'object') ? (oc.grade as Record<string, number>) : null;
     const linhaForn = [oc.codigoFornecedor ? oc.codigoFornecedor : '', oc.descricaoFornecedor ? oc.descricaoFornecedor : ''].filter(Boolean).join('  ·  ');
@@ -1121,6 +1157,7 @@ export class DocumentosService {
     const cell = (i: number, lab: string, valTxt: string) => { const cx = X + i * col; doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(lab, cx + 10, ry + 4); doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11).text(valTxt, cx + 10, ry + 13); if (i > 0) doc.moveTo(cx, ry + 3).lineTo(cx, ry + 23).lineWidth(0.5).strokeColor(LINHA).stroke(); };
     cell(0, 'QUANTIDADE', `${this.qtdBR(oc.quantidade)} ${oc.unidade}`); cell(1, 'VALOR UNIT.', money(valorUnit)); cell(2, 'TOTAL DO ITEM', money(oc.valor));
     doc.y = ry + 26 + 12; doc.x = X;
+    } // fim do item único
 
     // Valor do pedido — barra azul-marinho.
     const ty = doc.y; doc.roundedRect(X, ty, CW, 34, 8).fillColor(NAVY).fill();

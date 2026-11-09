@@ -8418,14 +8418,64 @@ async function viewCompras(c){
   const [list, forn] = await Promise.all([api('/ordens-compra'), api('/fornecedores')]);
   const nome={}, tel={}; forn.forEach(f=>{ nome[f.id]=f.nome; tel[f.id]=f.telefone||''; });
   window.__OCLIST=list; window.__OCFORN=forn;
-  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()', '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'+relBtn('compras')) + panelTable(
-    ['Número','Fornecedor','Descrição','Qtd','Valor','Situação','Ações'],
+  c.innerHTML = toolbar('Ordens de compra', 'Nova OC', 'APP.formCompra()',
+      '<button class="btn-ghost" title="Materiais abaixo do mínimo → gerar OC de reposição" onclick="APP.formReposicao()">🔁 Reposição (déficit)</button>'
+      +'<button class="btn-ghost" id="oc_unif_btn" style="display:none" onclick="APP.ocUnificar()">🧷 Unificar selecionadas</button>'
+      +relBtn('compras'))
+    + `<div class="muted" style="font-size:11px;margin:-4px 0 8px">Marque duas ou mais ordens <b>do mesmo fornecedor</b> que ainda não foram enviadas para juntar tudo num documento só.</div>`
+    + panelTable(
+    ['','Número','Fornecedor','Descrição','Qtd','Valor','Situação','Ações'],
     list.map(o=>[
-      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)), esc(o.descricao)+((o.codigoFornecedor||o.descricaoFornecedor)?`<div class="muted" style="font-size:10px">🏭 no fornecedor: ${o.codigoFornecedor?('<b>'+esc(o.codigoFornecedor)+'</b>'):''}${o.descricaoFornecedor?(' · '+esc(o.descricaoFornecedor)):''}</div>`:'')+((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:''),
+      // Só o que ainda não andou pode ser unificado — ordem enviada o fornecedor já viu.
+      (o.status==='aguardando' && !o.enviadaEm)
+        ? `<input type="checkbox" class="oc-sel" value="${o.id}" data-forn="${o.fornecedorId}" onchange="APP.ocSelMudou()" title="Selecionar para unificar">`
+        : '',
+      `<span class="mono gold">${esc(o.numero)}</span>`, esc(nome[o.fornecedorId]||('#'+o.fornecedorId)),
+      ocDescricaoHtml(o),
       esc(o.quantidade)+' '+esc(o.unidade), money(o.valor),
       ocSitPill(o)+(o.recebidaViaNf?`<div class="muted" style="font-size:9px;margin-top:2px">📥 NF ${esc(o.recebidaViaNf)}</div>`:''),
       ocAcoes(o, tel[o.fornecedorId])
     ]), list.length?null:'Nenhuma ordem de compra.');
+}
+/** Descrição da OC: com itens, abre as linhas; sem itens, é o item único de sempre. */
+function ocDescricaoHtml(o){
+  if(o.itens && o.itens.length){
+    const linhas=o.itens.map(i=>`<div style="display:flex;gap:8px;justify-content:space-between;font-size:11px;padding:1px 0">
+      <span>• ${esc(i.descricao)}</span>
+      <span class="muted" style="white-space:nowrap">${esc(i.quantidade)} ${esc(i.unidade)} × ${money(i.valorUnit)} = <b>${money(i.valor)}</b></span></div>`).join('');
+    return `<div style="font-weight:700;font-size:11.5px;margin-bottom:2px">${o.itens.length} itens</div>${linhas}`;
+  }
+  return esc(o.descricao)
+    +((o.codigoFornecedor||o.descricaoFornecedor)?`<div class="muted" style="font-size:10px">🏭 no fornecedor: ${o.codigoFornecedor?('<b>'+esc(o.codigoFornecedor)+'</b>'):''}${o.descricaoFornecedor?(' · '+esc(o.descricaoFornecedor)):''}</div>`:'')
+    +((o.grade&&typeof o.grade==='object'&&Object.keys(o.grade).length)?`<div class="muted" style="font-size:10px">🏷️ ${Object.entries(o.grade).map(([t,q])=>esc(t)+':'+q).join(' · ')}</div>`:'');
+}
+/** Mostra o botão de unificar só quando dá: 2+ marcadas, todas do mesmo fornecedor. */
+function ocSelMudou(){
+  const sel=[...document.querySelectorAll('.oc-sel:checked')];
+  const btn=$('oc_unif_btn'); if(!btn) return;
+  const forns=new Set(sel.map(i=>i.dataset.forn));
+  const pode = sel.length>=2 && forns.size===1;
+  btn.style.display = sel.length>=2 ? '' : 'none';
+  btn.disabled = !pode;
+  btn.textContent = pode ? `🧷 Unificar ${sel.length} ordens` : '🧷 Fornecedores diferentes';
+  btn.style.opacity = pode ? '' : '.55';
+}
+/** Junta as ordens marcadas numa só, com vários itens. */
+async function ocUnificar(){
+  const ids=[...document.querySelectorAll('.oc-sel:checked')].map(i=>Number(i.value));
+  if(ids.length<2){ toast('Marque ao menos 2 ordens.','err'); return; }
+  const lista=(window.__OCLIST||[]).filter(o=>ids.includes(o.id));
+  const total=lista.reduce((s,o)=>s+Number(o.valor||0),0);
+  const ok=await uiConfirm({tipo:'info', titulo:'Unificar '+ids.length+' ordens numa só?', ok:'Unificar', cancel:'Cancelar',
+    msg:lista.map(o=>'• '+o.numero+' — '+o.descricao).join('\n')
+      +'\n\nVira UMA ordem com '+ids.length+' itens, no total de '+money(total)+'.'
+      +'\nAs originais são CANCELADAS apontando para a nova — nada é apagado, e o histórico continua legível.'});
+  if(!ok) return;
+  try{
+    const nova=await api('/ordens-compra/unificar',{method:'POST',body:{ids}});
+    toast('Unificadas em '+nova.numero+' · '+(nova.itens?nova.itens.length:ids.length)+' itens · '+money(nova.valor),'ok');
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 // Badge da situação do ciclo de compra + previsão/lead time.
 function ocSitPill(o){
@@ -16693,7 +16743,7 @@ window.APP = {
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
-  formCompra, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
+  formCompra, ocDescricaoHtml, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBuscaNoBanco, estRecarregar, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,

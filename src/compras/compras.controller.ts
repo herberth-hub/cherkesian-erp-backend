@@ -42,6 +42,17 @@ export class ComprasController {
     return this.comprasService.create(dto, user.empresaId);
   }
 
+  /**
+   * UNIFICA várias ordens do mesmo fornecedor numa só, com vários itens.
+   * As originais são canceladas (não apagadas), apontando para a nova.
+   * Declarado ANTES de ':id/...' p/ não ser capturado pelo ParseIntPipe.
+   */
+  @Post('unificar')
+  @HttpCode(HttpStatus.CREATED)
+  unificar(@Body() body: { ids?: number[] }, @CurrentUser() user: AuthUser) {
+    return this.comprasService.unificar(body?.ids ?? [], user.empresaId);
+  }
+
   /** Gera OCs sugeridas do tecido/insumo faltante (demanda em aberto x estoque). */
   @Post('sugerir-tecido')
   @HttpCode(HttpStatus.CREATED)

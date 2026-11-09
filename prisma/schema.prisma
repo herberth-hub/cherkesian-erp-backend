@@ -708,6 +708,7 @@ model Produto {
   icmsAliquota    Decimal? @db.Decimal(5,2)
 
   contratoItens   ContratoItem[]
+  ordemCompraItens OrdemCompraItem[]
 }
 
 model ProdutoMedida { // Tabela de medidas da ficha técnica — 1 linha por medida, valores por tamanho
@@ -773,6 +774,7 @@ model Material {
   // por engano. As telas de cadastro continuam mostrando, com selo e botão.
   ativo     Boolean  @default(true)
   consumo   Consumo[]
+  ordemCompraItens OrdemCompraItem[]
 }
 
 model Consumo { // BOM — receita por peça
@@ -965,6 +967,36 @@ model OrdemCompra {
   notaEntradaId Int?
   notaEntrada   NotaEntrada? @relation(fields: [notaEntradaId], references: [id])
   recebidaEm    DateTime?
+  // ===== VÁRIOS ITENS NUMA ORDEM SÓ =====
+  // A OC nasceu com um item só, então comprar duas cores do mesmo zíper virava
+  // duas ordens — dois documentos para o mesmo fornecedor, na mesma compra.
+  // Com itens, os campos acima viram o RESUMO da ordem (descrição, quantidade e
+  // valor TOTAIS), e cada linha fica aqui. OC sem item nenhum continua sendo a
+  // ordem de item único de sempre — é assim que as antigas seguem funcionando.
+  itens        OrdemCompraItem[]
+}
+
+// Uma linha da ordem de compra: material (ou produto de revenda), quantidade e preço.
+model OrdemCompraItem {
+  id            Int         @id @default(autoincrement())
+  ordemCompraId Int
+  ordemCompra   OrdemCompra @relation(fields: [ordemCompraId], references: [id], onDelete: Cascade)
+  materialId    Int?
+  material      Material?   @relation(fields: [materialId], references: [id])
+  produtoId     Int?
+  produto       Produto?    @relation(fields: [produtoId], references: [id])
+  descricao     String
+  // Como o FORNECEDOR chama e codifica o item — é o que ele lê para separar.
+  codigoFornecedor    String?
+  descricaoFornecedor String?
+  grade         Json?       // compra por tamanho: { "36":10, "38":8, ... }
+  quantidade    Decimal     @db.Decimal(12,3)
+  unidade       String
+  valorUnit     Decimal     @db.Decimal(12,4) // preço unitário (4 casas: R$ 1,215 do PIX cabe)
+  valor         Decimal     @db.Decimal(12,2) // total da linha
+  ordem         Int         @default(0)       // ordem de exibição no documento
+  @@index([ordemCompraId])
+  @@index([materialId])
 }
 
 model Estoque {

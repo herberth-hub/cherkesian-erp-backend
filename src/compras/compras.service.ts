@@ -4,14 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Material, OrdemCompra, Prisma } from '@prisma/client';
+import { Material, OrdemCompra, OrdemCompraItem, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateOrdemCompraDto } from './dto/create-ordem-compra.dto';
+import { CreateOrdemCompraDto, OrdemCompraItemDto } from './dto/create-ordem-compra.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
 @Injectable()
 export class ComprasService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Os itens sempre saem na mesma ordem em que foram lançados. */
+  private static readonly INCLUI_ITENS = { orderBy: [{ ordem: 'asc' as const }, { id: 'asc' as const }] };
 
   async findAll(empresaId: number) {
     const ocs = await this.prisma.ordemCompra.findMany({
@@ -20,6 +23,7 @@ export class ComprasService {
       include: {
         fornecedor: { select: { nome: true } },
         notaEntrada: { select: { numero: true } },
+        itens: ComprasService.INCLUI_ITENS,
       },
     });
     // Sinaliza quando a baixa veio de uma NF de entrada (necessidade × compra).
@@ -29,12 +33,32 @@ export class ComprasService {
   async findOne(id: number, empresaId: number): Promise<OrdemCompra> {
     const oc = await this.prisma.ordemCompra.findUnique({
       where: { id },
-      include: { fornecedor: { select: { empresaId: true, nome: true } } },
+      include: {
+        fornecedor: { select: { empresaId: true, nome: true } },
+        itens: ComprasService.INCLUI_ITENS,
+      },
     });
     if (!oc || oc.fornecedor.empresaId !== empresaId) {
       throw new NotFoundException(`Ordem de compra ${id} não encontrada.`);
     }
     return oc;
+  }
+
+  /**
+   * Os materiais que a ordem vai repor, com a quantidade de cada um.
+   *
+   * Ordem de item único: é o par (materialId, quantidade) do cabeçalho.
+   * Ordem com itens: uma entrada por linha — e é por isso que a baixa do
+   * recebimento precisa passar por aqui, e não pelo cabeçalho, que agora é só o
+   * total.
+   */
+  private materiaisDaOrdem(oc: OrdemCompra & { itens?: OrdemCompraItem[] }): Array<{ materialId: number; quantidade: Prisma.Decimal }> {
+    if (oc.itens?.length) {
+      return oc.itens
+        .filter((i): i is OrdemCompraItem & { materialId: number } => i.materialId != null)
+        .map((i) => ({ materialId: i.materialId, quantidade: i.quantidade }));
+    }
+    return oc.materialId != null ? [{ materialId: oc.materialId, quantidade: oc.quantidade }] : [];
   }
 
   async create(dto: CreateOrdemCompraDto, empresaId: number): Promise<OrdemCompra> {
@@ -66,6 +90,35 @@ export class ComprasService {
     }
 
     const numero = await this.gerarNumero();
+
+    // ===== ORDEM COM VÁRIOS ITENS =====
+    if (dto.itens?.length) {
+      const itens = await this.prepararItens(dto.itens, empresaId);
+      const resumo = this.resumoDosItens(itens);
+      return this.prisma.ordemCompra.create({
+        data: {
+          numero,
+          fornecedorId: dto.fornecedorId,
+          filialId: dto.filialId,
+          // O cabeçalho vira o RESUMO: material/produto ficam nos itens, e quem
+          // precisa saber o que a ordem repõe usa `materiaisDaOrdem`.
+          materialId: null,
+          produtoId: null,
+          codigoFornecedor: dto.codigoFornecedor?.trim() || null,
+          descricaoFornecedor: dto.descricaoFornecedor?.trim() || null,
+          descricao: resumo.descricao,
+          quantidade: resumo.quantidade,
+          unidade: resumo.unidade,
+          valor: resumo.valor,
+          status: 'aguardando',
+          previsao: dto.previsao ? new Date(dto.previsao) : undefined,
+          motivo: dto.motivo,
+          itens: { create: itens },
+        },
+        include: { itens: ComprasService.INCLUI_ITENS },
+      });
+    }
+
     return this.prisma.ordemCompra.create({
       data: {
         numero,
@@ -87,6 +140,66 @@ export class ComprasService {
     });
   }
 
+  /** Valida cada linha (material/produto da empresa) e calcula o total dela. */
+  private async prepararItens(itens: OrdemCompraItemDto[], empresaId: number) {
+    const matIds = [...new Set(itens.map((i) => i.materialId).filter((x): x is number => x != null))];
+    const prodIds = [...new Set(itens.map((i) => i.produtoId).filter((x): x is number => x != null))];
+    const vazio: Array<{ id: number; empresaId: number }> = [];
+    const [mats, prods] = await Promise.all([
+      matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, empresaId: true } }) : vazio,
+      prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, empresaId: true } }) : vazio,
+    ]);
+    const mOk = new Set(mats.filter((m) => m.empresaId === empresaId).map((m) => m.id));
+    const pOk = new Set(prods.filter((p) => p.empresaId === empresaId).map((p) => p.id));
+    for (const id of matIds) if (!mOk.has(id)) throw new NotFoundException(`Material ${id} não encontrado.`);
+    for (const id of prodIds) if (!pOk.has(id)) throw new NotFoundException(`Produto ${id} não encontrado.`);
+
+    return itens.map((i, ordem) => {
+      // Grade por tamanho: a quantidade da linha passa a ser a SOMA da grade.
+      let grade: Prisma.InputJsonValue | undefined;
+      let quantidade = i.quantidade;
+      if (i.grade && typeof i.grade === 'object') {
+        const limpo: Record<string, number> = {};
+        let soma = 0;
+        for (const [t, q] of Object.entries(i.grade)) { const n = Math.round(Number(q)); if (t && n > 0) { limpo[String(t).toUpperCase()] = n; soma += n; } }
+        if (soma > 0) { grade = limpo as Prisma.InputJsonValue; quantidade = soma; }
+      }
+      return {
+        materialId: i.materialId ?? null,
+        produtoId: i.produtoId ?? null,
+        descricao: i.descricao.trim(),
+        codigoFornecedor: i.codigoFornecedor?.trim() || null,
+        descricaoFornecedor: i.descricaoFornecedor?.trim() || null,
+        grade,
+        quantidade: new Prisma.Decimal(quantidade),
+        unidade: i.unidade.trim(),
+        valorUnit: new Prisma.Decimal(i.valorUnit),
+        // O total da linha é SEMPRE calculado: preço digitado × quantidade. Não
+        // existe total informado à parte que possa discordar do unitário.
+        valor: new Prisma.Decimal(quantidade).mul(i.valorUnit).toDecimalPlaces(2),
+        ordem,
+      };
+    });
+  }
+
+  /** O que o cabeçalho passa a mostrar quando a ordem tem itens. */
+  private resumoDosItens(itens: Array<{ descricao: string; quantidade: Prisma.Decimal; unidade: string; valor: Prisma.Decimal }>) {
+    const valor = itens.reduce((s, i) => s.add(i.valor), new Prisma.Decimal(0));
+    const unidades = new Set(itens.map((i) => i.unidade));
+    // Só soma a quantidade quando todas as linhas falam a mesma língua: somar
+    // 40 un com 3 m daria um número que não quer dizer nada.
+    const mesmaUnidade = unidades.size === 1;
+    const quantidade = mesmaUnidade
+      ? itens.reduce((s, i) => s.add(i.quantidade), new Prisma.Decimal(0))
+      : new Prisma.Decimal(itens.length);
+    return {
+      descricao: itens.length === 1 ? itens[0].descricao : `${itens.length} itens · ${itens[0].descricao}…`,
+      quantidade,
+      unidade: mesmaUnidade ? itens[0].unidade : 'itens',
+      valor: valor.toDecimalPlaces(2),
+    };
+  }
+
   /** Recebe a OC: baixa (status recebida) e repõe o saldo do material vinculado.
    *  `force`=true pula a trava de duplicidade (entrada de NF recente do material). */
   async receber(id: number, empresaId: number, force = false): Promise<OrdemCompra> {
@@ -98,10 +211,11 @@ export class ComprasService {
     // TRAVA anti-duplicidade: se este material já teve entrada por NF recente (45 dias,
     // com estoque lançado), receber aqui somaria estoque de novo. Bloqueia até confirmar
     // (force). O caminho correto é dar entrada pela NF, que já baixa a OC automaticamente.
-    if (!force && oc.materialId) {
+    const reposicao = this.materiaisDaOrdem(oc);
+    if (!force && reposicao.length) {
       const dias45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
       const nf = await this.prisma.notaEntrada.findFirst({
-        where: { empresaId, lancadaEstoque: true, criadoEm: { gte: dias45 }, itens: { some: { materialId: oc.materialId } } },
+        where: { empresaId, lancadaEstoque: true, criadoEm: { gte: dias45 }, itens: { some: { materialId: { in: reposicao.map((r) => r.materialId) } } } },
         orderBy: { id: 'desc' },
         select: { numero: true, criadoEm: true },
       });
@@ -115,18 +229,102 @@ export class ComprasService {
       }
     }
 
+    // Numa ordem com itens, CADA linha repõe o seu material. Antes isso lia só o
+    // cabeçalho — que agora é o total — e repor pelo total somaria tudo num
+    // material só.
     const [atualizada] = await this.prisma.$transaction([
       this.prisma.ordemCompra.update({ where: { id }, data: { status: 'recebida', situacao: 'recebido', recebidaEm: new Date() } }),
-      ...(oc.materialId
-        ? [
-            this.prisma.material.update({
-              where: { id: oc.materialId },
-              data: { saldo: { increment: oc.quantidade } },
-            }),
-          ]
-        : []),
+      ...reposicao.map((r) =>
+        this.prisma.material.update({ where: { id: r.materialId }, data: { saldo: { increment: r.quantidade } } }),
+      ),
     ]);
     return atualizada;
+  }
+
+  /**
+   * UNIFICA várias ordens do MESMO fornecedor numa só, com vários itens.
+   *
+   * Comprar duas cores do mesmo zíper virava duas ordens — dois documentos para
+   * o mesmo fornecedor, na mesma compra. Aqui elas viram uma: cada ordem antiga
+   * entra como uma linha, e as originais são CANCELADAS (não apagadas), com o
+   * número da nova no motivo, para o histórico continuar legível.
+   *
+   * Só unifica o que ainda não andou: ordem já recebida, cancelada ou enviada
+   * ao fornecedor fica de fora — o fornecedor já viu aquele documento.
+   */
+  async unificar(ids: number[], empresaId: number) {
+    const unicos = [...new Set(ids)];
+    if (unicos.length < 2) throw new BadRequestException('Informe ao menos 2 ordens para unificar.');
+
+    const ocs = await this.prisma.ordemCompra.findMany({
+      where: { id: { in: unicos } },
+      include: { fornecedor: { select: { empresaId: true, nome: true } }, itens: ComprasService.INCLUI_ITENS },
+      orderBy: { id: 'asc' },
+    });
+    if (ocs.length !== unicos.length) throw new NotFoundException('Alguma das ordens não foi encontrada.');
+    for (const o of ocs) {
+      if (o.fornecedor.empresaId !== empresaId) throw new NotFoundException(`Ordem ${o.numero} não encontrada.`);
+      if (o.status !== 'aguardando') throw new ConflictException(`${o.numero} não está aguardando (status: ${o.status}) — não dá para unificar.`);
+      if (o.enviadaEm) throw new ConflictException(`${o.numero} já foi enviada ao fornecedor em ${o.enviadaEm.toISOString().slice(0, 10)} — unificar agora deixaria o fornecedor com dois documentos diferentes.`);
+    }
+    const fornecedores = new Set(ocs.map((o) => o.fornecedorId));
+    if (fornecedores.size > 1) throw new ConflictException('As ordens são de fornecedores diferentes — cada fornecedor recebe o documento dele.');
+    const filiais = new Set(ocs.map((o) => o.filialId ?? 0));
+    if (filiais.size > 1) throw new ConflictException('As ordens são de CNPJs compradores diferentes — defina o mesmo comprador antes de unificar.');
+
+    // Cada ordem antiga vira uma ou mais linhas (se ela já tinha itens, todos vêm).
+    let ordem = 0;
+    const itens = ocs.flatMap((o) =>
+      o.itens.length
+        ? o.itens.map((i) => ({
+            materialId: i.materialId, produtoId: i.produtoId, descricao: i.descricao,
+            codigoFornecedor: i.codigoFornecedor, descricaoFornecedor: i.descricaoFornecedor,
+            grade: (i.grade ?? undefined) as Prisma.InputJsonValue | undefined,
+            quantidade: i.quantidade, unidade: i.unidade, valorUnit: i.valorUnit, valor: i.valor, ordem: ordem++,
+          }))
+        : [{
+            materialId: o.materialId, produtoId: o.produtoId, descricao: o.descricao,
+            codigoFornecedor: o.codigoFornecedor, descricaoFornecedor: o.descricaoFornecedor,
+            grade: (o.grade ?? undefined) as Prisma.InputJsonValue | undefined,
+            quantidade: o.quantidade, unidade: o.unidade,
+            // A ordem antiga guarda só o TOTAL; o unitário sai dele.
+            valorUnit: o.quantidade.isZero() ? new Prisma.Decimal(0) : o.valor.div(o.quantidade).toDecimalPlaces(4),
+            valor: o.valor, ordem: ordem++,
+          }],
+    );
+    const resumo = this.resumoDosItens(itens);
+    const base = ocs[0];
+    const numero = await this.gerarNumero();
+    const origem = ocs.map((o) => o.numero).join(', ');
+
+    const [nova] = await this.prisma.$transaction([
+      this.prisma.ordemCompra.create({
+        data: {
+          numero,
+          fornecedorId: base.fornecedorId,
+          filialId: base.filialId,
+          materialId: null,
+          produtoId: null,
+          codigoFornecedor: base.codigoFornecedor,
+          descricaoFornecedor: base.descricaoFornecedor,
+          descricao: resumo.descricao,
+          quantidade: resumo.quantidade,
+          unidade: resumo.unidade,
+          valor: resumo.valor,
+          status: 'aguardando',
+          // A previsão mais apertada manda: é a data que a fábrica precisa.
+          previsao: ocs.map((o) => o.previsao).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
+          motivo: base.motivo ? `${base.motivo} · unificada de ${origem}` : `Unificada de ${origem}`,
+          itens: { create: itens },
+        },
+        include: { itens: ComprasService.INCLUI_ITENS },
+      }),
+      this.prisma.ordemCompra.updateMany({
+        where: { id: { in: unicos } },
+        data: { status: 'cancelada', motivo: `Unificada na ${numero}` },
+      }),
+    ]);
+    return { ...nova, unificou: ocs.map((o) => o.numero) };
   }
 
   async cancelar(id: number, empresaId: number): Promise<OrdemCompra> {

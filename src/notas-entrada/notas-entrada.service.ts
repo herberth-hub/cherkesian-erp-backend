@@ -37,6 +37,59 @@ export class NotasEntradaService {
   }
 
   /** Marca a NF como etiquetada (volumes emitidos). */
+  /**
+   * Quais ordens de compra ABERTAS esta nota quita.
+   *
+   * Uma ordem aponta o material de dois jeitos: no CABEÇALHO (ordem de item
+   * único, como sempre foi) ou numa LINHA (ordem com vários itens — duas cores
+   * do mesmo zíper, dois tecidos do mesmo fornecedor). Procurar só no cabeçalho
+   * deixava a ordem unificada aberta para sempre depois da nota chegar.
+   *
+   * Regra: a ordem só fecha quando a nota cobre TODOS os materiais dela, cada um
+   * na quantidade pedida (com 1% de folga para arredondamento de corte). Nota de
+   * uma cor não pode fechar a compra das outras.
+   *
+   * @param recebidoPorMat materialId -> quantidade que ENTROU nesta nota
+   */
+  private async ocsQuitadasPor(
+    db: Prisma.TransactionClient | PrismaService,
+    empresaId: number,
+    recebidoPorMat: Map<number, number>,
+  ): Promise<Array<{ id: number; numero: string }>> {
+    if (!recebidoPorMat.size) return [];
+    const matIds = [...recebidoPorMat.keys()];
+    const ocs = await db.ordemCompra.findMany({
+      where: {
+        status: 'aguardando',
+        fornecedor: { empresaId },
+        OR: [{ materialId: { in: matIds } }, { itens: { some: { materialId: { in: matIds } } } }],
+      },
+      include: { itens: { select: { materialId: true, quantidade: true } } },
+      orderBy: { id: 'asc' },
+    });
+    // Sobra de cada material, consumida da ordem mais antiga para a mais nova.
+    const sobra = new Map(recebidoPorMat);
+    const quitadas: Array<{ id: number; numero: string }> = [];
+    for (const oc of ocs) {
+      // O que esta ordem precisa: as linhas, ou o cabeçalho quando não há linhas.
+      const precisa = new Map<number, number>();
+      if (oc.itens.length) {
+        for (const i of oc.itens) {
+          if (i.materialId == null) continue;
+          precisa.set(i.materialId, (precisa.get(i.materialId) ?? 0) + Number(i.quantidade));
+        }
+      } else if (oc.materialId != null) {
+        precisa.set(oc.materialId, Number(oc.quantidade));
+      }
+      if (!precisa.size) continue;
+      const cobre = [...precisa].every(([m, q]) => (sobra.get(m) ?? 0) >= q * 0.99);
+      if (!cobre) continue;
+      for (const [m, q] of precisa) sobra.set(m, (sobra.get(m) ?? 0) - q);
+      quitadas.push({ id: oc.id, numero: oc.numero });
+    }
+    return quitadas;
+  }
+
   async marcarEtiquetasGeradas(id: number, empresaId: number) {
     const nota = await this.prisma.notaEntrada.findUnique({ where: { id } });
     if (!nota || nota.empresaId !== empresaId) throw new NotFoundException(`Nota de entrada ${id} não encontrada.`);
@@ -144,25 +197,11 @@ export class NotasEntradaService {
     const ocsBaixadas: string[] = [];
     const pedidosAfetados = new Set<string>();
 
-    if (recebidoPorMat.size) {
-      const ocs = await this.prisma.ordemCompra.findMany({
-        where: { materialId: { in: [...recebidoPorMat.keys()] }, status: 'aguardando', fornecedor: { empresaId } },
-        orderBy: { id: 'asc' },
-      });
-      const porMat = new Map<number, typeof ocs>();
-      for (const oc of ocs) {
-        const k = oc.materialId as number;
-        const arr = porMat.get(k);
-        if (arr) arr.push(oc); else porMat.set(k, [oc]);
-      }
-      for (const [matId, qtdRecebida] of recebidoPorMat) {
-        let restante = qtdRecebida;
-        for (const oc of porMat.get(matId) ?? []) {
-          const qtdOc = Number(oc.quantidade);
-          if (restante < qtdOc * 0.99) break;
-          ocBaixaSet.add(oc.id); ocsBaixadas.push(oc.numero); restante -= qtdOc;
-        }
-      }
+    // Mesma regra do relançamento: a ordem fecha quando a nota cobre todos os
+    // materiais dela — venham do cabeçalho ou das linhas.
+    for (const oc of await this.ocsQuitadasPor(this.prisma, empresaId, recebidoPorMat)) {
+      ocBaixaSet.add(oc.id);
+      ocsBaixadas.push(oc.numero);
     }
     if (recebidoPorProd.size) {
       const ocs = await this.prisma.ordemCompra.findMany({
@@ -417,16 +456,9 @@ export class NotasEntradaService {
 
       // 5) Re-baixa as OCs abertas do material (necessidade × compra)
       const ocsBaixadas: string[] = [];
-      for (const [matId, qtdRecebida] of recebidoPorMat) {
-        let restante = qtdRecebida;
-        const ocs = await tx.ordemCompra.findMany({ where: { materialId: matId, status: 'aguardando', fornecedor: { empresaId } }, orderBy: { id: 'asc' } });
-        for (const oc of ocs) {
-          const qtdOc = Number(oc.quantidade);
-          if (restante < qtdOc * 0.99) break;
-          await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', recebidaEm: new Date(), notaEntradaId: id, ...(fornecedorId ? { fornecedorId } : {}) } });
-          restante -= qtdOc;
-          ocsBaixadas.push(oc.numero);
-        }
+      for (const oc of await this.ocsQuitadasPor(tx, empresaId, recebidoPorMat)) {
+        await tx.ordemCompra.update({ where: { id: oc.id }, data: { status: 'recebida', recebidaEm: new Date(), notaEntradaId: id, ...(fornecedorId ? { fornecedorId } : {}) } });
+        ocsBaixadas.push(oc.numero);
       }
 
       // 6) Ajusta o título a pagar vinculado ao novo valor (só se ainda não pago)
