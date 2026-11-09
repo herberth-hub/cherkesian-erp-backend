@@ -247,6 +247,49 @@ describe('unificar ordens', () => {
     expect((criadas[0].data as { motivo: string }).motivo).toMatch(/Unificada de OC-0057, OC-0058/);
   });
 
+  /**
+   * As originais são canceladas e o motivo delas é SOBRESCRITO por "Unificada
+   * na ...". Se a nova não carregasse o motivo de todas, o porquê de cada
+   * compra — o pedido que a originou, a cotação, o combinado com o fornecedor —
+   * morria na unificação.
+   */
+  it('carrega o motivo de TODAS as ordens, não só o da primeira', async () => {
+    const { svc, criadas } = servico({
+      ocs: [
+        base(1, 'OC-0064', { motivo: 'Pagamento a vista' }),
+        base(2, 'OC-0065', { motivo: 'Reposicao do PV35 (INTS)' }),
+      ],
+    });
+    await svc.unificar([1, 2], 1);
+    const motivo = (criadas[0].data as { motivo: string }).motivo;
+    expect(motivo).toContain('Pagamento a vista');
+    expect(motivo).toContain('Reposicao do PV35 (INTS)');
+    expect(motivo).toContain('Unificada de OC-0064, OC-0065');
+  });
+
+  it('não repete motivo igual nem deixa motivo vazio virar lixo no texto', async () => {
+    const { svc, criadas } = servico({
+      ocs: [
+        base(1, 'OC-0070', { motivo: 'Compra urgente' }),
+        base(2, 'OC-0071', { motivo: 'Compra urgente' }),
+        base(3, 'OC-0072', { motivo: null }),
+      ],
+    });
+    await svc.unificar([1, 2, 3], 1);
+    const motivo = (criadas[0].data as { motivo: string }).motivo;
+    expect(motivo).toBe('Compra urgente · Unificada de OC-0070, OC-0071, OC-0072');
+  });
+
+  it('corta motivo gigante em vez de estourar o campo da tela', async () => {
+    const { svc, criadas } = servico({
+      ocs: [base(1, 'OC-0080', { motivo: 'x'.repeat(600) }), base(2, 'OC-0081')],
+    });
+    await svc.unificar([1, 2], 1);
+    const motivo = (criadas[0].data as { motivo: string }).motivo;
+    expect(motivo.length).toBeLessThanOrEqual(500);
+    expect(motivo.endsWith('...')).toBe(true);
+  });
+
   /** A ordem antiga só guarda o total; o unitário tem de ser reconstruído. */
   it('recalcula o preço unitário da ordem antiga (total ÷ quantidade)', async () => {
     const { svc, criadas } = servico({ ocs: [base(1, 'OC-0057', { quantidade: D(40), valor: D('48.60') }), base(2, 'OC-0058', { quantidade: D(15), valor: D('18.23') })] });

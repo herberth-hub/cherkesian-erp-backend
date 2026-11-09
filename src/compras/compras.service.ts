@@ -252,6 +252,18 @@ export class ComprasService {
    * Só unifica o que ainda não andou: ordem já recebida, cancelada ou enviada
    * ao fornecedor fica de fora — o fornecedor já viu aquele documento.
    */
+  /** Junta os motivos das ordens unificadas num só, sem repetir e sem estourar
+   *  o campo. Motivo vazio não entra; motivo repetido entra uma vez. */
+  private motivoUnificado(motivos: Array<string | null>, origem: string): string {
+    const limpos = [...new Set(motivos.map((m) => (m ?? '').trim()).filter(Boolean))];
+    const juntos = limpos.join(' · ');
+    const sufixo = `Unificada de ${origem}`;
+    const texto = juntos ? `${juntos} · ${sufixo}` : sufixo;
+    // Campo de texto da tela: corta com reticências em vez de truncar no meio
+    // de uma frase sem aviso.
+    return texto.length > 500 ? `${texto.slice(0, 497)}...` : texto;
+  }
+
   async unificar(ids: number[], empresaId: number) {
     const unicos = [...new Set(ids)];
     if (unicos.length < 2) throw new BadRequestException('Informe ao menos 2 ordens para unificar.');
@@ -314,7 +326,11 @@ export class ComprasService {
           status: 'aguardando',
           // A previsão mais apertada manda: é a data que a fábrica precisa.
           previsao: ocs.map((o) => o.previsao).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0] ?? null,
-          motivo: base.motivo ? `${base.motivo} · unificada de ${origem}` : `Unificada de ${origem}`,
+          // O motivo de TODAS as ordens vem junto, não só o da primeira: as
+          // originais são canceladas e o motivo delas é sobrescrito por
+          // "Unificada na ...". Se não trouxesse, o porquê de cada compra
+          // (o pedido que originou, a cotação, o combinado) morria aqui.
+          motivo: this.motivoUnificado(ocs.map((o) => o.motivo), origem),
           itens: { create: itens },
         },
         include: { itens: ComprasService.INCLUI_ITENS },
