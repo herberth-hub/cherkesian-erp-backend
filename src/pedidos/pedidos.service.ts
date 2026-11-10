@@ -16,6 +16,13 @@ import { EstoqueService } from '../estoque/estoque.service';
 import { AuthUser } from '../auth/auth.types';
 import { ehVendedor, escopoCarteira } from '../common/rbac/carteira';
 import { avisoCancelamento, opCancelavel } from '../ops/op-status';
+import {
+  ItemDoPedido,
+  ProdutoSemHistorico,
+  etapaAoAprovar,
+  motivoPiloto,
+  produtosQueExigemPiloto,
+} from './produto-novo';
 
 @Injectable()
 export class PedidosService {
@@ -264,7 +271,10 @@ export class PedidosService {
 
     // A notificação de "pedido novo" NÃO sai aqui: todo pedido nasce como ORÇAMENTO.
     // Ela é disparada só quando o orçamento é APROVADO (vira pedido) — ver aprovar().
-    return { ...pedido, exigePiloto: pedido.clienteNovo };
+    // `exigePiloto` avisa a tela já na criação: quem vende precisa saber que a
+    // peça vai passar por amostra ANTES de prometer prazo ao cliente.
+    const novos = await this.produtosSemHistorico(pedido.itens);
+    return { ...pedido, exigePiloto: novos.length > 0, produtosNovos: novos.map((p) => p.descricao) };
   }
 
   /**
@@ -632,7 +642,35 @@ export class PedidosService {
     });
   }
 
-  /** Aprova o orçamento: vira pedido e avança a etapa (piloto se cliente novo). */
+  /**
+   * Produtos do pedido que a casa nunca produziu — os que exigem peça-piloto.
+   *
+   * "Já produzido" = tem OP não cancelada OU piloto liberada. Repare que a
+   * pergunta é sobre o PRODUTO, não sobre o cliente: quem compra pela primeira
+   * vez uma peça que já sai da fábrica toda semana não precisa de amostra.
+   */
+  private async produtosSemHistorico(itens: ItemDoPedido[]): Promise<ProdutoSemHistorico[]> {
+    const ids = [...new Set(itens.filter((i) => i.produtoId != null && i.quantidade > 0).map((i) => i.produtoId as number))];
+    if (!ids.length) return [];
+    const [ops, pilotos] = await Promise.all([
+      this.prisma.oP.findMany({
+        where: { produtoId: { in: ids }, status: { not: 'cancelado' } },
+        select: { produtoId: true },
+        distinct: ['produtoId'],
+      }),
+      this.prisma.piloto.findMany({
+        where: { produtoId: { in: ids }, liberado: true },
+        select: { produtoId: true },
+        distinct: ['produtoId'],
+      }),
+    ]);
+    const jaProduzidos = new Set<number>(
+      [...ops, ...pilotos].map((x) => x.produtoId).filter((x): x is number => x != null),
+    );
+    return produtosQueExigemPiloto(itens, jaProduzidos);
+  }
+
+  /** Aprova o orçamento: vira pedido e avança a etapa (piloto se há produto novo). */
   async aprovar(id: number, empresaId: number) {
     const pedido = await this.findOne(id, empresaId);
     if (pedido.etapa !== 'orcamento') {
@@ -640,7 +678,8 @@ export class PedidosService {
         `Pedido ${pedido.numero} já foi aprovado (etapa atual: ${pedido.etapa}).`,
       );
     }
-    const proximaEtapa = pedido.clienteNovo ? 'piloto' : 'aprovado';
+    const novos = await this.produtosSemHistorico(pedido.itens);
+    const proximaEtapa = etapaAoAprovar(novos);
     const atualizado = await this.prisma.pedido.update({
       where: { id },
       data: { etapa: proximaEtapa, status: 'Aprovado' },
@@ -654,7 +693,7 @@ export class PedidosService {
       tipo: 'pedido_novo',
       areas: ['vendas', 'pcp', 'producao'],
       titulo: `Pedido aprovado ${atualizado.numero} — ${cli?.nome ?? ''}`.trim(),
-      mensagem: `${totalPecas} peça(s) · valor ${new Prisma.Decimal(atualizado.valorTotal).toFixed(2)}${atualizado.clienteNovo ? ' · CLIENTE NOVO (exige peça-piloto)' : ''}. Providencie a próxima etapa (risco/corte).`,
+      mensagem: `${totalPecas} peça(s) · valor ${new Prisma.Decimal(atualizado.valorTotal).toFixed(2)}${novos.length ? ` · PRODUTO NOVO, exige peça-piloto: ${novos.map((p) => p.descricao).join(', ')}` : ''}. Providencie a próxima etapa (risco/corte).`,
       refTipo: 'pedido',
       refId: atualizado.id,
     });
@@ -800,17 +839,16 @@ export class PedidosService {
       };
     }
 
-    // 1) Piloto liberado (para cliente novo)
-    if (pedido.clienteNovo) {
-      const pilotoLiberado = pedido.pilotos.some((p) => p.liberado);
-      if (!pilotoLiberado) {
-        return {
-          status: 'bloqueado_piloto' as const,
-          pedido: { numero: pedido.numero, etapa: pedido.etapa },
-          message:
-            'Cliente novo: é necessária uma peça-piloto aprovada antes de gerar a OP.',
-        };
-      }
+    // 1) Piloto liberado — exigida só pelos produtos que a casa nunca fez.
+    //    Um piloto liberado NESTE pedido vale por todos: é o aceite do cliente.
+    const novos = await this.produtosSemHistorico(pedido.itens);
+    if (novos.length && !pedido.pilotos.some((p) => p.liberado)) {
+      return {
+        status: 'bloqueado_piloto' as const,
+        pedido: { numero: pedido.numero, etapa: pedido.etapa },
+        produtos: novos.map((p) => p.descricao),
+        message: motivoPiloto(novos),
+      };
     }
 
     // 2) Separa itens de PRODUÇÃO (geram OP) dos de REVENDA (não geram OP).

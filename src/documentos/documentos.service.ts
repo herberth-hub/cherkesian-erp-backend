@@ -543,7 +543,7 @@ export class DocumentosService {
       ['Validade da proposta', tipo === 'proposta' ? '15 dias' : '—'],
     ]);
     if (tipo === 'proposta') {
-      textoBloco(doc, 'Cliente novo: produção liberada após aprovação da peça-piloto.');
+      textoBloco(doc, 'Peça desenvolvida pela primeira vez: produção liberada após aprovação da peça-piloto.');
     }
 
     // Observações do pedido: usa a COMERCIAL; se estiver vazia, cai para a
