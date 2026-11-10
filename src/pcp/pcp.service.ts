@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { whereOpViva } from '../ops/op-status';
 
 function diasEntre(de: Date, ate: Date): number {
   const a = Date.UTC(de.getUTCFullYear(), de.getUTCMonth(), de.getUTCDate());
@@ -15,7 +16,7 @@ export class PcpService {
   async painel(empresaId: number) {
     const hoje = new Date();
     const ops = await this.prisma.oP.findMany({
-      where: { pedido: { empresaId }, status: { not: 'concluido' } },
+      where: { pedido: { empresaId }, ...whereOpViva() },
       include: { pedido: { select: { numero: true, clienteId: true } } },
       orderBy: [{ prioridade: 'asc' }, { entregaPrev: 'asc' }, { id: 'asc' }],
     });
@@ -44,7 +45,7 @@ export class PcpService {
   /** Capacidade/carga: OPs ativas, peças em produção e distribuição por status/prioridade/setor. */
   async capacidade(empresaId: number) {
     const ops = await this.prisma.oP.findMany({
-      where: { pedido: { empresaId }, status: { not: 'concluido' } },
+      where: { pedido: { empresaId }, ...whereOpViva() },
       select: { status: true, prioridade: true, setorAtual: true, quantidade: true },
     });
 

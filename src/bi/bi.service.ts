@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Acesso } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
+import { opViva } from '../ops/op-status';
 
 const H = 3_600_000; // ms por hora
 
@@ -25,7 +26,7 @@ export class BiService {
     const matriz = filiais.find((f) => f.matriz) ?? filiais[0];
 
     // ===== Visão geral =====
-    const opsAtivas = ops.filter((o) => o.status !== 'concluido').length;
+    const opsAtivas = ops.filter((o) => opViva(o.status)).length;
     const opsConcluidas = ops.filter((o) => o.status === 'concluido').length;
     const kitsFinalizados = kits.filter((k) => k.status === 'finalizado');
     const pecasProduzidas = kitsFinalizados.reduce((s, k) => s + k.pecasTotal, 0);
@@ -70,7 +71,7 @@ export class BiService {
     const porModelo = [...modMap.entries()].map(([modelo, v]) => ({ modelo, ...v })).sort((a, b) => b.pecas - a.pecas).slice(0, 12);
 
     // ===== Atrasos =====
-    const opsAtrasadas = ops.filter((o) => o.status !== 'concluido' && o.entregaPrev && new Date(o.entregaPrev) < agora).length;
+    const opsAtrasadas = ops.filter((o) => opViva(o.status) && o.entregaPrev && new Date(o.entregaPrev) < agora).length;
     const pedidosAtrasados = pedidos.filter((p) => p.etapa !== 'expedicao' && p.prazoEntrega && new Date(p.prazoEntrega) < agora).length;
 
     // ===== Faturamento × produção por empresa =====

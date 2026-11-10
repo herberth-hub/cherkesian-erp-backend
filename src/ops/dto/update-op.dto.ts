@@ -32,6 +32,14 @@ export class UpdateOpProgressoDto {
   progresso!: number;
 }
 
+/** Vencimento da OP. String vazia (ou ausente) LIMPA a data. */
+export class UpdateOpEntregaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  entregaPrev?: string;
+}
+
 export class UpdateOpGradeDto {
   /** Distribuição por tamanho, ex.: {"P":10,"M":20,"G":8}. {} limpa a grade. */
   @IsObject({ message: 'grade deve ser um objeto {tamanho: quantidade}.' })

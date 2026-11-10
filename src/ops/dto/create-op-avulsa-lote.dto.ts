@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsIn, IsISO8601, IsInt, IsObject, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator';
 
 /** Um item do lote de OPs avulsas (um produto → uma OP). */
 export class OpAvulsaItemDto {
@@ -23,5 +23,7 @@ export class CreateOpAvulsaLoteDto {
 
   @IsOptional() @IsInt() filialId?: number;
   @IsOptional() @IsIn(['alta', 'media', 'baixa']) prioridade?: string;
+  /** Vencimento comum a todas as OPs do lote. */
+  @IsOptional() @IsISO8601({}, { message: 'entregaPrev deve ser uma data (AAAA-MM-DD).' }) entregaPrev?: string;
   @IsOptional() @IsString() @MaxLength(1000) obs?: string;
 }

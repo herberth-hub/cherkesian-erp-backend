@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsIn, IsISO8601, IsInt, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 /** OP avulsa: produção sem pedido (estoque, amostra, reposição). */
 export class CreateOpAvulsaDto {
@@ -12,5 +12,8 @@ export class CreateOpAvulsaDto {
   @IsOptional() @IsInt() filialId?: number;
   @IsOptional() @IsString() @MaxLength(80) cor?: string;
   @IsOptional() @IsIn(['alta', 'media', 'baixa']) prioridade?: string;
+  /** Vencimento da OP (quando a produção tem de estar pronta). OP avulsa não tem
+   *  pedido de onde herdar o prazo, então é aqui que ele entra. */
+  @IsOptional() @IsISO8601({}, { message: 'entregaPrev deve ser uma data (AAAA-MM-DD).' }) entregaPrev?: string;
   @IsOptional() @IsString() @MaxLength(1000) obs?: string;
 }

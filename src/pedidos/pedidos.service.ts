@@ -15,6 +15,7 @@ import { ArquivosService } from '../arquivos/arquivos.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { AuthUser } from '../auth/auth.types';
 import { ehVendedor, escopoCarteira } from '../common/rbac/carteira';
+import { avisoCancelamento, opCancelavel } from '../ops/op-status';
 
 @Injectable()
 export class PedidosService {
@@ -506,14 +507,62 @@ export class PedidosService {
   /**
    * CANCELA o pedido (mantém o registro, marca etapa=cancelado). Diferente de excluir.
    * Não permite se houver NF ativa (autorizada/pendente) — cancele a NF antes.
+   *
+   * E CANCELA AS OPs JUNTO. Antes o cancelamento parava no pedido e as ordens de
+   * produção ficavam vivas: a fábrica seguia com produção contratada de um pedido
+   * que não existia mais, e as OPs continuavam contando na fila do PCP e no radar
+   * de atraso. O PV139 estava assim — cancelado, com 5 OPs e 62 peças em pé.
+   *
+   * O que NÃO é mexido, de propósito:
+   *  · OP já concluída — a peça existe; cancelar o papel não desfaz o que foi feito.
+   *  · Saldo de material — pode já ter sido cortado. Devolver no automático criaria
+   *    estoque que não existe na prateleira. O aviso fica na OP para conferência.
+   *  · Ordens de compra em aberto — comprar ou não é decisão de compras, não efeito
+   *    colateral de um cancelamento.
    */
-  async cancelar(id: number, empresaId: number) {
+  async cancelar(id: number, empresaId: number, usuario?: string) {
     const pedido = await this.prisma.pedido.findUnique({ where: { id } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${id} não encontrado.`);
     if (pedido.etapa === 'cancelado') return { ...pedido, jaCancelado: true };
     const nf = await this.prisma.notaFiscal.findFirst({ where: { pedidoId: id, status: { in: ['autorizada', 'pendente'] } } });
     if (nf) throw new ConflictException(`Pedido vinculado à nota fiscal ativa ${nf.numero} — cancele a NF antes de cancelar o pedido.`);
-    return this.prisma.pedido.update({ where: { id }, data: { etapa: 'cancelado', status: 'Cancelado' } });
+
+    const ops = await this.prisma.oP.findMany({ where: { pedidoId: id }, select: { id: true, numero: true, status: true, quantidade: true } });
+    const aCancelar = ops.filter((o) => opCancelavel(o.status));
+    const jaConcluidas = ops.filter((o) => o.status === 'concluido');
+
+    const atualizado = await this.prisma.$transaction(async (tx) => {
+      const ped = await tx.pedido.update({ where: { id }, data: { etapa: 'cancelado', status: 'Cancelado' } });
+      // Uma ida ao banco por STATUS de origem (e não por OP): o aviso colado na
+      // OP precisa dizer de onde ela veio, e são poucos status distintos.
+      const porStatus = new Map<string, number[]>();
+      for (const o of aCancelar) {
+        const arr = porStatus.get(o.status) ?? [];
+        arr.push(o.id);
+        porStatus.set(o.status, arr);
+      }
+      for (const [status, ids] of porStatus) {
+        await tx.oP.updateMany({
+          where: { id: { in: ids } },
+          data: { status: 'cancelado', corteObs: avisoCancelamento(pedido.numero, status) },
+        });
+      }
+      return ped;
+    }, PedidosService.TX_PRODUCAO);
+
+    if (aCancelar.length) {
+      await this.prisma.log.create({
+        data: { usuario: usuario ?? 'sistema', acao: 'Pedido cancelado', entidade: 'Pedido', entidadeId: pedido.numero,
+          detalhe: `${aCancelar.length} OP(s) canceladas junto: ${aCancelar.map((o) => `${o.numero} (${o.status}, ${o.quantidade} pç)`).join(', ')}.`
+            + (jaConcluidas.length ? ` Mantidas por já estarem concluídas: ${jaConcluidas.map((o) => o.numero).join(', ')}.` : '') },
+      }).catch(() => undefined);
+    }
+
+    return {
+      ...atualizado,
+      opsCanceladas: aCancelar.map((o) => o.numero),
+      opsMantidas: jaConcluidas.map((o) => o.numero),
+    };
   }
 
   /**
@@ -708,6 +757,16 @@ export class PedidosService {
    */
   async gerarOp(id: number, empresaId: number, parcial = false, usuario?: string) {
     const pedido = await this.findOne(id, empresaId);
+    // VENCIMENTO DA OP = o prazo combinado com o cliente.
+    //
+    // O campo existia e era lido em todo lugar — radar de atraso do painel, fila
+    // do PCP, indicadores do BI —, mas NINGUÉM o preenchia: as 246 OPs da base
+    // estavam todas sem data. Resultado: a fábrica não enxergava o que estava
+    // perto de vencer e o "em atraso" vivia zerado.
+    //
+    // Aqui vai a data de entrega ao CLIENTE, sem desconto de folga de produção:
+    // inventar um "produzir X dias antes" seria chutar o lead time da casa.
+    const entregaPrev = pedido.prazoEntrega ?? null;
 
     // Pré-condições de estado
     if (pedido.etapa === 'orcamento') {
@@ -973,7 +1032,7 @@ export class PedidosService {
             const chave = `${u.produtoId ?? 'x'}|${(u.cor ?? '').toUpperCase()}`;
             return {
               reservaId: reservaParcial.get(chave)?.shift()?.id ?? null,
-              dados: { produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar' as const, pilotoLiberado: true, progresso: 0, gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' },
+              dados: { produtoId: u.produtoId ?? null, cor: u.cor, quantidade: u.quantidade, status: 'a_iniciar' as const, pilotoLiberado: true, progresso: 0, entregaPrev, gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull, romaneioMateriais: romaneio as Prisma.InputJsonValue, corteParcial: true, corteObs: 'CORTE OTIMIZADO (parcial) — priorize os TAMANHOS MENORES desta grade. Estoque parcial: corte primeiro os tamanhos menores (rendem mais peças por metro). O restante sai na OP complementar quando o tecido chegar.' },
             };
           });
           // A reserva não usada continua na fila: é o restante que espera o material.
@@ -1068,6 +1127,7 @@ export class PedidosService {
               status: 'aguardando_material' as const,
               pilotoLiberado: true,
               progresso: 0,
+              entregaPrev,
               gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
               romaneioMateriais: romaneio as Prisma.InputJsonValue,
               corteObs: faltaDaUnidade.length
@@ -1185,6 +1245,7 @@ export class PedidosService {
           status: 'a_iniciar' as const,
           pilotoLiberado: true,
           progresso: 0,
+          entregaPrev,
           gradeTamanhos: (u.grade as Prisma.InputJsonValue | null) ?? Prisma.DbNull,
           romaneioMateriais: romaneio as Prisma.InputJsonValue,
         },

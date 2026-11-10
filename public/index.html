@@ -7369,7 +7369,7 @@ async function opAvancarConfirmar(){
   }catch(e){ toast(e.message,'err'); }
 }
 const PIL_STATUS = ['em_desenvolvimento','enviada_ao_cliente','aprovada','aprovada_c_ajustes','reprovada'];
-function opPill(s){ const c = s==='concluido'?'green':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue')); return `<span class="pill ${c}">${esc(s.replace(/_/g,' '))}</span>`; }
+function opPill(s){ const c = s==='concluido'?'green':(s==='cancelado'?'gray':(s==='aguardando_material'?'red':(s==='a_iniciar'?'gold':'blue'))); return `<span class="pill ${c}"${s==='cancelado'?' style="text-decoration:line-through"':''}>${esc(s.replace(/_/g,' '))}</span>`; }
 /**
  * Quanto ainda falta da OP, contra o PLANEJADO.
  *
@@ -7700,6 +7700,7 @@ async function formOpAvulsa(){
       <div class="mrow"><label class="fl">Empresa</label><select id="opav_fil" class="inp">${filOpts||'<option value="">—</option>'}</select></div>
       <div class="mrow"><label class="fl">Prioridade (todas)</label><select id="opav_prior" class="inp"><option value="media">Média</option><option value="alta">Alta</option><option value="baixa">Baixa</option></select></div>
     </div>
+    <div class="mrow"><label class="fl">Vencimento (todas) <span class="muted" style="font-weight:400">— OP avulsa não tem pedido de onde herdar o prazo</span></label><input id="opav_venc" class="inp" type="date"></div>
     <label class="fl" style="margin-top:6px">Produtos do lote</label>
     <datalist id="opav_prodlist">${(produtos||[]).map(p=>`<option value="${esc((p.codigo||'')+' · '+(p.descricao||''))}">`).join('')}</datalist>
     <div id="opav_itens"></div>
@@ -7748,6 +7749,7 @@ async function saveOpAvulsa(){
   if(!itens.length){ toast('Adicione ao menos um produto.','err'); return; }
   const body={ itens }; const fil=val('opav_fil'); if(fil) body.filialId=Number(fil);
   const prior=val('opav_prior'); if(prior) body.prioridade=prior;
+  const venc=val('opav_venc'); if(venc) body.entregaPrev=venc;
   const obs=val('opav_obs'); if(obs) body.obs=obs;
   try{ const r=await api('/ops/avulsa-lote',{method:'POST',body}); closeModal();
     toast(r.total+' OP(s) criada(s)'+(r.total>1?' no lote':' ('+(r.ops[0]&&r.ops[0].numero||'')+')')+'.','ok'); loadRoute(); }
@@ -7756,10 +7758,24 @@ async function saveOpAvulsa(){
 // Botões de ação de uma OP (reusado na lista agrupada e na lista plana ordenada).
 function opAcoesHtml(o){
   const _adminOp = S.user.acesso==='total';
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${o.status==='concluido'&&!o.baixaSemEtiqueta?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${opFaseBtn(o)} ${canAccess('pcp')?`<button class="btn-sm" style="color:#8a5a00;border-color:#e7c98a" title="Gerar OS/remessa da OP para uma etapa (Estamparia, Costura, Lavanderia…). Pode gerar VÁRIAS OS — uma por operação." onclick='APP.opFaccaoExterna(${JSON.stringify(o).replace(/'/g,"&#39;")})'>🏭 Gerar OS</button>`:''} <button class="btn-sm" onclick="APP.formRomaneio(${o.id})">🧾 Romaneio</button> ${_adminOp?`<button class="btn-sm" onclick="APP.etiquetaOp(${o.id})">🏷 Etiqueta</button>`:''} <button class="btn-sm" onclick='APP.formOp(${JSON.stringify(o).replace(/'/g,"&#39;")})' title="Ajuste manual de fase/grade">Ajustar</button> ${canAccess('pcp')?`<button class="btn-sm" title="Vencimento da OP — vem do prazo do pedido, mas dá p/ corrigir" onclick="APP.opVencimento(${o.id},'${o.entregaPrev?String(o.entregaPrev).slice(0,10):''}','${esc(o.numero)}')">📅 ${o.entregaPrev?opDataBR(o.entregaPrev):'Vencim.'}</button>`:''} ${o.status==='concluido'&&!o.baixaSemEtiqueta?`<button class="btn-sm" title="Reimprimir etiquetas de expedição" onclick="APP.opReimprimir(${o.id})">🖨 Etiq. exp.</button>`:''} <button class="btn-sm" title="Imprimir esta OP" onclick="APP.gerarDoc('op',${o.id})">🖨 OP</button></div>`;
 }
 // Data curta pt-BR (vencimento da OP).
 function opDataBR(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}); }catch(_){ return ''; } }
+// Vencimento da OP: nasce do prazo do pedido, mas cliente antecipa e adia — e OP
+// avulsa não tem pedido de onde herdar. Deixar em branco limpa a data.
+async function opVencimento(id, atual, numero){
+  openModal(`<h3>Vencimento da OP <span class="mono gold">${esc(numero||'')}</span></h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Quando a produção tem de estar pronta. Vem do prazo combinado no pedido; mude aqui se o cliente antecipou ou adiou. Em branco, a OP fica sem data e sai do radar de atraso.</div>
+    ${field('ov_data','Vencimento','type="date" value="'+esc(atual||'')+'"')}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="APP.opVencimentoSalvar(${id})">Salvar</button></div>`);
+}
+async function opVencimentoSalvar(id){
+  try{ await api('/ops/'+id+'/entrega',{method:'PATCH',body:{entregaPrev:val('ov_data')||''}});
+    closeModal(); toast('Vencimento da OP atualizado.','ok'); loadRoute();
+  }catch(e){ toast(e.message,'err'); }
+}
 // Lista de OPs AGRUPADA por pedido: um cabeçalho por pedido (com OP do Pedido / OS
 // oficina) e as OPs do pedido embaixo — evita poluir com OPs soltas do mesmo pedido.
 function opsAgrupadas(arr, verFin){
@@ -17159,7 +17175,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, opVencimento, opVencimentoSalvar, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, kitUnificar, kitUnificarGrupo, kitsDaOs, kitsAgruparToggle, viewBi,
   formCompra, ocDescricaoHtml, ocEditarItens, ocItensSoma, ocItensSalvar, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,

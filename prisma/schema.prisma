@@ -52,6 +52,9 @@ enum OPStatus {
   em_producao
   em_faccao
   concluido
+  // Pedido cancelado derruba a OP junto. Antes a OP ficava viva e a fábrica
+  // continuava com produção contratada de um pedido que não existia mais.
+  cancelado
 }
 
 enum Prioridade {

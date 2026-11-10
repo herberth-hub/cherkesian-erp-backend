@@ -84,7 +84,7 @@ export class PedidosController {
   @Post(':id/cancelar')
   @HttpCode(HttpStatus.OK)
   cancelar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.pedidosService.cancelar(id, user.empresaId);
+    return this.pedidosService.cancelar(id, user.empresaId, user.usuario);
   }
 
   @Areas('vendas')

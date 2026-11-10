@@ -5,6 +5,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { AuthUser } from '../auth/auth.types';
 import { escopoCarteira } from '../common/rbac/carteira';
 import { podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
+import { opViva, whereOpViva } from '../ops/op-status';
 
 /** Conta ocorrências de uma chave num array (ex.: etapas de pedido). */
 function contar<T extends string>(itens: { [k: string]: unknown }[], campo: string): Record<T, number> {
@@ -45,7 +46,7 @@ export class DashboardService {
       this.financeiro.fluxo(empresaId),
     ]);
 
-    const opsAtivas = ops.filter((o) => o.status !== 'concluido');
+    const opsAtivas = ops.filter((o) => opViva(o.status));
     const pecasEmProducao = opsAtivas.reduce((s, o) => s + o.quantidade, 0);
     const materiaisAbaixoMinimo = materiais.filter((m) => m.saldo.lessThan(m.minimo)).length;
 
@@ -58,7 +59,7 @@ export class DashboardService {
     limite.setDate(limite.getDate() + JANELA);
     limite.setHours(23, 59, 59, 999);
     const opsEntrega = await this.prisma.oP.findMany({
-      where: { pedido: { empresaId }, status: { not: 'concluido' }, entregaPrev: { not: null, lte: limite } },
+      where: { pedido: { empresaId }, ...whereOpViva(), entregaPrev: { not: null, lte: limite } },
       select: { numero: true, quantidade: true, status: true, progresso: true, entregaPrev: true, pedido: { select: { numero: true, cliente: { select: { nome: true } } } } },
       orderBy: { entregaPrev: 'asc' },
     });
@@ -392,7 +393,7 @@ export class DashboardService {
     const idxPedidos = round(conversao);
 
     // ===== PRODUÇÃO: OPs no prazo =====
-    const opsAtivas = ops.filter((o) => o.status !== 'concluido');
+    const opsAtivas = ops.filter((o) => opViva(o.status));
     const opsAtras = opsAtivas.filter((o) => o.entregaPrev && new Date(o.entregaPrev) < hoje0);
     const opsConcl = ops.filter((o) => o.status === 'concluido').length;
     const idxProducao = round(opsAtivas.length > 0 ? ((opsAtivas.length - opsAtras.length) / opsAtivas.length) * 100 : 100);
@@ -561,7 +562,7 @@ export class DashboardService {
     diasAtraso: (d: Date | null | undefined) => number,
   ) {
     const ops = await this.prisma.oP.findMany({
-      where: { pedido: { empresaId }, status: { not: 'concluido' }, entregaPrev: { not: null, lt: hoje0 } },
+      where: { pedido: { empresaId }, ...whereOpViva(), entregaPrev: { not: null, lt: hoje0 } },
       select: {
         numero: true, status: true, progresso: true, setorAtual: true, entregaPrev: true, quantidade: true,
         pedido: { select: { numero: true, cliente: { select: { nome: true } } } },

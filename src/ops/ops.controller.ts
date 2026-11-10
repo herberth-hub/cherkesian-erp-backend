@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { OpsService } from './ops.service';
-import { UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
+import { UpdateOpEntregaDto, UpdateOpGradeDto, UpdateOpProgressoDto, UpdateOpStatusDto } from './dto/update-op.dto';
 import { CreateOpAvulsaDto } from './dto/create-op-avulsa.dto';
 import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
@@ -95,6 +95,17 @@ export class OpsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.opsService.updateStatus(id, dto, user.empresaId, user.sub);
+  }
+
+  /** Vencimento da OP: herdado do pedido, mas corrigível (cliente antecipa/adia). */
+  @Areas('pcp', 'producao')
+  @Patch(':id/entrega')
+  definirEntrega(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateOpEntregaDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.definirEntrega(id, dto.entregaPrev, user.empresaId, user.usuario);
   }
 
   @Patch(':id/grade')

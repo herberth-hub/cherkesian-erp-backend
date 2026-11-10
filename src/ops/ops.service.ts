@@ -151,6 +151,9 @@ export class OpsService {
         progresso: 0,
         gradeTamanhos: (grade ?? undefined) as Prisma.InputJsonValue | undefined,
         romaneioMateriais: romaneio as unknown as Prisma.InputJsonValue,
+        // OP avulsa não tem pedido de onde herdar o prazo: ou vem informado, ou
+        // fica sem data mesmo (melhor em branco do que uma data inventada).
+        entregaPrev: dto.entregaPrev ? new Date(dto.entregaPrev) : null,
         prioridade: dto.prioridade ? (dto.prioridade as Prioridade) : undefined,
         corteObs: dto.obs?.trim() || 'OP avulsa (sem pedido).',
       },
@@ -188,7 +191,7 @@ export class OpsService {
     const ops: OP[] = [];
     for (const it of dto.itens) {
       const op = await this.criarAvulsa(
-        { produtoId: it.produtoId, quantidade: it.quantidade, gradeTamanhos: it.gradeTamanhos, cor: it.cor, filialId: dto.filialId, prioridade: dto.prioridade, obs: dto.obs },
+        { produtoId: it.produtoId, quantidade: it.quantidade, gradeTamanhos: it.gradeTamanhos, cor: it.cor, filialId: dto.filialId, prioridade: dto.prioridade, entregaPrev: dto.entregaPrev, obs: dto.obs },
         empresaId,
         loteAvulso,
         { notificar: false }, // uma única notificação-resumo do lote abaixo (evita 1 por OP)
@@ -371,6 +374,32 @@ export class OpsService {
   }
 
   /** Define a grade de tamanhos da OP, ex.: {"P":10,"M":20,"G":8}. {} limpa. */
+  /**
+   * Muda o VENCIMENTO da OP (quando a produção tem de estar pronta).
+   *
+   * Normalmente ele vem do prazo combinado no pedido, mas a data muda na vida
+   * real — cliente antecipa, cliente adia, OP avulsa nasce sem pedido. Sem um
+   * jeito de corrigir, a única saída era deixar o radar de atraso mentindo.
+   * Data vazia LIMPA o vencimento (é diferente de não mexer).
+   */
+  async definirEntrega(id: number, data: string | null | undefined, empresaId: number, usuario?: string): Promise<OP> {
+    const op = await this.findOne(id, empresaId);
+    const txt = (data ?? '').trim();
+    let nova: Date | null = null;
+    if (txt) {
+      nova = new Date(txt.length <= 10 ? `${txt}T12:00:00` : txt);
+      if (Number.isNaN(nova.getTime())) throw new BadRequestException(`Data inválida: "${data}".`);
+    }
+    const antes = op.entregaPrev ? new Date(op.entregaPrev).toLocaleDateString('pt-BR') : 'sem data';
+    const depois = nova ? nova.toLocaleDateString('pt-BR') : 'sem data';
+    const atualizada = await this.prisma.oP.update({ where: { id }, data: { entregaPrev: nova } });
+    await this.prisma.log.create({
+      data: { usuario: usuario ?? 'sistema', acao: 'Vencimento da OP alterado', entidade: 'OP', entidadeId: op.numero,
+        detalhe: `De ${antes} para ${depois}.` },
+    }).catch(() => undefined);
+    return atualizada;
+  }
+
   async updateGrade(id: number, grade: Record<string, unknown>, empresaId: number): Promise<OP> {
     const op = await this.findOne(id, empresaId);
     const limpa: Record<string, number> = {};
