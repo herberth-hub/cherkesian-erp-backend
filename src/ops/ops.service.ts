@@ -87,12 +87,19 @@ export class OpsService {
     const grade = item.grade as Record<string, number> | null | undefined;
     if (porTam && grade && typeof grade === 'object') {
       let total = new Prisma.Decimal(0);
+      let mediu = false;
       for (const [tam, qtd] of Object.entries(grade)) {
         const q = Number(qtd) || 0;
+        if (q <= 0) continue;
         const c = Number(porTam[String(tam).toUpperCase()] ?? porTam[String(tam)] ?? 0);
-        if (q > 0 && c > 0) total = total.plus(new Prisma.Decimal(c).mul(q));
+        // Tamanho que AINDA não tem encaixe medido cai no consumo padrão da
+        // receita. Antes ele entrava como ZERO: a OP de um G8 num produto com
+        // encaixe só até G4 reservava nada de tecido e o corte descobria na
+        // mesa. Pouco material é erro; nenhum material é acidente.
+        if (c > 0) { mediu = true; total = total.plus(new Prisma.Decimal(c).mul(q)); }
+        else total = total.plus(b.quantidade.mul(q));
       }
-      if (total.greaterThan(0)) return total;
+      if (mediu && total.greaterThan(0)) return total;
     }
     return b.quantidade.mul(item.quantidade);
   }
