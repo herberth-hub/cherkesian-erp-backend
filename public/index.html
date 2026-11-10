@@ -8354,7 +8354,7 @@ async function viewPiloto(c){
         `<span class="mono gold">${esc(p.codigo)}</span>${p.pedidoId?'':' <span class="pill gray" style="font-size:9px">avulso</span>'}${(()=>{ const fl=(p.briefing&&p.briefing.fluxo)||null; if(!fl||!fl.length) return ''; const fe=fl.filter(f=>f.feito).length; return `<div style="margin-top:2px"><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px" title="Fluxo da piloto">🔄 ${fe}/${fl.length}</span>${p.briefingProduto?' <span class="pill gray" style="font-size:9px">📋 '+esc(String(p.briefingProduto).split(' ')[0])+'</span>':''}</div>`; })()}`,
         pedCol, pilPill(p.status),
         p.liberado?'<span class="pill green">sim</span>':'<span class="pill gray">não</span>', p.tentativa,
-        `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button class="btn-sm" style="background:var(--gold);color:#3a2f08" title="Preencher o briefing completo da peça piloto" onclick="APP.formBriefingPiloto(${p.id})">📋 Briefing</button><button class="btn-sm" title="Ficha técnica (rosto) p/ impressão — desenho, produto, tecido, aviamentos" onclick="APP.gerarDoc('piloto_ficha',${p.id})">🎨 Ficha técnica</button><button class="btn-sm" title="Ficha detalhada da peça piloto (todas as seções)" onclick="APP.gerarDoc('piloto',${p.id})">🖨 Ficha</button>${p.liberado?'':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`}</div>`
+        `<div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end"><button class="btn-sm" style="background:var(--gold);color:#3a2f08" title="Preencher o briefing completo da peça piloto" onclick="APP.formBriefingPiloto(${p.id})">📋 Briefing</button><button class="btn-sm" title="Ficha técnica (rosto) p/ impressão — desenho, produto, tecido, aviamentos" onclick="APP.gerarDoc('piloto_ficha',${p.id})">🎨 Ficha técnica</button><button class="btn-sm" title="Etiqueta 100x50 p/ colar na embalagem da piloto que vai ao cliente" onclick="APP.pilotoEtiqueta(${p.id})">🏷 Etiqueta</button><button class="btn-sm" title="Ficha detalhada da peça piloto (todas as seções)" onclick="APP.gerarDoc('piloto',${p.id})">🖨 Ficha</button>${p.liberado?'':`<button class="btn-sm" onclick="APP.aprovarPiloto(${p.id})">Aprovar</button>`}</div>`
       ];
     }), list.length?null:'Nenhuma peça-piloto.');
 }
@@ -8396,6 +8396,45 @@ async function savePiloto(){
   if(!body.pedidoId){ toast('Selecione o pedido.','err'); return; }
   try{ const p=await api('/pilotos',{method:'POST',body}); closeModal(); toast('Piloto '+p.codigo+' solicitado.','ok'); loadRoute(); }
   catch(e){ toast(e.message,'err'); }
+}
+// ===== Etiqueta 100x50 da peça-piloto (cola na embalagem que vai ao cliente) =====
+// Mesmo caminho da etiqueta do kit: tenta a Zebra direto (ZPL) e, se não houver
+// impressora de etiqueta, cai na impressão normal em 100x50.
+async function pilotoEtiqueta(id){
+  let r; try{ r=await api('/pilotos/'+id+'/etiqueta'); }catch(e){ toast(e.message,'err'); return; }
+  if(window.BrowserPrint && window.BrowserPrint.getDefaultDevice){
+    window.BrowserPrint.getDefaultDevice('printer', dev=>dev.send(r.zpl, ()=>toast('Etiqueta enviada para a Zebra.','ok'), ()=>imprimirEtiquetaPiloto(r.dados,r.zpl)), ()=>imprimirEtiquetaPiloto(r.dados,r.zpl));
+  } else { imprimirEtiquetaPiloto(r.dados, r.zpl); }
+}
+function imprimirEtiquetaPiloto(d, zpl){
+  const w=abrirJanelaDoc('Etiqueta piloto');
+  const lin=(rot,v)=>`<div class="r"><b>${rot}:</b> ${esc(v)}</div>`;
+  w.document.write(`<html><head><title>${esc(d.codigo)}</title><meta charset=utf-8><style>
+    @page{size:100mm 50mm;margin:0} body{margin:0;font-family:Arial,sans-serif;color:#000}
+    .lbl{width:100mm;height:50mm;box-sizing:border-box;padding:3mm;display:flex;flex-direction:column;gap:0.7mm;position:relative}
+    .h{font-weight:800;font-size:8.5pt;letter-spacing:.4px}
+    .cod{font-size:15pt;font-weight:800;font-family:'Courier New',monospace;line-height:1}
+    .tent{position:absolute;top:3mm;right:3mm;border:1.5px solid #000;border-radius:2mm;padding:0.8mm 2mm;font-size:9pt;font-weight:800}
+    .r{font-size:8pt;line-height:1.25} .prod{font-size:10pt;font-weight:700;margin:0.5mm 0}
+    .pz{margin-top:auto;font-size:8.5pt;font-weight:700;border-top:1px solid #000;padding-top:0.8mm}
+    .bar{position:fixed;top:4px;right:4px}@media print{.bar{display:none}}
+  </style></head><body>
+    <div class="bar"><button onclick="window.print()">Imprimir</button> <button onclick="zpl()">Baixar ZPL</button></div>
+    <div class="lbl">
+      <div class="h">GRUPO CHERKESIAN — PEÇA PILOTO</div>
+      <div class="tent">${d.tentativa}ª TENTATIVA</div>
+      <div class="cod">${esc(d.codigo)}</div>
+      <div class="prod">${esc(d.produto)}</div>
+      ${lin('Cliente', d.cliente)}
+      ${lin('Tecido', d.artigo+(d.marca&&d.marca!=='—'?(' · '+d.marca):''))}
+      ${lin('Cor', d.cor+(d.tamanho&&d.tamanho!=='—'?('   ·   Tam: '+d.tamanho):''))}
+      ${(d.modelagem&&d.modelagem!=='—'&&d.modelagem!==d.produto)?lin('Modelagem', d.modelagem):''}
+      ${d.setor&&d.setor!=='—'?lin('Setor', d.setor):''}
+      <div class="pz">Envio: ${esc(d.envio)} &nbsp;·&nbsp; Retorno até: ${esc(d.prazoRetorno)}</div>
+    </div>
+    <script>var Z=${JSON.stringify(zpl)};function zpl(){var b=new Blob([Z],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='${esc(d.codigo)}.zpl';a.click();}<\/script>
+  </body></html>`);
+  w.document.close(); setTimeout(()=>{ try{w.focus();w.print();}catch(e){} }, 400);
 }
 async function aprovarPiloto(id){
   try{ await api('/pilotos/'+id+'/aprovar',{method:'POST'}); toast('Piloto aprovado — produção liberada.','ok'); loadRoute(); }
@@ -17120,7 +17159,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, kitUnificar, kitUnificarGrupo, kitsDaOs, kitsAgruparToggle, viewBi,
   formCompra, ocDescricaoHtml, ocEditarItens, ocItensSoma, ocItensSalvar, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,

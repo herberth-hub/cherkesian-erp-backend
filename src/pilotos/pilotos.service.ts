@@ -117,6 +117,84 @@ export class PilotosService {
     return atualizado;
   }
 
+  /**
+   * ETIQUETA DA PEÇA-PILOTO (100x50 mm) — vai colada na embalagem que sai para
+   * o cliente.
+   *
+   * A piloto chega na mesa de quem vai avaliar junto com outras amostras, de
+   * outros fornecedores e de outras tentativas da mesma peça. Sem etiqueta,
+   * "qual é essa?" vira telefonema. Por isso o que está aqui é o mínimo para
+   * identificar a peça sem abrir sistema nenhum: de quem é, o que é, qual
+   * tecido, qual cor, qual TENTATIVA e até quando a avaliação é esperada —
+   * mais o código em barras, que é por onde ela volta a ser encontrada.
+   */
+  async etiqueta(id: number, empresaId: number) {
+    const piloto = await this.findOne(id, empresaId);
+    const produto = piloto.produtoId
+      ? await this.prisma.produto.findUnique({ where: { id: piloto.produtoId }, select: { codigo: true, descricao: true, tecido: true, composicao: true, grade: true } })
+      : null;
+    const cliente = piloto.clienteId
+      ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } })
+      : null;
+    const pedido = piloto.pedidoId
+      ? await this.prisma.pedido.findUnique({ where: { id: piloto.pedidoId }, select: { numero: true, cliente: { select: { nome: true } } } })
+      : null;
+
+    const dia = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
+    const dados = {
+      codigo: piloto.codigo,
+      cliente: piloto.clienteNome || cliente?.nome || pedido?.cliente?.nome || '—',
+      pedido: pedido?.numero ?? '—',
+      // Piloto AVULSO não tem produto cadastrado ainda (o produto só nasce depois
+      // de aprovada): aí quem nomeia a peça é a modelagem.
+      produto: produto?.descricao ?? piloto.modelagem ?? piloto.briefingProduto ?? '—',
+      produtoCodigo: produto?.codigo ?? '—',
+      modelagem: piloto.modelagem ?? '—',
+      // O artigo do piloto manda: ele é o que foi usado NESTA amostra, que pode
+      // não ser o tecido padrão da ficha do produto.
+      artigo: piloto.artigo ?? produto?.tecido ?? '—',
+      marca: piloto.marca ?? '—',
+      composicao: produto?.composicao ?? '—',
+      cor: piloto.cor ?? '—',
+      setor: piloto.setor ?? '—',
+      tamanho: produto?.grade ? String(produto.grade).split(',')[0].trim() : '—',
+      tentativa: piloto.tentativa,
+      status: piloto.status,
+      solicitacao: dia(piloto.solicitacao),
+      envio: dia(piloto.envio),
+      prazoRetorno: dia(piloto.prazoRetorno),
+    };
+    return { dados, zpl: this.zplEtiqueta(dados) };
+  }
+
+  /** ZPL da etiqueta 100x50 mm @203dpi (800 x 400 pontos). */
+  private zplEtiqueta(d: Record<string, string | number>): string {
+    const s = (v: string | number, max = 34) => String(v).replace(/[\^~]/g, ' ').slice(0, max);
+    const qr = JSON.stringify({
+      piloto: d.codigo, cliente: d.cliente, produto: d.produto, artigo: d.artigo,
+      marca: d.marca, cor: d.cor, tentativa: d.tentativa, prazo: d.prazoRetorno, versao: '1',
+    }).replace(/[\^~]/g, ' ');
+    return [
+      '^XA', '^CI28', '^PW800', '^LL400',
+      '^CF0,26', '^FO18,14^FDGRUPO CHERKESIAN - PECA PILOTO^FS',
+      '^CF0,40', `^FO18,46^FD${s(d.codigo, 20)}^FS`,
+      // A tentativa fica grande e sozinha: é o que diferencia duas amostras iguais.
+      '^CF0,34', `^FO300,46^FD${d.tentativa}a TENTATIVA^FS`,
+      '^CF0,26',
+      `^FO18,96^FDCliente: ${s(d.cliente)}^FS`,
+      // Nome da peça numa fonte um pouco menor: é a linha mais longa da etiqueta
+      // e não pode avançar sobre o QR, que começa em x=600.
+      '^CF0,24', `^FO18,128^FD${s(d.produto, 44)}^FS`, '^CF0,26',
+      `^FO18,160^FDTecido: ${s(d.artigo, 30)}^FS`,
+      `^FO18,192^FDCor: ${s(d.cor, 18)}   Tam: ${s(d.tamanho, 8)}^FS`,
+      `^FO18,224^FDEnvio: ${s(d.envio, 12)}  Retorno ate: ${s(d.prazoRetorno, 12)}^FS`,
+      // QR à direita, acima do código de barras
+      `^FO600,96^BQN,2,4^FDLA,${qr}^FS`,
+      `^FO18,262^BY2^BCN,80,Y,N,N^FD${s(d.codigo, 20)}^FS`,
+      '^XZ',
+    ].join('\n');
+  }
+
   private async gerarCodigo(): Promise<string> {
     const existentes = await this.prisma.piloto.findMany({ select: { codigo: true } });
     return proximoSequencial('PIL', existentes.map((p) => p.codigo), { pad: 4, separador: '-' });

@@ -33,6 +33,12 @@ export class PilotosController {
     return this.pilotosService.findOne(id, user.empresaId);
   }
 
+  /** Etiqueta 100x50 da peça-piloto — vai colada na embalagem enviada ao cliente. */
+  @Get(':id/etiqueta')
+  etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.pilotosService.etiqueta(id, user.empresaId);
+  }
+
   @Post()
   create(@Body() dto: CreatePilotoDto, @CurrentUser() user: AuthUser) {
     return this.pilotosService.create(dto, user.empresaId);
