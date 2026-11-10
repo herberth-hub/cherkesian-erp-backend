@@ -16,6 +16,57 @@ export interface Filtros {
   filialId?: number;
   /** Competência "AAAA-MM": preenche o período com o mês inteiro. */
   comp?: string;
+  /**
+   * O QUE SAI no relatório: colunas escolhidas, por índice ("0,1,4") ou pelo
+   * título ("Número,Cliente,Valor"). Em branco, saem todas. Existe porque um
+   * relatório com dezesseis colunas não cabe no papel nem na cabeça de quem
+   * lê — quem pede escolhe o recorte.
+   */
+  colunas?: string;
+}
+
+/** Texto comparável: sem acento, sem caixa, sem espaço sobrando. */
+function chave(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+/**
+ * Aplica a escolha de colunas sobre o resultado do relatório. Mantém a ORDEM
+ * definida pelo relatório (não a ordem em que a pessoa marcou), porque é a ordem
+ * que faz sentido de ler. Seleção vazia ou que não casa com nada = tudo.
+ */
+export function recortarColunas(
+  colunas: Coluna[],
+  linhas: string[][],
+  escolha?: string,
+): { colunas: Coluna[]; linhas: string[][] } {
+  const pedidos = String(escolha ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!pedidos.length) return { colunas, linhas };
+  const querIndice = new Set<number>();
+  for (const p of pedidos) {
+    const n = Number(p);
+    if (Number.isInteger(n) && n >= 0 && n < colunas.length) { querIndice.add(n); continue; }
+    const i = colunas.findIndex((c) => chave(c.titulo) === chave(p));
+    if (i >= 0) querIndice.add(i);
+  }
+  if (!querIndice.size) return { colunas, linhas };
+  const indices = [...querIndice].sort((a, b) => a - b);
+  return {
+    colunas: indices.map((i) => colunas[i]),
+    linhas: linhas.map((l) => indices.map((i) => l[i] ?? '')),
+  };
+}
+
+/**
+ * Encaixa as colunas na largura do papel, mantendo a proporção entre elas.
+ * Sem isso, um relatório largo (ou um recorte estreito) sai transbordando a
+ * margem ou espremido num canto da folha.
+ */
+export function ajustarLarguras(colunas: Coluna[], larguraUtil: number): Coluna[] {
+  const soma = colunas.reduce((s, c) => s + c.largura, 0);
+  if (!soma) return colunas;
+  const fator = larguraUtil / soma;
+  return colunas.map((c) => ({ ...c, largura: Math.floor(c.largura * fator) }));
 }
 interface Relatorio {
   area: Area;
@@ -66,6 +117,9 @@ export class RelatoriosService {
     private readonly prisma: PrismaService,
     private readonly nfe: NfeService,
   ) {}
+
+  /** Cabeçalho de cada relatório, descoberto uma vez (é fixo no código). */
+  private readonly cacheColunas = new Map<string, string[]>();
 
   /** CNPJs emissores da empresa — a contabilidade escolhe um para separar o relatório. */
   async empresas(empresaId: number) {
@@ -129,13 +183,38 @@ export class RelatoriosService {
       throw new ForbiddenException('Seu perfil não pode gerar este relatório.');
     }
     const f = await this.normalizar(filtros, user.empresaId);
-    const { colunas, linhas, total } = await rel.build(user.empresaId, f);
+    const bruto = await rel.build(user.empresaId, f);
+    const total = bruto.total;
+    const { colunas, linhas } = recortarColunas(bruto.colunas, bruto.linhas, f.colunas);
     const descFiltro = [
       f.empresaNome ? `Empresa: ${f.empresaNome}` : 'Empresa: TODAS',
       f.comp ? `Competência: ${f.comp}` : (f.de || f.ate ? `Período: ${f.de ? dataBR(f.de) : '…'} a ${f.ate ? dataBR(f.ate) : '…'}` : ''),
       f.status ? `Status: ${f.status}` : '',
+      // Quem lê precisa saber que está vendo um RECORTE, não o relatório inteiro.
+      colunas.length < bruto.colunas.length ? `Colunas: ${colunas.map((c) => c.titulo).join(', ')}` : '',
     ].filter(Boolean).join('   ·   ');
     return { titulo: rel.titulo, colunas, linhas, total, descFiltro, sufixo: f.sufixo };
+  }
+
+  /**
+   * Colunas disponíveis do relatório — é o que a tela mostra para a pessoa
+   * marcar o que deve sair. Passa pelo MESMO RBAC da geração: quem não pode
+   * emitir o relatório também não descobre por aqui o que ele tem dentro.
+   */
+  async colunas(tipo: string, user: AuthUser): Promise<{ titulo: string; colunas: string[] }> {
+    const rel = this.relatorios()[tipo];
+    if (!rel) throw new NotFoundException('Relatório desconhecido.');
+    if (!perfilPodeAcessar(user.acesso, rel.area)) {
+      throw new ForbiddenException('Seu perfil não pode gerar este relatório.');
+    }
+    const emCache = this.cacheColunas.get(tipo);
+    if (emCache) return { titulo: rel.titulo, colunas: emCache };
+    // Monta com filtro vazio só para conhecer o cabeçalho (as linhas são
+    // descartadas). O cabeçalho é fixo no código, então basta descobrir uma vez.
+    const { colunas } = await rel.build(user.empresaId, {});
+    const titulos = colunas.map((c) => c.titulo);
+    this.cacheColunas.set(tipo, titulos);
+    return { titulo: rel.titulo, colunas: titulos };
   }
 
   /** Aplica a competência sobre o período e resolve o nome da empresa escolhida. */
@@ -164,7 +243,10 @@ export class RelatoriosService {
       doc.moveDown(0.2).fillColor('#242a26');
     }
     if (d.linhas.length) {
-      tabela(doc, d.colunas, d.linhas);
+      // As larguras são proporções, não medidas: encaixa o conjunto escolhido na
+      // folha. Antes, o relatório de notas (16 colunas) transbordava a margem, e
+      // um recorte de 3 colunas sobrava espaço vazio na direita.
+      tabela(doc, ajustarLarguras(d.colunas, doc.page.width - 100), d.linhas);
       if (d.total) totalDestaque(doc, d.total.rotulo, d.total.valor);
     } else {
       doc.moveDown(1).fillColor('#807d72').font('Helvetica').fontSize(11).text('Nenhum registro para este relatório.');
@@ -381,6 +463,99 @@ export class RelatoriosService {
               { titulo: 'Situação', largura: 75 },
             ],
             linhas: regs.map((m) => [m.codigo, m.descricao, `${n(m.saldo)} ${m.unidade}`, `${n(m.minimo)} ${m.unidade}`, n(m.saldo) < n(m.minimo) ? 'ABAIXO' : 'ok']),
+          };
+        },
+      },
+      /**
+       * ESTOQUE REAL — o que está na prateleira, peça a peça, somado.
+       *
+       * A fonte é a UnidadeEstoque (cada etiqueta é uma peça/rolo), não a tabela
+       * `Estoque`, que está vazia. Por isso este relatório é o único lugar de
+       * onde dá para "extrair o estoque" e bater com o armazém.
+       *
+       * PRONTA-ENTREGA, no resto do sistema (portal do cliente, ficha do
+       * cliente), é `em_estoque` + `reservado` — a peça reservada está na
+       * prateleira, só já tem dono. O relatório mantém esse vocabulário: as
+       * duas situações aparecem em colunas SEPARADAS (para saber o que está
+       * livre) e o total soma as duas. Comodato está na loja do cliente e
+       * quarentena está bloqueado: nenhum dos dois entra na conta.
+       */
+      estoque: {
+        area: 'estoque',
+        titulo: 'Relatório de Estoque',
+        build: async (empresaId, f) => {
+          const grupos = await this.prisma.unidadeEstoque.groupBy({
+            by: ['tipo', 'produtoId', 'materialId', 'descricao', 'cor', 'tamanho', 'qualidade', 'status'],
+            where: {
+              empresaId,
+              ...periodo('criadoEm', f),
+              // Despachado saiu de casa: não é estoque. Sem filtro de status, o
+              // relatório traz o que ainda está sob nossa responsabilidade.
+              ...(f.status ? { status: f.status } : { status: { in: ['em_estoque', 'reservado', 'comodato', 'quarentena', 'aguardando_endereco'] } }),
+            },
+            _count: { _all: true },
+            _sum: { quantidade: true },
+          });
+
+          const prodIds = [...new Set(grupos.map((g) => g.produtoId).filter((x): x is number => x != null))];
+          const matIds = [...new Set(grupos.map((g) => g.materialId).filter((x): x is number => x != null))];
+          const [prods, mats] = await Promise.all([
+            prodIds.length ? this.prisma.produto.findMany({ where: { id: { in: prodIds } }, select: { id: true, codigo: true } }) : [],
+            matIds.length ? this.prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true, codigo: true, unidade: true } }) : [],
+          ]);
+          const codProd = new Map(prods.map((p) => [p.id, p.codigo]));
+          const codMat = new Map(mats.map((m) => [m.id, m]));
+
+          type Linha = { codigo: string; descricao: string; cor: string; tamanho: string; qualidade: string; unidade: string; por: Record<string, number>; etiquetas: number; medida: number };
+          const mapa = new Map<string, Linha>();
+          for (const g of grupos) {
+            const mat = g.materialId != null ? codMat.get(g.materialId) : undefined;
+            const codigo = (g.produtoId != null ? codProd.get(g.produtoId) : mat?.codigo) ?? '—';
+            const chaveLinha = [codigo, g.descricao, g.cor ?? '', g.tamanho ?? '', g.qualidade].join('|');
+            const atual = mapa.get(chaveLinha) ?? {
+              codigo, descricao: g.descricao, cor: g.cor ?? '—', tamanho: g.tamanho ?? '—',
+              qualidade: g.qualidade === 'segunda' ? '2ª linha' : '1ª',
+              unidade: mat?.unidade ?? 'UN', por: {}, etiquetas: 0, medida: 0,
+            };
+            atual.por[g.status] = (atual.por[g.status] ?? 0) + g._count._all;
+            atual.etiquetas += g._count._all;
+            atual.medida += Number(g._sum.quantidade ?? 0);
+            mapa.set(chaveLinha, atual);
+          }
+
+          const linhas = [...mapa.values()].sort((a, b) =>
+            a.descricao.localeCompare(b.descricao) || a.cor.localeCompare(b.cor) || a.tamanho.localeCompare(b.tamanho),
+          );
+          const livre = linhas.reduce((s, l) => s + (l.por.em_estoque ?? 0), 0);
+          const reservado = linhas.reduce((s, l) => s + (l.por.reservado ?? 0), 0);
+          const q = (n: number) => (n > 0 ? String(n) : '—');
+
+          return {
+            colunas: [
+              { titulo: 'Código', largura: 68 },
+              { titulo: 'Descrição', largura: 140 },
+              { titulo: 'Cor', largura: 58 },
+              { titulo: 'Tamanho', largura: 36 },
+              { titulo: 'Qualidade', largura: 46 },
+              { titulo: 'Em estoque', largura: 50, alinhamento: 'right' },
+              { titulo: 'Reservado', largura: 46, alinhamento: 'right' },
+              { titulo: 'Comodato', largura: 46, alinhamento: 'right' },
+              { titulo: 'Quarentena', largura: 50, alinhamento: 'right' },
+              { titulo: 'Sem endereço', largura: 48, alinhamento: 'right' },
+              { titulo: 'Etiquetas', largura: 44, alinhamento: 'right' },
+              { titulo: 'Medida', largura: 50, alinhamento: 'right' },
+            ] as Coluna[],
+            linhas: linhas.map((l) => [
+              l.codigo, l.descricao, l.cor, l.tamanho, l.qualidade,
+              q(l.por.em_estoque ?? 0), q(l.por.reservado ?? 0), q(l.por.comodato ?? 0),
+              q(l.por.quarentena ?? 0), q(l.por.aguardando_endereco ?? 0),
+              String(l.etiquetas),
+              l.medida > 0 ? `${l.medida.toFixed(2).replace('.', ',')} ${l.unidade}` : '—',
+            ]),
+            total: {
+              rotulo: `Pronta-entrega (em estoque + reservado) · ${linhas.length} item(ns)`,
+              valor: `${livre + reservado} peça(s) · ${livre} livre(s)`,
+            },
           };
         },
       },

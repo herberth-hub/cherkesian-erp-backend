@@ -159,6 +159,30 @@ describe('não é o DANFE', () => {
   });
 });
 
+/**
+ * O caminho REAL da impressão: o controller recebe o documento montado, dá
+ * `doc.pipe(res)` e só então `doc.end()`. Se o montador já tiver fechado o
+ * documento, esse end() estoura ERR_STREAM_PUSH_AFTER_EOF e o PDF não chega ao
+ * navegador — foi exatamente o que aconteceu na primeira versão desta tela.
+ * O teste refaz o caminho inteiro em vez de olhar só o texto escrito.
+ */
+describe('o PDF chega ao navegador', () => {
+  it('o documento sai ABERTO do montador — quem fecha é o controller, depois do pipe', async () => {
+    const doc = (await montar(servico(notaCom(), CONTA))) as NodeJS.ReadableStream & { end: () => void };
+    const pedacos: Buffer[] = [];
+    const pronto = new Promise<void>((ok, falha) => {
+      doc.on('data', (c: Buffer) => pedacos.push(c));
+      doc.on('end', () => ok());
+      doc.on('error', falha);
+    });
+    doc.end(); // <- o segundo end(), como no controller
+    await pronto;
+    const pdf = Buffer.concat(pedacos);
+    expect(pdf.length).toBeGreaterThan(1000);
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
 describe('escopo', () => {
   it('nota de outra empresa não é impressa', async () => {
     await expect(montar(servico(notaCom({ empresaId: 2 }), CONTA))).rejects.toThrow(/não encontrada/i);

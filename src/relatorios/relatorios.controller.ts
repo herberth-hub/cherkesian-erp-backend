@@ -12,14 +12,20 @@ export class RelatoriosController {
   constructor(private readonly relatoriosService: RelatoriosService) {}
 
   /** Filtros comuns a PDF/Excel — `comp` (AAAA-MM) e `filialId` são o que a contabilidade usa. */
-  private filtros(de?: string, ate?: string, status?: string, filialId?: string, comp?: string) {
-    return { de, ate, status, comp, filialId: filialId ? Number(filialId) : undefined };
+  private filtros(de?: string, ate?: string, status?: string, filialId?: string, comp?: string, colunas?: string) {
+    return { de, ate, status, comp, colunas, filialId: filialId ? Number(filialId) : undefined };
   }
 
   /** Empresas (CNPJs emissores) disponíveis para recortar o relatório. */
   @Get('empresas')
   empresas(@CurrentUser() user: AuthUser) {
     return this.relatoriosService.empresas(user.empresaId);
+  }
+
+  /** Colunas do relatório — a tela usa para deixar escolher o que vai sair. */
+  @Get(':tipo/colunas')
+  colunas(@Param('tipo') tipo: string, @CurrentUser() user: AuthUser) {
+    return this.relatoriosService.colunas(tipo, user);
   }
 
   @Get(':tipo/pdf')
@@ -30,10 +36,11 @@ export class RelatoriosController {
     @Query('status') status: string | undefined,
     @Query('filialId') filialId: string | undefined,
     @Query('comp') comp: string | undefined,
+    @Query('colunas') colunas: string | undefined,
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    const { doc, nome } = await this.relatoriosService.gerar(tipo, user, this.filtros(de, ate, status, filialId, comp));
+    const { doc, nome } = await this.relatoriosService.gerar(tipo, user, this.filtros(de, ate, status, filialId, comp, colunas));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nome}.pdf"`);
     doc.pipe(res);
@@ -48,10 +55,11 @@ export class RelatoriosController {
     @Query('status') status: string | undefined,
     @Query('filialId') filialId: string | undefined,
     @Query('comp') comp: string | undefined,
+    @Query('colunas') colunas: string | undefined,
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    const { buffer, nome } = await this.relatoriosService.xlsx(tipo, user, this.filtros(de, ate, status, filialId, comp));
+    const { buffer, nome } = await this.relatoriosService.xlsx(tipo, user, this.filtros(de, ate, status, filialId, comp, colunas));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${nome}.xlsx"`);
     res.send(buffer);

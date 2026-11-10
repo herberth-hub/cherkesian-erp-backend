@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Documento, Prisma, Produto } from '@prisma/client';
+import { Acesso, Documento, Prisma, Produto } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { ArquivosService } from '../arquivos/arquivos.service';
@@ -40,6 +40,12 @@ import {
 const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area[] }> = {
   proposta: { titulo: 'Proposta Comercial', prefixo: 'PROP', area: 'vendas' },
   pedido: { titulo: 'Pedido de Venda', prefixo: 'PVD', area: 'vendas' },
+  // RELATÓRIO do pedido — documento INTERNO de acompanhamento, não o pedido que
+  // vai ao cliente. O "pedido (PDF)" conta o que foi VENDIDO; este conta o que
+  // ACONTECEU com a venda: quanto já saiu, quanto falta, em que pé está cada OP,
+  // o que foi expedido, o que foi faturado e (para quem pode ver dinheiro) o que
+  // já foi recebido. É a resposta a "como está o PV tal?" numa folha só.
+  pedido_relatorio: { titulo: 'Relatório do Pedido', prefixo: 'RPV', area: 'vendas' },
   op: { titulo: 'Ordem de Produção', prefixo: 'OPD', area: 'producao' },
   op_pedido: { titulo: 'Ordem de Produção do Pedido', prefixo: 'OPP', area: 'producao' },
   plano_corte: { titulo: 'Plano de Corte', prefixo: 'PCT', area: 'producao' },
@@ -75,6 +81,16 @@ function formatarCnpj(v?: string | null): string {
   const d = String(v ?? '').replace(/\D/g, '');
   if (d.length !== 14) return (v ?? '').trim() || '—';
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+/**
+ * Quem pode ver, no relatório do pedido, o que o cliente já pagou. É o MESMO
+ * recorte da tela de Contas a Receber (`perfilPodeAcessar(acesso,'receber')`) —
+ * produção, expedição e compras imprimem o relatório sem o bloco de dinheiro.
+ * Sem perfil informado, não mostra: o silêncio tem de falhar para o lado seguro.
+ */
+function podeVerDinheiro(acesso?: Acesso): boolean {
+  return !!acesso && perfilPodeAcessar(acesso, 'receber');
 }
 
 /** Telefone com DDD, fixo (10) ou celular (11). Fora disso, devolve o original. */
@@ -129,7 +145,7 @@ export class DocumentosService {
       ? [...new Set((ids ?? []).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b).join(',')
       : null;
     // Garante que a referência existe (e pertence à empresa) antes de registrar.
-    await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA', filtro);
+    await this.montarPdf(tipo, referenciaId, user.empresaId, 'PREVIA', filtro, user.acesso);
 
     // Rastreabilidade: reaproveita o documento já existente da MESMA referência
     // E do mesmo recorte (não cria número novo a cada geração de PDF).
@@ -175,6 +191,7 @@ export class DocumentosService {
       user.empresaId,
       documento.numero,
       documento.filtro,
+      user.acesso,
     );
     return { doc, numero: documento.numero };
   }
@@ -329,6 +346,10 @@ export class DocumentosService {
     empresaId: number,
     numero: string,
     filtro?: string | null,
+    // Perfil de quem está imprimindo. Só o relatório do pedido usa: o bloco
+    // financeiro (o que o cliente já pagou) não sai para quem não enxerga
+    // 'receber' — senão o PDF entregaria pela porta dos fundos o que a tela nega.
+    acesso?: Acesso,
   ): Promise<Pdf> {
     // Aplica o logo da empresa no cabeçalho dos documentos.
     const emp = await this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { logo: true } });
@@ -338,6 +359,8 @@ export class DocumentosService {
       case 'proposta':
       case 'pedido':
         return this.pdfPedido(tipo, referenciaId, empresaId, numero);
+      case 'pedido_relatorio':
+        return this.pdfPedidoRelatorio(referenciaId, empresaId, numero, acesso);
       case 'op':
         return this.pdfOp(referenciaId, empresaId, numero);
       case 'op_pedido':
@@ -550,6 +573,269 @@ export class DocumentosService {
     } else {
       assinaturas(doc, quemAssina, `${pedido.cliente.nome} — De acordo`);
     }
+    rodapeGrupo(doc);
+    return doc;
+  }
+
+  /**
+   * RELATÓRIO DO PEDIDO — acompanhamento interno, uma folha por venda.
+   *
+   * O "Pedido (PDF)" responde o que foi VENDIDO e vai assinado para o cliente.
+   * Este responde outra pergunta, a que o Herberth faz no telefone: "como está
+   * o PV tal?". Por isso ele é organizado pelo que FALTA, não pelo que foi
+   * combinado — item a item, quanto saiu e quanto ainda não saiu; depois a
+   * produção, a expedição, o faturamento e, para quem enxerga dinheiro, o
+   * recebimento.
+   *
+   * O bloco financeiro obedece ao mesmo recorte da tela: perfil que não acessa
+   * 'receber' não vê o que o cliente pagou. Um PDF não pode ser a brecha por
+   * onde sai o que o menu esconde.
+   */
+  private async pdfPedidoRelatorio(
+    pedidoId: number,
+    empresaId: number,
+    numero: string,
+    acesso?: Acesso,
+  ): Promise<Pdf> {
+    const pedido = await this.prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: {
+        cliente: true,
+        filial: true,
+        itens: { orderBy: { id: 'asc' } },
+        ops: { orderBy: { id: 'asc' } },
+        pedidosFilhos: { select: { numero: true, valorTotal: true, etapa: true } },
+      },
+    });
+    if (!pedido || pedido.empresaId !== empresaId) {
+      throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
+    }
+    // Títulos só são LIDOS quando quem imprime pode vê-los — o filtro começa na
+    // consulta, não na hora de desenhar.
+    const titulos = podeVerDinheiro(acesso)
+      ? await this.prisma.contaReceber.findMany({ where: { pedidoId }, orderBy: { vencimento: 'asc' } })
+      : [];
+    const [expedicoes, notas, unidade, produtos] = await Promise.all([
+      this.prisma.expedicao.findMany({ where: { pedidoId }, orderBy: { id: 'asc' } }),
+      this.prisma.notaFiscal.findMany({ where: { pedidoId }, orderBy: { id: 'asc' } }),
+      pedido.clienteUnidadeId
+        ? this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } })
+        : Promise.resolve(null),
+      this.prisma.produto.findMany({
+        where: { id: { in: [...new Set(pedido.itens.map((i) => i.produtoId).filter((x): x is number => x != null))] } },
+        select: { id: true, codigo: true },
+      }),
+    ]);
+    const codProd = new Map(produtos.map((p) => [p.id, p.codigo]));
+
+    if (pedido.filial?.logo) setLogoDoc(pedido.filial.logo);
+    // Aqui o cabeçalho leva a data de HOJE de propósito: o relatório é uma
+    // fotografia do pedido no momento em que foi impresso.
+    const doc = novoDocumento('Relatório do Pedido', numero);
+    const X = 50, CW = doc.page.width - 100;
+    const CINZA = '#6a675e', TINTA = '#242a26', LINHA = '#e7e3d8', BGSOFT = '#faf8f2';
+    const VERDE = '#1e7a44', VERM = '#a33a26', NAVY = '#1b2a4a';
+
+    // ===== Identificação =====
+    const destNome = unidade?.nome || pedido.cliente.nome;
+    secao(doc, 'Pedido');
+    camposDuplos(doc, [
+      ['Número', pedido.numero],
+      ['Cliente', destNome],
+      ['Data do pedido', dataBR(pedido.data)],
+      ['Ordem de compra (cliente)', pedido.ordemCompraCliente || '—'],
+      ['Prazo de entrega', pedido.prazoEntrega ? dataBR(pedido.prazoEntrega) : 'a combinar'],
+      ['Etapa atual', String(pedido.etapa).replace(/_/g, ' ')],
+      ['Empresa emissora', pedido.filial?.nome || '—'],
+      ['Forma de pagamento', pedido.formaPagamento || '—'],
+    ]);
+
+    // Atraso: a informação que faz alguém agir. Só aparece quando existe.
+    if (pedido.prazoEntrega && !['concluido', 'cancelado'].includes(String(pedido.etapa))) {
+      const dias = Math.floor((Date.now() - new Date(pedido.prazoEntrega).getTime()) / 86400000);
+      if (dias > 0) {
+        doc.fillColor(VERM).font('Helvetica-Bold').fontSize(10)
+          .text(`ATRASADO ha ${dias} dia(s) — prazo venceu em ${dataBR(pedido.prazoEntrega)}.`.replace('ha', 'há'), X, doc.y, { width: CW });
+        doc.x = X; doc.moveDown(0.4); doc.fillColor(TINTA);
+      }
+    }
+
+    // ===== Itens: pedido × expedido × falta =====
+    const resumoGrade = (g: unknown): string => {
+      const o = (g ?? null) as Record<string, number> | null;
+      if (!o || !Object.keys(o).length) return '';
+      return Object.entries(o).filter(([, q]) => Number(q) > 0).map(([t, q]) => `${t} ${q}`).join(' · ');
+    };
+    let totPedido = 0, totExpedido = 0;
+    const linhasItens = pedido.itens.map((i) => {
+      const falta = Math.max(0, i.quantidade - i.quantidadeExpedida);
+      totPedido += i.quantidade;
+      totExpedido += i.quantidadeExpedida;
+      const cod = i.produtoId ? codProd.get(i.produtoId) ?? '' : '';
+      const nome = [cod, i.descricao, i.cor ? `(${i.cor})` : ''].filter(Boolean).join(' ');
+      const grade = resumoGrade(i.grade);
+      return [
+        grade ? `${nome}\n${grade}` : nome,
+        String(i.quantidade),
+        String(i.quantidadeExpedida),
+        falta > 0 ? String(falta) : '—',
+        money(Number(i.valorUnit) * i.quantidade),
+      ];
+    });
+    secao(doc, `Itens · pedido × expedido × falta (${pedido.itens.length})`, 60);
+    if (linhasItens.length) {
+      tabela(doc, [
+        { titulo: 'Item', largura: CW - 245 },
+        { titulo: 'Pedido', largura: 48, alinhamento: 'right' },
+        { titulo: 'Expedido', largura: 58, alinhamento: 'right' },
+        { titulo: 'Falta', largura: 44, alinhamento: 'right' },
+        // Larga o bastante para "R$ 15.923,20" numa linha só: valor quebrado em
+        // duas linhas vira R$ 3.486,0 / 0 e ninguém confia num relatório assim.
+        { titulo: 'Total', largura: 95, alinhamento: 'right' },
+      ], linhasItens);
+    } else {
+      textoBloco(doc, 'Este pedido não tem itens lançados.');
+    }
+    totalDestaque(doc, `Peças · ${totExpedido} expedidas de ${totPedido}`, money(pedido.valorTotal));
+    const vFrete = Number(pedido.valorFrete ?? 0);
+    if (vFrete > 0) totalDestaque(doc, 'Total com frete', money(Number(pedido.valorTotal) + vFrete));
+
+    // ===== Situação no sistema (os três chips que resumem tudo) =====
+    const opsVivas = pedido.ops.filter((o) => o.status !== 'cancelado');
+    const opsFeitas = opsVivas.filter((o) => o.status === 'concluido').length;
+    const progresso = opsVivas.length
+      ? Math.round(opsVivas.reduce((s, o) => s + o.progresso, 0) / opsVivas.length)
+      : 0;
+    const notasValidas = notas.filter((n) => n.status !== 'cancelada');
+    const pecasExpedidas = expedicoes.reduce((s, e) => s + e.pecas, 0);
+
+    if (doc.y > doc.page.height - 160) doc.addPage();
+    secao(doc, 'Situação no sistema');
+    const cy = doc.y + 2, cW = (CW - 2 * 8) / 3;
+    const chip = (i: number, lab: string, val: string, cor: string) => {
+      const cx = X + i * (cW + 8);
+      doc.roundedRect(cx, cy, cW, 40, 6).fillColor(BGSOFT).fill();
+      doc.roundedRect(cx, cy, cW, 40, 6).lineWidth(0.7).strokeColor(LINHA).stroke();
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 10, cy + 7, { width: cW - 20 });
+      doc.fillColor(cor).font('Helvetica-Bold').fontSize(11).text(val, cx + 10, cy + 19, { width: cW - 20 });
+    };
+    chip(0, 'PRODUÇÃO', opsVivas.length ? `${opsFeitas}/${opsVivas.length} OP · ${progresso}%` : 'Sem OP',
+      opsVivas.length ? (opsFeitas === opsVivas.length ? VERDE : TINTA) : CINZA);
+    chip(1, 'EXPEDIÇÃO', totPedido && totExpedido >= totPedido ? 'Entregue' : expedicoes.length ? `${pecasExpedidas} peças em ${expedicoes.length} remessa(s)` : 'Nada saiu',
+      totPedido && totExpedido >= totPedido ? VERDE : expedicoes.length ? TINTA : CINZA);
+    chip(2, 'FATURAMENTO', notasValidas.length ? `NF ${notasValidas.map((n) => n.numero).join(', ')}` : 'Sem NF',
+      notasValidas.length ? VERDE : CINZA);
+    doc.y = cy + 40 + 12; doc.x = X;
+
+    // ===== Ordens de produção =====
+    if (pedido.ops.length) {
+      secao(doc, `Ordens de produção (${pedido.ops.length})`, 50);
+      tabela(doc, [
+        { titulo: 'OP', largura: 80 },
+        { titulo: 'Cor', largura: 95 },
+        { titulo: 'Qtd', largura: 45, alinhamento: 'right' },
+        { titulo: 'Situação', largura: 115 },
+        { titulo: 'Progr.', largura: 50, alinhamento: 'right' },
+        { titulo: 'Entrega', largura: CW - 385 },
+      ], pedido.ops.map((o) => [
+        o.numero,
+        o.cor ?? '—',
+        String(o.quantidade),
+        String(o.status).replace(/_/g, ' '),
+        `${o.progresso}%`,
+        o.entregaPrev ? dataBR(o.entregaPrev) : '—',
+      ]));
+    }
+
+    // ===== Expedições =====
+    if (expedicoes.length) {
+      secao(doc, `Expedições (${expedicoes.length})`, 50);
+      tabela(doc, [
+        { titulo: 'Remessa', largura: 80 },
+        { titulo: 'Saída', largura: 70 },
+        { titulo: 'Peças', largura: 45, alinhamento: 'right' },
+        { titulo: 'NF', largura: 72 },
+        { titulo: 'Transportadora', largura: 108 },
+        { titulo: 'Situação', largura: CW - 375 },
+      ], expedicoes.map((e) => [
+        e.numero + (e.parcial ? ' (parcial)' : ''),
+        dataBR(e.dataSaida ?? e.data),
+        String(e.pecas),
+        e.nf ?? '—',
+        e.transportadora ?? '—',
+        e.status,
+      ]));
+    }
+
+    // ===== Notas fiscais =====
+    if (notas.length) {
+      secao(doc, `Notas fiscais (${notas.length})`, 50);
+      tabela(doc, [
+        { titulo: 'Nota', largura: 95 },
+        { titulo: 'Tipo', largura: 80 },
+        { titulo: 'Emissão', largura: 70 },
+        { titulo: 'Valor', largura: 90, alinhamento: 'right' },
+        { titulo: 'Situação', largura: CW - 335 },
+      ], notas.map((n) => [
+        `${n.numero}/${n.serie}`,
+        n.tipo,
+        dataBR(n.emitidaEm),
+        money(n.valor),
+        String(n.status),
+      ]));
+    }
+
+    // ===== Financeiro — só para quem enxerga 'receber' =====
+    if (podeVerDinheiro(acesso)) {
+      if (pedido.bonificacao) {
+        secao(doc, 'Financeiro');
+        textoBloco(doc, 'Pedido de BONIFICAÇÃO — não gera título a receber.');
+      } else if (titulos.length) {
+        const aberto = titulos.filter((t) => t.status !== 'pago').reduce((s, t) => s + (Number(t.valor) - Number(t.pago)), 0);
+        const recebido = titulos.reduce((s, t) => s + Number(t.pago), 0);
+        secao(doc, `Financeiro · títulos deste pedido (${titulos.length})`, 50);
+        tabela(doc, [
+          { titulo: 'Vencimento', largura: 85 },
+          { titulo: 'Valor', largura: 90, alinhamento: 'right' },
+          { titulo: 'Pago', largura: 90, alinhamento: 'right' },
+          { titulo: 'Saldo', largura: 90, alinhamento: 'right' },
+          { titulo: 'Situação', largura: CW - 355 },
+        ], titulos.map((t) => [
+          dataBR(t.vencimento),
+          money(t.valor),
+          money(t.pago),
+          money(Number(t.valor) - Number(t.pago)),
+          String(t.status).replace(/_/g, ' '),
+        ]));
+        totalDestaque(doc, recebido > 0 ? `Recebido ${money(recebido)} · em aberto` : 'Em aberto', money(aberto));
+      } else {
+        secao(doc, 'Financeiro');
+        textoBloco(doc, 'Nenhum título gerado para este pedido até agora.');
+      }
+    }
+
+    // ===== Desmembramentos =====
+    if (pedido.pedidosFilhos.length) {
+      secao(doc, `Pedidos parciais gerados (${pedido.pedidosFilhos.length})`, 40);
+      tabela(doc, [
+        { titulo: 'Pedido', largura: 100 },
+        { titulo: 'Etapa', largura: 120 },
+        { titulo: 'Valor', largura: CW - 220, alinhamento: 'right' },
+      ], pedido.pedidosFilhos.map((f) => [f.numero, String(f.etapa), money(f.valorTotal)]));
+    }
+
+    const obs = [pedido.obsComercial?.trim(), pedido.obs?.trim()].filter(Boolean).join('\n');
+    if (obs) {
+      secao(doc, 'Observações');
+      textoBloco(doc, obs);
+    }
+
+    doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(8)
+      .text(`Relatório interno de acompanhamento, emitido em ${dataBR(new Date())}. Não é o pedido assinado pelo cliente e não tem valor fiscal.`,
+        X, doc.y + 6, { width: CW });
+    doc.x = X;
+    doc.fillColor(NAVY);
+
     rodapeGrupo(doc);
     return doc;
   }
@@ -1145,7 +1431,9 @@ export class DocumentosService {
     doc.x = X;
 
     rodapeGrupo(doc);
-    doc.end();
+    // NÃO fechar o documento aqui: quem fecha é quem consome (o controller depois
+    // do pipe, ou pdfParaBuffer no e-mail). Fechar duas vezes derruba a requisição
+    // com ERR_STREAM_PUSH_AFTER_EOF e o PDF nunca chega ao navegador.
     return doc;
   }
 

@@ -2509,6 +2509,10 @@ function pedAcoesGrupos(p){
     ['DOCUMENTOS',[
       {ic:'🖨',lbl:'Pedido (PDF)',fn:()=>gerarDoc('pedido',p.id),
        off:orc?'Em orçamento o documento é a Proposta':null},
+      // Relatório = acompanhamento INTERNO (o que já saiu, o que falta, OPs,
+      // expedições, NF e — para quem vê dinheiro — os títulos). Não é o papel
+      // que vai assinado para o cliente; esse é o "Pedido (PDF)" acima.
+      {ic:'📊',lbl:'Relatório do pedido',fn:()=>gerarDoc('pedido_relatorio',p.id)},
       {ic:'🖨',lbl:'Proposta (PDF)',fn:()=>gerarDoc('proposta',p.id),
        off:orc?null:'Depois da aprovação o documento é o Pedido'},
       {ic:'🧾',lbl:'NF Faturamento',fn:()=>formFaturamento(p.id,Number(p.valorTotal)||0,Number(p.valorFrete)||0),
@@ -2874,6 +2878,16 @@ const REL_FILTROS = {
   expedicoes:{periodo:true},
   compras:{periodo:true, status:{label:'Status', opts:['aguardando','recebida','cancelada']}},
   comissoes:{status:{label:'Status', opts:['A pagar','Pago']}},
+  // Estoque: o período filtra pela DATA DE ENTRADA da etiqueta (quando a peça
+  // chegou), não por movimentação.
+  // Estoque é POSIÇÃO, não movimento: o padrão é o estoque inteiro. A competência
+  // começa VAZIA de propósito — se viesse preenchida com o mês atual, o relatório
+  // mostraria só o que entrou em novembro e pareceria que o armazém está vazio.
+  // No papel, doze colunas viram uma letra por linha. O relatório TEM as doze —
+  // mas só estas vêm marcadas; as outras ficam a um clique. No Excel, marque todas.
+  estoque:{periodo:true, periodoVazio:true, periodoLabel:'Entrada da etiqueta (opcional)',
+    colsPadrao:['Código','Descrição','Cor','Tamanho','Em estoque','Reservado','Etiquetas','Medida'],
+    status:{label:'Situação', opts:['em_estoque','reservado','comodato','quarentena','aguardando_endereco']}},
   produtos:{}, materiais:{},
 };
 async function relatorio(tipo){
@@ -2882,14 +2896,27 @@ async function relatorio(tipo){
   // Empresas (CNPJ emissor): sem escolher, o relatório sai com todas juntas — foi
   // exatamente a queixa da contabilidade.
   let emps=[]; try{ emps=await api('/relatorios/empresas'); }catch(_){ }
+  // O que SAI no relatório. Vem do servidor (mesmo cabeçalho que ele desenha) —
+  // assim a tela nunca oferece coluna que o relatório não tem.
+  let cols=[]; try{ const r=await api('/relatorios/'+tipo+'/colunas'); cols=(r&&r.colunas)||[]; }catch(_){ }
+  const colSel = cols.length>1 ? `<div class="mrow"><label class="fl">O que sai no relatório</label>
+      <div style="display:flex;gap:6px;margin:0 0 6px">
+        <button type="button" class="btn-sm" onclick="APP.relColsTodas(1)">Marcar todas</button>
+        <button type="button" class="btn-sm" onclick="APP.relColsTodas(0)">Desmarcar todas</button>
+      </div>
+      <div id="rel_cols" style="display:flex;flex-wrap:wrap;gap:4px 14px;max-height:170px;overflow:auto;border:1px solid #e7e4dd;border-radius:9px;padding:8px">
+        ${cols.map((c,i)=>`<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;white-space:nowrap">
+          <input type="checkbox" class="relcol" value="${i}"${(!cfg.colsPadrao||cfg.colsPadrao.indexOf(c)>=0)?' checked':''}> ${esc(c)}</label>`).join('')}
+      </div>
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Desmarque o que não precisa — o PDF reparte a largura entre as colunas que sobraram. No Excel pode marcar todas.</div></div>` : '';
   const empSel = emps.length?`<div class="mrow"><label class="fl">Empresa (CNPJ emissor)</label>
       <select id="rel_filial" class="inp"><option value="">— todas as empresas —</option>${emps.map(e=>`<option value="${e.id}">${esc(e.nome)}${e.cnpj?' · '+esc(e.cnpj):''}</option>`).join('')}</select>
       <div class="muted" style="font-size:10.5px;margin-top:3px">Em branco, o relatório junta todas as empresas num arquivo só.</div></div>`:'';
   const hoje=new Date(); const compAtual=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
   const periodo = cfg.periodo ? `
-    <div class="mrow"><label class="fl">Competência (mês)</label>
-      <input id="rel_comp" class="inp" type="month" value="${compAtual}" style="max-width:200px" onchange="APP.relCompMuda()">
-      <div class="muted" style="font-size:10.5px;margin-top:3px">Preenche o período com o mês inteiro. Limpe para usar datas soltas abaixo.</div></div>
+    <div class="mrow"><label class="fl">${esc(cfg.periodoLabel||'Competência (mês)')}</label>
+      <input id="rel_comp" class="inp" type="month" value="${cfg.periodoVazio?'':compAtual}" style="max-width:200px" onchange="APP.relCompMuda()">
+      <div class="muted" style="font-size:10.5px;margin-top:3px">${cfg.periodoVazio?'Em branco, sai a posição INTEIRA do estoque. Preencha só para ver o que entrou num mês.':'Preenche o período com o mês inteiro. Limpe para usar datas soltas abaixo.'}</div></div>
     <div class="grid2">${field('rel_de','De','type="date"')}${field('rel_ate','Até','type="date"')}</div>` : '';
   const status = cfg.status ? `<div class="mrow"><label class="fl">${esc(cfg.status.label)}</label><select id="rel_status" class="inp"><option value="">— todos —</option>${cfg.status.opts.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>` : '';
   const xmlBtn = tipo==='nfs' ? `<div class="mrow"><label class="fl">Arquivos fiscais</label>
@@ -2897,7 +2924,7 @@ async function relatorio(tipo){
       <div class="muted" style="font-size:10.5px;margin-top:3px">Todos os XMLs autorizados do mês e da empresa escolhidos acima, num arquivo só. As canceladas vão numa pasta à parte.</div></div>` : '';
   openModal(`<h3>📄 Gerar relatório</h3>
     <p class="muted" style="font-size:12px;margin:-4px 0 10px">${temFiltro?'Escolha a empresa e a competência (em branco = tudo) e o formato.':'Escolha o formato do relatório.'}</p>
-    ${empSel}${periodo}${status}${xmlBtn}
+    ${empSel}${periodo}${status}${colSel}${xmlBtn}
     <div class="mrow"><label class="fl">Formato do arquivo</label>
       <div style="display:flex;gap:8px">
         <button type="button" class="btn-primary" style="flex:1" onclick="APP.relGerar('${tipo}','pdf')">📄 Gerar PDF</button>
@@ -2916,6 +2943,15 @@ function relCompMuda(){
   de.style.opacity=usa?.5:1; ate.style.opacity=usa?.5:1;
   if(usa){ de.value=''; ate.value=''; }
 }
+function relColsTodas(marcar){ document.querySelectorAll('#rel_cols .relcol').forEach(c=>{ c.checked=!!marcar; }); }
+/** Índices das colunas marcadas; vazio/tudo marcado = manda nada (servidor usa todas). */
+function relColsEscolhidas(){
+  const todas=[...document.querySelectorAll('#rel_cols .relcol')];
+  if(!todas.length) return null;
+  const marcadas=todas.filter(c=>c.checked).map(c=>c.value);
+  if(!marcadas.length || marcadas.length===todas.length) return null;
+  return marcadas.join(',');
+}
 function relParams(){
   const p = new URLSearchParams();
   const comp=val('rel_comp'), de=val('rel_de'), ate=val('rel_ate'), se=$('rel_status'), fi=$('rel_filial');
@@ -2923,9 +2959,13 @@ function relParams(){
   else { if(de) p.set('de',de); if(ate) p.set('ate',ate); }
   if(se && se.value) p.set('status',se.value);
   if(fi && fi.value) p.set('filialId',fi.value);
+  const cols=relColsEscolhidas(); if(cols) p.set('colunas',cols);
   return p;
 }
 function relGerar(tipo, fmt){
+  // Desmarcar tudo não gera folha em branco: avisa e deixa a pessoa escolher.
+  const todas=[...document.querySelectorAll('#rel_cols .relcol')];
+  if(todas.length && !todas.some(c=>c.checked)){ toast('Marque ao menos uma coluna para sair no relatório.','err'); return; }
   const qs=relParams().toString();
   closeModal();
   baixarRel(tipo, qs, fmt||'pdf');
@@ -9758,6 +9798,7 @@ async function viewEstoque(c){
       `<button class="btn-sm" onclick="APP.formEnderecar()">🏷 Endereçar (bipar)</button>`
     + ` <button class="btn-sm" onclick="APP.formMov()">Movimentar</button>`
     + ` <button class="btn-sm" onclick="APP.formExpAvulsa()">🚚 Expedição avulsa</button>`
+    + ' ' + relBtn('estoque')
     + ` <span style="position:relative;display:inline-block"><button class="btn-sm" onclick="APP.estMais()">Mais ▾</button>`
     + `<span id="est_mais" style="display:none;position:absolute;right:0;top:100%;z-index:70;background:#fff;border:1px solid #e7e4dd;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:6px;min-width:230px;text-align:left">`
     + [['⚠ Enviar p/ quarentena','APP.formQuarentena()'],['🔎 Consultar etiqueta','APP.formConsultaEtiqueta()'],['📦 Consultar caixa','APP.consultarCaixa()'],['🏷 Etiquetas das caixas','APP.etiquetasCaixasMaster()'],['🧵 Retalhos','APP.verRetalhos()'],['📊 Movimentações','APP.verMovimentos()']]
@@ -13213,7 +13254,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', declaracao_conteudo:'Declaração de Conteúdo', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança', nota_entrada:'Entrada de Mercadoria' };
+const DOC_NOMES = { pedido:'Pedido', pedido_relatorio:'Relatório do Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', declaracao_conteudo:'Declaração de Conteúdo', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança', nota_entrada:'Entrada de Mercadoria' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
@@ -17232,7 +17273,7 @@ window.APP = {
   viewWhatsapp, waSalvar, waSimular, waNovoSim, waAbrir, waAssumir, waDevolver, waResponder,
   fotoSel, fotoDel, arqModSel, arqModDel, anexoSel, anexoDel, pmedAdd, pmedDel, pmedApplySizes,
   agenteSend, agenteKey, agenteSug, agenteClear, agenteExec, agenteCancel, agenteFilePick, agenteFileDel, agenteMic, agCallOpen, agCallEnd, agCallMute,
-  navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relXml, sugerirCompraTecido,
+  navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relColsTodas, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
   bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf, boletoEmail, boletoEmailEnviar,
   bancoSet, bancoImportarForm, bancoImportar, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,

@@ -183,16 +183,24 @@ export function tabela(
   // Se não couber o cabeçalho + ao menos 1 linha no restante da página, começa em
   // nova página ANTES de desenhar (senão o pdfkit auto-quebra a cada célula do
   // cabeçalho, gerando uma página por coluna).
-  if (y + 20 + 24 > doc.page.height - 60) { doc.addPage(); y = 128; }
+  // Altura do cabeçalho: título comprido em coluna estreita ("SEM ENDEREÇO" em
+  // 60pt) ocupa DUAS linhas. Com a faixa fixa em 20pt, a segunda linha caía por
+  // cima da primeira linha de dados. A faixa cresce com o texto.
+  doc.font('Helvetica-Bold').fontSize(8);
+  let alturaCab = 20;
+  for (const col of colunas) {
+    alturaCab = Math.max(alturaCab, doc.heightOfString(col.titulo.toUpperCase(), { width: col.largura - 10 }) + 11);
+  }
+  if (y + alturaCab + 24 > doc.page.height - 60) { doc.addPage(); y = 128; }
   // Cabeçalho
-  doc.rect(x0, y, doc.page.width - 100, 20).fill('#faf6ea');
+  doc.rect(x0, y, doc.page.width - 100, alturaCab).fill('#faf6ea');
   let x = x0 + 8;
   doc.fillColor(OURO_ESCURO).font('Helvetica-Bold').fontSize(8);
   for (const col of colunas) {
     doc.text(col.titulo.toUpperCase(), x, y + 6, { width: col.largura - 10, align: col.alinhamento ?? 'left' });
     x += col.largura;
   }
-  y += 20;
+  y += alturaCab;
   // Linhas
   doc.font('Helvetica').fontSize(9.5);
   for (const linha of linhas) {
