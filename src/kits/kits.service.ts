@@ -14,10 +14,29 @@ import {
   CriarKitsDeOpDto,
   ExpedirKitDto,
   RetornarKitDto,
+  UnificarKitsDto,
 } from './dto/kits.dto';
+import {
+  Grade,
+  KitParaUnir,
+  chaveDoPacote,
+  descreverGrade,
+  gradeDoKit,
+  linhasDaGrade,
+  motivoNaoUnifica,
+  normalizarGrade,
+  resumoTamanhos,
+  somarGrades,
+  subtrairGrade,
+  tirarDaGrade,
+  totalPecas,
+} from './grade-kit';
 
 /** Máquina de estados do KIT (PRD). */
 const FLUXO = ['criado', 'em_corte', 'aguardando_expedicao', 'em_faccao', 'retornado', 'em_conferencia', 'finalizado'] as const;
+
+/** Kit absorvido por outro na unificação — fica fora de toda lista e de todo total. */
+const VIVOS = { unificadoEmId: null } as const;
 
 @Injectable()
 export class KitsService {
@@ -49,13 +68,20 @@ export class KitsService {
   }
 
   // ===================== KITS =====================
-  listar(empresaId: number, status?: string) {
-    return this.prisma.kit.findMany({
-      where: { empresaId, ...(status ? { status } : {}) },
+  async listar(empresaId: number, status?: string) {
+    const kits = await this.prisma.kit.findMany({
+      where: { empresaId, ...VIVOS, ...(status ? { status } : {}) },
       include: { lote: { select: { codigoLote: true, nfCompra: true } } },
       orderBy: { id: 'desc' },
       take: 500,
     });
+    return kits.map((k) => this.comGrade(k));
+  }
+
+  /** Acrescenta a grade já pronta p/ a tela (o kit de um tamanho vira grade de uma linha). */
+  private comGrade<T extends { grade?: unknown; tamanho?: string | null; pecasTotal?: number | null }>(kit: T) {
+    const grade = gradeDoKit(kit);
+    return { ...kit, grade, gradeLinhas: linhasDaGrade(grade), gradeTexto: descreverGrade(grade) };
   }
 
   async detalhe(id: number, empresaId: number) {
@@ -64,7 +90,7 @@ export class KitsService {
       include: { lote: true, eventos: { orderBy: { id: 'desc' } } },
     });
     if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit ${id} não encontrado.`);
-    return kit;
+    return this.comGrade(kit);
   }
 
   /** Busca por múltiplos campos (número, pedido, cliente, modelo, cor, tamanho, facção, lote...). */
@@ -72,7 +98,7 @@ export class KitsService {
     const termo = (q ?? '').trim();
     if (!termo) return [];
     const cod = this.extrairCodigo(termo);
-    return this.prisma.kit.findMany({
+    const achados = await this.prisma.kit.findMany({
       where: {
         empresaId,
         OR: [
@@ -81,7 +107,9 @@ export class KitsService {
           { modelo: { contains: termo, mode: 'insensitive' } },
           { variante: { contains: termo, mode: 'insensitive' } },
           { cor: { contains: termo, mode: 'insensitive' } },
-          { tamanho: { equals: termo, mode: 'insensitive' } },
+          // `contains`, e não `equals`: no kit unificado o campo guarda o resumo
+          // da grade ("M·G·GG"), então procurar por "GG" tem de achar o pacote.
+          { tamanho: { contains: termo, mode: 'insensitive' } },
           { faccaoNome: { contains: termo, mode: 'insensitive' } },
           { ordemProducao: { contains: termo, mode: 'insensitive' } },
           { ordemCorte: { contains: termo, mode: 'insensitive' } },
@@ -95,6 +123,9 @@ export class KitsService {
       orderBy: { id: 'desc' },
       take: 300,
     });
+    // A busca mostra TAMBÉM o kit absorvido: quem digita um código antigo precisa
+    // ver para onde ele foi, não um "não encontrado".
+    return achados.map((k) => this.comGrade(k));
   }
 
   /** Consulta por lote: todos os kits + resumo (produzidos/retornados/pendentes). */
@@ -115,8 +146,12 @@ export class KitsService {
   }
 
   /**
-   * Gera os KITS de uma OP: um por TAMANHO da grade, com a qtd cortada de cada
-   * tamanho, vinculando obrigatoriamente ao LOTE do tecido (rastreabilidade).
+   * Gera os KITS de uma OP a partir da grade cortada, vinculando ao LOTE do tecido.
+   *
+   * PADRÃO: UM kit com a grade inteira — porque a leva toda vai para a MESMA
+   * oficina. É um pacote, uma etiqueta, uma OS, uma bipada. Quem precisar de um
+   * pacote por tamanho (oficinas diferentes, corte em dias diferentes) manda
+   * `separarPorTamanho: true` e volta ao comportamento antigo.
    */
   async criarDeOp(dto: CriarKitsDeOpDto, empresaId: number, usuario: string) {
     const op = await this.prisma.oP.findUnique({
@@ -159,41 +194,164 @@ export class KitsService {
     const pecasPorJogo = dto.pecasPorJogo && dto.pecasPorJogo > 0 ? dto.pecasPorJogo : 1;
     const agora = new Date();
 
-    const criados: Kit[] = [];
+    const base = {
+      empresaId,
+      pedidoId: op.pedidoId,
+      opId: op.id,
+      loteTecidoId: lote?.id ?? undefined,
+      clienteNome: op.pedido?.cliente?.nome,
+      modelo: produto?.descricao,
+      cor,
+      ordemProducao: op.numero,
+      ordemCorte: dto.ordemCorte,
+      enfesto: dto.enfesto,
+      mesaCorte: dto.mesaCorte,
+      operadorCorte: dto.operadorCorte || usuario,
+      dataCorte: agora,
+      faccaoId: dto.faccaoId,
+      faccaoNome: dto.faccaoNome,
+      operacaoFaccao: fase || undefined,
+      caixa: dto.caixa,
+      status: 'aguardando_expedicao',
+      criadoPor: usuario,
+    };
+    const sufixo = `${fase ? ' · fase ' + fase : ''}${lote ? ' · lote ' + lote.codigoLote : ''}`;
+
+    // Um pacote por tamanho (comportamento antigo, sob pedido).
+    if (dto.separarPorTamanho) {
+      const criados: Kit[] = [];
+      for (const [tamanho, qtd] of tamanhos) {
+        const jogos = Number(qtd);
+        const kit = await this.prisma.kit.create({
+          data: {
+            ...base,
+            codigo: await this.proximoCodigoKit(agora),
+            tamanho: tamanho.toUpperCase(),
+            jogos,
+            pecasTotal: jogos * pecasPorJogo,
+            eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s)${sufixo}`, usuario } },
+          },
+        });
+        criados.push(kit);
+      }
+      return { op: op.numero, lote: lote?.codigoLote ?? null, total: criados.length, unificado: false, kits: criados };
+    }
+
+    // PADRÃO: um único kit com a grade inteira.
+    const gradePecas: Grade = {};
+    let jogosTotal = 0;
     for (const [tamanho, qtd] of tamanhos) {
       const jogos = Number(qtd);
-      const codigo = await this.proximoCodigoKit(agora);
-      const kit = await this.prisma.kit.create({
-        data: {
-          empresaId,
-          codigo,
-          pedidoId: op.pedidoId,
-          opId: op.id,
-          loteTecidoId: lote?.id ?? undefined,
-          clienteNome: op.pedido?.cliente?.nome,
-          modelo: produto?.descricao,
-          cor,
-          tamanho: tamanho.toUpperCase(),
-          jogos,
-          pecasTotal: jogos * pecasPorJogo,
-          ordemProducao: op.numero,
-          ordemCorte: dto.ordemCorte,
-          enfesto: dto.enfesto,
-          mesaCorte: dto.mesaCorte,
-          operadorCorte: dto.operadorCorte || usuario,
-          dataCorte: agora,
-          faccaoId: dto.faccaoId,
-          faccaoNome: dto.faccaoNome,
-          operacaoFaccao: fase || undefined,
-          caixa: dto.caixa,
-          status: 'aguardando_expedicao',
-          criadoPor: usuario,
-          eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit ${tamanho} · ${jogos} jogo(s)${fase ? ' · fase ' + fase : ''}${lote ? ' · lote ' + lote.codigoLote : ''}`, usuario } },
-        },
-      });
-      criados.push(kit);
+      jogosTotal += jogos;
+      gradePecas[tamanho.toUpperCase()] = jogos * pecasPorJogo;
     }
-    return { op: op.numero, lote: lote?.codigoLote ?? null, total: criados.length, kits: criados };
+    const kit = await this.prisma.kit.create({
+      data: {
+        ...base,
+        codigo: await this.proximoCodigoKit(agora),
+        tamanho: resumoTamanhos(gradePecas),
+        grade: gradePecas,
+        jogos: jogosTotal,
+        pecasTotal: totalPecas(gradePecas),
+        eventos: { create: { empresaId, evento: 'criado', detalhe: `Kit único da OP · ${descreverGrade(gradePecas)} = ${totalPecas(gradePecas)} peça(s)${sufixo}`, usuario } },
+      },
+    });
+    return { op: op.numero, lote: lote?.codigoLote ?? null, total: 1, unificado: true, kits: [kit] };
+  }
+
+  // ===================== UNIFICAÇÃO (vários kits → um pacote) =====================
+  /**
+   * Junta kits que vão para a MESMA oficina num kit só.
+   *
+   * O sobrevivente é o mais antigo (menor id) — ele mantém o código, porque é o
+   * que costuma já estar numa etiqueta impressa. Os outros não somem: ficam
+   * marcados como unificados e apontando para ele, então bipar um código velho
+   * continua caindo no kit certo em vez de dar "não encontrado".
+   */
+  async unificar(dto: UnificarKitsDto, empresaId: number, usuario: string, ip?: string) {
+    const ids = [...new Set(dto.kitIds)];
+    const kits = await this.prisma.kit.findMany({ where: { id: { in: ids }, empresaId }, orderBy: { id: 'asc' } });
+    if (kits.length !== ids.length) throw new NotFoundException('Um ou mais kits não foram encontrados nesta empresa.');
+
+    const impedimento = motivoNaoUnifica(kits as unknown as KitParaUnir[]);
+    if (impedimento) throw new ConflictException(impedimento);
+
+    const [principal, ...absorvidos] = kits;
+    const grade = somarGrades(kits.map((k) => gradeDoKit(k)));
+    const pecas = totalPecas(grade);
+    const jogos = kits.reduce((s, k) => s + (k.jogos || 0), 0);
+    const codigosAbsorvidos = absorvidos.map((k) => k.codigo);
+    // A caixa só continua valendo se era a mesma em todos — senão, some (seria mentira).
+    const caixas = new Set(kits.map((k) => (k.caixa ?? '').trim()).filter(Boolean));
+    const caixa = caixas.size === 1 ? [...caixas][0] : null;
+
+    const unificado = await this.prisma.$transaction(async (tx) => {
+      const k = await tx.kit.update({
+        where: { id: principal.id },
+        data: { grade, tamanho: resumoTamanhos(grade), jogos, pecasTotal: pecas, caixa },
+      });
+      await tx.kit.updateMany({
+        where: { id: { in: absorvidos.map((x) => x.id) } },
+        data: { status: 'unificado', unificadoEmId: principal.id },
+      });
+      await tx.kitEvento.create({
+        data: { empresaId, kitId: principal.id, evento: 'unificado', usuario, ip,
+          detalhe: `Absorveu ${codigosAbsorvidos.length} kit(s): ${codigosAbsorvidos.join(', ')} · grade ${descreverGrade(grade)} = ${pecas} peça(s)` },
+      });
+      for (const a of absorvidos) {
+        await tx.kitEvento.create({
+          data: { empresaId, kitId: a.id, evento: 'unificado', usuario, ip,
+            detalhe: `Unificado no kit ${principal.codigo} (${a.tamanho} · ${a.pecasTotal} peça(s)). Bipar este código cai no kit ${principal.codigo}.` },
+        });
+      }
+      return k;
+    }, { maxWait: 15_000, timeout: 30_000 });
+
+    return {
+      kit: this.comGrade(unificado),
+      absorvidos: codigosAbsorvidos,
+      mensagem: `${kits.length} kits viraram um só: ${principal.codigo} · ${descreverGrade(grade)} = ${pecas} peça(s).`,
+    };
+  }
+
+  /**
+   * Grupos de kits que PODEM virar um só — mesma OP, mesma cor, mesma operação,
+   * mesmo destino e mesmo estágio, nenhum deles já numa OS.
+   */
+  async candidatosUnificacao(empresaId: number) {
+    const kits = await this.prisma.kit.findMany({
+      where: { empresaId, ...VIVOS, status: { in: ['criado', 'em_corte', 'aguardando_expedicao'] }, OR: [{ controleFaccao: null }, { controleFaccao: '' }] },
+      orderBy: { id: 'asc' },
+      take: 500,
+    });
+    const grupos = new Map<string, typeof kits>();
+    for (const k of kits) {
+      const chave = chaveDoPacote(k as unknown as KitParaUnir);
+      const arr = grupos.get(chave) ?? [];
+      arr.push(k);
+      grupos.set(chave, arr);
+    }
+    return [...grupos.values()]
+      .filter((ks) => ks.length > 1)
+      .map((ks) => {
+        const grade = somarGrades(ks.map((k) => gradeDoKit(k)));
+        return {
+          op: ks[0].ordemProducao,
+          opId: ks[0].opId,
+          modelo: ks[0].modelo,
+          cor: ks[0].cor,
+          cliente: ks[0].clienteNome,
+          faccao: ks[0].faccaoNome,
+          operacao: ks[0].operacaoFaccao,
+          status: ks[0].status,
+          kitIds: ks.map((k) => k.id),
+          codigos: ks.map((k) => k.codigo),
+          totalKits: ks.length,
+          pecas: totalPecas(grade),
+          gradeTexto: descreverGrade(grade),
+        };
+      })
+      .sort((a, b) => b.totalKits - a.totalKits);
   }
 
   // ===================== EXPEDIÇÃO / RETORNO (idempotentes) =====================
@@ -383,7 +541,7 @@ export class KitsService {
 
   /** Kits agrupados por caixa (para conferência física). */
   async porCaixa(empresaId: number) {
-    const kits = await this.prisma.kit.findMany({ where: { empresaId, caixa: { not: null } }, orderBy: [{ caixa: 'asc' }, { tamanho: 'asc' }] });
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, ...VIVOS, caixa: { not: null } }, orderBy: [{ caixa: 'asc' }, { tamanho: 'asc' }] });
     const map = new Map<string, typeof kits>();
     for (const k of kits) { const c = k.caixa as string; const arr = map.get(c) ?? []; arr.push(k); map.set(c, arr); }
     return [...map.entries()].map(([caixa, ks]) => ({
@@ -392,14 +550,14 @@ export class KitsService {
       cliente: ks[0].clienteNome,
       totalKits: ks.length,
       pecas: ks.reduce((s, k) => s + k.pecasTotal, 0),
-      tamanhos: ks.map((k) => `${k.tamanho}(${k.jogos})`).join(' '),
-      kits: ks.map((k) => ({ id: k.id, codigo: k.codigo, tamanho: k.tamanho, jogos: k.jogos, status: k.status })),
+      tamanhos: ks.map((k) => descreverGrade(gradeDoKit(k))).join(' · '),
+      kits: ks.map((k) => ({ id: k.id, codigo: k.codigo, tamanho: k.tamanho, grade: gradeDoKit(k), jogos: k.jogos, pecasTotal: k.pecasTotal, status: k.status })),
     }));
   }
 
   // ===================== DASHBOARD =====================
   async dashboard(empresaId: number) {
-    const kits = await this.prisma.kit.findMany({ where: { empresaId }, select: { status: true, faccaoNome: true, retornadoEm: true, pecasTotal: true } });
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, ...VIVOS }, select: { status: true, faccaoNome: true, retornadoEm: true, pecasTotal: true } });
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const porStatus: Record<string, number> = {};
     const porFaccao: Record<string, number> = {};
@@ -429,6 +587,7 @@ export class KitsService {
   }
 
   private dadosEtiqueta(kit: Kit & { lote?: { codigoLote: string } | null }) {
+    const grade = gradeDoKit(kit);
     return {
       codigo: kit.codigo,
       pedido: kit.pedidoId ? String(kit.pedidoId) : '—',
@@ -436,6 +595,9 @@ export class KitsService {
       modelo: kit.modelo ?? '—',
       cor: kit.cor ?? '—',
       tamanho: kit.tamanho,
+      grade,
+      gradeLinhas: linhasDaGrade(grade),
+      gradeTexto: descreverGrade(grade),
       jogos: kit.jogos,
       pecas: kit.pecasTotal,
       lote: kit.lote?.codigoLote ?? '—',
@@ -446,34 +608,72 @@ export class KitsService {
     };
   }
 
-  /** QR (JSON compacto) + Code128 do código do kit; etiqueta ~100x70mm @203dpi. */
+  /**
+   * QR (JSON compacto) + Code128 do código do kit; etiqueta ~100x70mm @203dpi.
+   *
+   * Kit de um tamanho imprime como sempre imprimiu. Kit unificado imprime a
+   * GRADE — é o que a oficina confere ao abrir o pacote, então tem de estar na
+   * etiqueta, em letra grande, e não só no sistema.
+   */
   private montarZpl(kit: Kit & { lote?: { codigoLote: string } | null }): string {
     const d = this.dadosEtiqueta(kit);
     const s = (v: string | number) => String(v).replace(/[\^~]/g, ' ').slice(0, 30);
     const qr = JSON.stringify({
       kit: kit.codigo, pedido: d.pedido, cliente: d.cliente, modelo: d.modelo,
-      cor: d.cor, tam: d.tamanho, jogos: d.jogos, pecas: d.pecas, lote: d.lote,
-      enfesto: d.enfesto, oc: d.oc, versao: '1',
+      cor: d.cor, tam: d.tamanho, grade: d.grade, jogos: d.jogos, pecas: d.pecas,
+      lote: d.lote, enfesto: d.enfesto, oc: d.oc, versao: '2',
     }).replace(/[\^~]/g, ' ');
-    return [
+
+    const unificado = d.gradeLinhas.length > 1;
+    const linhas: string[] = [
       '^XA', '^CI28', '^PW800', '^LL560',
       '^CF0,30', '^FO20,18^FDGRUPO CHERKESIAN^FS',
       '^CF0,44', `^FO20,54^FD${s(kit.codigo)}^FS`,
       '^CF0,26',
       `^FO20,110^FDPedido: ${s(d.pedido)}  Cliente: ${s(d.cliente)}^FS`,
       `^FO20,144^FDModelo: ${s(d.modelo)}^FS`,
-      `^FO20,178^FDCor: ${s(d.cor)}   TAM: ${s(d.tamanho)}^FS`,
-      '^CF0,40', `^FO20,212^FDTAMANHO ${s(d.tamanho)}  |  ${d.jogos} JOGOS / ${d.pecas} PECAS^FS`,
-      '^CF0,26',
-      `^FO20,266^FDLote: ${s(d.lote)}  Enfesto: ${s(d.enfesto)}^FS`,
-      `^FO20,300^FDOC: ${s(d.oc)}  OP: ${s(d.op)}^FS`,
-      `^FO20,334^FDDESTINO: ${s(d.destino)}^FS`,
+      `^FO20,178^FDCor: ${s(d.cor)}^FS`,
+    ];
+
+    let y = 212;
+    if (unificado) {
+      linhas.push('^CF0,32', `^FO20,${y}^FDGRADE  (${d.pecas} PECAS)^FS`);
+      y += 38;
+      // A grade sai em DUAS linhas no máximo: abaixo disso o texto desceria em
+      // cima do código de barras, e aí o leitor não bipa o pacote.
+      const partes = d.gradeLinhas.map((g) => `${g.tamanho}:${g.pecas}`);
+      const MAX_LINHAS = 2;
+      const porLinha = Math.min(7, Math.max(4, Math.ceil(partes.length / MAX_LINHAS)));
+      const cabem = Math.min(partes.length, porLinha * MAX_LINHAS);
+      linhas.push('^CF0,28');
+      for (let i = 0; i < cabem; i += porLinha) {
+        // 38 caracteres é o que cabe antes do QR, que começa em x=560.
+        linhas.push(`^FO20,${y}^FD${partes.slice(i, i + porLinha).join('  ').replace(/[\^~]/g, ' ').slice(0, 38)}^FS`);
+        y += 32;
+      }
+      if (partes.length > cabem) { linhas.push(`^FO20,${y}^FD+${partes.length - cabem} tamanho(s) - ver a OS^FS`); y += 32; }
+      y += 6;
+    } else {
+      linhas.push('^CF0,40', `^FO20,${y}^FDTAMANHO ${s(d.tamanho)}  |  ${d.jogos} JOGOS / ${d.pecas} PECAS^FS`);
+      y += 54;
+    }
+
+    linhas.push('^CF0,26');
+    linhas.push(`^FO20,${y}^FDLote: ${s(d.lote)}  Enfesto: ${s(d.enfesto)}^FS`); y += 34;
+    linhas.push(`^FO20,${y}^FDOC: ${s(d.oc)}  OP: ${s(d.op)}^FS`); y += 34;
+    linhas.push(`^FO20,${y}^FDDESTINO: ${s(d.destino)}^FS`); y += 30;
+
+    // O código de barras desce o quanto o texto precisar, mas nunca tanto que
+    // ele (90 de altura + a legenda) caia para fora da etiqueta de 560.
+    const yBarras = Math.min(440, Math.max(400, y + 12));
+    linhas.push(
       // QR Code (grande) à direita
       `^FO560,110^BQN,2,6^FDLA,${qr}^FS`,
       // Code128 do código do kit na base
-      `^FO20,400^BY2^BCN,90,Y,N,N^FD${s(kit.codigo)}^FS`,
+      `^FO20,${yBarras}^BY2^BCN,90,Y,N,N^FD${s(kit.codigo)}^FS`,
       '^XZ',
-    ].join('\n');
+    );
+    return linhas.join('\n');
   }
 
   // ===================== Helpers =====================
@@ -487,10 +687,9 @@ export class KitsService {
   async disponivelPorTamanho(opId: number, empresaId: number) {
     const op = await this.prisma.oP.findUnique({ where: { id: opId }, include: { pedido: { select: { empresaId: true } } } });
     if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${opId} não encontrada.`);
-    const kits = await this.prisma.kit.findMany({ where: { empresaId, opId } });
+    const kits = (await this.prisma.kit.findMany({ where: { empresaId, opId, ...VIVOS } })).filter((k) => k.status !== 'unificado');
     const naoEnviados = kits.filter((k) => !k.controleFaccao && !['em_faccao', 'retornado', 'finalizado'].includes(k.status));
-    const grade: Record<string, number> = {};
-    for (const k of naoEnviados) { const t = String(k.tamanho || '—').toUpperCase(); grade[t] = (grade[t] || 0) + (k.pecasTotal || 0); }
+    const grade: Record<string, number> = somarGrades(naoEnviados.map((k) => gradeDoKit(k)));
     // Se ainda não há kits gerados, cai na grade planejada da OP.
     if (!kits.length) {
       const g = (op.gradeTamanhos as Record<string, number> | null) ?? {};
@@ -500,43 +699,76 @@ export class KitsService {
     return { grade, total, temKits: kits.length > 0 };
   }
 
-  /** Seleciona (e quebra, se preciso) kits NÃO enviados p/ bater a quantidade pedida por
-   *  tamanho. O que sobra num tamanho continua disponível p/ outra OS/facção. */
-  private async alocarKitsPorGrade(pool: Kit[], grade: Record<string, number>): Promise<Kit[]> {
-    const disp = pool.filter((k) => !k.controleFaccao && !['em_faccao', 'retornado', 'finalizado'].includes(k.status));
+  /**
+   * Separa o que vai para ESTA facção: pega os kits disponíveis até fechar a
+   * quantidade pedida por tamanho. O que sobra continua na OP, disponível para
+   * outra OS — se um kit só cobre parte do pedido, ele é partido em dois.
+   *
+   * Entende tanto o kit de um tamanho quanto o unificado (que tem grade).
+   */
+  private async alocarKitsPorGrade(pool: Kit[], gradePedida: Record<string, number>): Promise<Kit[]> {
+    const disp = pool.filter((k) => !k.controleFaccao && !['em_faccao', 'retornado', 'finalizado', 'unificado'].includes(k.status));
+    const pedido = normalizarGrade(gradePedida);
+    if (!Object.keys(pedido).length) throw new BadRequestException('Informe a quantidade por tamanho a enviar para esta facção.');
+
+    // Confere ANTES de mexer em qualquer kit: quebrar metade e falhar no meio
+    // deixaria a OP picada sem ter enviado nada.
+    const disponivel = somarGrades(disp.map((k) => gradeDoKit(k)));
+    const { falta } = tirarDaGrade(disponivel, pedido);
+    const faltando = Object.entries(falta);
+    if (faltando.length) {
+      const detalhe = faltando.map(([t, q]) => `${t}: pediu ${pedido[t]}, há ${disponivel[t] ?? 0} (faltam ${q})`).join(' · ');
+      throw new BadRequestException(`Não há peça suficiente nesta OP para o que foi pedido. ${detalhe}.`);
+    }
+
     const sel: Kit[] = [];
-    for (const [tamRaw, qRaw] of Object.entries(grade)) {
-      const tam = String(tamRaw).toUpperCase();
-      const qtd = Math.max(0, Math.round(Number(qRaw) || 0));
-      if (!qtd) continue;
-      const doTam = disp.filter((k) => String(k.tamanho || '').toUpperCase() === tam);
-      const totalTam = doTam.reduce((s, k) => s + (k.pecasTotal || 0), 0);
-      if (qtd > totalTam) throw new BadRequestException(`Tamanho ${tam}: você pediu ${qtd}, mas só há ${totalTam} peça(s) disponível(is) para enviar nesta OP.`);
-      let resto = qtd;
-      for (const k of doTam) {
-        if (resto <= 0) break;
-        const p = k.pecasTotal || 0;
-        if (p <= resto) { sel.push(k); resto -= p; }
-        else {
-          // Quebra: novo kit com `resto` peças (vai p/ a facção); o original perde `resto`.
-          const novo = await this.prisma.kit.create({
-            data: {
-              empresaId: k.empresaId, pedidoId: k.pedidoId, opId: k.opId, loteTecidoId: k.loteTecidoId,
-              codigo: await this.proximoCodigoKit(new Date()),
-              clienteNome: k.clienteNome, modelo: k.modelo, variante: k.variante, cor: k.cor, tamanho: k.tamanho,
-              jogos: 0, pecasTotal: resto,
-              ordemProducao: k.ordemProducao, ordemCorte: k.ordemCorte, operacaoFaccao: k.operacaoFaccao,
-              loteTecidoNf: k.loteTecidoNf, status: 'aguardando_expedicao',
-            },
-          });
-          await this.prisma.kit.update({ where: { id: k.id }, data: { pecasTotal: p - resto } });
-          sel.push(novo);
-          resto = 0;
-        }
+    let restante: Grade = { ...pedido };
+    for (const k of disp) {
+      if (!Object.keys(restante).length) break;
+      const doKit = gradeDoKit(k);
+      const { tirado } = tirarDaGrade(doKit, restante);
+      if (!Object.keys(tirado).length) continue;
+      const sobra = subtrairGrade(doKit, tirado);
+
+      if (!Object.keys(sobra).length) {
+        sel.push(k); // o kit inteiro vai
+      } else {
+        // Parte vai, parte fica: nasce um kit novo com o que sai e o original
+        // fica com o que sobrou (continua disponível para a próxima OS).
+        const novo = await this.prisma.kit.create({
+          data: {
+            empresaId: k.empresaId, pedidoId: k.pedidoId, opId: k.opId, loteTecidoId: k.loteTecidoId,
+            codigo: await this.proximoCodigoKit(new Date()),
+            clienteNome: k.clienteNome, modelo: k.modelo, variante: k.variante, cor: k.cor,
+            tamanho: resumoTamanhos(tirado), grade: tirado,
+            jogos: 0, pecasTotal: totalPecas(tirado),
+            ordemProducao: k.ordemProducao, ordemCorte: k.ordemCorte, operacaoFaccao: k.operacaoFaccao,
+            loteTecidoNf: k.loteTecidoNf, status: 'aguardando_expedicao',
+          },
+        });
+        await this.prisma.kit.update({
+          where: { id: k.id },
+          data: { grade: sobra, tamanho: resumoTamanhos(sobra), pecasTotal: totalPecas(sobra) },
+        });
+        sel.push(novo);
       }
+      restante = subtrairGrade(restante, tirado);
     }
     if (!sel.length) throw new BadRequestException('Informe a quantidade por tamanho a enviar para esta facção.');
     return sel;
+  }
+
+  /**
+   * Junta numa só os kits que acabaram de ser separados para a MESMA facção.
+   * É o mesmo princípio da unificação, aplicado no automático: a oficina recebe
+   * um pacote com a grade, não três sacolas com a mesma etiqueta de destino.
+   */
+  private async unificarParaEnvio(kits: Kit[], empresaId: number, usuario: string, ip?: string): Promise<Kit[]> {
+    if (kits.length < 2) return kits;
+    if (motivoNaoUnifica(kits as unknown as KitParaUnir[])) return kits; // destino misto: deixa separado
+    const { kit } = await this.unificar({ kitIds: kits.map((k) => k.id) }, empresaId, usuario, ip);
+    const recarregado = await this.prisma.kit.findUnique({ where: { id: kit.id } });
+    return recarregado ? [recarregado] : kits;
   }
 
   /** Extrai o código do kit de um input que pode ser o QR (JSON) ou o próprio código. */
@@ -552,6 +784,12 @@ export class KitsService {
     const codigo = this.extrairCodigo(input);
     const kit = await this.prisma.kit.findUnique({ where: { codigo } });
     if (!kit || kit.empresaId !== empresaId) throw new NotFoundException(`Kit "${codigo}" não encontrado.`);
+    // Etiqueta antiga de um kit que foi unificado: segue para o pacote de verdade,
+    // em vez de mandar a oficina embora com um "não encontrado".
+    if (kit.unificadoEmId) {
+      const destino = await this.prisma.kit.findUnique({ where: { id: kit.unificadoEmId } });
+      if (destino && destino.empresaId === empresaId) return destino;
+    }
     return kit;
   }
 
@@ -567,7 +805,7 @@ export class KitsService {
    * próxima) sem digitação manual. Idempotente por OP+facção.
    */
   async enviarFaccaoExterna(
-    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean; custoMaoObra?: number; grade?: Record<string, number> },
+    dto: { opId: number; faccaoId?: number; faccaoNome?: string; operacao: string; loteTecidoNf?: string; transportador?: string; interna?: boolean; custoMaoObra?: number; grade?: Record<string, number>; separarPorTamanho?: boolean },
     empresaId: number,
     usuario: string,
     ip?: string,
@@ -597,7 +835,7 @@ export class KitsService {
     // Kits da OP POR OPERAÇÃO: cada OS (Estamparia, Costura…) tem a sua própria leva,
     // p/ o mesmo OP poder ter várias OS ao mesmo tempo (estamparia E facção de costura).
     const operacaoNorm = operacao.toLowerCase();
-    const todosKits = await this.prisma.kit.findMany({ where: { empresaId, opId: op.id } });
+    const todosKits = (await this.prisma.kit.findMany({ where: { empresaId, opId: op.id, ...VIVOS } })).filter((k) => k.status !== 'unificado');
     let kits = todosKits.filter((k) => (k.operacaoFaccao ?? '').trim().toLowerCase() === operacaoNorm);
     if (!kits.length) {
       // Adota kits ainda SEM operação (1ª OS da OP); senão gera uma nova leva p/ esta operação.
@@ -605,7 +843,11 @@ export class KitsService {
       if (semOper.length) {
         kits = semOper;
       } else {
-        const criados = await this.criarDeOp({ opId: op.id, faccaoId: dto.faccaoId, faccaoNome, operacaoFaccao: operacao } as CriarKitsDeOpDto, empresaId, usuario);
+        const criados = await this.criarDeOp(
+          { opId: op.id, faccaoId: dto.faccaoId, faccaoNome, operacaoFaccao: operacao, separarPorTamanho: dto.separarPorTamanho } as CriarKitsDeOpDto,
+          empresaId,
+          usuario,
+        );
         kits = criados.kits;
       }
     }
@@ -614,6 +856,11 @@ export class KitsService {
     // o restante da OP fica disponível para outra OS/facção (quebra o kit se necessário).
     if (dto.grade && Object.keys(dto.grade).length) {
       kits = await this.alocarKitsPorGrade(kits as Kit[], dto.grade);
+    }
+
+    // Tudo isto vai para a MESMA oficina: um pacote só, uma etiqueta, uma bipada.
+    if (!dto.separarPorTamanho) {
+      kits = await this.unificarParaEnvio(kits as Kit[], empresaId, usuario, ip);
     }
 
     // Lote do tecido: NF informada → lote vinculado (LoteTecido) → lotes do romaneio da OP.
@@ -678,7 +925,8 @@ export class KitsService {
       op: op.numero,
       cliente: op.pedido?.cliente?.nome ?? null,
       total: kits.length,
-      kits: kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecas: k.pecasTotal, cor: k.cor })),
+      pecas: kits.reduce((s, k) => s + (k.pecasTotal || 0), 0),
+      kits: kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecas: k.pecasTotal, cor: k.cor, grade: gradeDoKit(k), gradeTexto: descreverGrade(gradeDoKit(k)) })),
     };
   }
 
@@ -698,8 +946,8 @@ export class KitsService {
   /** Lista os kits de um código de CONTROLE de facção (para bipar o lote inteiro). */
   async porControle(empresaId: number, controle: string) {
     const c = (controle ?? '').trim();
-    const kits = await this.prisma.kit.findMany({ where: { empresaId, controleFaccao: c }, orderBy: { id: 'asc' } });
-    return kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, pecasTotal: k.pecasTotal, status: k.status, faccaoNome: k.faccaoNome, operacaoFaccao: k.operacaoFaccao }));
+    const kits = await this.prisma.kit.findMany({ where: { empresaId, controleFaccao: c, ...VIVOS }, orderBy: { id: 'asc' } });
+    return kits.map((k) => ({ codigo: k.codigo, tamanho: k.tamanho, grade: gradeDoKit(k), gradeTexto: descreverGrade(gradeDoKit(k)), pecasTotal: k.pecasTotal, status: k.status, faccaoNome: k.faccaoNome, operacaoFaccao: k.operacaoFaccao }));
   }
 
   /**
@@ -711,24 +959,45 @@ export class KitsService {
     const op = kit.opId ? await this.prisma.oP.findUnique({ where: { id: kit.opId } }) : null;
     const produtoId = op?.produtoId ?? null;
     const produto = produtoId ? await this.prisma.produto.findUnique({ where: { id: produtoId } }) : null;
-    const tam = kit.tamanho;
+    const grade = gradeDoKit(kit);
+    const tamanhos = linhasDaGrade(grade);
+    const tam = tamanhos[0]?.tamanho ?? kit.tamanho;
     const bom = produtoId ? await this.prisma.consumo.findMany({ where: { produtoId }, include: { material: true } }) : [];
+    // O consumo é POR TAMANHO: num pacote com M, G e GG o romaneio tem de somar
+    // o consumo de cada um — média ou "o consumo do tamanho do kit" entregaria
+    // pano a menos para a oficina.
     const bomLinhas = bom.map((b) => {
       const porTam = (b.porTamanho as Record<string, number> | null) || null;
-      const q = porTam && porTam[tam] != null ? Number(porTam[tam]) : Number(b.quantidade);
-      return { codigo: b.material?.codigo ?? '—', descricao: (b.material?.descricao ?? b.familia ?? '—').split(' · ')[0], consumoUnit: q, unidade: b.unidade, total: Number((q * kit.pecasTotal).toFixed(3)) };
+      const consumoDe = (t: string) => (porTam && porTam[t] != null ? Number(porTam[t]) : Number(b.quantidade));
+      const detalhe = tamanhos.map((x) => ({ tamanho: x.tamanho, pecas: x.pecas, consumoUnit: consumoDe(x.tamanho), total: Number((consumoDe(x.tamanho) * x.pecas).toFixed(3)) }));
+      const total = Number(detalhe.reduce((s, d) => s + d.total, 0).toFixed(3));
+      return {
+        codigo: b.material?.codigo ?? '—',
+        descricao: (b.material?.descricao ?? b.familia ?? '—').split(' · ')[0],
+        consumoUnit: consumoDe(tam),
+        unidade: b.unidade,
+        total,
+        porTamanho: detalhe,
+      };
     });
     const medidas = produtoId ? await this.prisma.produtoMedida.findMany({ where: { produtoId }, orderBy: { ordem: 'asc' } }) : [];
-    const medidasTam = medidas
-      .map((m) => { const v = (m.valores as Record<string, string> | null) || {}; return { descricao: m.descricao, tolerancia: m.tolerancia, valor: v[tam] ?? '' }; })
+    const medidasDe = (t: string) => medidas
+      .map((m) => { const v = (m.valores as Record<string, string> | null) || {}; return { descricao: m.descricao, tolerancia: m.tolerancia, valor: v[t] ?? '' }; })
       .filter((m) => m.valor !== '');
+    const medidasTam = medidasDe(tam);
+    // Uma tabela de medidas por tamanho do pacote — a costureira precisa da do
+    // tamanho que está cortando, não da do primeiro da lista.
+    const medidasPorTamanho = tamanhos
+      .map((x) => ({ tamanho: x.tamanho, pecas: x.pecas, linhas: medidasDe(x.tamanho) }))
+      .filter((x) => x.linhas.length);
     const custoUnit = kit.custoMaoObra != null ? Number(kit.custoMaoObra) : null;
     const interno = (kit.faccaoNome || '').toUpperCase() === 'PRODUÇÃO INTERNA';
     return {
-      kit: { codigo: kit.codigo, tamanho: tam, jogos: kit.jogos, pecas: kit.pecasTotal, cor: kit.cor, modelo: kit.modelo, cliente: kit.clienteNome, faccao: kit.faccaoNome, operacao: kit.operacaoFaccao, os: kit.controleFaccao, controle: kit.controleFaccao, op: kit.ordemProducao, lote: kit.loteTecidoNf, interno, custoMaoObraUnit: custoUnit, custoMaoObraTotal: custoUnit != null ? Number((custoUnit * kit.pecasTotal).toFixed(2)) : null },
+      kit: { codigo: kit.codigo, tamanho: kit.tamanho, grade, gradeLinhas: tamanhos, gradeTexto: descreverGrade(grade), unificado: tamanhos.length > 1, jogos: kit.jogos, pecas: kit.pecasTotal, cor: kit.cor, modelo: kit.modelo, cliente: kit.clienteNome, faccao: kit.faccaoNome, operacao: kit.operacaoFaccao, os: kit.controleFaccao, controle: kit.controleFaccao, op: kit.ordemProducao, lote: kit.loteTecidoNf, interno, custoMaoObraUnit: custoUnit, custoMaoObraTotal: custoUnit != null ? Number((custoUnit * kit.pecasTotal).toFixed(2)) : null },
       produto: produto ? { descricao: produto.descricao, tecido: produto.tecido, composicao: produto.composicao, modelagem: produto.modelagem, especificacoes: produto.especificacoes, ncm: produto.ncm } : null,
       bom: bomLinhas,
       medidas: medidasTam,
+      medidasPorTamanho,
     };
   }
 

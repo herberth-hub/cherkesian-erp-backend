@@ -1,6 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Ip, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { KitsService } from './kits.service';
-import { AlterarLoteKitDto, AtribuirCaixaDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, EnviarFaccaoDto, ExpedirKitDto, RetornarKitDto } from './dto/kits.dto';
+import { AlterarLoteKitDto, AtribuirCaixaDto, BiparKitDto, CreateLoteDto, CriarKitsDeOpDto, EnviarFaccaoDto, ExpedirKitDto, RetornarKitDto, UnificarKitsDto } from './dto/kits.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
@@ -60,6 +60,21 @@ export class KitsController {
     return this.kits.buscar(u.empresaId, q);
   }
 
+  /** Grupos de kits que dá para juntar num pacote só (mesma OP, cor, operação e oficina). */
+  @Areas('pcp', 'producao', 'expedicao', 'estoque')
+  @Get('unificaveis')
+  unificaveis(@CurrentUser() u: AuthUser) {
+    return this.kits.candidatosUnificacao(u.empresaId);
+  }
+
+  /** Junta os kits selecionados num só (o mais antigo sobrevive e mantém o código). */
+  @Areas('pcp', 'producao')
+  @Post('unificar')
+  @HttpCode(HttpStatus.OK)
+  unificar(@Body() dto: UnificarKitsDto, @CurrentUser() u: AuthUser, @Ip() ip: string) {
+    return this.kits.unificar(dto, u.empresaId, u.usuario, ip);
+  }
+
   @Areas('pcp', 'producao', 'expedicao', 'estoque')
   @Get(':id')
   detalhe(@Param('id', ParseIntPipe) id: number, @CurrentUser() u: AuthUser) {
@@ -72,7 +87,7 @@ export class KitsController {
     return this.kits.etiqueta(id, u.empresaId);
   }
 
-  /** Cortador finaliza o corte: gera os kits (um por tamanho) da OP. */
+  /** Cortador finaliza o corte: gera o kit da OP (um pacote com a grade inteira). */
   @Areas('pcp', 'producao')
   @Post('gerar-da-op')
   @HttpCode(HttpStatus.CREATED)

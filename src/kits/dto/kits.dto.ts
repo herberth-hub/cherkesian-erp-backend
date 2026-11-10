@@ -13,7 +13,7 @@ export class CreateLoteDto {
   @IsOptional() @IsString() dataRecebimento?: string;
 }
 
-/** Gera os kits (um por tamanho) a partir da grade de uma OP. */
+/** Gera o(s) kit(s) a partir da grade de uma OP. Por padrão, UM kit com a grade inteira. */
 export class CriarKitsDeOpDto {
   @IsInt() @IsPositive() opId!: number;
   /** Lote do tecido usado no enfesto (opcional — pode ser vinculado depois). */
@@ -30,6 +30,14 @@ export class CriarKitsDeOpDto {
   @IsOptional() @IsString() @MaxLength(20) caixa?: string;
   /** Peças por jogo (componentes). Total de peças do kit = jogos × isto. Padrão 1. */
   @IsOptional() @IsInt() @Min(1) pecasPorJogo?: number;
+  /** true = um kit (e uma etiqueta) POR TAMANHO. Padrão: um kit só, com a grade
+   *  inteira, porque a leva toda vai para a mesma oficina. */
+  @IsOptional() @IsBoolean() separarPorTamanho?: boolean;
+}
+
+/** Junta vários kits do mesmo pacote (mesma OP/cor/operação/destino) num só. */
+export class UnificarKitsDto {
+  @IsArray() @ArrayMinSize(2, { message: 'Selecione pelo menos dois kits para unificar.' }) @IsInt({ each: true }) kitIds!: number[];
 }
 
 /** Expedição do kit para a facção (leitura do QR/código). */
@@ -94,4 +102,7 @@ export class EnviarFaccaoDto {
   /** Divisão por quantidade por tamanho: { "M": 150, "G": 80 }. Envia SÓ essa parte da OP
    *  para esta facção (o restante fica para outra OS). Vazio = envia tudo o que resta. */
   @IsOptional() @IsObject() grade?: Record<string, number>;
+  /** true = manda um kit por tamanho. Padrão: tudo o que vai para esta oficina
+   *  sai num pacote só (uma etiqueta, uma bipada no retorno). */
+  @IsOptional() @IsBoolean() separarPorTamanho?: boolean;
 }

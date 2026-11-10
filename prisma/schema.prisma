@@ -1376,9 +1376,17 @@ model Kit {
   modelo        String?
   variante      String?
   cor           String?
+  // Um KIT é o PACOTE que vai para UMA oficina. Quando todos os tamanhos vão para
+  // a mesma, ele leva a grade inteira: `grade` = { "M":11, "G":6, "GG":3 } em PEÇAS
+  // e `tamanho` guarda o resumo ("M·G·GG"). Kit de um tamanho só tem grade null —
+  // e continua funcionando exatamente como antes.
   tamanho       String
+  grade         Json?
   jogos         Int       @default(0)
   pecasTotal    Int       @default(0)
+  // Kit absorvido por outro na unificação: sai das listas, mas continua existindo
+  // para que a etiqueta já impressa com o código antigo ainda ache o kit certo.
+  unificadoEmId Int?
   ordemProducao String?
   ordemCorte    String?
   enfesto       String?

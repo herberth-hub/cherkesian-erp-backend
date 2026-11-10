@@ -7450,7 +7450,7 @@ async function abrirOS(controle){
   if(!kits||!kits.length){ toast('Nenhum kit neste controle ('+controle+').','err'); return; }
   const oper=kits[0].operacaoFaccao||'—', fac=kits[0].faccaoNome||'—';
   const totPecas=kits.reduce((s,k)=>s+(Number(k.pecasTotal)||0),0);
-  const rows=kits.map(k=>[`<span class="mono gold">${esc(k.codigo)}</span>`, `<b>${esc(k.tamanho)}</b>`, (k.pecasTotal||0)+' pç', kitPill(k.status)]);
+  const rows=kits.map(k=>[`<span class="mono gold">${esc(k.codigo)}</span>`, `<b>${esc(k.gradeTexto||k.tamanho)}</b>`, (k.pecasTotal||0)+' pç', kitPill(k.status)]);
   openModal(`<h3>🏭 OS <span class="mono gold">${esc(controle)}</span></h3>
     <div class="grid3" style="margin-bottom:8px">
       <div><div class="fl">Operação</div><b>${esc(oper)}</b></div>
@@ -8233,7 +8233,7 @@ async function opFaccaoEnviar(opId){
 }
 function imprimirEtiquetaFaccao(d){
   const w=abrirJanelaDoc('Etiqueta');
-  const kitsTxt=(d.kits||[]).map(k=>`${esc(k.tamanho)}·${k.pecas}p`).join('  ');
+  const kitsTxt=(d.kits||[]).map(k=>`${esc(k.gradeTexto||k.tamanho)} = ${k.pecas}p`).join('  |  ');
   w.document.write(`<html><head><title>Controle ${esc(d.controle)}</title><meta charset=utf-8><style>
     @page{size:100mm 80mm;margin:0} body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000}
     .lbl{width:100mm;height:80mm;box-sizing:border-box;padding:5mm;display:flex;flex-direction:column;gap:1.1mm}
@@ -15771,6 +15771,38 @@ function kitRowAcoes(k){
   b+=`<button class="btn-sm" title="Reimprimir Ordem de Serviço (romaneio + ficha técnica)" onclick="APP.kitFicha('${cod}')">📄 Ordem de Serviço</button> `;
   return b;
 }
+// Ações de uma OS inteira (vários kits que saíram juntos): aplicam a todos de
+// uma vez, pelo mesmo caminho de quem bipa o código do controle.
+function kitOsAcoes(g, sts){
+  const os=esc(g.os); const st=sts.length===1?sts[0]:'';
+  const interna=(g.kits[0].faccaoNome||'')==='PRODUÇÃO INTERNA';
+  let b='';
+  if(st==='aguardando_expedicao'||st==='criado'||st==='em_corte'){
+    if(interna) b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitBiparControle('finalizar','${os}')">✓ Finalizar OS</button> `;
+    else b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitBiparControle('expedir','${os}')">▶ Expedir OS</button> `;
+  } else if(st==='em_faccao'){ b+=`<button class="btn-sm" style="color:#b5731a" onclick="APP.kitBiparControle('retornar','${os}')">↩ Retorno da OS</button> `; }
+  else if(st==='retornado'){ b+=`<button class="btn-sm" onclick="APP.kitBiparControle('conferir','${os}')">🔎 Conferir OS</button> `; }
+  else if(st==='em_conferencia'){ b+=`<button class="btn-sm" style="color:#1e7a44" onclick="APP.kitBiparControle('finalizar','${os}')">✓ Finalizar OS</button> `; }
+  b+=`<button class="btn-sm" title="Ordem de Serviço do primeiro kit" onclick="APP.kitFicha('${esc(g.kits[0].codigo)}')">📄 OS</button> `;
+  b+=`<button class="btn-sm" title="Abrir kit a kit" onclick="APP.kitsDaOs('${os}')">Ver ${g.kits.length} kits</button>`;
+  return b;
+}
+// Abre o detalhe kit a kit de uma OS agrupada.
+function kitsDaOs(os){
+  const kits=(window.__KITS||[]).filter(k=>(k.controleFaccao||'').trim()===os);
+  if(!kits.length){ toast('Nenhum kit nesta OS.','err'); return; }
+  openModal(`<h3>OS ${esc(os)} · ${kits.length} kit(s)</h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Estes kits saíram juntos. Kits gerados de agora em diante já nascem num pacote só.</div>
+    ${panelTable(['Código','Tam·Qtd','Status','Ações'], kits.map(k=>[
+      `<span class="mono gold">${esc(k.codigo)}</span>`, kitGradeCelula(k), kitPill(k.status),
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${kitRowAcoes(k)}<button class="btn-sm" onclick="APP.kitEtiqueta(${k.id})">🏷</button> <button class="btn-sm" onclick="APP.kitDetalhe(${k.id})">Histórico</button></div>`]))}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+// Liga/desliga o agrupamento por OS (fica gravado no navegador de quem usa).
+function kitsAgruparToggle(){
+  localStorage.setItem('kits_agrupar_os', localStorage.getItem('kits_agrupar_os')==='0'?'1':'0');
+  loadRoute();
+}
 // Preenche o campo de bip com o código do kit e dispara a ação (mesmo fluxo do leitor).
 function kitAcao(codigo, acao){ const i=$('kit_bip'); if(i) i.value=codigo; kitBipar(acao); }
 // Romaneio + ficha técnica do kit (p/ a costureira/oficina). Abre a impressão.
@@ -15781,10 +15813,27 @@ async function kitFicha(codigo){
 function imprimirFichaTecnicaKit(f){
   const k=f.kit||{}, p=f.produto||{}, bom=f.bom||[], med=f.medidas||[];
   const w=abrirJanelaDoc('Romaneio');
-  const bomRows=bom.length?bom.map(b=>`<tr><td>${esc(b.codigo)}</td><td>${esc(b.descricao)}</td><td class="r">${b.consumoUnit} ${esc(b.unidade)}</td><td class="r"><b>${b.total} ${esc(b.unidade)}</b></td></tr>`).join(''):'<tr><td colspan=4 style="text-align:center;color:#999;padding:8px">Sem ficha de materiais (BOM) cadastrada para este produto.</td></tr>';
-  const medBlock=med.length?`<h3>Ficha técnica de medidas — tamanho ${esc(k.tamanho)}</h3>
+  const gl=Array.isArray(k.gradeLinhas)&&k.gradeLinhas.length?k.gradeLinhas:[{tamanho:k.tamanho,pecas:k.pecas}];
+  const multi=gl.length>1;
+  // Num pacote com vários tamanhos o consumo/peça muda por tamanho — a coluna
+  // "Consumo/peça" viraria uma meia-verdade, então ali vai o detalhe.
+  const consumoCel=(b)=>{
+    if(!multi||!Array.isArray(b.porTamanho)||!b.porTamanho.length) return `${b.consumoUnit} ${esc(b.unidade)}`;
+    return `<span style="font-size:10.5px">${b.porTamanho.map(d=>`${esc(d.tamanho)}: ${d.consumoUnit}`).join('<br>')}</span>`;
+  };
+  const bomRows=bom.length?bom.map(b=>`<tr><td>${esc(b.codigo)}</td><td>${esc(b.descricao)}</td><td class="r">${consumoCel(b)}</td><td class="r"><b>${b.total} ${esc(b.unidade)}</b></td></tr>`).join(''):'<tr><td colspan=4 style="text-align:center;color:#999;padding:8px">Sem ficha de materiais (BOM) cadastrada para este produto.</td></tr>';
+  const gradeBlock=multi?`<h3>Grade do pacote — confira ao receber</h3>
+    <table><thead><tr><th>Tamanho</th><th class="c">Peças</th></tr></thead>
+    <tbody>${gl.map(g=>`<tr><td><b>${esc(g.tamanho)}</b></td><td class="c"><b>${g.pecas}</b></td></tr>`).join('')}
+    <tr><td style="background:#faf8f2"><b>TOTAL</b></td><td class="c" style="background:#faf8f2"><b>${k.pecas}</b></td></tr></tbody></table>`:'';
+  const porTam=Array.isArray(f.medidasPorTamanho)?f.medidasPorTamanho:[];
+  const medBlock=(multi&&porTam.length)
+    ? porTam.map(x=>`<h3>Ficha técnica de medidas — tamanho ${esc(x.tamanho)} (${x.pecas} peças)</h3>
+        <table><thead><tr><th>Medida</th><th class="c">Valor</th><th class="c">Tolerância</th></tr></thead>
+        <tbody>${x.linhas.map(m=>`<tr><td>${esc(m.descricao)}</td><td class="c"><b>${esc(m.valor)}</b></td><td class="c">${esc(m.tolerancia||'—')}</td></tr>`).join('')}</tbody></table>`).join('')
+    : (med.length?`<h3>Ficha técnica de medidas — tamanho ${esc(k.tamanho)}</h3>
     <table><thead><tr><th>Medida</th><th class="c">Valor</th><th class="c">Tolerância</th></tr></thead>
-    <tbody>${med.map(m=>`<tr><td>${esc(m.descricao)}</td><td class="c"><b>${esc(m.valor)}</b></td><td class="c">${esc(m.tolerancia||'—')}</td></tr>`).join('')}</tbody></table>`:'';
+    <tbody>${med.map(m=>`<tr><td>${esc(m.descricao)}</td><td class="c"><b>${esc(m.valor)}</b></td><td class="c">${esc(m.tolerancia||'—')}</td></tr>`).join('')}</tbody></table>`:'');
   w.document.write(`<html><head><title>Ordem de Serviço ${esc(k.codigo)}</title><meta charset=utf-8><style>
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0} .wrap{max-width:760px;margin:0 auto;padding:22px}
     .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #caa53d;padding-bottom:8px}
@@ -15807,14 +15856,15 @@ function imprimirFichaTecnicaKit(f){
         <div><span class="lbl">Operação</span>${esc(k.operacao||'—')}</div>
         <div><span class="lbl">Cliente</span>${esc(k.cliente||'—')}</div>
         <div><span class="lbl">OP</span>${esc(k.op||'—')}</div>
-        <div><span class="lbl">Tamanho</span><b>${esc(k.tamanho)}</b></div>
-        <div><span class="lbl">Quantidade</span><b>${k.jogos} jogo(s) · ${k.pecas} peça(s)</b></div>
+        <div><span class="lbl">${multi?'Grade':'Tamanho'}</span><b>${esc(multi?gl.map(g=>g.tamanho+' '+g.pecas).join(' · '):k.tamanho)}</b></div>
+        <div><span class="lbl">Quantidade</span><b>${multi?(gl.length+' tamanhos · '):(k.jogos+' jogo(s) · ')}${k.pecas} peça(s)</b></div>
         <div><span class="lbl">Tecido</span>${esc(p.tecido||'—')}</div>
         <div><span class="lbl">Cor</span>${esc(k.cor||'—')}</div>
         <div><span class="lbl">Composição</span>${esc(p.composicao||'—')}</div>
         <div><span class="lbl">Lote do tecido</span>${esc(k.lote||'—')}</div>
       </div>
       ${(!k.interno && k.custoMaoObraTotal!=null)?`<div style="margin-top:10px;border:1.5px solid #caa53d;background:#fbf7e8;border-radius:6px;padding:9px 11px;font-size:13px">💰 <b>Mão de obra (a pagar ao terceiro):</b> R$ ${Number(k.custoMaoObraUnit).toFixed(2)}/peça × ${k.pecas} peça(s) = <b style="font-size:16px;color:#3a2f08">R$ ${Number(k.custoMaoObraTotal).toFixed(2)}</b></div>`:(k.interno?'<div style="margin-top:10px;font-size:12px;color:#888">Produção interna — sem custo de mão de obra de terceiro.</div>':'')}
+      ${gradeBlock}
       ${p.modelagem?`<h3>Modelagem</h3><div class="spec">${esc(p.modelagem)}</div>`:''}
       ${p.especificacoes?`<h3>Especificações / instruções</h3><div class="spec">${esc(p.especificacoes)}</div>`:''}
       ${medBlock}
@@ -15824,11 +15874,66 @@ function imprimirFichaTecnicaKit(f){
     </div></body></html>`);
   w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);
 }
+// Grade do kit na coluna "Tam·Qtd". Kit unificado mostra os tamanhos; kit de um
+// tamanho continua igual ao que sempre foi.
+function kitGradeLinhas(k){
+  if(k&&Array.isArray(k.gradeLinhas)&&k.gradeLinhas.length) return k.gradeLinhas;
+  if(k&&k.grade&&typeof k.grade==='object'&&!Array.isArray(k.grade)){
+    const e=Object.entries(k.grade).filter(([,q])=>Number(q)>0);
+    if(e.length) return e.map(([tamanho,pecas])=>({tamanho,pecas:Number(pecas)}));
+  }
+  return [{tamanho:(k&&k.tamanho)||'—', pecas:Number((k&&k.pecasTotal)||0)}];
+}
+function kitGradeCelula(k){
+  const linhas=kitGradeLinhas(k);
+  if(linhas.length<2) return `<b>${esc(linhas[0].tamanho)}</b> · ${k.jogos}j/${k.pecasTotal}p`;
+  const chips=linhas.map(g=>`<span class="pill gray" style="font-size:9px;margin:0 3px 3px 0">${esc(g.tamanho)} ${g.pecas}</span>`).join('');
+  return `<div><b>${linhas.length} tamanhos</b> · ${k.pecasTotal}p</div><div style="margin-top:2px">${chips}</div>`;
+}
+// Kits que saíram na MESMA Ordem de Serviço são um envio só — a tela mostra
+// uma linha por OS, com a grade somada, e as ações valem para a OS inteira.
+// (Kits criados de agora em diante já nascem unificados; isto é para os antigos.)
+function kitsAgrupadosPorOs(kits){
+  const out=[], idx=new Map();
+  for(const k of kits){
+    const os=(k.controleFaccao||'').trim();
+    if(!os){ out.push({os:null, kits:[k]}); continue; }
+    if(!idx.has(os)){ const g={os, kits:[]}; idx.set(os,g); out.push(g); }
+    idx.get(os).kits.push(k);
+  }
+  return out;
+}
+function kitGrupoCelula(g){
+  const linhas=[]; const vistos=new Map();
+  for(const k of g.kits) for(const l of kitGradeLinhas(k)) vistos.set(l.tamanho,(vistos.get(l.tamanho)||0)+l.pecas);
+  for(const [tamanho,pecas] of vistos) linhas.push({tamanho,pecas});
+  const pecas=g.kits.reduce((s,k)=>s+(Number(k.pecasTotal)||0),0);
+  const chips=linhas.map(l=>`<span class="pill gray" style="font-size:9px;margin:0 3px 3px 0">${esc(l.tamanho)} ${l.pecas}</span>`).join('');
+  return `<div><b>${linhas.length} tamanhos</b> · ${pecas}p <span class="muted" style="font-size:10px">(${g.kits.length} kits)</span></div><div style="margin-top:2px">${chips}</div>`;
+}
 async function viewKits(c){
   const [db, kits] = await Promise.all([api('/kits/dashboard'), api('/kits')]);
-  const rows = kits.map(k=>[
+  window.__KITS = kits;
+  const agrupar = localStorage.getItem('kits_agrupar_os')!=='0';
+  const grupos = agrupar ? kitsAgrupadosPorOs(kits) : kits.map(k=>({os:null,kits:[k]}));
+  const rowsGrupo = grupos.filter(g=>g.kits.length>1).map(g=>{
+    const k0=g.kits[0];
+    const sts=[...new Set(g.kits.map(k=>k.status))];
+    return [
+      `<span class="mono gold" title="Ordem de Serviço">${esc(g.os)}</span><div style="font-size:10px" class="muted">${g.kits.map(k=>esc(k.codigo)).join(' · ')}</div>`,
+      kitGrupoCelula(g)+(k0.operacaoFaccao?`<div><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px">🧵 ${esc(k0.operacaoFaccao)}</span></div>`:''),
+      esc(k0.modelo||'—')+(k0.cor?' · '+esc(k0.cor):''),
+      esc(k0.clienteNome||'—'),
+      k0.lote?`<span class="mono" style="font-size:11px">${esc(k0.lote.codigoLote)}</span>`:'<span class="muted">—</span>',
+      esc(k0.faccaoNome||'—'),
+      k0.caixa?`<span class="pill gray">${esc(k0.caixa)}</span>`:'<span class="muted">—</span>',
+      sts.length===1?kitPill(sts[0]):sts.map(kitPill).join(' '),
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${kitOsAcoes(g, sts)}</div>`
+    ];
+  });
+  const rows = rowsGrupo.concat(grupos.filter(g=>g.kits.length===1).map(g=>g.kits[0]).map(k=>[
     `<span class="mono gold">${esc(k.codigo)}</span>`,
-    `<b>${esc(k.tamanho)}</b> · ${k.jogos}j/${k.pecasTotal}p${k.operacaoFaccao?`<div><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px">🧵 ${esc(k.operacaoFaccao)}</span></div>`:''}`,
+    kitGradeCelula(k)+(k.operacaoFaccao?`<div><span class="pill" style="background:#eef4ff;color:#2b4a8b;font-size:9px">🧵 ${esc(k.operacaoFaccao)}</span></div>`:''),
     esc(k.modelo||'—')+(k.cor?' · '+esc(k.cor):''),
     esc(k.clienteNome||'—'),
     k.lote?`<span class="mono" style="font-size:11px">${esc(k.lote.codigoLote)}</span>`:'<span class="muted">—</span>',
@@ -15836,7 +15941,7 @@ async function viewKits(c){
     k.caixa?`<span class="pill gray">${esc(k.caixa)}</span>`:'<span class="muted">—</span>',
     kitPill(k.status),
     `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${kitRowAcoes(k)}<button class="btn-sm" onclick="APP.kitEtiqueta(${k.id})">🏷 Etiqueta</button> <button class="btn-sm" onclick="APP.kitDetalhe(${k.id})">Histórico</button></div>`
-  ]);
+  ]));
   c.innerHTML = `
     <div class="cards">
       ${kpi('Aguardando expedição', db.aguardandoExpedicao, db.pecas+' peças no total')}
@@ -15855,7 +15960,7 @@ async function viewKits(c){
         <button class="btn-sm" onclick="APP.kitBipar('finalizar')">Finalizar</button>
       </div>
     </div>
-    ${toolbar('Kits · '+kits.length, 'Gerar kits da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" onclick="APP.kitCaixas()">📦 Por caixa</button> <button class="btn-sm" onclick="APP.emitirRemessaFaccao()" title="NF de remessa p/ industrializacao (facção com CNPJ)">🏭 NF Remessa</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
+    ${toolbar('Kits · '+kits.length+(agrupar&&rows.length<kits.length?(' em '+rows.length+' linhas'):''), 'Gerar kit da OP', 'APP.formKitsDaOp()', `<button class="btn-sm" title="${agrupar?'Mostrar um kit por linha':'Juntar numa linha só os kits da mesma Ordem de Serviço'}" onclick="APP.kitsAgruparToggle()">${agrupar?'☑':'☐'} Agrupar por OS</button> <button class="btn-sm" onclick="APP.formKitLote()">+ Lote de tecido</button> <button class="btn-sm" title="Juntar num pacote só os kits que vão para a mesma oficina" onclick="APP.kitUnificar()">🔗 Unificar kits</button> <button class="btn-sm" onclick="APP.kitCaixas()">📦 Por caixa</button> <button class="btn-sm" onclick="APP.emitirRemessaFaccao()" title="NF de remessa p/ industrializacao (facção com CNPJ)">🏭 NF Remessa</button> <button class="btn-sm" onclick="APP.kitBuscar()">🔍 Buscar / por lote</button>`)}
     ${panelTable(['Código','Tam·Qtd','Modelo','Cliente','Lote','Facção','Caixa','Status','Ações'], rows, kits.length?null:'Nenhum kit. Gere os kits a partir de uma OP com grade de tamanhos.')}`;
 }
 // NF de remessa p/ industrialização (facção com CNPJ). Facção sem CNPJ → segue por OS.
@@ -16039,8 +16144,8 @@ async function formKitsDaOp(){
   if(!lista.length){ toast('Nenhuma OP em produção com grade. Avance a OP para o Corte/Produção primeiro.','err'); return; }
   const oo=lista.map(o=>`<option value="${o.id}">${esc(o.numero)} · ${esc(o.pedido?o.pedido.numero:'')} · [${(o.status||'').replace(/_/g,' ')}] · ${Object.entries(o.gradeTamanhos).map(([t,q])=>t+':'+q).join(' ')}</option>`).join('');
   const lo='<option value="">— sem lote (vincular depois) —</option>'+(lotes||[]).map(l=>`<option value="${l.id}">${esc(l.codigoLote)}${l.nfCompra?' · NF '+esc(l.nfCompra):''}${l.corTecido?' · '+esc(l.corTecido):''}</option>`).join('');
-  openModal(`<h3>Gerar kits da OP (um por tamanho)</h3>
-    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Puxe uma OP <b>em produção</b>: cada tamanho da grade vira um kit. O lote do tecido é opcional (dá pra vincular depois).</div>
+  openModal(`<h3>Gerar kit da OP</h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Puxe uma OP <b>em produção</b>: a grade inteira vira <b>um kit só</b> — um pacote, uma etiqueta, uma bipada — porque vai tudo para a mesma oficina. O lote do tecido é opcional (dá pra vincular depois).</div>
     <div class="mrow"><label class="fl">Ordem de Produção * <span class="muted" style="font-weight:400">(só em produção)</span></label><select id="kg_op" class="inp">${oo}</select></div>
     <div class="mrow"><label class="fl">Lote do tecido (enfesto) <span class="muted" style="font-weight:400">— opcional</span></label><select id="kg_lote" class="inp">${lo}</select></div>
     <div class="grid2">${field('kg_fac','Facção destino','placeholder="ex.: Facção Alfa"')}${field('kg_ppj','Peças por jogo','type="number" min="1" value="1"')}</div>
@@ -16050,8 +16155,11 @@ async function formKitsDaOp(){
     <div class="grid3">${field('kg_enf','Enfesto','placeholder="EF-000184"')}${field('kg_oc','Ordem de corte','placeholder="OC-000241"')}${field('kg_mesa','Mesa de corte','')}</div>
     <div class="grid2">${field('kg_op2','Operador do corte','')}${field('kg_cor','Cor (se não vier do pedido)','')}</div>
     ${field('kg_caixa','Caixa de armazenamento','placeholder="ex.: CX-01"')}
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin-top:6px;cursor:pointer">
+      <input type="checkbox" id="kg_separar" style="margin-top:2px">
+      <span><b>Separar um kit por tamanho</b><br><span class="muted">Só marque se os tamanhos forem para oficinas diferentes ou se cada tamanho for um pacote físico separado. Senão, deixe desmarcado: um kit só é mais fácil de etiquetar, mandar e bipar na volta.</span></span></label>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
-      <button class="btn-primary" onclick="APP.saveKitsDaOp()">Gerar kits</button></div>`);
+      <button class="btn-primary" onclick="APP.saveKitsDaOp()">Gerar kit</button></div>`);
 }
 async function saveKitsDaOp(){
   const body={ opId:Number(val('kg_op')),
@@ -16060,10 +16168,12 @@ async function saveKitsDaOp(){
     operacaoFaccao:(val('kg_fase')||'').trim()||undefined };
   const loteId=Number(val('kg_lote')); if(loteId>0) body.loteTecidoId=loteId;
   const ppj=Number(val('kg_ppj')); if(ppj>0) body.pecasPorJogo=ppj;
+  const sep=$('kg_separar'); if(sep&&sep.checked) body.separarPorTamanho=true;
   if(!body.opId){ toast('Selecione a OP.','err'); return; }
   try{ const r=await api('/kits/gerar-da-op',{method:'POST',body}); closeModal();
     toast(r.total+' kit(s) gerados da OP '+r.op+' (lote '+r.lote+').','ok');
-    if(await uiConfirm({tipo:'ok', titulo:r.total+' kits criados', msg:'Imprimir todas as etiquetas dos kits agora?', ok:'Imprimir etiquetas', cancel:'Agora não'})){ for(const k of r.kits){ await APP.kitEtiqueta(k.id, true); } }
+    const titulo = r.unificado ? 'Kit único criado (grade inteira)' : (r.total+' kits criados');
+    if(await uiConfirm({tipo:'ok', titulo, msg:'Imprimir '+(r.unificado?'a etiqueta':'todas as etiquetas')+' agora?', ok:'Imprimir', cancel:'Agora não'})){ for(const k of r.kits){ await APP.kitEtiqueta(k.id, true); } }
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
 }
@@ -16090,7 +16200,9 @@ function imprimirEtiquetaKit(d, zpl, silencioso){
       <div class="cod">${esc(d.codigo)}</div>
       <div class="r"><b>Pedido:</b> ${esc(d.pedido)} &nbsp; <b>Cliente:</b> ${esc(d.cliente)}</div>
       <div class="r"><b>Modelo:</b> ${esc(d.modelo)} &nbsp; <b>Cor:</b> ${esc(d.cor)}</div>
-      <div class="tam">TAM ${esc(d.tamanho)} · ${d.jogos} JOGOS / ${d.pecas} PEÇAS</div>
+      ${(d.gradeLinhas&&d.gradeLinhas.length>1)
+        ? `<div class="tam" style="text-align:left;font-size:11pt">GRADE · ${d.pecas} PEÇAS<div style="font-size:13pt;margin-top:1mm">${d.gradeLinhas.map(g=>`${esc(g.tamanho)}:${g.pecas}`).join(' &nbsp; ')}</div></div>`
+        : `<div class="tam">TAM ${esc(d.tamanho)} · ${d.jogos} JOGOS / ${d.pecas} PEÇAS</div>`}
       <div class="r"><b>Lote:</b> ${esc(d.lote)} &nbsp; <b>Enfesto:</b> ${esc(d.enfesto)} &nbsp; <b>OC:</b> ${esc(d.oc)}</div>
       <div class="r"><b>DESTINO:</b> ${esc(d.destino)}</div>
     </div>
@@ -16098,6 +16210,35 @@ function imprimirEtiquetaKit(d, zpl, silencioso){
   </body></html>`);
   w.document.close();
   if(!silencioso) setTimeout(()=>{ try{w.focus();w.print();}catch(e){} }, 400);
+}
+// ===== Unificar kits: vários pacotes da mesma OP que vão para a MESMA oficina viram um =====
+async function kitUnificar(){
+  let gr=[]; try{ gr=await api('/kits/unificaveis'); }catch(e){ toast(e.message,'err'); return; }
+  if(!gr.length){
+    await uiAlert({tipo:'info', titulo:'Nada para unificar', msg:'Não há kits soltos que possam virar um pacote só. Só dá para juntar kits da mesma OP, mesma cor, mesma operação e mesmo destino, que ainda NÃO saíram em uma OS.', ok:'Entendi'});
+    return;
+  }
+  window.__UNIF=gr;
+  const blocos=gr.map((g,i)=>`<div style="border:1px solid #e7e3d8;border-radius:10px;padding:10px 12px;margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <b>OP ${esc(g.op||'—')} · ${esc(g.modelo||'—')}${g.cor?' · '+esc(g.cor):''}</b>
+      <span class="muted">${g.totalKits} kits · ${g.pecas} peças</span></div>
+    <div class="muted" style="font-size:12px">${esc(g.cliente||'—')} · destino ${esc(g.faccao||'ainda sem facção')}${g.operacao?' · '+esc(g.operacao):''}</div>
+    <div style="font-size:12px;margin-top:4px"><b>Grade:</b> ${esc(g.gradeTexto)}</div>
+    <div style="font-size:11px;margin-top:3px" class="mono muted">${g.codigos.map(esc).join('  ')}</div>
+    <div style="margin-top:6px"><button class="btn-sm" onclick="APP.kitUnificarGrupo(${i})">🔗 Unificar em um kit</button></div>
+  </div>`).join('');
+  openModal(`<h3>🔗 Unificar kits · ${gr.length} grupo(s)</h3>
+    <div class="muted" style="font-size:12px;margin:-6px 0 8px">Quando a leva toda vai para a mesma oficina, um kit só basta: uma etiqueta, uma Ordem de Serviço e uma bipada no retorno. O <b>kit mais antigo sobrevive e mantém o código</b> — etiqueta já impressa com um código absorvido continua caindo nele.</div>
+    <div style="max-height:58vh;overflow:auto">${blocos}</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+async function kitUnificarGrupo(i){
+  const g=(window.__UNIF||[])[i]; if(!g) return;
+  if(!await uiConfirm({tipo:'warn', titulo:'Unificar '+g.totalKits+' kits?', msg:'Vira um kit só com a grade '+g.gradeTexto+' ('+g.pecas+' peças). O código que fica é o do kit mais antigo; os outros ficam marcados como unificados e continuam sendo encontrados na busca.', ok:'Unificar', cancel:'Cancelar'})) return;
+  try{ const r=await api('/kits/unificar',{method:'POST',body:{kitIds:g.kitIds}});
+    closeModal(); toast('✅ '+r.mensagem,'ok'); loadRoute();
+  }catch(e){ toast('Falha: '+(e.message||e),'err'); }
 }
 async function kitCaixas(){
   try{ const cx=await api('/kits/por-caixa');
@@ -16117,16 +16258,19 @@ async function kitBuscar(){
   try{ const r=await api('/kits/buscar?q='+encodeURIComponent(q.trim()));
     if(!r.length){ toast('Nenhum kit encontrado para "'+q+'".','err'); return; }
     openModal(`<h3>🔍 ${r.length} kit(s) — "${esc(q)}"</h3>
-      <div style="max-height:60vh;overflow:auto">${panelTable(['Código','Tam','Modelo','Lote','Status'], r.map(k=>[
-        `<span class="mono gold">${esc(k.codigo)}</span>`, esc(k.tamanho), esc(k.modelo||'—'), esc(k.lote?k.lote.codigoLote:'—'), kitPill(k.status)]))}</div>
+      <div style="max-height:60vh;overflow:auto">${panelTable(['Código','Tam·Qtd','Modelo','Lote','Status'], r.map(k=>[
+        `<span class="mono gold">${esc(k.codigo)}</span>`, kitGradeCelula(k), esc(k.modelo||'—'), esc(k.lote?k.lote.codigoLote:'—'), kitPill(k.status)]))}</div>
       <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
   }catch(e){ toast(e.message,'err'); }
 }
 async function kitDetalhe(id){
   try{ const k=await api('/kits/'+id);
     const ev=(k.eventos||[]).map(e=>`<tr><td>${new Date(e.criadoEm).toLocaleString('pt-BR')}</td><td><b>${esc(e.evento)}</b></td><td>${esc(e.detalhe||'')}</td><td>${esc(e.usuario||'')}</td></tr>`).join('');
+    const gl=kitGradeLinhas(k);
+    const gtxt=gl.length>1?('Grade '+gl.map(g=>g.tamanho+' '+g.pecas).join(' · ')):('Tam '+(k.tamanho||'—')+' · '+k.jogos+' jogos');
     openModal(`<h3>Kit ${esc(k.codigo)} · ${kitPill(k.status)}</h3>
-      <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(k.modelo||'')} · Tam ${esc(k.tamanho)} · ${k.jogos} jogos/${k.pecasTotal} peças · Lote ${esc(k.lote?k.lote.codigoLote:'—')} · NF tecido ${esc(k.lote&&k.lote.nfCompra?k.lote.nfCompra:'—')}</div>
+      ${k.unificadoEmId?`<div class="pill" style="background:#fdf3e0;color:#8a5a00">Este kit foi unificado em outro — bipar este código cai no pacote atual.</div>`:''}
+      <div class="muted" style="font-size:12px;margin-bottom:8px">${esc(k.modelo||'')} · ${esc(gtxt)}/${k.pecasTotal} peças · Lote ${esc(k.lote?k.lote.codigoLote:'—')} · NF tecido ${esc(k.lote&&k.lote.nfCompra?k.lote.nfCompra:'—')}</div>
       <label class="fl">Histórico / auditoria</label>
       <div style="max-height:50vh;overflow:auto"><table style="width:100%;font-size:12px"><thead><tr><th>Quando</th><th>Evento</th><th>Detalhe</th><th>Usuário</th></tr></thead><tbody>${ev||'<tr><td colspan=4 class="muted">Sem eventos.</td></tr>'}</tbody></table></div>
       <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button>
@@ -16978,7 +17122,7 @@ window.APP = {
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
   formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
-  viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, viewBi,
+  viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, kitUnificar, kitUnificarGrupo, kitsDaOs, kitsAgruparToggle, viewBi,
   formCompra, ocDescricaoHtml, ocEditarItens, ocItensSoma, ocItensSalvar, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
