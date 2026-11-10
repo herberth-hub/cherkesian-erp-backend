@@ -44,6 +44,10 @@ const TIPOS: Record<string, { titulo: string; prefixo: string; area: Area | Area
   op_pedido: { titulo: 'Ordem de Produção do Pedido', prefixo: 'OPP', area: 'producao' },
   plano_corte: { titulo: 'Plano de Corte', prefixo: 'PCT', area: 'producao' },
   pedido_compra: { titulo: 'Pedido de Compra', prefixo: 'OCD', area: 'compras' },
+  // ESPELHO da NF de compra — documento INTERNO de conferência, não é o DANFE.
+  // Serve para olhar o que a nota trouxe sem ter que abrir o XML ou ligar para
+  // o fornecedor: itens, onde entrou no estoque, qual OC baixou, qual título gerou.
+  nota_entrada: { titulo: 'Entrada de Mercadoria', prefixo: 'ENT', area: ['compras', 'estoque'] },
   romaneio: { titulo: 'Romaneio de Expedição', prefixo: 'ROM', area: 'expedicao' },
   // Vai JUNTO com a mercadoria quando a remessa sai sem NF-e: é por ele que o
   // cliente confere o que recebeu. Documento não fiscal — não substitui a nota.
@@ -342,6 +346,8 @@ export class DocumentosService {
         return this.pdfPlanoCorte(referenciaId, empresaId, numero);
       case 'pedido_compra':
         return this.pdfCompra(referenciaId, empresaId, numero);
+      case 'nota_entrada':
+        return this.pdfNotaEntrada(referenciaId, empresaId, numero);
       case 'romaneio':
         return this.pdfRomaneio(referenciaId, empresaId, numero);
       case 'declaracao_conteudo':
@@ -931,6 +937,218 @@ export class DocumentosService {
    * Formata quantidade no padrão brasileiro (vírgula decimal, ponto de milhar).
    * Ex.: 6.3 -> "6,30"; 33.96 -> "33,96"; 0.422 -> "0,422". Evita ler "6.300" como 6300.
    */
+  /**
+   * ESPELHO DA NOTA DE ENTRADA — documento INTERNO de conferência.
+   *
+   * Não é o DANFE e não substitui a nota do fornecedor: é o que o Herberth
+   * precisa olhar quando quer conferir alguma coisa de uma entrada sem abrir o
+   * XML nem ligar para o fornecedor. Por isso leva, além dos itens, o que o
+   * sistema FEZ com a nota: entrou no estoque?, emitiu etiqueta?, baixou qual
+   * ordem de compra?, gerou qual título a pagar? — que é justamente o que o
+   * papel do fornecedor não conta.
+   */
+  private async pdfNotaEntrada(notaId: number, empresaId: number, numero: string): Promise<Pdf> {
+    const nota = await this.prisma.notaEntrada.findUnique({
+      where: { id: notaId },
+      include: {
+        fornecedor: true,
+        filial: true,
+        itens: { orderBy: { id: 'asc' } },
+        ordensRecebidas: { select: { numero: true, descricao: true, valor: true } },
+      },
+    });
+    if (!nota || nota.empresaId !== empresaId) {
+      throw new NotFoundException(`Nota de entrada ${notaId} não encontrada.`);
+    }
+    const conta = nota.contaPagarId
+      ? await this.prisma.contaPagar.findUnique({ where: { id: nota.contaPagarId }, select: { vencimento: true, valor: true, status: true, categoria: true } })
+      : null;
+
+    if (nota.filial?.logo) setLogoDoc(nota.filial.logo);
+    // O cabeçalho mostra a data de EMISSÃO da nota, não a da impressão.
+    setDataDoc(nota.emitidaEm ?? nota.criadoEm ?? null);
+    const doc = novoDocumento('Entrada de Mercadoria', numero);
+
+    const NAVY = '#1b2a4a', GOLD = '#8a6d1e', TINTA = '#242a26', CINZA = '#6a675e', LINHA = '#e7e3d8', BGSOFT = '#faf8f2';
+    const W = doc.page.width, X = 50, CW = W - 100;
+
+    const tituloSecao = (t: string) => {
+      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(9).text(t.toUpperCase(), X, doc.y, { characterSpacing: 0.5 });
+      doc.moveTo(X, doc.y + 2).lineTo(W - X, doc.y + 2).lineWidth(0.6).strokeColor(LINHA).stroke();
+      doc.moveDown(0.6);
+      doc.fillColor(TINTA);
+    };
+    const card = (x: number, y: number, w: number, titulo: string, rows: Array<[string, string]>): number => {
+      const pad = 9;
+      doc.font('Helvetica').fontSize(10);
+      let h = 26;
+      for (const [, v] of rows) h += 10 + doc.heightOfString(v || '—', { width: w - pad * 2 }) + 5;
+      h += pad - 3;
+      doc.roundedRect(x, y, w, h, 8).fillColor(BGSOFT).fill();
+      doc.roundedRect(x, y, w, h, 8).lineWidth(0.8).strokeColor(LINHA).stroke();
+      doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8.5).text(titulo.toUpperCase(), x + pad, y + 7, { characterSpacing: 0.5, width: w - pad * 2 });
+      let cy = y + 26;
+      for (const [k, v] of rows) {
+        doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(k.toUpperCase(), x + pad, cy);
+        cy += 10;
+        doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(10).text(v || '—', x + pad, cy, { width: w - pad * 2 });
+        cy += doc.heightOfString(v || '—', { width: w - pad * 2 }) + 5;
+      }
+      return h;
+    };
+
+    // ===== NF (número/série/chave) + Emitente | Destinatário =====
+    const nf = `${nota.numero}${nota.serie ? ' / ' + nota.serie : ''}`;
+    const chave = (nota.chave ?? '').replace(/\D/g, '');
+    const chaveFmt = chave.length === 44 ? (chave.match(/.{1,4}/g) ?? []).join(' ') : (nota.chave || '—');
+
+    const gap = 14, cw = (CW - gap) / 2, y0 = doc.y + 2;
+    const endDest = [nota.filial?.logradouro, nota.filial?.numeroEndereco, nota.filial?.bairro,
+      nota.filial?.municipio ? `${nota.filial.municipio}${nota.filial.uf ? '/' + nota.filial.uf : ''}` : '']
+      .filter(Boolean).join(' · ') || '—';
+    const h1 = card(X, y0, cw, 'Emitente (fornecedor)', [
+      ['Nome', nota.fornecedor?.nome ?? nota.nomeEmitente ?? '—'],
+      ['CNPJ/CPF', formatarCnpj(nota.fornecedor?.cnpjCpf ?? nota.cnpjEmitente)],
+      ['Contato', [nota.fornecedor?.contato ?? nota.fornecedor?.telefone, nota.fornecedor?.cidadeUf].filter(Boolean).join(' · ') || '—'],
+    ]);
+    const h2 = card(X + cw + gap, y0, cw, 'Destinatário (nosso CNPJ)', [
+      ['Empresa', nota.filial?.nome ?? '—'],
+      ['CNPJ', formatarCnpj(nota.filial?.cnpj)],
+      ['Endereço', endDest],
+    ]);
+    doc.y = y0 + Math.max(h1, h2) + 14; doc.x = X;
+
+    // Faixa da NF: número, emissão, entrada no sistema e origem do lançamento.
+    const fy = doc.y;
+    doc.roundedRect(X, fy, CW, 30, 6).lineWidth(0.8).strokeColor(LINHA).stroke();
+    const col4 = CW / 4;
+    const cel = (i: number, lab: string, val: string) => {
+      const cx = X + i * col4;
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 10, fy + 5, { width: col4 - 16 });
+      doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(11).text(val, cx + 10, fy + 15, { width: col4 - 16 });
+      if (i > 0) doc.moveTo(cx, fy + 4).lineTo(cx, fy + 26).lineWidth(0.5).strokeColor(LINHA).stroke();
+    };
+    const origemTxt: Record<string, string> = { manual: 'Digitada', sefaz: 'Baixada da SEFAZ', xml: 'Importada do XML' };
+    cel(0, 'NF-e Nº / SÉRIE', nf);
+    cel(1, 'EMISSÃO', dataBR(nota.emitidaEm));
+    cel(2, 'ENTRADA NO SISTEMA', dataBR(nota.criadoEm));
+    cel(3, 'LANÇAMENTO', origemTxt[nota.origem] ?? nota.origem);
+    doc.y = fy + 30 + 8; doc.x = X;
+
+    if (chave.length === 44) {
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text('CHAVE DE ACESSO', X, doc.y);
+      doc.fillColor(TINTA).font('Courier-Bold').fontSize(9).text(chaveFmt, X, doc.y + 1, { width: CW });
+      doc.moveDown(0.6); doc.x = X;
+    }
+
+    // ===== ITENS =====
+    tituloSecao(`Itens da nota (${nota.itens.length})`);
+    if (nota.itens.length) {
+      const colsW = [CW - 300, 90, 95, 115];
+      const ty0 = doc.y + 2;
+      doc.rect(X, ty0, CW, 18).fillColor('#f2eee2').fill();
+      const th = (i: number, t: string, alinha: 'left' | 'right' = 'left') => {
+        const cx = X + colsW.slice(0, i).reduce((s, w) => s + w, 0);
+        doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(7.5).text(t, cx + 8, ty0 + 6, { width: colsW[i] - 16, align: alinha });
+      };
+      th(0, 'DESCRIÇÃO'); th(1, 'QTD', 'right'); th(2, 'VALOR UNIT.', 'right'); th(3, 'TOTAL', 'right');
+      let ly = ty0 + 18;
+      for (const it of nota.itens) {
+        // Linha de apoio: como o item foi amarrado no nosso cadastro. É o que
+        // responde "esse item virou o quê no estoque?".
+        const vinculo = it.materialId ? `matéria-prima #${it.materialId}` : it.produtoId ? `produto #${it.produtoId}` : 'sem vínculo no cadastro';
+        const apoio = [it.codigoFornecedor ? `cód. no fornecedor: ${it.codigoFornecedor}` : '', it.ncm ? `NCM ${it.ncm}` : '', vinculo].filter(Boolean).join('  ·  ');
+        const hDesc = doc.font('Helvetica-Bold').fontSize(9.5).heightOfString(it.descricao, { width: colsW[0] - 16 });
+        const hApoio = doc.font('Helvetica').fontSize(8).heightOfString(apoio, { width: colsW[0] - 16 });
+        const linhaH = Math.max(22, hDesc + hApoio + 12);
+        if (ly + linhaH > doc.page.height - 90) { doc.addPage(); ly = doc.page.margins.top; }
+        doc.moveTo(X, ly).lineTo(X + CW, ly).lineWidth(0.5).strokeColor(LINHA).stroke();
+        doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9.5).text(it.descricao, X + 8, ly + 6, { width: colsW[0] - 16 });
+        doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(apoio, X + 8, ly + 6 + hDesc + 2, { width: colsW[0] - 16 });
+        const td = (i: number, t: string, neg = false) => {
+          const cx = X + colsW.slice(0, i).reduce((s, w) => s + w, 0);
+          doc.fillColor(TINTA).font(neg ? 'Helvetica-Bold' : 'Helvetica').fontSize(9.5).text(t, cx + 8, ly + 6, { width: colsW[i] - 16, align: 'right' });
+        };
+        td(1, `${this.qtdBR(it.quantidade)} ${it.unidade}`);
+        td(2, money(Number(it.valorUnit)));
+        td(3, money(Number(it.quantidade) * Number(it.valorUnit)), true);
+        ly += linhaH;
+      }
+      doc.moveTo(X, ly).lineTo(X + CW, ly).lineWidth(0.8).strokeColor(LINHA).stroke();
+      doc.y = ly + 12; doc.x = X;
+
+      // Quando a soma dos itens não bate com o valor da nota, o PDF DIZ isso em
+      // vez de esconder: a diferença costuma ser frete, IPI ou item faltando.
+      const somaItens = nota.itens.reduce((s, i) => s + Number(i.quantidade) * Number(i.valorUnit), 0);
+      const dif = Number(nota.valor) - somaItens;
+      if (Math.abs(dif) >= 0.01) {
+        doc.fillColor(CINZA).font('Helvetica').fontSize(8.5)
+          .text(`Soma dos itens: ${money(somaItens)} · diferença para o total da nota: ${money(dif)} (frete, IPI, desconto ou item não lançado).`, X, doc.y, { width: CW });
+        doc.moveDown(0.6); doc.x = X;
+      }
+    } else {
+      doc.fillColor(CINZA).font('Helvetica').fontSize(9.5)
+        .text('Esta nota foi lançada só pelo valor total — nenhum item foi detalhado.', X, doc.y, { width: CW });
+      doc.moveDown(0.8); doc.x = X;
+    }
+
+    // Valor total — barra azul-marinho.
+    const ty = doc.y;
+    doc.roundedRect(X, ty, CW, 34, 8).fillColor(NAVY).fill();
+    doc.fillColor('#cdd6e6').font('Helvetica').fontSize(9).text('VALOR TOTAL DA NOTA', X + 14, ty + 12);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(16).text(money(nota.valor), X, ty + 8, { width: CW - 14, align: 'right' });
+    doc.y = ty + 34 + 14; doc.x = X;
+
+    // ===== O QUE O SISTEMA FEZ COM ESTA NOTA =====
+    tituloSecao('Situação no sistema');
+    const cy2 = doc.y + 2, cW3 = (CW - 2 * 8) / 3;
+    const chip = (i: number, lab: string, val: string, cor: string) => {
+      const cx = X + i * (cW3 + 8);
+      doc.roundedRect(cx, cy2, cW3, 40, 6).fillColor(BGSOFT).fill();
+      doc.roundedRect(cx, cy2, cW3, 40, 6).lineWidth(0.7).strokeColor(LINHA).stroke();
+      doc.fillColor(CINZA).font('Helvetica').fontSize(7.5).text(lab, cx + 10, cy2 + 7, { width: cW3 - 20 });
+      doc.fillColor(cor).font('Helvetica-Bold').fontSize(11).text(val, cx + 10, cy2 + 19, { width: cW3 - 20 });
+    };
+    const VERDE = '#1e7a44', VERM = '#a33a26';
+    chip(0, 'ESTOQUE', nota.lancadaEstoque ? 'Lançado' : 'NÃO lançado', nota.lancadaEstoque ? VERDE : VERM);
+    chip(1, 'ETIQUETAS DE VOLUME', nota.etiquetasGeradas ? 'Emitidas' : (nota.lancadaEstoque ? 'PENDENTES' : '—'),
+      nota.etiquetasGeradas ? VERDE : (nota.lancadaEstoque ? VERM : CINZA));
+    chip(2, 'CONTAS A PAGAR', conta ? `${money(conta.valor)} · ${dataBR(conta.vencimento)}` : 'Sem título', conta ? TINTA : CINZA);
+    doc.y = cy2 + 40 + 12; doc.x = X;
+
+    if (conta) {
+      doc.fillColor(CINZA).font('Helvetica').fontSize(8.5)
+        .text(`Título: ${conta.categoria} · situação ${String(conta.status).replace(/_/g, ' ')}.`, X, doc.y, { width: CW });
+      doc.moveDown(0.6); doc.x = X;
+    }
+
+    // Ordens de compra baixadas por esta entrada (necessidade × compra).
+    if (nota.ordensRecebidas.length) {
+      tituloSecao(`Ordens de compra atendidas (${nota.ordensRecebidas.length})`);
+      for (const oc of nota.ordensRecebidas) {
+        doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9.5).text(oc.numero, X, doc.y, { continued: true })
+          .fillColor(CINZA).font('Helvetica').text(`  ·  ${oc.descricao}  ·  ${money(oc.valor)}`, { width: CW });
+      }
+      doc.moveDown(0.6); doc.x = X;
+    }
+
+    if (nota.obs?.trim()) {
+      tituloSecao('Observações');
+      textoBloco(doc, nota.obs.trim());
+      doc.moveDown(0.4); doc.x = X;
+    }
+
+    // Deixa claro o que este papel é — e o que ele NÃO é.
+    doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(8)
+      .text('Documento interno de conferência de entrada. Não tem valor fiscal e não substitui o DANFE/XML da nota do fornecedor.',
+        X, doc.y + 4, { width: CW });
+    doc.x = X;
+
+    rodapeGrupo(doc);
+    doc.end();
+    return doc;
+  }
+
   private qtdBR(n: number | Prisma.Decimal): string {
     const fixed = (Number(n) || 0).toFixed(3);
     let [int, dec] = fixed.split('.');

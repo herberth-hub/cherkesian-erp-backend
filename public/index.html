@@ -9116,7 +9116,7 @@ function neListaRender(){
       n.lancadaEstoque?('<span class="pill green">lançado</span>'+((!n.etiquetasGeradas)?' <span class="pill red" title="Ainda não emitiu as etiquetas de volume">⚠ sem etiqueta</span>':'')):'<span class="muted">—</span>',
       n.contaPagarId?'<span class="pill blue">gerada</span>':'<span class="muted">—</span>',
       `<span class="pill gray">${esc(n.origem)}</span>`,
-      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Emitir NF-e de devolução desta compra (total ou de parte dos itens)" onclick="APP.formDevolucao(${n.id})">↩️ Devolver</button><button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
+      `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${(n.lancadaEstoque&&!n.etiquetasGeradas)?`<button class="btn-sm" style="background:var(--gold);color:#3a2f08" onclick="APP.emitirEtiquetasNF(${n.id})">🏷 Emitir etiquetas</button>`:''}<button class="btn-sm" title="Espelho da nota em PDF — itens, estoque, OC baixada e título gerado (documento interno, não é o DANFE)" onclick="APP.gerarDoc('nota_entrada',${n.id})">🖨 Imprimir / PDF</button><button class="btn-sm" style="color:#8a5a00;border-color:#e6d29a" title="Emitir NF-e de devolução desta compra (total ou de parte dos itens)" onclick="APP.formDevolucao(${n.id})">↩️ Devolver</button><button class="btn-sm" onclick="APP.editNotaEntrada(${n.id})">✏️ Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/notas-entrada',${n.id})">Excluir</button></div>`
     ]), list.length?null:(todas.length?'Nenhuma nota bate com a busca.':'Nenhuma nota de entrada. Use "Nova entrada" ou "Buscar na SEFAZ".'));
 }
 // ---------- Devolução de compra (NF-e de saída, finalidade 4) ----------
@@ -13167,7 +13167,7 @@ function atalhosHtml(){
 }
 
 // ---------- Documentos (PDF em papel timbrado) ----------
-const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', declaracao_conteudo:'Declaração de Conteúdo', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança' };
+const DOC_NOMES = { pedido:'Pedido', proposta:'Proposta', op:'Ordem de Produção', op_pedido:'Ordem de Produção do Pedido', romaneio:'Ordem de Serviço · Romaneio', declaracao_conteudo:'Declaração de Conteúdo', ficha_tecnica:'Ficha Técnica · Cliente', ficha_producao:'Ficha de Produção', plano_corte:'Plano de Corte', etiqueta:'Etiqueta', medidas:'Ficha de Medidas', piloto:'Ficha de Peça Piloto', piloto_ficha:'Ficha Técnica · Piloto', cobranca:'Demonstrativo de Cobrança', nota_entrada:'Entrada de Mercadoria' };
 const TIPOCONTA = { corrente:'Conta corrente', poupanca:'Poupança', pagamentos:'Conta pagamentos' };
 // ----- Ordem de Serviço (OS) para oficina: recorte por produto/tamanho -----
 async function formOS(pedidoId){
