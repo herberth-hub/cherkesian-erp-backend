@@ -37,7 +37,35 @@ describe('dados da etiqueta', () => {
     const { dados } = await servico(BASE).etiqueta(211, 1);
     expect(dados.produto).toBe('AVENTAL CURTO (ACIMA DO JOELHO) 70 x 50 cm');
     expect(dados.cliente).toBe('GRSA - NON FOODS');
-    expect(dados.tentativa).toBe(1);
+  });
+
+  /**
+   * Esta etiqueta é lida pelo CLIENTE. Dizer de qual fábrica vem o pano é
+   * entregar o caminho para ele comprar direto; dizer "3ª tentativa" é contar
+   * quantas vezes a peça voltou. As duas coisas continuam no sistema — só não
+   * saem impressas.
+   */
+  describe('o que a etiqueta NÃO conta ao cliente', () => {
+    const comMarca = { ...BASE, tentativa: 3, artigo: 'UNILEVE 2x1 - 100% ALGODÃO', marca: 'SANTANENSE' };
+
+    it('os dados da etiqueta nem carregam a marca', async () => {
+      const { dados } = await servico(comMarca).etiqueta(211, 1);
+      expect(dados.artigo).toBe('UNILEVE 2x1 - 100% ALGODÃO');
+      expect((dados as Record<string, unknown>).marca).toBeUndefined();
+    });
+
+    it('a marca não aparece em lugar nenhum do ZPL', async () => {
+      const { zpl } = await servico(comMarca).etiqueta(211, 1);
+      expect(zpl).toContain('UNILEVE 2x1 - 100% ALGODAO'.replace('ALGODAO', 'ALGODÃO').slice(0, 20));
+      expect(zpl).not.toMatch(/SANTANENSE/i);
+    });
+
+    it('a tentativa saiu da etiqueta — mas continua no cadastro', async () => {
+      const svc = servico(comMarca);
+      const { zpl, dados } = await svc.etiqueta(211, 1);
+      expect(zpl).not.toMatch(/TENTATIVA/i);
+      expect(dados.tentativa).toBe(3); // segue disponível para a ficha e o histórico
+    });
   });
 
   it('o tecido da AMOSTRA vence o tecido padrão do produto', async () => {
@@ -98,12 +126,14 @@ describe('o ZPL cabe na etiqueta de 100x50', () => {
     expect(linha.txt.length).toBeLessThanOrEqual(44);
   });
 
-  it('o QR leva o que identifica a amostra — inclusive a tentativa', async () => {
+  it('o QR identifica a amostra sem entregar a marca nem a tentativa', async () => {
     const svc = servico({ ...BASE, tentativa: 3, artigo: '11 GRASS', marca: 'ADAR' });
     const { zpl } = await svc.etiqueta(211, 1);
     const qr = /\^FDLA,(\{.*?\})\^FS/s.exec(zpl)!;
     const j = JSON.parse(qr[1]);
-    expect(j).toMatchObject({ piloto: 'PIL-0208', tentativa: 3, artigo: '11 GRASS', marca: 'ADAR' });
+    expect(j).toMatchObject({ piloto: 'PIL-0208', artigo: '11 GRASS', cor: 'VERDE MUSGO' });
+    expect(j.marca).toBeUndefined();
+    expect(j.tentativa).toBeUndefined();
   });
 
   it('acento e caractere de controle do ZPL não quebram a etiqueta', async () => {

@@ -197,7 +197,10 @@ export class PilotosService {
       // O artigo do piloto manda: ele é o que foi usado NESTA amostra, que pode
       // não ser o tecido padrão da ficha do produto.
       artigo: piloto.artigo ?? produto?.tecido ?? '—',
-      marca: piloto.marca ?? '—',
+      // A MARCA do tecido NÃO vai nos dados da etiqueta, de propósito: esta
+      // etiqueta é lida pelo cliente, e dizer de qual fábrica vem o pano é
+      // entregar o caminho para ele comprar direto. Quem precisa da marca
+      // (ficha, compras, histórico) continua tendo — só a etiqueta não leva.
       composicao: produto?.composicao ?? '—',
       cor: piloto.cor ?? '—',
       setor: piloto.setor ?? '—',
@@ -211,19 +214,31 @@ export class PilotosService {
     return { dados, zpl: this.zplEtiqueta(dados) };
   }
 
-  /** ZPL da etiqueta 100x50 mm @203dpi (800 x 400 pontos). */
+  /**
+   * ZPL da etiqueta 100x50 mm @203dpi (800 x 400 pontos).
+   *
+   * Esta etiqueta vai colada na embalagem que o CLIENTE recebe, e isso manda
+   * em duas omissões:
+   *
+   *  · A MARCA do tecido não entra — nem no texto, nem no QR. Só o artigo e a
+   *    cor. Dizer de qual fábrica vem o pano é entregar ao cliente o caminho
+   *    para comprar direto.
+   *  · A TENTATIVA também não. "3ª tentativa" na caixa conta a quem recebe
+   *    quantas vezes a peça voltou — informação nossa, de dentro de casa.
+   *
+   * As duas continuam no sistema (ficha, histórico, lista de pilotos): o que
+   * mudou foi o que SAI impresso.
+   */
   private zplEtiqueta(d: Record<string, string | number>): string {
     const s = (v: string | number, max = 34) => String(v).replace(/[\^~]/g, ' ').slice(0, max);
     const qr = JSON.stringify({
       piloto: d.codigo, cliente: d.cliente, produto: d.produto, artigo: d.artigo,
-      marca: d.marca, cor: d.cor, tentativa: d.tentativa, prazo: d.prazoRetorno, versao: '1',
+      cor: d.cor, prazo: d.prazoRetorno, versao: '2',
     }).replace(/[\^~]/g, ' ');
     return [
       '^XA', '^CI28', '^PW800', '^LL400',
       '^CF0,26', '^FO18,14^FDGRUPO CHERKESIAN - PECA PILOTO^FS',
       '^CF0,40', `^FO18,46^FD${s(d.codigo, 20)}^FS`,
-      // A tentativa fica grande e sozinha: é o que diferencia duas amostras iguais.
-      '^CF0,34', `^FO300,46^FD${d.tentativa}a TENTATIVA^FS`,
       '^CF0,26',
       `^FO18,96^FDCliente: ${s(d.cliente)}^FS`,
       // Nome da peça numa fonte um pouco menor: é a linha mais longa da etiqueta
