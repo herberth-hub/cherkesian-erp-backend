@@ -2467,6 +2467,8 @@ export class DocumentosService {
     // A foto do modelo costuma estar no bucket (`arq:…`): sem trocar pela imagem
     // de verdade, a ficha sai com a moldura vazia e a piloteira costura no escuro.
     await this.resolverAnexos(produto, ['fotoModelo', 'fotoModelagem']);
+    // A foto DA PILOTO (tambem `arq:…`) vira data URI para o desenho da peca.
+    const pilotoFoto = piloto.foto ? await this.arquivos.dataUri(piloto.foto) : null;
     const cliente = piloto.clienteId ? await this.prisma.cliente.findUnique({ where: { id: piloto.clienteId }, select: { nome: true } }) : null;
 
     // Índice de campos do briefing por rótulo (sem acento) → valor.
@@ -2521,9 +2523,12 @@ export class DocumentosService {
     // Desenho / modelo da peça
     const hDes = 180;
     box(x0, y, W, hDes, 'Desenho / modelo da peça');
-    // Foto do modelo; não havendo, o desenho da modelagem serve de referência.
+    // A foto DA PILOTO vem primeiro: é a peça que foi feita nesta tentativa.
+    // Depois a do produto e, por último, o desenho da modelagem. Piloto avulsa
+    // não tem produto (ele só nasce depois da aprovação), então sem a primeira
+    // a moldura saía vazia.
     let desenhou = false;
-    for (const fonte of [produto?.fotoModelo, produto?.fotoModelagem]) {
+    for (const fonte of [pilotoFoto, produto?.fotoModelo, produto?.fotoModelagem]) {
       if (!fonte || desenhou) continue;
       try {
         doc.image(Buffer.from(String(fonte).split(',').pop() || '', 'base64'), x0 + 8, y + 18, { fit: [W - 16, hDes - 26], align: 'center', valign: 'center' });

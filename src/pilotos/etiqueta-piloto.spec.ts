@@ -10,6 +10,7 @@
  * que nada do texto cai por cima do código de barras ou do QR.
  */
 import { PilotosService } from './pilotos.service';
+import { ArquivosService } from '../arquivos/arquivos.service';
 
 type Piloto = Record<string, unknown>;
 
@@ -20,7 +21,7 @@ function servico(piloto: Piloto, extras: { produto?: Piloto | null; cliente?: Pi
     cliente: { findUnique: () => Promise.resolve(extras.cliente ?? null) },
     pedido: { findUnique: () => Promise.resolve(extras.pedido ?? null) },
   };
-  return new PilotosService(prisma as never);
+  return new PilotosService(prisma as never, new ArquivosService());
 }
 
 const BASE = {

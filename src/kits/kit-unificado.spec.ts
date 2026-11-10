@@ -187,6 +187,40 @@ describe('unificar kits que já existem', () => {
   });
 });
 
+describe('a tela não mostra o que já acabou', () => {
+  const variados = [
+    { id: 1, codigo: 'KIT-A', status: 'em_faccao' },
+    { id: 2, codigo: 'KIT-B', status: 'finalizado' },
+    { id: 3, codigo: 'KIT-C', status: 'retornado' },
+    { id: 4, codigo: 'KIT-D', status: 'finalizado' },
+  ];
+
+  it('por padrão o kit finalizado fica fora — era mais da metade da lista', async () => {
+    const { svc } = bancoFake(variados);
+    const r = await svc.listar(1);
+    expect(r.map((k) => k.codigo)).toEqual(['KIT-C', 'KIT-A']); // ordem decrescente de id
+  });
+
+  it('dá para pedir SÓ os finalizados', async () => {
+    const { svc } = bancoFake(variados);
+    const r = await svc.listar(1, 'finalizado');
+    expect(r.map((k) => k.codigo).sort()).toEqual(['KIT-B', 'KIT-D']);
+  });
+
+  it('"todos" traz tudo, inclusive os finalizados', async () => {
+    const { svc } = bancoFake(variados);
+    expect(await svc.listar(1, 'todos')).toHaveLength(4);
+  });
+
+  it('o kit absorvido numa unificação não volta por nenhum filtro', async () => {
+    const { svc } = bancoFake([...variados, { id: 5, codigo: 'KIT-E', status: 'unificado', unificadoEmId: 1 }]);
+    for (const f of [undefined, 'todos', 'unificado']) {
+      const r = await svc.listar(1, f);
+      expect(r.find((k) => k.codigo === 'KIT-E')).toBeUndefined();
+    }
+  });
+});
+
 describe('a etiqueta velha continua valendo', () => {
   it('bipar o código de um kit absorvido cai no pacote de verdade', async () => {
     const { svc, prisma } = bancoFake([

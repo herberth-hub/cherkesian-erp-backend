@@ -33,6 +33,17 @@ export class PilotosController {
     return this.pilotosService.findOne(id, user.empresaId);
   }
 
+  /** Foto/desenho da peça na ficha. String vazia remove. */
+  @Post(':id/foto')
+  @HttpCode(HttpStatus.OK)
+  salvarFoto(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { foto?: string; nome?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pilotosService.salvarFoto(id, user.empresaId, dto?.foto, dto?.nome);
+  }
+
   /** Etiqueta 100x50 da peça-piloto — vai colada na embalagem enviada ao cliente. */
   @Get(':id/etiqueta')
   etiqueta(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {

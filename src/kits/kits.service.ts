@@ -68,9 +68,25 @@ export class KitsService {
   }
 
   // ===================== KITS =====================
+  /**
+   * Kits da tela. Por padrão SEM os finalizados.
+   *
+   * O kit finalizado já cumpriu o ciclo: cortou, foi, voltou, foi conferido.
+   * Ele não tem mais ação nenhuma e era mais da METADE da lista (102 de 185),
+   * empurrando para baixo justamente o que precisa de alguém — o que está na
+   * oficina e o que voltou para conferir.
+   *
+   * `status` explícito manda: `finalizado` mostra só eles, `todos` mostra tudo.
+   * A BUSCA não passa por aqui, então kit finalizado continua achável pelo código.
+   */
   async listar(empresaId: number, status?: string) {
+    const filtro = (status ?? '').trim().toLowerCase();
+    const onde =
+      filtro === 'todos' ? {}
+      : filtro ? { status: filtro }
+      : { status: { not: 'finalizado' } };
     const kits = await this.prisma.kit.findMany({
-      where: { empresaId, ...VIVOS, ...(status ? { status } : {}) },
+      where: { empresaId, ...VIVOS, ...onde },
       include: { lote: { select: { codigoLote: true, nfCompra: true } } },
       orderBy: { id: 'desc' },
       take: 500,

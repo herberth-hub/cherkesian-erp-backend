@@ -899,6 +899,11 @@ model Piloto {
   obs         String?
   briefingProduto String?  // tipo de produto do briefing (Camiseta, Polo, Calça…)
   briefing    Json?        // respostas do briefing de piloto (campos por seção, chave = ID do campo)
+  // Foto/desenho da peça. A ficha puxava a imagem só do PRODUTO — e piloto
+  // avulsa não tem produto (ele só nasce depois da aprovação), então a ficha
+  // saía com a moldura vazia. Guardada como referência de bucket (`arq:…`).
+  foto        String?
+  fotoNome    String?
 }
 
 model OP {

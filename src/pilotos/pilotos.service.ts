@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -8,11 +9,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePilotoDto } from './dto/create-piloto.dto';
 import { CreatePilotoAvulsoDto } from './dto/create-piloto-avulso.dto';
 import { UpdatePilotoDto } from './dto/update-piloto.dto';
+import { ArquivosService } from '../arquivos/arquivos.service';
 import { proximoSequencial } from '../common/utils/codigo.util';
 
 @Injectable()
 export class PilotosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly arquivos: ArquivosService,
+  ) {}
 
   findAll(empresaId: number): Promise<Piloto[]> {
     // Cobre pilotos de pedido (empresaId preenchido no backfill) e avulsos.
@@ -114,6 +119,45 @@ export class PilotosService {
         data: { etapa: 'material' },
       });
     }
+    return atualizado;
+  }
+
+  /**
+   * FOTO / DESENHO DA PEÇA na própria piloto.
+   *
+   * A ficha técnica puxava a imagem só do Produto — e piloto avulsa não tem
+   * produto, porque ele só nasce depois da aprovação. Resultado: a ficha das
+   * pilotos da GRSA saía com a moldura do desenho vazia, que é justamente a
+   * parte que a piloteira olha primeiro.
+   *
+   * Guarda no bucket como `arq:…` (o mesmo caminho da foto do produto), para
+   * não inchar a linha do banco com base64.
+   */
+  async salvarFoto(id: number, empresaId: number, dataUri: string | null | undefined, nome?: string) {
+    const piloto = await this.findOne(id, empresaId);
+    const s = (dataUri ?? '').trim();
+
+    if (!s) { // string vazia = REMOVER a foto (diferente de não mexer)
+      if (piloto.foto) await this.arquivos.remover(piloto.foto).catch(() => undefined);
+      return this.prisma.piloto.update({ where: { id }, data: { foto: null, fotoNome: null } });
+    }
+
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(s)) {
+      throw new BadRequestException('Envie uma imagem (PNG, JPG, WEBP ou GIF) da peça.');
+    }
+    // ~9 MB de arquivo viram ~12 MB em base64. Acima disso é foto de câmera
+    // crua, que não melhora a ficha e trava o upload.
+    if (s.length > 12_000_000) throw new BadRequestException('Imagem muito grande (máx ~9 MB). Reduza antes de enviar.');
+
+    const anterior = piloto.foto;
+    const ref = await this.arquivos.guardar(s, 'pilotos');
+    const atualizado = await this.prisma.piloto.update({
+      where: { id },
+      data: { foto: ref, fotoNome: (nome ?? '').trim().slice(0, 160) || null },
+    });
+    // Só apaga a antiga DEPOIS de a nova estar gravada: se algo falhar no meio,
+    // o pior caso é um arquivo órfão no bucket, não uma ficha sem imagem.
+    if (anterior && anterior !== ref) await this.arquivos.remover(anterior).catch(() => undefined);
     return atualizado;
   }
 
