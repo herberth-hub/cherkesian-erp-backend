@@ -42,9 +42,32 @@ export interface CoraCredenciais {
   baseUrl?: string;
 }
 
-/** PEM colado em variável de ambiente vem com \n literal — desfaz o escape. */
+/**
+ * PEM saindo de uma variável de ambiente, em qualquer das formas que ele chega.
+ *
+ * 1. `\n` literal, porque campo de uma linha não aceita quebra de verdade;
+ * 2. BASE64 do arquivo inteiro — a forma à prova de tudo.
+ *
+ * A (2) existe por um motivo medido: o campo do Render REMOVE as linhas
+ * `-----BEGIN ...-----` e `-----END ...-----` do valor. O certificado da
+ * Yerevan entrou com 2088 caracteres e ficou guardado com 2036 — exatamente os
+ * 52 das duas linhas. Sem elas o OpenSSL não carrega nada, e não há como pedir
+ * ao Render que pare de fazer isso. Base64 não tem traço, nem quebra de linha,
+ * nem aspas: passa ileso por qualquer campo.
+ */
 export function normalizarPem(texto: string | undefined | null): string {
-  return String(texto ?? '').replace(/\\r/g, '').replace(/\\n/g, '\n').trim();
+  const bruto = String(texto ?? '').replace(/\\r/g, '').replace(/\\n/g, '\n').trim();
+  if (!bruto || bruto.includes('-----BEGIN')) return bruto;
+  // Sem cabeçalho: pode ser o arquivo inteiro em base64. Só tenta quando o
+  // texto é mesmo base64 — senão devolve como veio, para a conferência de PEM
+  // explicar o que está errado.
+  const limpo = bruto.replace(/\s+/g, '');
+  if (limpo.length < 64 || !/^[A-Za-z0-9+/=]+$/.test(limpo)) return bruto;
+  try {
+    const decodificado = Buffer.from(limpo, 'base64').toString('utf8');
+    if (decodificado.includes('-----BEGIN')) return decodificado.trim();
+  } catch { /* não era base64 — segue com o texto original */ }
+  return bruto;
 }
 
 /**
@@ -146,11 +169,16 @@ export function conferirPem(texto: string, tipo: 'certificado' | 'chave'): strin
   if (/^["'].*["']$/s.test(t)) return `${tipo}: veio com aspas em volta — cole o conteúdo sem aspas`;
   const temInicio = /-----BEGIN [A-Z ]+-----/.test(t);
   const temFim = /-----END [A-Z ]+-----/.test(t);
-  // O caso que aconteceu de verdade: o campo de UMA linha do Render guardou só
-  // a ÚLTIMA linha do que foi colado. Fica o END e some todo o resto.
   if (!temInicio && temFim) {
-    return `${tipo}: só a linha "-----END-----" foi guardada — o campo é de uma linha e engoliu o resto. `
-      + 'Cole o conteúdo em UMA LINHA SÓ, com \\n no lugar das quebras';
+    return `${tipo}: só a linha "-----END-----" sobrou — o campo guardou uma linha só. `
+      + 'Use o valor em BASE64 (o arquivo .b64.txt que o sistema gera)';
+  }
+  // O caso medido no Render: ele APAGA as linhas com "-----" do valor, e sobra
+  // só o miolo em base64 do PEM. Quem lê a mensagem precisa saber que não
+  // adianta colar o PEM de novo — tem de ser o base64 do arquivo.
+  if (!temInicio && /^[A-Za-z0-9+/=\s\\n]+$/.test(t) && t.replace(/\s+/g, '').length > 200) {
+    return `${tipo}: chegou só o miolo, sem as linhas "-----BEGIN-----" e "-----END-----". `
+      + 'O campo do Render apaga linhas com traços — cole o valor em BASE64 (arquivo .b64.txt)';
   }
   if (!temInicio) return `${tipo}: falta a linha "-----BEGIN ...-----" no começo`;
   if (!temFim) return `${tipo}: falta a linha "-----END ...-----" no fim (o valor foi cortado?)`;

@@ -262,8 +262,8 @@ describe('o campo de uma linha engoliu o PEM', () => {
   it('sobrou só o END: diz o que aconteceu e manda colar em uma linha', () => {
     const m = conferirPem('-----END CERTIFICATE-----', 'certificado')!;
     expect(m).toContain('END');
-    expect(m).toContain('o campo é de uma linha e engoliu o resto');
-    expect(m).toContain('no lugar das quebras');
+    expect(m).toContain('o campo guardou uma linha só');
+    expect(m).toContain('BASE64');
   });
 
   it('o mesmo vale para a chave', () => {
@@ -272,5 +272,50 @@ describe('o campo de uma linha engoliu o PEM', () => {
 
   it('PEM em uma linha COM \n escapado é aceito — é a forma de contornar', () => {
     expect(conferirPem(CERT.replace(/\n/g, '\n'), 'certificado')).toBeNull();
+  });
+});
+
+/**
+ * BASE64 — a forma a prova de campo de formulario.
+ *
+ * Medido no Render: o campo APAGA as linhas "-----BEGIN-----" e
+ * "-----END-----" do valor. O certificado da Yerevan entrou com 2088
+ * caracteres e ficou guardado com 2036 — exatamente os 52 das duas linhas.
+ * Sem elas o OpenSSL nao carrega nada, e nao da para pedir ao Render que pare.
+ * Base64 nao tem traco, nem quebra de linha, nem aspas.
+ */
+describe('PEM em base64', () => {
+  const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
+
+  it('base64 do arquivo vira o PEM de volta', () => {
+    expect(normalizarPem(b64(CERT))).toBe(CERT);
+    expect(conferirPem(normalizarPem(b64(CERT)), 'certificado')).toBeNull();
+  });
+
+  it('a chave também', () => {
+    expect(normalizarPem(b64(KEY))).toBe(KEY);
+  });
+
+  it('PEM normal continua passando — base64 é alternativa, não substituição', () => {
+    expect(normalizarPem(CERT)).toBe(CERT);
+    expect(normalizarPem(CERT.replace(/\n/g, '\n'))).toBe(CERT);
+  });
+
+  it('base64 de coisa que não é PEM não vira PEM', () => {
+    const lixo = b64('isto nao e um certificado, e so um texto qualquer aqui');
+    expect(normalizarPem(lixo)).toBe(lixo);
+  });
+
+  it('texto curto não é confundido com base64', () => {
+    expect(normalizarPem('abc')).toBe('abc');
+  });
+
+  it('o miolo do PEM sem as linhas de traço é reconhecido e explicado', () => {
+    // Exatamente o que o Render guardou: so o corpo, sem BEGIN nem END.
+    // Corpo base64 puro, como o Render deixou: so o miolo, sem BEGIN nem END.
+    const corpo = 'MIIFwjCCBKqgAwIBAgIUfkN0RyEekvJMQcEtNsWi3PlqZlAwDQYJKoZIhvcNAQEL\n'.repeat(5);
+    const m = conferirPem(corpo, 'certificado')!;
+    expect(m).toContain('miolo');
+    expect(m).toContain('BASE64');
   });
 });
