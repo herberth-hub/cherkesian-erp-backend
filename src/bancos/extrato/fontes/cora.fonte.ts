@@ -132,6 +132,26 @@ export interface ValidadeCertificado {
   vencido: boolean;
 }
 
+/**
+ * O PEM CHEGOU INTEIRO?
+ *
+ * Colar um certificado num campo de formulário é onde tudo quebra: falta a
+ * linha BEGIN, o editor corta o fim, o valor vem com aspas em volta. O TLS
+ * reclama disso com "error:0909006C:PEM routines:get_name:no start line", que
+ * não ajuda ninguém. Aqui a conferência é feita antes, em português.
+ */
+export function conferirPem(texto: string, tipo: 'certificado' | 'chave'): string | null {
+  const t = normalizarPem(texto);
+  if (!t) return `${tipo}: está vazio`;
+  if (/^["'].*["']$/s.test(t)) return `${tipo}: veio com aspas em volta — cole o conteúdo sem aspas`;
+  if (!/-----BEGIN [A-Z ]+-----/.test(t)) return `${tipo}: falta a linha "-----BEGIN ...-----" no começo`;
+  if (!/-----END [A-Z ]+-----/.test(t)) return `${tipo}: falta a linha "-----END ...-----" no fim (o valor foi cortado?)`;
+  if (!t.includes('\n')) return `${tipo}: veio numa linha só, sem quebras de linha — cole o arquivo inteiro`;
+  if (tipo === 'chave' && /BEGIN CERTIFICATE/.test(t)) return 'chave: isso é o CERTIFICADO, não a chave privada — os dois valores estão trocados';
+  if (tipo === 'certificado' && /BEGIN [A-Z ]*PRIVATE KEY/.test(t)) return 'certificado: isso é a CHAVE PRIVADA, não o certificado — os dois valores estão trocados';
+  return null;
+}
+
 export function validadeDoCertificado(certPem: string, hoje: Date = new Date()): ValidadeCertificado | null {
   try {
     const x = new X509Certificate(certPem);
@@ -153,8 +173,18 @@ export class CoraFonte implements FonteExtratoApi {
   constructor(private readonly cred: CoraCredenciais) {
     const amb = (cred.ambiente ?? 'producao').toLowerCase();
     this.base = cred.baseUrl ?? BASES[amb] ?? BASES.producao;
-    // O certificado identifica a empresa na conexão: é o mTLS do Cora.
-    this.agente = new Agent({ cert: cred.certPem, key: cred.keyPem, keepAlive: true });
+    // Confere ANTES de montar o agente: o erro do OpenSSL é indecifrável, e
+    // montar com PEM quebrado estoura lá no meio da conexão.
+    const problemas = [conferirPem(cred.certPem, 'certificado'), conferirPem(cred.keyPem, 'chave')].filter(Boolean);
+    if (problemas.length) {
+      throw new Error(`A credencial do Cora está mal colada — ${problemas.join('; ')}.`);
+    }
+    try {
+      // O certificado identifica a empresa na conexão: é o mTLS do Cora.
+      this.agente = new Agent({ cert: cred.certPem, key: cred.keyPem, keepAlive: true });
+    } catch (e) {
+      throw new Error(`O certificado ou a chave do Cora não foram aceitos: ${(e as Error).message}`);
+    }
   }
 
   /** Token em cache; renova faltando 5 min para vencer. */

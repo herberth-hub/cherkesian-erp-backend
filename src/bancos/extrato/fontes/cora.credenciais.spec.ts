@@ -7,7 +7,7 @@
  * os "\n" escapados e o TLS falha com uma mensagem que não ajuda ninguém, e
  * uma configuração pela metade tem de dizer O QUE falta, não "erro 500".
  */
-import { credenciaisDoAmbiente, nomesDasVariaveis, normalizarPem, oQueFalta, temCredencialPropria, validadeDoCertificado } from './cora.fonte';
+import { conferirPem, credenciaisDoAmbiente, nomesDasVariaveis, normalizarPem, oQueFalta, temCredencialPropria, validadeDoCertificado } from './cora.fonte';
 
 const CERT = '-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----';
 const KEY = '-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----';
@@ -204,5 +204,51 @@ describe('credencial por CNPJ', () => {
     const f = oQueFalta({} as NodeJS.ProcessEnv, MURIAE);
     expect(f).toHaveLength(3);
     expect(f[0]).toContain('CORA_45704956000293_CLIENT_ID');
+  });
+});
+
+/**
+ * O PEM MAL COLADO.
+ *
+ * Colar certificado em campo de formulario e onde tudo quebra. O OpenSSL
+ * reclama com "error:0909006C:PEM routines:get_name:no start line" e o
+ * usuario recebe "Erro interno no servidor. Referencia XXXX" — aconteceu de
+ * verdade, nas duas contas, na primeira configuracao no Render.
+ */
+describe('conferir o PEM antes de tentar conectar', () => {
+  it('PEM inteiro passa', () => {
+    expect(conferirPem(CERT, 'certificado')).toBeNull();
+    expect(conferirPem(KEY, 'chave')).toBeNull();
+  });
+
+  it('vazio: diz que está vazio', () => {
+    expect(conferirPem('', 'certificado')).toContain('vazio');
+  });
+
+  it('sem a linha BEGIN: aponta o começo', () => {
+    expect(conferirPem('MIIB...\n-----END CERTIFICATE-----', 'certificado')).toContain('BEGIN');
+  });
+
+  it('sem a linha END: sugere que o valor foi cortado', () => {
+    expect(conferirPem('-----BEGIN CERTIFICATE-----\nMIIB...', 'certificado')).toContain('cortado');
+  });
+
+  it('numa linha só: manda colar o arquivo inteiro', () => {
+    expect(conferirPem('-----BEGIN CERTIFICATE----- MIIB -----END CERTIFICATE-----', 'certificado'))
+      .toContain('uma linha só');
+  });
+
+  it('com aspas em volta: manda tirar as aspas', () => {
+    expect(conferirPem(`"${CERT}"`, 'certificado')).toContain('aspas');
+  });
+
+  it('valores TROCADOS entre as duas variáveis: diz que estão trocados', () => {
+    expect(conferirPem(KEY, 'certificado')).toContain('trocados');
+    expect(conferirPem(CERT, 'chave')).toContain('trocados');
+  });
+
+  it('o \n escapado do Render não é considerado erro', () => {
+    const escapado = CERT.replace(/\n/g, '\n');
+    expect(conferirPem(escapado, 'certificado')).toBeNull();
   });
 });

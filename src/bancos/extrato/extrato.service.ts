@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ContasReceberService } from '../../financeiro/contas-receber.service';
@@ -7,10 +7,28 @@ import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
 import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
 import {
-  CoraFonte, credenciaisDoAmbiente, nomesDasVariaveis, oQueFalta,
+  conferirPem, CoraFonte, credenciaisDoAmbiente, nomesDasVariaveis, oQueFalta,
   temCredencialPropria, validadeDoCertificado,
 } from './fontes/cora.fonte';
 import { soDigitos } from './fontes/cora.traducao';
+
+/**
+ * Erro de conversa com o banco chega ao usuário COM O MOTIVO.
+ *
+ * As fontes jogam `Error` comum ("Cora recusou a autenticação (HTTP 401)",
+ * "a credencial está mal colada"). Sem isto, o filtro global transforma tudo em
+ * "Erro interno no servidor. Referência XXXX" — e quem está configurando a
+ * integração fica sem saber se errou a variável, o certificado ou a conta.
+ */
+async function semErroOpaco<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const msg = (e as Error)?.message ?? 'falha ao falar com o banco';
+    if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+    throw new ServiceUnavailableException(msg);
+  }
+}
 
 /**
  * ESPELHO DO BANCO — o extrato do banco dentro do ERP, conciliado com os títulos.
@@ -171,7 +189,7 @@ export class ExtratoService {
     const de = dto.de ? new Date(dto.de + 'T00:00:00Z') : new Date(ate.getTime() - dias * 86_400_000);
     if (de > ate) throw new BadRequestException('A data inicial é depois da final.');
 
-    const extrato = await fonte.buscar(de, ate);
+    const extrato = await semErroOpaco(() => fonte.buscar(de, ate));
 
     // DE QUEM É ESSA CONTA? Uma credencial de API atende UMA conta, e a tela
     // oferece todas as do banco. Sem esta conferência, puxar com a conta errada
@@ -214,10 +232,10 @@ export class ExtratoService {
       include: { filial: { select: { cnpj: true, nome: true } } },
     });
     if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
-    const fonte = this.fonteDaConta(conta);
     const cnpj = conta.cedenteDocumento || conta.filial?.cnpj || null;
+    const fonte = this.fonteDaConta(conta);
 
-    const saldo = await fonte.saldo();
+    const saldo = await semErroOpaco(() => fonte.saldo());
     // Além do saldo, o teste PROVA de quem é a conta que a credencial abriu:
     // uma janela mínima traz o CNPJ do titular. Sem isso, um certificado
     // trocado entre contas passaria no teste e só erraria na importação.
@@ -265,6 +283,13 @@ export class ExtratoService {
       .map((c) => {
         const cnpj = c.cedenteDocumento || c.filial?.cnpj || null;
         const faltando = oQueFalta(process.env, cnpj);
+        // Variável preenchida não quer dizer valor BOM. Confere o formato do
+        // PEM aqui: é o que evita caçar a causa no log do servidor.
+        const cred = faltando.length === 0 ? credenciaisDoAmbiente(process.env, cnpj) : null;
+        const problemas = cred
+          ? [conferirPem(cred.certPem, 'certificado'), conferirPem(cred.keyPem, 'chave')].filter((x): x is string => !!x)
+          : [];
+        const val = cred && !problemas.length ? validadeDoCertificado(cred.certPem) : null;
         return {
           id: c.id,
           conta: `${c.banco}${c.conta ? ' · ' + c.conta : ''}${c.contaDv ? '-' + c.contaDv : ''}`,
@@ -272,9 +297,12 @@ export class ExtratoService {
           empresa: c.filial?.nome ?? null,
           cnpj,
           variaveis: nomesDasVariaveis(cnpj),
-          configurada: faltando.length === 0,
+          configurada: faltando.length === 0 && problemas.length === 0,
           propria: temCredencialPropria(process.env, cnpj),
           faltando,
+          problemas,
+          vence: val?.vence ?? null,
+          venceEm: val?.diasRestantes ?? null,
         };
       });
   }

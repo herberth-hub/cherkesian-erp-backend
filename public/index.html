@@ -6025,7 +6025,10 @@ async function bancoStatusApi(){
     const v=c.variaveis||{};
     const cab=`<div style="font-weight:700;font-size:13px">${esc(c.apelido||c.conta)} ${c.configurada?'<span class="pill green">puxa sozinha</span>':'<span class="pill gold">falta credencial</span>'}${c.propria?'':(c.configurada?' <span class="pill gray" title="Usando as variáveis padrão, sem CNPJ no nome">padrão</span>':'')}</div>
       <div class="muted" style="font-size:11px">${esc(c.empresa||'')} · CNPJ ${esc(c.cnpj||'—')}</div>`;
-    const vars=c.configurada?'':`<div style="margin-top:6px;background:#fbfaf7;border:1px solid #e7e4dd;border-radius:7px;padding:7px 9px">
+    const probs=(c.problemas||[]).length?`<div style="margin-top:6px;background:#fdf1ef;border:1px solid #e8bfb6;border-radius:7px;padding:7px 9px">
+        <div style="font-size:11.5px;color:#a33a26;font-weight:700;margin-bottom:3px">As variáveis existem, mas o valor está errado:</div>
+        ${c.problemas.map(x=>`<div style="font-size:11.5px;color:#a33a26">• ${esc(x)}</div>`).join('')}</div>`:'';
+    const vars=(c.configurada||((c.faltando||[]).length===0))?probs:`<div style="margin-top:6px;background:#fbfaf7;border:1px solid #e7e4dd;border-radius:7px;padding:7px 9px">
         <div class="muted" style="font-size:10.5px;margin-bottom:4px">Crie no Render estas três variáveis:</div>
         ${[v.clientId,v.cert,v.key].map(n=>`<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
           <code style="font-size:11px;flex:1;word-break:break-all">${esc(n)}</code>
