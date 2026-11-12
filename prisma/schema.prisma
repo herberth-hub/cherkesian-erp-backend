@@ -1094,6 +1094,8 @@ model ContaReceber {
   valor         Decimal      @db.Decimal(12,2)
   pago          Decimal      @default(0) @db.Decimal(12,2)
   juros         Decimal      @default(0) @db.Decimal(12,2) // juros/multa recebidos (atraso)
+  // QUANDO o dinheiro entrou — data da última baixa (ver ContaPagar.pagoEm).
+  pagoEm        DateTime?
   status        TituloStatus @default(a_vencer)
   ultimaCobrancaEm  DateTime? // última cobrança por e-mail enviada (régua)
   cobrancasEnviadas Int      @default(0) // nº de cobranças já disparadas
@@ -1141,6 +1143,11 @@ model ContaPagar {
   valor        Decimal      @db.Decimal(12,2)
   pago         Decimal      @default(0) @db.Decimal(12,2)
   juros        Decimal      @default(0) @db.Decimal(12,2) // juros/multa pagos (atraso)
+  // QUANDO o dinheiro saiu — data da última baixa. Sem ela, o título sabia
+  // quanto foi pago mas não em que dia, e no extrato do banco não havia como
+  // casar o débito com o título. Pode ser retroativa: quem lança a baixa
+  // informa o dia real do pagamento, não o dia em que digitou.
+  pagoEm       DateTime?
   bancoPagto   String?      // banco/conta de onde saiu o pagamento (registrado na baixa)
   recorrenteId Int?         // origem: conta recorrente que gerou este título (dedup por mês)
   boleto       String?      @db.Text // boleto anexado (data URI base64: PDF/imagem)

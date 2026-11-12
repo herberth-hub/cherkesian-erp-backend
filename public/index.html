@@ -6129,7 +6129,8 @@ function receberFiltrar(){
       dfmt(t.vencimento),
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.receberEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(nome[t.clienteId]||('#'+t.clienteId)), (t.nfNumero?`<span class="mono" style="font-weight:700">${esc(t.nfNumero)}</span>`+(t.notaFiscalId?'':' <span class="muted" style="font-size:9px">(doc.)</span>'):'<span class="muted">—</span>'),
-      money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`, tituloPill(t.status),
+      money(t.valor), money(t.pago), `<b>${money(t.saldo)}</b>`,
+      tituloPill(t.status)+(t.status==='pago'&&t.pagoEm?`<div style="font-size:10px;color:#4a7a54;margin-top:2px" title="Dia em que o dinheiro entrou — é por ele que a conciliação casa com o extrato">📅 ${dfmt(t.pagoEm)}</div>`:''),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap"><span id="rcbol_${t.id}">${bancosBoletoBtn(t.id)}</span>${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('receber',${t.id},'${t.saldo}')">Receber</button>`:''}<button class="btn-sm" title="Imprimir demonstrativo de cobrança: só os títulos SELECIONADOS deste cliente; sem seleção, todos os títulos em aberto dele" onclick="APP.imprimirCobranca(${t.clienteId})">🖨 Cobrança</button><button class="btn-sm" onclick="APP.formReceberEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/receber',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
@@ -6486,7 +6487,10 @@ function pagarFiltrar(){
       t.filial?`<span class="pill gray" style="cursor:pointer" title="Filtrar por ${esc(t.filial.nome)} · ${esc(t.filial.cnpj||'')}" onclick="APP.pagarEmp('${encodeURIComponent(t.filial.nome)}')">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
       esc(t.categoria),
       (t.fornecedorId ? esc(nome[t.fornecedorId]||('#'+t.fornecedorId)) + ((window.__FORNPIX[t.fornecedorId]&&window.__FORNPIX[t.fornecedorId].pix)?` <button class="btn-sm" title="Copiar chave PIX" style="padding:1px 7px;margin-left:3px" onclick="APP.copiarPixForn(${t.fornecedorId})">🔑</button>`:'') : '—'),
-      esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`, tituloPill(t.status)+(t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
+      esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`,
+      tituloPill(t.status)
+        + (t.status==='pago'&&t.pagoEm?`<div style="font-size:10px;color:#4a7a54;margin-top:2px" title="Dia em que o dinheiro saiu — é por ele que a conciliação casa com o extrato">📅 ${dfmt(t.pagoEm)}</div>`:'')
+        + (t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.temBoleto?`<button class="btn-sm" title="Ver/baixar boleto anexado" onclick="APP.verBoleto(${t.id})">📎 Boleto</button>`:''}${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
 }
@@ -7125,6 +7129,9 @@ async function baixar(tipo, id, saldo){
     <div class="grid2">${field('f_baixa','Valor da baixa (principal)','type="number" step="0.01" placeholder="'+saldo+'" oninput="APP.baixaTotal('+saldo+")\"")}
       ${field('f_juros','Juros / multa (atraso, opcional)','type="number" step="0.01" min="0" placeholder="0,00" oninput="APP.baixaTotal('+saldo+")\"")}</div>
     <div id="f_baixatot" class="muted" style="font-size:12px;margin:-4px 0 8px"></div>
+    <div class="mrow"><label class="fl">📅 Dia em que o dinheiro ${tipo==='receber'?'entrou':'saiu'}</label>
+      <input class="inp" id="f_pagoem" type="date" value="${new Date().toISOString().slice(0,10)}" style="max-width:200px">
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Quase nunca é hoje: o boleto foi pago na sexta e lançado na segunda. É esta data que casa com o extrato do banco.</div></div>
     ${bancoHtml}
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.confirmBaixar('${tipo}',${id})">Confirmar</button></div>`);
@@ -7148,6 +7155,7 @@ async function confirmBaixar(tipo, id){
   const v = val('f_baixa'); const body = v?{valor:Number(v)}:{};
   const j = Number(val('f_juros'))||0; if(j>0) body.juros=j;
   if(tipo==='pagar'){ const b=val('f_banco'); if(b) body.banco=b; }
+  const quando=val('f_pagoem'); if(quando) body.pagoEm=quando;
   // Quem dá baixa tem em mãos o TOTAL pago do boleto, não a divisão entre
   // principal e juros. Em vez de recusar e mandar fazer a conta, o sistema
   // mostra a divisão e pergunta — o principal quita o saldo, o resto é juros.

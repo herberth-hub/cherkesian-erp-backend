@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaPagarDto } from './dto/create-conta-pagar.dto';
 import { UpdateContaPagarDto } from './dto/update-conta-pagar.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
+import { dataDaBaixa } from './baixa.util';
 import { ArquivosService } from '../arquivos/arquivos.service';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
@@ -89,6 +90,7 @@ export class ContasPagarService {
     banco?: string,
     juros?: number,
     excedenteComoJuros = false,
+    pagoEm?: string | Date,
   ): Promise<ContaPagarView> {
     const titulo = await this.prisma.contaPagar.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
@@ -119,6 +121,9 @@ export class ContasPagarService {
       data: {
         pago: novoPago,
         juros: titulo.juros.plus(jurosDec),
+        // Data do pagamento, não do lançamento: é por ela que o extrato do
+        // banco casa com o título na conciliação.
+        pagoEm: dataDaBaixa(pagoEm),
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
         ...(bancoTxt ? { bancoPagto: bancoTxt } : {}),
       },
@@ -212,17 +217,18 @@ export class ContasPagarService {
   }
 
   /** Baixa (quitação total) em lote dos títulos selecionados. */
-  async baixarLote(ids: number[], empresaId: number, banco?: string): Promise<{ baixados: number }> {
+  async baixarLote(ids: number[], empresaId: number, banco?: string, pagoEm?: string): Promise<{ baixados: number }> {
     const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
     if (!list.length) return { baixados: 0 };
     const titulos = await this.prisma.contaPagar.findMany({ where: { id: { in: list }, empresaId } });
     const bancoTxt = (banco || '').trim();
+    const quando = dataDaBaixa(pagoEm);
     let baixados = 0;
     for (const t of titulos) {
       if (t.valor.minus(t.pago).lessThanOrEqualTo(0)) continue; // já quitado
       await this.prisma.contaPagar.update({
         where: { id: t.id },
-        data: { pago: t.valor, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento), ...(bancoTxt ? { bancoPagto: bancoTxt } : {}) },
+        data: { pago: t.valor, pagoEm: quando, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento), ...(bancoTxt ? { bancoPagto: bancoTxt } : {}) },
       });
       baixados++;
     }

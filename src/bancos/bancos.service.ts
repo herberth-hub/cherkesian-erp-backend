@@ -248,7 +248,10 @@ export class BancosService {
             const recebido = o.valorPago > 0 ? o.valorPago : o.valorTitulo;
             const baixa = Math.min(recebido, saldo);
             const juros = Math.max(0, recebido - saldo);
-            if (baixa > 0) await this.receber.baixar(t.id, empresaId, Number(baixa.toFixed(2)), Number(juros.toFixed(2)));
+            // O retorno do banco diz o dia do crédito — é ele que vai para o
+            // título, não a data em que o arquivo foi importado.
+            const creditoEm = o.dataCredito || o.dataOcorrencia || undefined;
+            if (baixa > 0) await this.receber.baixar(t.id, empresaId, Number(baixa.toFixed(2)), Number(juros.toFixed(2)), false, creditoEm);
             await this.prisma.boleto.update({ where: { id: boleto.id }, data: { ...base, status: 'pago', valorPago: new Prisma.Decimal(recebido.toFixed(2)), pagoEm: o.dataCredito || o.dataOcorrencia || new Date() } });
             baixados++;
             item.resultado = `BAIXADO: R$ ${baixa.toFixed(2)}${juros > 0 ? ' + juros/multa R$ ' + juros.toFixed(2) : ''}${o.tarifa > 0 ? ' (tarifa R$ ' + o.tarifa.toFixed(2) + ')' : ''}`;

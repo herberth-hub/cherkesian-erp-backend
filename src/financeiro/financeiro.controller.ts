@@ -65,8 +65,8 @@ export class FinanceiroController {
   @Areas('receber')
   @Post('receber/baixar-lote')
   @HttpCode(HttpStatus.OK)
-  baixarReceberLote(@Body() dto: { ids: number[] }, @CurrentUser() user: AuthUser) {
-    return this.receber.baixarLote(dto?.ids ?? [], user.empresaId);
+  baixarReceberLote(@Body() dto: { ids: number[]; pagoEm?: string }, @CurrentUser() user: AuthUser) {
+    return this.receber.baixarLote(dto?.ids ?? [], user.empresaId, dto?.pagoEm);
   }
 
   /** Exclusão em lote de títulos a pagar (seleção múltipla). */
@@ -81,8 +81,8 @@ export class FinanceiroController {
   @Areas('pagar')
   @Post('pagar/baixar-lote')
   @HttpCode(HttpStatus.OK)
-  baixarPagarLote(@Body() dto: { ids: number[]; banco?: string }, @CurrentUser() user: AuthUser) {
-    return this.pagar.baixarLote(dto?.ids ?? [], user.empresaId, dto?.banco);
+  baixarPagarLote(@Body() dto: { ids: number[]; banco?: string; pagoEm?: string }, @CurrentUser() user: AuthUser) {
+    return this.pagar.baixarLote(dto?.ids ?? [], user.empresaId, dto?.banco, dto?.pagoEm);
   }
 
   @Areas('receber')
@@ -93,7 +93,7 @@ export class FinanceiroController {
     @Body() dto: BaixarDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.receber.baixar(id, user.empresaId, dto.valor, dto.juros, dto.excedenteComoJuros);
+    return this.receber.baixar(id, user.empresaId, dto.valor, dto.juros, dto.excedenteComoJuros, dto.pagoEm);
   }
 
   @Areas('receber')
@@ -154,7 +154,7 @@ export class FinanceiroController {
     @Body() dto: BaixarDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.pagar.baixar(id, user.empresaId, dto.valor, dto.banco, dto.juros, dto.excedenteComoJuros);
+    return this.pagar.baixar(id, user.empresaId, dto.valor, dto.banco, dto.juros, dto.excedenteComoJuros, dto.pagoEm);
   }
 
   // ===== Contas recorrentes (aluguel, luz, água, internet…) =====

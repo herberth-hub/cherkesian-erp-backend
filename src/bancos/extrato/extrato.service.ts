@@ -239,8 +239,10 @@ export class ExtratoService {
     // Baixa pelo serviço do financeiro: é ele que sabe de juros, status e da
     // comissão automática na quitação. Excedente vira juros (pagamento com
     // multa por atraso é exatamente o caso que aparece no extrato).
-    if (tipo === 'receber') await this.receber.baixar(tituloId, empresaId, valor, 0, true);
-    else await this.pagar.baixar(tituloId, empresaId, valor, `Extrato ${l.data.toISOString().slice(0, 10)}`, 0, true);
+    // A data da baixa é a DO EXTRATO, não a de hoje: foi o banco que disse em
+    // que dia o dinheiro se moveu, e é por esse dia que a conferência fecha.
+    if (tipo === 'receber') await this.receber.baixar(tituloId, empresaId, valor, 0, true, l.data);
+    else await this.pagar.baixar(tituloId, empresaId, valor, `Extrato ${l.data.toISOString().slice(0, 10)}`, 0, true, l.data);
 
     const upd = await this.prisma.extratoLancamento.update({
       where: { id: l.id },

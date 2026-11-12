@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsPositive, IsString, Min, MaxLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsPositive, IsString, Min, MaxLength } from 'class-validator';
 
 /** Baixa (pagamento). Se `valor` omitido, quita o saldo restante do título. */
 export class BaixarDto {
@@ -15,6 +15,13 @@ export class BaixarDto {
 
   /** Banco/conta de onde saiu o pagamento (só contas a pagar). */
   @IsOptional() @IsString() @MaxLength(200) banco?: string;
+
+  /**
+   * DIA em que o dinheiro saiu/entrou (AAAA-MM-DD). Quase nunca é o dia em que
+   * alguém digitou a baixa: o boleto foi pago na sexta e lançado na segunda.
+   * Sem esta data o extrato do banco não casa com o título. Omitido = hoje.
+   */
+  @IsOptional() @IsDateString({}, { message: 'pagoEm deve ser uma data (AAAA-MM-DD).' }) pagoEm?: string;
 
   /**
    * `valor` veio como o TOTAL pago (boleto de atraso) em vez do principal:

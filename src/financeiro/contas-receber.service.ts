@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateContaReceberDto } from './dto/create-conta-receber.dto';
 import { UpdateContaReceberDto } from './dto/update-conta-receber.dto';
 import { calcularStatusTitulo } from './titulo-status.util';
+import { dataDaBaixa } from './baixa.util';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
 /** Título a receber com status recalculado e saldo em aberto. */
@@ -166,7 +167,7 @@ export class ContasReceberService {
    * divisão entre principal e juros. Com o flag, o que passar do saldo vira juros
    * automaticamente — a mesma conta que a mensagem de erro mandava fazer na mão.
    */
-  async baixar(id: number, empresaId: number, valorBaixa?: number, juros?: number, excedenteComoJuros = false): Promise<ContaReceberView> {
+  async baixar(id: number, empresaId: number, valorBaixa?: number, juros?: number, excedenteComoJuros = false, pagoEm?: string | Date): Promise<ContaReceberView> {
     const titulo = await this.prisma.contaReceber.findUnique({ where: { id } });
     if (!titulo || titulo.empresaId !== empresaId) {
       throw new NotFoundException(`Título a receber ${id} não encontrado.`);
@@ -197,6 +198,9 @@ export class ContasReceberService {
       data: {
         pago: novoPago,
         juros: titulo.juros.plus(jurosDec),
+        // Dia em que o dinheiro ENTROU — é por ele que o extrato casa com o
+        // título na conciliação, não pelo dia em que a baixa foi digitada.
+        pagoEm: dataDaBaixa(pagoEm),
         status: calcularStatusTitulo(titulo.valor, novoPago, titulo.vencimento),
       },
     });
@@ -325,16 +329,17 @@ export class ContasReceberService {
   }
 
   /** Baixa (recebimento total) em lote dos títulos selecionados. */
-  async baixarLote(ids: number[], empresaId: number): Promise<{ baixados: number }> {
+  async baixarLote(ids: number[], empresaId: number, pagoEm?: string): Promise<{ baixados: number }> {
     const list = (ids || []).map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
     if (!list.length) return { baixados: 0 };
     const titulos = await this.prisma.contaReceber.findMany({ where: { id: { in: list }, empresaId } });
+    const quando = dataDaBaixa(pagoEm);
     let baixados = 0;
     for (const t of titulos) {
       if (t.valor.minus(t.pago).lessThanOrEqualTo(0)) continue;
       await this.prisma.contaReceber.update({
         where: { id: t.id },
-        data: { pago: t.valor, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento) },
+        data: { pago: t.valor, pagoEm: quando, status: calcularStatusTitulo(t.valor, t.valor, t.vencimento) },
       });
       try { await this.gerarComissoesVenda(t.id, empresaId); } catch { /* segue */ }
       baixados++;
