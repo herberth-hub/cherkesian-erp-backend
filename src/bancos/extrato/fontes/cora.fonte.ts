@@ -144,8 +144,16 @@ export function conferirPem(texto: string, tipo: 'certificado' | 'chave'): strin
   const t = normalizarPem(texto);
   if (!t) return `${tipo}: está vazio`;
   if (/^["'].*["']$/s.test(t)) return `${tipo}: veio com aspas em volta — cole o conteúdo sem aspas`;
-  if (!/-----BEGIN [A-Z ]+-----/.test(t)) return `${tipo}: falta a linha "-----BEGIN ...-----" no começo`;
-  if (!/-----END [A-Z ]+-----/.test(t)) return `${tipo}: falta a linha "-----END ...-----" no fim (o valor foi cortado?)`;
+  const temInicio = /-----BEGIN [A-Z ]+-----/.test(t);
+  const temFim = /-----END [A-Z ]+-----/.test(t);
+  // O caso que aconteceu de verdade: o campo de UMA linha do Render guardou só
+  // a ÚLTIMA linha do que foi colado. Fica o END e some todo o resto.
+  if (!temInicio && temFim) {
+    return `${tipo}: só a linha "-----END-----" foi guardada — o campo é de uma linha e engoliu o resto. `
+      + 'Cole o conteúdo em UMA LINHA SÓ, com \\n no lugar das quebras';
+  }
+  if (!temInicio) return `${tipo}: falta a linha "-----BEGIN ...-----" no começo`;
+  if (!temFim) return `${tipo}: falta a linha "-----END ...-----" no fim (o valor foi cortado?)`;
   if (!t.includes('\n')) return `${tipo}: veio numa linha só, sem quebras de linha — cole o arquivo inteiro`;
   if (tipo === 'chave' && /BEGIN CERTIFICATE/.test(t)) return 'chave: isso é o CERTIFICADO, não a chave privada — os dois valores estão trocados';
   if (tipo === 'certificado' && /BEGIN [A-Z ]*PRIVATE KEY/.test(t)) return 'certificado: isso é a CHAVE PRIVADA, não o certificado — os dois valores estão trocados';

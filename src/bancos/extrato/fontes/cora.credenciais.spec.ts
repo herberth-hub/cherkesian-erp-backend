@@ -225,8 +225,8 @@ describe('conferir o PEM antes de tentar conectar', () => {
     expect(conferirPem('', 'certificado')).toContain('vazio');
   });
 
-  it('sem a linha BEGIN: aponta o começo', () => {
-    expect(conferirPem('MIIB...\n-----END CERTIFICATE-----', 'certificado')).toContain('BEGIN');
+  it('sem nenhuma das duas linhas: aponta que falta o começo', () => {
+    expect(conferirPem('MIIB...\nmais base64 solto\n', 'certificado')).toContain('BEGIN');
   });
 
   it('sem a linha END: sugere que o valor foi cortado', () => {
@@ -250,5 +250,27 @@ describe('conferir o PEM antes de tentar conectar', () => {
   it('o \n escapado do Render não é considerado erro', () => {
     const escapado = CERT.replace(/\n/g, '\n');
     expect(conferirPem(escapado, 'certificado')).toBeNull();
+  });
+});
+
+/**
+ * O CASO REAL: o campo de uma linha do Render guardou so a ULTIMA linha do PEM.
+ * Sobrou "-----END CERTIFICATE-----" e sumiu todo o resto — nas quatro
+ * variaveis, nas duas contas. A mensagem tem de dizer isso e o que fazer.
+ */
+describe('o campo de uma linha engoliu o PEM', () => {
+  it('sobrou só o END: diz o que aconteceu e manda colar em uma linha', () => {
+    const m = conferirPem('-----END CERTIFICATE-----', 'certificado')!;
+    expect(m).toContain('END');
+    expect(m).toContain('o campo é de uma linha e engoliu o resto');
+    expect(m).toContain('no lugar das quebras');
+  });
+
+  it('o mesmo vale para a chave', () => {
+    expect(conferirPem('-----END PRIVATE KEY-----', 'chave')).toContain('uma linha');
+  });
+
+  it('PEM em uma linha COM \n escapado é aceito — é a forma de contornar', () => {
+    expect(conferirPem(CERT.replace(/\n/g, '\n'), 'certificado')).toBeNull();
   });
 });
