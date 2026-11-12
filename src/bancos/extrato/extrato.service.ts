@@ -6,7 +6,7 @@ import { ContasPagarService } from '../../financeiro/contas-pagar.service';
 import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
 import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
-import { CoraFonte, credenciaisDoAmbiente, oQueFalta } from './fontes/cora.fonte';
+import { CoraFonte, credenciaisDoAmbiente, oQueFalta, validadeDoCertificado } from './fontes/cora.fonte';
 
 /**
  * ESPELHO DO BANCO — o extrato do banco dentro do ERP, conciliado com os títulos.
@@ -165,6 +165,17 @@ export class ExtratoService {
     if (de > ate) throw new BadRequestException('A data inicial é depois da final.');
 
     const extrato = await fonte.buscar(de, ate);
+
+    // O SALDO DO ESPELHO VEM DO ENDPOINT DE SALDO, não do fim do extrato.
+    // Numa janela sem movimento o extrato devolve saldo zero (visto na conta
+    // real: extrato dizia R$ 0,00 e a conta tinha R$ 0,84) — e a tela mostraria
+    // "saldo no banco: R$ 0,00", que é pior que não mostrar nada. Se a consulta
+    // de saldo falhar, fica o do extrato: o espelho não cai por causa dela.
+    try {
+      const agora = await fonte.saldo();
+      if (agora != null) { extrato.saldo = agora; extrato.saldoEm = new Date(); }
+    } catch { /* mantém o saldo declarado no extrato */ }
+
     const nome = `${fonte.nome} API · ${de.toISOString().slice(0, 10)} a ${ate.toISOString().slice(0, 10)}`;
     return this.gravar(conta, extrato, { formato: 'api', nome }, empresaId, usuario, dto.conciliarAuto !== false);
   }
@@ -179,7 +190,18 @@ export class ExtratoService {
     if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
     const fonte = this.fonteDaConta(conta);
     const saldo = await fonte.saldo();
-    return { ok: true, banco: fonte.nome, conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`, saldo };
+    // A validade vem do próprio certificado — ninguém precisa cadastrar data.
+    const cred = credenciaisDoAmbiente();
+    const val = cred ? validadeDoCertificado(cred.certPem) : null;
+    return {
+      ok: true,
+      banco: fonte.nome,
+      conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`,
+      saldo,
+      credencialVence: val?.vence ?? null,
+      credencialDias: val?.diasRestantes ?? null,
+      credencialPerto: val?.perto ?? false,
+    };
   }
 
   /**

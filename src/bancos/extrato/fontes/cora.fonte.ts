@@ -24,6 +24,7 @@
  */
 import { Agent } from 'https';
 import { request } from 'https';
+import { X509Certificate } from 'crypto';
 import { ExtratoDoBanco, FonteExtratoApi } from './extrato-fonte';
 import { CoraExtratoResposta, diaIso, traduzirExtratoCora } from './cora.traducao';
 
@@ -70,6 +71,34 @@ export function oQueFalta(env: NodeJS.ProcessEnv = process.env): string[] {
 
 type Resposta = { status: number; corpo: string };
 
+/**
+ * ATÉ QUANDO A CREDENCIAL VALE.
+ *
+ * O Cora emite por 1 ano e desativa sozinho — a integração pararia de puxar
+ * extrato num dia qualquer, com um 401 que ninguém saberia interpretar. A data
+ * não precisa ser cadastrada em lugar nenhum: ela está DENTRO do certificado.
+ * Lendo de lá, não há o que o Herberth esquecer de preencher.
+ */
+export interface ValidadeCertificado {
+  vence: Date;
+  diasRestantes: number;
+  /** Menos de 30 dias — hora de pedir a nova credencial. */
+  perto: boolean;
+  vencido: boolean;
+}
+
+export function validadeDoCertificado(certPem: string, hoje: Date = new Date()): ValidadeCertificado | null {
+  try {
+    const x = new X509Certificate(certPem);
+    const vence = new Date(x.validTo);
+    if (Number.isNaN(vence.getTime())) return null;
+    const dias = Math.floor((vence.getTime() - hoje.getTime()) / 86_400_000);
+    return { vence, diasRestantes: dias, perto: dias <= 30, vencido: dias < 0 };
+  } catch {
+    return null; // certificado ilegível: quem reclama é o TLS, com mensagem própria
+  }
+}
+
 export class CoraFonte implements FonteExtratoApi {
   readonly nome = 'Cora';
   private readonly base: string;
@@ -90,6 +119,16 @@ export class CoraFonte implements FonteExtratoApi {
     const corpo = new URLSearchParams({ grant_type: 'client_credentials', client_id: this.cred.clientId }).toString();
     const r = await this.http('POST', '/token', corpo, { 'Content-Type': 'application/x-www-form-urlencoded' });
     if (r.status !== 200) {
+      // Credencial vencida é a causa MAIS PROVÁVEL de uma integração que
+      // funcionava parar do nada — então a mensagem diz isso antes de mandar
+      // conferir client id e ambiente.
+      const v = validadeDoCertificado(this.cred.certPem);
+      if (v?.vencido) {
+        throw new Error(
+          `A credencial do Cora VENCEU em ${v.vence.toLocaleDateString('pt-BR')}. ` +
+          'Gere uma nova no Cora Web (Integrações via APIs › Integração Direta › Ambiente de produção) e atualize CORA_CERT_PEM e CORA_KEY_PEM.',
+        );
+      }
       throw new Error(`Cora recusou a autenticação (HTTP ${r.status}). Confira o client id, o certificado e o ambiente (${this.cred.ambiente}).`);
     }
     let json: { access_token?: string; expires_in?: number };

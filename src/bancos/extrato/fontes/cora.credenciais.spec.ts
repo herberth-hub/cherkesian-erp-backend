@@ -7,7 +7,7 @@
  * os "\n" escapados e o TLS falha com uma mensagem que não ajuda ninguém, e
  * uma configuração pela metade tem de dizer O QUE falta, não "erro 500".
  */
-import { credenciaisDoAmbiente, normalizarPem, oQueFalta } from './cora.fonte';
+import { credenciaisDoAmbiente, normalizarPem, oQueFalta, validadeDoCertificado } from './cora.fonte';
 
 const CERT = '-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----';
 const KEY = '-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----';
@@ -71,5 +71,76 @@ describe('dizer o que falta, não "erro 500"', () => {
 
   it('com tudo no lugar, não falta nada', () => {
     expect(oQueFalta(completo)).toEqual([]);
+  });
+});
+
+/**
+ * A VALIDADE DA CREDENCIAL.
+ *
+ * O Cora emite por 1 ano e desativa sozinho. Sem isso, a integração pararia
+ * num dia qualquer com um 401 que ninguém saberia ler. A data não é cadastrada
+ * em lugar nenhum: está dentro do próprio certificado — não há o que esquecer
+ * de preencher.
+ */
+describe('validade lida do certificado', () => {
+  /**
+   * Certificado autoassinado DESCARTÁVEL, gerado só para este teste. Não serve
+   * para nada em lugar nenhum — a chave dele foi jogada fora. Vence em
+   * 17/12/2027, e é contra essa data que o cálculo é conferido.
+   */
+  const CERT_TESTE = [
+    '-----BEGIN CERTIFICATE-----',
+    'MIIC4TCCAcmgAwIBAgIUcyWY2GnnreBx8h6EtqCKJcBshbMwDQYJKoZIhvcNAQEL',
+    'BQAwADAeFw0yNjExMTIxMTM5MDVaFw0yNzEyMTcxMTM5MDVaMAAwggEiMA0GCSqG',
+    'SIb3DQEBAQUAA4IBDwAwggEKAoIBAQC4AWzOr9byogkaOSsxeWYMM3MCqxQuxUCf',
+    'ugkY1+opz/pl8NwO3r2tFHWhIrjXN2bRsFrsHhphWnwqF8hNcPlIF14F1NcwpQ66',
+    'lV6MFlGZhHJUy1wViVSe4AWCr/TwmKhu8d6IGEFyI9dKkYs6MvzJkfa5+M6NNLAy',
+    '43ucqRA4hSnE/an/mB4ezABbnMwlnG0SG7raZGDeZhVWPe2CEV+8NxmJ6GV5TqK/',
+    '3t7LPxMFjLlTFm6ErfGguTlSK1jc3h0fTFeYGpgVa51+aJNyK9PcCtZH3XFmIrrD',
+    'SAfribZEW2Sn5leWcCsKbR+Kul2wJqNVs5Dz7sPNgK+lyRtztKkpAgMBAAGjUzBR',
+    'MB0GA1UdDgQWBBRNYHrOT8v+aJh8PmEBvwbKn3A5OTAfBgNVHSMEGDAWgBRNYHrO',
+    'T8v+aJh8PmEBvwbKn3A5OTAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA',
+    'A4IBAQBVE6fT3tPOKm2V3GaWXdSjMmW7XsLWdhHRXXfi05uMEjfGzvs0KqZNNmAG',
+    '2aS4FOyWOawQQwILXE64U9/2BrX8ani+piydgyhf0bsT+MPY3bTFVlx0MdxI1xib',
+    'fa4JMdn6xq0Ptjg/+D1HSW7Zss56seSN6VB/G4SgX1O8xSzOWy01vls0lOVP8XhM',
+    '9QojEgh9yxoOrKJEd8Prxq/+e1HiyN/RWRh7Dwp5AZ1Mey+KCxm2+xLnsjM3SnXD',
+    'Xs5wLOvM4uSLcwOFtT6go6nu+giF5k6dNtGmvRXsr+YBczeb6kP83799xj++qdZc',
+    'ZYzLGdE2hzJ8Njq64r3gBhCAD/cX',
+    '-----END CERTIFICATE-----',
+  ].join('\n');
+
+  it('lê a data de vencimento de dentro do certificado', () => {
+    const v = validadeDoCertificado(CERT_TESTE, new Date('2026-11-12T12:00:00Z'));
+    expect(v).not.toBeNull();
+    expect(v!.vence.toISOString().slice(0, 10)).toBe('2027-12-17');
+  });
+
+  it('um ano antes: falta muito, nada a avisar', () => {
+    const v = validadeDoCertificado(CERT_TESTE, new Date('2026-11-12T12:00:00Z'))!;
+    expect(v.diasRestantes).toBeGreaterThan(300);
+    expect(v.perto).toBe(false);
+    expect(v.vencido).toBe(false);
+  });
+
+  it('faltando 10 dias, avisa ANTES de parar', () => {
+    const v = validadeDoCertificado(CERT_TESTE, new Date('2027-12-07T12:00:00Z'))!;
+    expect(v.diasRestantes).toBe(9);
+    expect(v.perto).toBe(true);
+    expect(v.vencido).toBe(false);
+  });
+
+  it('exatamente 30 dias já conta como perto — dá tempo de pedir outra', () => {
+    expect(validadeDoCertificado(CERT_TESTE, new Date('2027-11-17T12:00:00Z'))!.perto).toBe(true);
+  });
+
+  it('depois do vencimento, diz que venceu — é a causa mais provável de um 401', () => {
+    const v = validadeDoCertificado(CERT_TESTE, new Date('2028-01-05T12:00:00Z'))!;
+    expect(v.vencido).toBe(true);
+    expect(v.diasRestantes).toBeLessThan(0);
+  });
+
+  it('certificado ilegível não derruba nada — devolve null', () => {
+    expect(validadeDoCertificado('isto não é um certificado')).toBeNull();
+    expect(validadeDoCertificado('')).toBeNull();
   });
 });

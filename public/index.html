@@ -6010,8 +6010,12 @@ async function bancoPuxarApi(){
 async function bancoTestarApi(){
   try{
     const r=await api('/bancos/extrato/api/testar/'+Number(val('ba_conta')),{procLabel:'Falando com o banco…'});
-    uiAlert({tipo:'info',titulo:'Conectado ao '+esc(r.banco),ok:'OK',
-      msg:`${r.conta}\n\nSaldo no banco agora: ${r.saldo!=null?money(r.saldo):'(não informado)'}`});
+    const venc = r.credencialVence
+      ? `\n\nCredencial vence em ${dfmt(r.credencialVence)}`+(r.credencialDias!=null?` (${r.credencialDias} dia(s))`:'')
+        +(r.credencialPerto?' — ⚠ gere uma nova no Cora Web antes que pare.':'')
+      : '';
+    uiAlert({tipo:r.credencialPerto?'warn':'info',titulo:'Conectado ao '+esc(r.banco),ok:'OK',
+      msg:`${r.conta}\n\nSaldo no banco agora: ${r.saldo!=null?money(r.saldo):'(não informado)'}${venc}`});
   }catch(e){ uiAlert({tipo:'warn',titulo:'Não conectou',ok:'Entendi',msg:e.message}); }
 }
 async function bancoPuxarApiOk(){
