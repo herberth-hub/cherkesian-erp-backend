@@ -5918,8 +5918,13 @@ async function viewBanco(c){
   const t=resumo.totais||{};
   const card=(rot,v,sub,cor)=>`<div class="card kpi"><div class="k">${rot}</div><div class="v" style="color:${cor}">${v}</div><div class="s">${sub}</div></div>`;
 
+  // Contas com API (hoje só Cora) ganham o botão de puxar sozinho. As outras
+  // continuam no OFX enquanto o convênio não sai.
+  window.__BANCOCONTAS = contas||[];
+  const temApi=(contas||[]).filter(x=>String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||''));
+  const btnApi=temApi.length?`<button class="btn-sm" style="background:#1e7a44;color:#fff;border-color:#1e7a44" title="Busca o extrato direto na API do banco — ninguém baixa arquivo" onclick="APP.bancoPuxarApi()">⚡ Puxar do banco (Cora)</button> `:'';
   c.innerHTML = toolbar('Conciliação bancária', '📥 Importar extrato (OFX)', 'APP.bancoImportarForm()',
-      `<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
+      btnApi+`<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
     + `<div class="cards" style="margin-bottom:12px">
         ${card('⚠ Pendentes', t.pendentes||0, 'o banco mexeu e ninguém explicou', (t.pendentes>0)?'#c14a34':'#1e7a44')}
         ${card('Conciliados', t.conciliados||0, 'ligados a um título', '#1e7a44')}
@@ -5977,6 +5982,50 @@ async function bancoImportarForm(){
     <div class="muted" style="font-size:11px;margin-bottom:4px">Reimportar o mesmo extrato é seguro: o que já entrou é reconhecido e ignorado.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.bancoImportar()">Importar</button></div>`);
+}
+/**
+ * Puxa o extrato pela API do banco. A janela padrão são 7 dias e não "ontem":
+ * lançamento que o banco registra com atraso entraria uma vez só e ninguém
+ * voltaria a procurá-lo. Repuxar a mesma janela é de graça — a trava do id do
+ * banco não deixa duplicar.
+ */
+async function bancoPuxarApi(){
+  const contas=(window.__BANCOCONTAS||[]).filter(x=>String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||''));
+  if(!contas.length){ toast('Nenhuma conta Cora cadastrada.','err'); return; }
+  const opts=contas.map(x=>`<option value="${x.id}">${esc(x.banco)}${x.conta?' · '+esc(x.conta):''}${x.apelido?' ('+esc(x.apelido)+')':''}</option>`).join('');
+  openModal(`<h3>⚡ Puxar extrato do banco</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Busca direto na API do Cora — sem baixar arquivo. Precisa das credenciais configuradas no servidor.</div>
+    <div class="mrow"><label class="fl">Conta *</label><select id="ba_conta" class="inp">${opts}</select></div>
+    <div class="mrow"><label class="fl">Últimos dias</label>
+      <select id="ba_dias" class="inp" style="width:auto"><option value="7" selected>7 dias</option><option value="15">15 dias</option><option value="30">30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option></select>
+      <div class="muted" style="font-size:10.5px;margin-top:3px">Repuxar dia já importado não duplica nada — o sistema reconhece pelo id do lançamento no banco.</div></div>
+    <div class="mrow" style="border:1px solid #e7e4dd;border-radius:8px;padding:8px 10px;background:#fbfaf7">
+      <label style="font-size:12.5px;cursor:pointer;font-weight:700"><input type="checkbox" id="ba_auto" checked> Conciliar automaticamente o que for <b>inequívoco</b></label>
+      <div class="muted" style="font-size:11px;margin-top:3px">Mesma regra do OFX: só casa sozinho com valor batendo no centavo e um único título plausível.</div>
+    </div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" onclick="APP.bancoTestarApi()">🔌 Testar conexão</button>
+      <button class="btn-primary" onclick="APP.bancoPuxarApiOk()">Puxar agora</button></div>`);
+}
+async function bancoTestarApi(){
+  try{
+    const r=await api('/bancos/extrato/api/testar/'+Number(val('ba_conta')),{procLabel:'Falando com o banco…'});
+    uiAlert({tipo:'info',titulo:'Conectado ao '+esc(r.banco),ok:'OK',
+      msg:`${r.conta}\n\nSaldo no banco agora: ${r.saldo!=null?money(r.saldo):'(não informado)'}`});
+  }catch(e){ uiAlert({tipo:'warn',titulo:'Não conectou',ok:'Entendi',msg:e.message}); }
+}
+async function bancoPuxarApiOk(){
+  const body={ contaBancariaId:Number(val('ba_conta')), dias:Number(val('ba_dias'))||7,
+    conciliarAuto: !!($('ba_auto')&&$('ba_auto').checked) };
+  try{
+    const r=await api('/bancos/extrato/api/importar',{method:'POST',body,procLabel:'Puxando o extrato do banco…'});
+    closeModal();
+    toast(`${r.lidos} lançamento(s) · ${r.novos} novo(s)`
+      + (r.duplicados?` · ${r.duplicados} já estavam aqui`:'')
+      + (r.conciliadosAuto?` · ${r.conciliadosAuto} conciliado(s) automaticamente`:''), 'ok');
+    window.__BANCO={conta:'',status:'pendente'};
+    loadRoute();
+  }catch(e){ toast(e.message,'err'); }
 }
 async function bancoImportar(confirmarContaDiferente){
   const f=($('bi_arq')||{}).files && $('bi_arq').files[0];
@@ -17285,7 +17334,7 @@ window.APP = {
   navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relColsTodas, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
   bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf, boletoEmail, boletoEmailEnviar,
-  bancoSet, bancoImportarForm, bancoImportar, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,
+  bancoSet, bancoImportarForm, bancoImportar, bancoPuxarApi, bancoPuxarApiOk, bancoTestarApi, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,
   drillAbrir, drillToggle, drillIr,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

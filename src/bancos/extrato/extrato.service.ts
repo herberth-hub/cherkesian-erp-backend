@@ -5,6 +5,8 @@ import { ContasReceberService } from '../../financeiro/contas-receber.service';
 import { ContasPagarService } from '../../financeiro/contas-pagar.service';
 import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
+import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
+import { CoraFonte, credenciaisDoAmbiente, oQueFalta } from './fontes/cora.fonte';
 
 /**
  * ESPELHO DO BANCO — o extrato do banco dentro do ERP, conciliado com os títulos.
@@ -61,25 +63,41 @@ export class ExtratoService {
       );
     }
 
+    return this.gravar(conta, ofx, { formato: 'ofx', nome: dto.nomeArquivo || 'extrato.ofx' }, empresaId, usuario, dto.conciliarAuto !== false);
+  }
+
+  /**
+   * Grava a janela de extrato e concilia. É o caminho ÚNICO: OFX e API passam
+   * os dois por aqui, para que trocar a fonte não mude nem o que a tela mostra
+   * nem como a baixa é decidida.
+   */
+  private async gravar(
+    conta: { id: number; banco: string; conta: string | null },
+    extrato: ExtratoDoBanco,
+    origem: { formato: 'ofx' | 'api'; nome: string },
+    empresaId: number,
+    usuario: string,
+    conciliarAuto: boolean,
+  ) {
     // O que já está aqui (a trava anti-duplicata, conferida antes de escrever).
-    const fitids = ofx.lancamentos.map((l) => l.fitid);
+    const fitids = extrato.lancamentos.map((l) => l.fitid);
     const jaTem = new Set(
       (await this.prisma.extratoLancamento.findMany({
         where: { contaBancariaId: conta.id, fitid: { in: fitids } },
         select: { fitid: true },
       })).map((x) => x.fitid),
     );
-    const novos = ofx.lancamentos.filter((l) => !jaTem.has(l.fitid));
+    const novos = extrato.lancamentos.filter((l) => !jaTem.has(l.fitid));
 
     const imp = await this.prisma.extratoImportacao.create({
       data: {
         empresaId, contaBancariaId: conta.id,
-        nomeArquivo: (dto.nomeArquivo || 'extrato.ofx').slice(0, 200),
-        formato: 'ofx',
-        periodoIni: ofx.periodoIni, periodoFim: ofx.periodoFim,
-        saldoArquivo: ofx.saldo != null ? new Prisma.Decimal(ofx.saldo.toFixed(2)) : null,
-        saldoEm: ofx.saldoEm,
-        qtdLidos: ofx.lancamentos.length, qtdNovos: novos.length, qtdDuplicados: ofx.lancamentos.length - novos.length,
+        nomeArquivo: origem.nome.slice(0, 200),
+        formato: origem.formato,
+        periodoIni: extrato.periodoIni, periodoFim: extrato.periodoFim,
+        saldoArquivo: extrato.saldo != null ? new Prisma.Decimal(extrato.saldo.toFixed(2)) : null,
+        saldoEm: extrato.saldoEm,
+        qtdLidos: extrato.lancamentos.length, qtdNovos: novos.length, qtdDuplicados: extrato.lancamentos.length - novos.length,
         importadoPor: usuario,
       },
       select: { id: true },
@@ -97,16 +115,16 @@ export class ExtratoService {
       });
     }
 
-    const auto = dto.conciliarAuto === false ? { conciliados: 0, baixados: [] as string[] } : await this.conciliarAutomatico(empresaId, imp.id, usuario);
+    const auto = conciliarAuto ? await this.conciliarAutomatico(empresaId, imp.id, usuario) : { conciliados: 0, baixados: [] as string[] };
     if (auto.conciliados) {
       await this.prisma.extratoImportacao.update({ where: { id: imp.id }, data: { qtdConciliados: auto.conciliados } });
     }
 
     await this.prisma.log.create({
       data: {
-        usuario, acao: 'extrato.importado',
-        detalhe: `${conta.banco} ${conta.conta ?? ''}: ${ofx.lancamentos.length} lido(s), ${novos.length} novo(s), `
-          + `${ofx.lancamentos.length - novos.length} já estavam, ${auto.conciliados} conciliado(s) automaticamente`,
+        usuario, acao: origem.formato === 'api' ? 'extrato.importado.api' : 'extrato.importado',
+        detalhe: `${conta.banco} ${conta.conta ?? ''}: ${extrato.lancamentos.length} lido(s), ${novos.length} novo(s), `
+          + `${extrato.lancamentos.length - novos.length} já estavam, ${auto.conciliados} conciliado(s) automaticamente`,
         entidade: 'ExtratoImportacao', entidadeId: String(imp.id),
       },
     }).catch(() => undefined);
@@ -114,14 +132,76 @@ export class ExtratoService {
     return {
       importacaoId: imp.id,
       conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`,
-      periodo: { de: ofx.periodoIni, ate: ofx.periodoFim },
-      saldoBanco: ofx.saldo,
-      lidos: ofx.lancamentos.length,
+      periodo: { de: extrato.periodoIni, ate: extrato.periodoFim },
+      saldoBanco: extrato.saldo ?? null,
+      lidos: extrato.lancamentos.length,
       novos: novos.length,
-      duplicados: ofx.lancamentos.length - novos.length,
+      duplicados: extrato.lancamentos.length - novos.length,
       conciliadosAuto: auto.conciliados,
       baixados: auto.baixados,
     };
+  }
+
+  /**
+   * Puxa o extrato pela API do banco — sem ninguém baixar arquivo nenhum.
+   *
+   * A janela padrão são os últimos 7 dias, e não só "ontem": lançamento que o
+   * banco registra com atraso (PIX de fim de semana, estorno) entraria uma vez
+   * só e nunca mais seria procurado. Reimportar a mesma janela é de graça — a
+   * trava do fitid cuida disso.
+   */
+  async importarDaApi(
+    dto: { contaBancariaId: number; dias?: number; de?: string; ate?: string; conciliarAuto?: boolean },
+    empresaId: number,
+    usuario: string,
+  ) {
+    const conta = await this.prisma.contaBancaria.findFirst({ where: { id: dto.contaBancariaId, empresaId } });
+    if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
+    const fonte = this.fonteDaConta(conta);
+
+    const ate = dto.ate ? new Date(dto.ate + 'T00:00:00Z') : new Date();
+    const dias = Math.min(Math.max(Number(dto.dias ?? 7), 1), 90);
+    const de = dto.de ? new Date(dto.de + 'T00:00:00Z') : new Date(ate.getTime() - dias * 86_400_000);
+    if (de > ate) throw new BadRequestException('A data inicial é depois da final.');
+
+    const extrato = await fonte.buscar(de, ate);
+    const nome = `${fonte.nome} API · ${de.toISOString().slice(0, 10)} a ${ate.toISOString().slice(0, 10)}`;
+    return this.gravar(conta, extrato, { formato: 'api', nome }, empresaId, usuario, dto.conciliarAuto !== false);
+  }
+
+  /**
+   * Testa a conexão sem gravar nada — é o que a tela chama depois que as
+   * credenciais entram no Render, para dizer "conectado" ou dizer exatamente
+   * o que falta.
+   */
+  async testarApi(contaBancariaId: number, empresaId: number) {
+    const conta = await this.prisma.contaBancaria.findFirst({ where: { id: contaBancariaId, empresaId } });
+    if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
+    const fonte = this.fonteDaConta(conta);
+    const saldo = await fonte.saldo();
+    return { ok: true, banco: fonte.nome, conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`, saldo };
+  }
+
+  /**
+   * Qual API atende esta conta. Hoje só o Cora — Santander e Bradesco entram
+   * aqui quando o convênio sair, sem mexer em mais nada.
+   */
+  private fonteDaConta(conta: { banco: string; codigoBanco: string | null; apiAmbiente: string | null }): FonteExtratoApi {
+    const ehCora = String(conta.codigoBanco ?? '') === '403' || /cora/i.test(conta.banco);
+    if (!ehCora) {
+      throw new BadRequestException(
+        `Ainda não existe API de extrato para ${conta.banco}. Hoje a importação automática é só do Cora — ` +
+        'para os outros bancos, use "Importar extrato (OFX)" enquanto o convênio não sai.',
+      );
+    }
+    const cred = credenciaisDoAmbiente();
+    if (!cred) {
+      throw new BadRequestException(
+        'A integração com o Cora ainda não está configurada. Falta no servidor: ' + oQueFalta().join(', ') +
+        '. Essas variáveis são cadastradas no Render pelo administrador — nunca aqui.',
+      );
+    }
+    return new CoraFonte({ ...cred, ambiente: conta.apiAmbiente ?? cred.ambiente });
   }
 
   /** Títulos em aberto que podem casar com um extrato — uma leitura só. */

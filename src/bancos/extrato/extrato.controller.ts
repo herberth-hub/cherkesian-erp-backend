@@ -48,6 +48,25 @@ export class ExtratoController {
     return this.extrato.importar(dto, user.empresaId, user.usuario);
   }
 
+  /**
+   * Puxa o extrato pela API do banco — ninguém baixa arquivo.
+   * Rota ANTES de ':id/...' de propósito: 'api' não é um id.
+   */
+  @Post('api/importar')
+  @HttpCode(HttpStatus.OK)
+  importarApi(
+    @Body() dto: { contaBancariaId: number; dias?: number; de?: string; ate?: string; conciliarAuto?: boolean },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.extrato.importarDaApi(dto, user.empresaId, user.usuario);
+  }
+
+  /** Conecta? Responde o saldo do banco sem gravar nada. */
+  @Get('api/testar/:conta')
+  testarApi(@Param('conta', ParseIntPipe) conta: number, @CurrentUser() user: AuthUser) {
+    return this.extrato.testarApi(conta, user.empresaId);
+  }
+
   /** Títulos que podem ser este lançamento, do mais provável ao menos. */
   @Get(':id/sugestoes')
   sugestoes(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
