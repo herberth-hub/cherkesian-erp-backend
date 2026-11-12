@@ -61,6 +61,12 @@ export class ExtratoController {
     return this.extrato.importarDaApi(dto, user.empresaId, user.usuario);
   }
 
+  /** O que falta para cada conta do Cora virar automática. */
+  @Get('api/status')
+  statusApi(@CurrentUser() user: AuthUser) {
+    return this.extrato.statusApi(user.empresaId);
+  }
+
   /** Conecta? Responde o saldo do banco sem gravar nada. */
   @Get('api/testar/:conta')
   testarApi(@Param('conta', ParseIntPipe) conta: number, @CurrentUser() user: AuthUser) {

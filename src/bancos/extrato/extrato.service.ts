@@ -6,7 +6,10 @@ import { ContasPagarService } from '../../financeiro/contas-pagar.service';
 import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
 import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
-import { CoraFonte, credenciaisDoAmbiente, oQueFalta, validadeDoCertificado } from './fontes/cora.fonte';
+import {
+  CoraFonte, credenciaisDoAmbiente, nomesDasVariaveis, oQueFalta,
+  temCredencialPropria, validadeDoCertificado,
+} from './fontes/cora.fonte';
 import { soDigitos } from './fontes/cora.traducao';
 
 /**
@@ -206,18 +209,41 @@ export class ExtratoService {
    * o que falta.
    */
   async testarApi(contaBancariaId: number, empresaId: number) {
-    const conta = await this.prisma.contaBancaria.findFirst({ where: { id: contaBancariaId, empresaId } });
+    const conta = await this.prisma.contaBancaria.findFirst({
+      where: { id: contaBancariaId, empresaId },
+      include: { filial: { select: { cnpj: true, nome: true } } },
+    });
     if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
     const fonte = this.fonteDaConta(conta);
+    const cnpj = conta.cedenteDocumento || conta.filial?.cnpj || null;
+
     const saldo = await fonte.saldo();
-    // A validade vem do próprio certificado — ninguém precisa cadastrar data.
-    const cred = credenciaisDoAmbiente();
+    // Além do saldo, o teste PROVA de quem é a conta que a credencial abriu:
+    // uma janela mínima traz o CNPJ do titular. Sem isso, um certificado
+    // trocado entre contas passaria no teste e só erraria na importação.
+    let titular: { documento: string | null; nome: string | null } = { documento: null, nome: null };
+    try {
+      const hoje = new Date();
+      const amostra = await fonte.buscar(new Date(hoje.getTime() - 86_400_000), hoje);
+      titular = { documento: amostra.titularDocumento ?? null, nome: amostra.titularNome ?? null };
+    } catch { /* o saldo já provou que conecta; o titular é um extra */ }
+
+    const esperado = soDigitos(cnpj);
+    const recebido = soDigitos(titular.documento);
+    const confere = !esperado || !recebido ? null : esperado === recebido;
+
+    const cred = credenciaisDoAmbiente(process.env, cnpj);
     const val = cred ? validadeDoCertificado(cred.certPem) : null;
     return {
-      ok: true,
+      ok: confere !== false,
       banco: fonte.nome,
       conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`,
       saldo,
+      titularNome: titular.nome,
+      titularDocumento: recebido || null,
+      cnpjCadastrado: esperado || null,
+      confere,
+      propria: temCredencialPropria(process.env, cnpj),
       credencialVence: val?.vence ?? null,
       credencialDias: val?.diasRestantes ?? null,
       credencialPerto: val?.perto ?? false,
@@ -225,10 +251,43 @@ export class ExtratoService {
   }
 
   /**
+   * O que falta para cada conta do Cora virar automática — é o que a tela
+   * mostra para o Herberth saber exatamente quais variáveis criar no Render.
+   */
+  async statusApi(empresaId: number) {
+    const contas = await this.prisma.contaBancaria.findMany({
+      where: { empresaId, ativa: true },
+      include: { filial: { select: { nome: true, cnpj: true } } },
+      orderBy: { id: 'asc' },
+    });
+    return contas
+      .filter((c) => String(c.codigoBanco ?? '') === '403' || /cora/i.test(c.banco))
+      .map((c) => {
+        const cnpj = c.cedenteDocumento || c.filial?.cnpj || null;
+        const faltando = oQueFalta(process.env, cnpj);
+        return {
+          id: c.id,
+          conta: `${c.banco}${c.conta ? ' · ' + c.conta : ''}${c.contaDv ? '-' + c.contaDv : ''}`,
+          apelido: c.apelido,
+          empresa: c.filial?.nome ?? null,
+          cnpj,
+          variaveis: nomesDasVariaveis(cnpj),
+          configurada: faltando.length === 0,
+          propria: temCredencialPropria(process.env, cnpj),
+          faltando,
+        };
+      });
+  }
+
+  /**
    * Qual API atende esta conta. Hoje só o Cora — Santander e Bradesco entram
    * aqui quando o convênio sair, sem mexer em mais nada.
    */
-  private fonteDaConta(conta: { banco: string; codigoBanco: string | null; apiAmbiente: string | null }): FonteExtratoApi {
+  private fonteDaConta(conta: {
+    banco: string; codigoBanco: string | null; apiAmbiente: string | null;
+    cedenteDocumento?: string | null; conta?: string | null;
+    filial?: { cnpj: string | null } | null;
+  }): FonteExtratoApi {
     const ehCora = String(conta.codigoBanco ?? '') === '403' || /cora/i.test(conta.banco);
     if (!ehCora) {
       throw new BadRequestException(
@@ -236,11 +295,15 @@ export class ExtratoService {
         'para os outros bancos, use "Importar extrato (OFX)" enquanto o convênio não sai.',
       );
     }
-    const cred = credenciaisDoAmbiente();
+    // Cada conta do Cora tem credencial própria — a desta é procurada pelo
+    // CNPJ do titular, e o padrão sem CNPJ atende a primeira que foi ligada.
+    const cnpj = conta.cedenteDocumento || conta.filial?.cnpj || null;
+    const cred = credenciaisDoAmbiente(process.env, cnpj);
     if (!cred) {
       throw new BadRequestException(
-        'A integração com o Cora ainda não está configurada. Falta no servidor: ' + oQueFalta().join(', ') +
-        '. Essas variáveis são cadastradas no Render pelo administrador — nunca aqui.',
+        `A conta ${conta.banco}${conta.conta ? ' ' + conta.conta : ''} ainda não tem credencial de API. ` +
+        'Cadastre no Render: ' + oQueFalta(process.env, cnpj).join(', ') +
+        '. Gere a credencial no Cora Web trocando para ESTA conta antes de entrar em Integrações via APIs.',
       );
     }
     return new CoraFonte({ ...cred, ambiente: conta.apiAmbiente ?? cred.ambiente });

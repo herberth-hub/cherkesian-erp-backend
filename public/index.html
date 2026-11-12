@@ -5927,8 +5927,10 @@ async function viewBanco(c){
   // pessoa não chegar lá.)
   const temApi=(contas||[]).filter(x=>x.integracao==='api'&&(String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||'')));
   const btnApi=temApi.length?`<button class="btn-sm" style="background:#1e7a44;color:#fff;border-color:#1e7a44" title="Busca o extrato direto na API do banco — ninguém baixa arquivo" onclick="APP.bancoPuxarApi()">⚡ Puxar do banco (Cora)</button> `:'';
+  const temCora=(contas||[]).some(x=>String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||''));
+  const btnStatus=temCora?`<button class="btn-sm" title="O que falta para cada conta do Cora puxar sozinha" onclick="APP.bancoStatusApi()">🔑 Credenciais das contas</button> `:'';
   c.innerHTML = toolbar('Conciliação bancária', '📥 Importar extrato (OFX)', 'APP.bancoImportarForm()',
-      btnApi+`<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
+      btnApi+btnStatus+`<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
     + `<div class="cards" style="margin-bottom:12px">
         ${card('⚠ Pendentes', t.pendentes||0, 'o banco mexeu e ninguém explicou', (t.pendentes>0)?'#c14a34':'#1e7a44')}
         ${card('Conciliados', t.conciliados||0, 'ligados a um título', '#1e7a44')}
@@ -6011,15 +6013,61 @@ async function bancoPuxarApi(){
       <button class="btn-sm" onclick="APP.bancoTestarApi()">🔌 Testar conexão</button>
       <button class="btn-primary" onclick="APP.bancoPuxarApiOk()">Puxar agora</button></div>`);
 }
+/**
+ * Conta por conta: já puxa sozinha, ou quais variáveis faltam no Render.
+ * O nome da variável carrega o CNPJ, então é só copiar daqui — não tem o que
+ * digitar errado.
+ */
+async function bancoStatusApi(){
+  let st=[]; try{ st=await api('/bancos/extrato/api/status'); }catch(e){ toast(e.message,'err'); return; }
+  if(!st.length){ toast('Nenhuma conta Cora cadastrada.','info'); return; }
+  const linhas=st.map(c=>{
+    const v=c.variaveis||{};
+    const cab=`<div style="font-weight:700;font-size:13px">${esc(c.apelido||c.conta)} ${c.configurada?'<span class="pill green">puxa sozinha</span>':'<span class="pill gold">falta credencial</span>'}${c.propria?'':(c.configurada?' <span class="pill gray" title="Usando as variáveis padrão, sem CNPJ no nome">padrão</span>':'')}</div>
+      <div class="muted" style="font-size:11px">${esc(c.empresa||'')} · CNPJ ${esc(c.cnpj||'—')}</div>`;
+    const vars=c.configurada?'':`<div style="margin-top:6px;background:#fbfaf7;border:1px solid #e7e4dd;border-radius:7px;padding:7px 9px">
+        <div class="muted" style="font-size:10.5px;margin-bottom:4px">Crie no Render estas três variáveis:</div>
+        ${[v.clientId,v.cert,v.key].map(n=>`<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
+          <code style="font-size:11px;flex:1;word-break:break-all">${esc(n)}</code>
+          <button class="btn-sm" style="padding:1px 7px" onclick="APP.copiarTexto('${esc(n)}')">copiar</button></div>`).join('')}
+      </div>`;
+    return `<div style="border:1px solid #e7e4dd;border-radius:9px;padding:10px 12px;margin-bottom:8px">${cab}${vars}
+      ${c.configurada?`<div style="margin-top:6px"><button class="btn-sm" onclick="APP.closeModal();APP.bancoTestarConta(${c.id})">🔌 Testar esta conta</button></div>`:''}</div>`;
+  }).join('');
+  openModal(`<h3>🔑 Credenciais das contas do Cora</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 10px">Cada conta do Cora tem credencial própria — uma não abre a outra. No Cora Web, <b>troque para a conta</b> em "Suas Contas" ANTES de entrar em Integrações via APIs › Integração Direta › Ambiente de produção.</div>
+    ${linhas}
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+function copiarTexto(t){ _copiaTexto(t); }
+async function bancoTestarConta(id){
+  try{
+    const r=await api('/bancos/extrato/api/testar/'+id,{procLabel:'Falando com o banco…'});
+    bancoMostraTeste(r);
+  }catch(e){ uiAlert({tipo:'warn',titulo:'Não conectou',ok:'Entendi',msg:e.message}); }
+}
+function bancoMostraTeste(r){
+  const venc=r.credencialVence
+    ? `\n\nCredencial vence em ${dfmt(r.credencialVence)}`+(r.credencialDias!=null?` (${r.credencialDias} dia(s))`:'')
+      +(r.credencialPerto?' — ⚠ gere uma nova no Cora Web antes que pare.':'')
+    : '';
+  // A credencial PODE ser de outra conta: o teste compara o CNPJ que o banco
+  // respondeu com o do cadastro e diz na cara quando não bate.
+  if(r.confere===false){
+    uiAlert({tipo:'warn',titulo:'Credencial é de OUTRA conta',ok:'Entendi',
+      msg:`A credencial abriu a conta de ${r.titularNome||'(sem nome)'} — CNPJ ${r.titularDocumento}.\n`
+        +`Mas esta conta no sistema é o CNPJ ${r.cnpjCadastrado}.\n\n`
+        +`Puxar assim misturaria o dinheiro de dois CNPJs. Gere a credencial trocando para a conta certa no Cora Web.${venc}`});
+    return;
+  }
+  uiAlert({tipo:r.credencialPerto?'warn':'info',titulo:'Conectado ao '+esc(r.banco),ok:'OK',
+    msg:`${r.conta}${r.titularNome?'\n'+r.titularNome:''}\n\nSaldo no banco agora: ${r.saldo!=null?money(r.saldo):'(não informado)'}`
+      +(r.confere===true?'\n✓ CNPJ confere com o cadastro':'')+venc});
+}
 async function bancoTestarApi(){
   try{
     const r=await api('/bancos/extrato/api/testar/'+Number(val('ba_conta')),{procLabel:'Falando com o banco…'});
-    const venc = r.credencialVence
-      ? `\n\nCredencial vence em ${dfmt(r.credencialVence)}`+(r.credencialDias!=null?` (${r.credencialDias} dia(s))`:'')
-        +(r.credencialPerto?' — ⚠ gere uma nova no Cora Web antes que pare.':'')
-      : '';
-    uiAlert({tipo:r.credencialPerto?'warn':'info',titulo:'Conectado ao '+esc(r.banco),ok:'OK',
-      msg:`${r.conta}\n\nSaldo no banco agora: ${r.saldo!=null?money(r.saldo):'(não informado)'}${venc}`});
+    bancoMostraTeste(r);
   }catch(e){ uiAlert({tipo:'warn',titulo:'Não conectou',ok:'Entendi',msg:e.message}); }
 }
 async function bancoPuxarApiOk(){
@@ -17342,7 +17390,8 @@ window.APP = {
   navBuscar, navFlyout, navFlyoutFechar, relatorio, relGerar, relCompMuda, relColsTodas, relXml, sugerirCompraTecido,
   viewPortal, portalVer, portalTrocar,
   bancosRemessaSel, bancosGerarRemessa, bancosDownloadRemessa, bancosPainel, bancosPainelConta, bancosEnviada, bancosUploadRetorno, bancosRetornoDetalhe, bancosBoletoPdf, boletoEmail, boletoEmailEnviar,
-  bancoSet, bancoImportarForm, bancoImportar, bancoPuxarApi, bancoPuxarApiOk, bancoTestarApi, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,
+  bancoSet, bancoImportarForm, bancoImportar, bancoPuxarApi, bancoPuxarApiOk, bancoTestarApi,
+  bancoStatusApi, bancoTestarConta, copiarTexto, bancoSugestoes, bancoConciliar, bancoIgnorar, bancoIgnorarOutro, bancoIgnorarSalvar, bancoDesconciliar,
   drillAbrir, drillToggle, drillIr,
 };
 document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });

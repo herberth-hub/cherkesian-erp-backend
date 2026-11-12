@@ -7,7 +7,7 @@
  * os "\n" escapados e o TLS falha com uma mensagem que não ajuda ninguém, e
  * uma configuração pela metade tem de dizer O QUE falta, não "erro 500".
  */
-import { credenciaisDoAmbiente, normalizarPem, oQueFalta, validadeDoCertificado } from './cora.fonte';
+import { credenciaisDoAmbiente, nomesDasVariaveis, normalizarPem, oQueFalta, temCredencialPropria, validadeDoCertificado } from './cora.fonte';
 
 const CERT = '-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----';
 const KEY = '-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----';
@@ -142,5 +142,67 @@ describe('validade lida do certificado', () => {
   it('certificado ilegível não derruba nada — devolve null', () => {
     expect(validadeDoCertificado('isto não é um certificado')).toBeNull();
     expect(validadeDoCertificado('')).toBeNull();
+  });
+});
+
+/**
+ * UMA CREDENCIAL POR CONTA.
+ *
+ * O Herberth tem tres contas no Cora, cada uma num CNPJ. Uma credencial nao
+ * abre a conta da outra — foi medido: a primeira so respondia pelo CNPJ
+ * 45704956000293. Entao o nome da variavel carrega o CNPJ, e o sistema sabe
+ * sozinho qual procurar.
+ */
+describe('credencial por CNPJ', () => {
+  const MURIAE = '45704956000293';
+  const BARUERI = '45704956000102';
+  const env = {
+    // padrão (a primeira conta ligada, antes de existir credencial por CNPJ)
+    CORA_CLIENT_ID: 'padrao', CORA_CERT_PEM: CERT, CORA_KEY_PEM: KEY,
+    // própria da matriz
+    [`CORA_${BARUERI}_CLIENT_ID`]: 'int-barueri',
+    [`CORA_${BARUERI}_CERT_PEM`]: CERT,
+    [`CORA_${BARUERI}_KEY_PEM`]: KEY,
+  } as NodeJS.ProcessEnv;
+
+  it('o nome da variável leva o CNPJ — é o que a tela manda copiar', () => {
+    expect(nomesDasVariaveis(BARUERI)).toEqual({
+      clientId: 'CORA_45704956000102_CLIENT_ID',
+      cert: 'CORA_45704956000102_CERT_PEM',
+      key: 'CORA_45704956000102_KEY_PEM',
+    });
+  });
+
+  it('CNPJ com máscara gera o mesmo nome de variável', () => {
+    expect(nomesDasVariaveis('45.704.956/0001-02').clientId).toBe('CORA_45704956000102_CLIENT_ID');
+  });
+
+  it('conta com credencial própria usa a dela, não a padrão', () => {
+    expect(credenciaisDoAmbiente(env, BARUERI)!.clientId).toBe('int-barueri');
+    expect(temCredencialPropria(env, BARUERI)).toBe(true);
+  });
+
+  it('conta sem credencial própria cai na padrão — é a primeira que foi ligada', () => {
+    expect(credenciaisDoAmbiente(env, MURIAE)!.clientId).toBe('padrao');
+    expect(temCredencialPropria(env, MURIAE)).toBe(false);
+  });
+
+  it('sem padrão e sem a própria, não há credencial nenhuma', () => {
+    const so = { [`CORA_${BARUERI}_CLIENT_ID`]: 'x', [`CORA_${BARUERI}_CERT_PEM`]: CERT, [`CORA_${BARUERI}_KEY_PEM`]: KEY } as NodeJS.ProcessEnv;
+    expect(credenciaisDoAmbiente(so, MURIAE)).toBeNull();
+  });
+
+  it('credencial própria pela metade não vaza para a padrão sem avisar', () => {
+    // Faltando a chave da própria, cai na padrão — e o que falta é nomeado
+    // com o CNPJ, para a pessoa saber onde corrigir.
+    const meio = { ...env, [`CORA_${BARUERI}_KEY_PEM`]: '' } as NodeJS.ProcessEnv;
+    expect(credenciaisDoAmbiente(meio, BARUERI)!.clientId).toBe('padrao');
+    expect(oQueFalta(meio, BARUERI)).toEqual(['CORA_45704956000102_KEY_PEM (conteúdo da private-key.key)']);
+  });
+
+  it('o que falta é listado com o nome exato da variável daquela conta', () => {
+    const f = oQueFalta({} as NodeJS.ProcessEnv, MURIAE);
+    expect(f).toHaveLength(3);
+    expect(f[0]).toContain('CORA_45704956000293_CLIENT_ID');
   });
 });

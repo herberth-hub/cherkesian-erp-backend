@@ -48,24 +48,69 @@ export function normalizarPem(texto: string | undefined | null): string {
 }
 
 /**
- * Lê as credenciais do ambiente. Devolve null (em vez de explodir) quando não
- * há nada configurado: a ausência de integração não é erro, é só uma conta que
+ * UMA CREDENCIAL POR CONTA.
+ *
+ * No Cora, cada conta (cada CNPJ) tem a sua própria Integração Direta: client
+ * id, certificado e chave diferentes. Uma credencial não abre a conta da
+ * outra — provado na prática, a primeira credencial só respondia pelo CNPJ
+ * 45704956000293.
+ *
+ * Então o nome da variável carrega o CNPJ da conta:
+ *
+ *   CORA_45704956000293_CLIENT_ID / _CERT_PEM / _KEY_PEM
+ *
+ * O CNPJ já está no cadastro da conta bancária, então o sistema sabe sozinho
+ * qual variável procurar — e a tela mostra o nome exato para copiar.
+ *
+ * As variáveis SEM CNPJ (CORA_CLIENT_ID…) continuam valendo como padrão, para
+ * a primeira conta, que já estava configurada assim. Quem tem credencial
+ * própria ignora o padrão.
+ */
+export function prefixoDoCnpj(cnpj?: string | null): string {
+  const d = String(cnpj ?? '').replace(/\D/g, '');
+  return d ? `CORA_${d}_` : 'CORA_';
+}
+
+/** Os três nomes de variável desta conta, para a tela mandar copiar. */
+export function nomesDasVariaveis(cnpj?: string | null): { clientId: string; cert: string; key: string } {
+  const p = prefixoDoCnpj(cnpj);
+  return { clientId: `${p}CLIENT_ID`, cert: `${p}CERT_PEM`, key: `${p}KEY_PEM` };
+}
+
+function lerPrefixo(env: NodeJS.ProcessEnv, prefixo: string): CoraCredenciais | null {
+  const clientId = String(env[`${prefixo}CLIENT_ID`] ?? '').trim();
+  const certPem = normalizarPem(env[`${prefixo}CERT_PEM`]);
+  const keyPem = normalizarPem(env[`${prefixo}KEY_PEM`]);
+  if (!clientId || !certPem || !keyPem) return null;
+  return {
+    clientId, certPem, keyPem,
+    ambiente: String(env[`${prefixo}AMBIENTE`] ?? env.CORA_AMBIENTE ?? 'producao').trim() || 'producao',
+  };
+}
+
+/**
+ * Lê as credenciais da conta. Devolve null (em vez de explodir) quando não há
+ * nada configurado: a ausência de integração não é erro, é só uma conta que
  * ainda importa OFX na mão.
  */
-export function credenciaisDoAmbiente(env: NodeJS.ProcessEnv = process.env): CoraCredenciais | null {
-  const clientId = String(env.CORA_CLIENT_ID ?? '').trim();
-  const certPem = normalizarPem(env.CORA_CERT_PEM);
-  const keyPem = normalizarPem(env.CORA_KEY_PEM);
-  if (!clientId || !certPem || !keyPem) return null;
-  return { clientId, certPem, keyPem, ambiente: String(env.CORA_AMBIENTE ?? 'producao').trim() || 'producao' };
+export function credenciaisDoAmbiente(env: NodeJS.ProcessEnv = process.env, cnpj?: string | null): CoraCredenciais | null {
+  const proprias = cnpj ? lerPrefixo(env, prefixoDoCnpj(cnpj)) : null;
+  return proprias ?? lerPrefixo(env, 'CORA_');
+}
+
+/** Esta conta tem credencial PRÓPRIA (não está usando a padrão)? */
+export function temCredencialPropria(env: NodeJS.ProcessEnv = process.env, cnpj?: string | null): boolean {
+  return !!cnpj && lerPrefixo(env, prefixoDoCnpj(cnpj)) !== null;
 }
 
 /** O que falta configurar, em português, para a tela poder dizer. */
-export function oQueFalta(env: NodeJS.ProcessEnv = process.env): string[] {
+export function oQueFalta(env: NodeJS.ProcessEnv = process.env, cnpj?: string | null): string[] {
+  const n = nomesDasVariaveis(cnpj);
+  const p = prefixoDoCnpj(cnpj);
   const faltas: string[] = [];
-  if (!String(env.CORA_CLIENT_ID ?? '').trim()) faltas.push('CORA_CLIENT_ID (client id da integração)');
-  if (!normalizarPem(env.CORA_CERT_PEM)) faltas.push('CORA_CERT_PEM (conteúdo do certificate.pem)');
-  if (!normalizarPem(env.CORA_KEY_PEM)) faltas.push('CORA_KEY_PEM (conteúdo da private-key.key)');
+  if (!String(env[`${p}CLIENT_ID`] ?? '').trim()) faltas.push(`${n.clientId} (client id da integração)`);
+  if (!normalizarPem(env[`${p}CERT_PEM`])) faltas.push(`${n.cert} (conteúdo do certificate.pem)`);
+  if (!normalizarPem(env[`${p}KEY_PEM`])) faltas.push(`${n.key} (conteúdo da private-key.key)`);
   return faltas;
 }
 
