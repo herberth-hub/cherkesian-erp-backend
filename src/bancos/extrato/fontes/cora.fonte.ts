@@ -191,6 +191,8 @@ export class CoraFonte implements FonteExtratoApi {
       periodoFim: resumo?.periodoFim ?? ate,
       saldo: resumo?.saldo ?? null,
       saldoEm: resumo?.saldoEm ?? null,
+      titularDocumento: resumo?.titularDocumento ?? null,
+      titularNome: resumo?.titularNome ?? null,
     };
   }
 

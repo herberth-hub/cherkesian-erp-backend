@@ -34,6 +34,16 @@ export interface ExtratoDoBanco {
   /** Saldo que o BANCO declara — é contra ele que o espelho é conferido. */
   saldo?: number | null;
   saldoEm?: Date | null;
+  /**
+   * CNPJ do TITULAR da conta, como o banco informa.
+   *
+   * É a mesma conferência que o OFX já fazia com o número da conta, e aqui ela
+   * é mais necessária: uma credencial de API atende UMA conta, mas a tela
+   * oferece todas. Sem comparar o titular, puxar o extrato com a conta errada
+   * selecionada arquivaria o dinheiro de um CNPJ debaixo de outro, em silêncio.
+   */
+  titularDocumento?: string | null;
+  titularNome?: string | null;
 }
 
 /** Uma fonte automática (API de banco). */

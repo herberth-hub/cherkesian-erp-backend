@@ -7,6 +7,7 @@ import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
 import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
 import { CoraFonte, credenciaisDoAmbiente, oQueFalta, validadeDoCertificado } from './fontes/cora.fonte';
+import { soDigitos } from './fontes/cora.traducao';
 
 /**
  * ESPELHO DO BANCO — o extrato do banco dentro do ERP, conciliado com os títulos.
@@ -155,7 +156,10 @@ export class ExtratoService {
     empresaId: number,
     usuario: string,
   ) {
-    const conta = await this.prisma.contaBancaria.findFirst({ where: { id: dto.contaBancariaId, empresaId } });
+    const conta = await this.prisma.contaBancaria.findFirst({
+      where: { id: dto.contaBancariaId, empresaId },
+      include: { filial: { select: { cnpj: true, nome: true } } },
+    });
     if (!conta) throw new NotFoundException('Conta bancária não encontrada.');
     const fonte = this.fonteDaConta(conta);
 
@@ -165,6 +169,22 @@ export class ExtratoService {
     if (de > ate) throw new BadRequestException('A data inicial é depois da final.');
 
     const extrato = await fonte.buscar(de, ate);
+
+    // DE QUEM É ESSA CONTA? Uma credencial de API atende UMA conta, e a tela
+    // oferece todas as do banco. Sem esta conferência, puxar com a conta errada
+    // selecionada arquivaria o dinheiro de um CNPJ debaixo de outro — e o erro
+    // só apareceria no fechamento, quando ninguém mais lembra do clique.
+    // O CNPJ da conta é o `cedenteDocumento` quando ele existe (conta de filial
+    // com CNPJ próprio); senão é o da filial.
+    const doBanco = soDigitos(extrato.titularDocumento);
+    const doCadastro = soDigitos(conta.cedenteDocumento || conta.filial?.cnpj);
+    if (doBanco && doCadastro && doBanco !== doCadastro) {
+      throw new BadRequestException(
+        `Esta credencial abre a conta de ${extrato.titularNome ?? 'outro CNPJ'} (${doBanco}), ` +
+        `e você escolheu a conta ${conta.banco}${conta.conta ? ' ' + conta.conta : ''} de ${conta.filial?.nome ?? ''} (${doCadastro}). ` +
+        'Importar assim misturaria o dinheiro de dois CNPJs. Escolha a conta certa — ou cadastre a credencial desta conta.',
+      );
+    }
 
     // O SALDO DO ESPELHO VEM DO ENDPOINT DE SALDO, não do fim do extrato.
     // Numa janela sem movimento o extrato devolve saldo zero (visto na conta

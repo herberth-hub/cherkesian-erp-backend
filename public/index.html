@@ -5921,7 +5921,11 @@ async function viewBanco(c){
   // Contas com API (hoje só Cora) ganham o botão de puxar sozinho. As outras
   // continuam no OFX enquanto o convênio não sai.
   window.__BANCOCONTAS = contas||[];
-  const temApi=(contas||[]).filter(x=>String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||''));
+  // Só a conta cuja credencial EXISTE. Uma credencial do Cora abre uma conta
+  // só; oferecer as outras convidaria a puxar o extrato de um CNPJ debaixo de
+  // outro. (A trava do CNPJ no servidor barra mesmo assim — isto é para a
+  // pessoa não chegar lá.)
+  const temApi=(contas||[]).filter(x=>x.integracao==='api'&&(String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||'')));
   const btnApi=temApi.length?`<button class="btn-sm" style="background:#1e7a44;color:#fff;border-color:#1e7a44" title="Busca o extrato direto na API do banco — ninguém baixa arquivo" onclick="APP.bancoPuxarApi()">⚡ Puxar do banco (Cora)</button> `:'';
   c.innerHTML = toolbar('Conciliação bancária', '📥 Importar extrato (OFX)', 'APP.bancoImportarForm()',
       btnApi+`<button class="btn-sm" title="Remessas CNAB e arquivos de retorno" onclick="APP.bancosPainel()">🏦 Remessas / Retornos</button>`)
@@ -5990,7 +5994,7 @@ async function bancoImportarForm(){
  * banco não deixa duplicar.
  */
 async function bancoPuxarApi(){
-  const contas=(window.__BANCOCONTAS||[]).filter(x=>String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||''));
+  const contas=(window.__BANCOCONTAS||[]).filter(x=>x.integracao==='api'&&(String(x.codigoBanco||'')==='403'||/cora/i.test(x.banco||'')));
   if(!contas.length){ toast('Nenhuma conta Cora cadastrada.','err'); return; }
   const opts=contas.map(x=>`<option value="${x.id}">${esc(x.banco)}${x.conta?' · '+esc(x.conta):''}${x.apelido?' ('+esc(x.apelido)+')':''}</option>`).join('');
   openModal(`<h3>⚡ Puxar extrato do banco</h3>

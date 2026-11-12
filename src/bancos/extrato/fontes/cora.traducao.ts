@@ -29,6 +29,8 @@ import { ExtratoDoBanco, LancamentoExtrato, centavosParaReais } from './extrato-
 export interface CoraExtratoResposta {
   start?: { date?: string; balance?: number } | null;
   end?: { date?: string; balance?: number } | null;
+  /** Quem é o titular da conta que a credencial abriu. */
+  header?: { businessName?: string; businessDocument?: string } | null;
   entries?: Array<{
     id?: string;
     type?: string;
@@ -108,7 +110,15 @@ export function traduzirExtratoCora(resp: CoraExtratoResposta): ExtratoDoBanco {
     // que o ERP acha que tem.
     saldo: resp.end?.balance != null ? centavosParaReais(resp.end.balance) : null,
     saldoEm: fim,
+    // Só os dígitos: o banco manda sem máscara, o cadastro às vezes tem ponto.
+    titularDocumento: (resp.header?.businessDocument ?? '').replace(/\D/g, '') || null,
+    titularNome: resp.header?.businessName ?? null,
   };
+}
+
+/** CNPJ/CPF comparável: só dígitos, sem zero à esquerda sobrando. */
+export function soDigitos(doc: string | null | undefined): string {
+  return String(doc ?? '').replace(/\D/g, '');
 }
 
 /** AAAA-MM-DD, como a API espera. */

@@ -6,7 +6,7 @@
  * crédito fantasma para alguém conciliar; perder o nome de quem pagou faz o
  * casamento automático parar de funcionar e a conciliação voltar a ser manual.
  */
-import { traduzirExtratoCora, descricaoCora, diaIso, CoraExtratoResposta } from './cora.traducao';
+import { traduzirExtratoCora, descricaoCora, diaIso, soDigitos, CoraExtratoResposta } from './cora.traducao';
 import { centavosParaReais } from './extrato-fonte';
 
 const entrada = (over: Record<string, unknown> = {}) => ({
@@ -103,6 +103,38 @@ describe('quem pagou — o sinal que o motor de conciliação usa', () => {
 
   it('o número da nota sobrevive na descrição — é por ele que o título casa', () => {
     expect(traduzirExtratoCora(resposta([entrada()])).lancamentos[0].descricao).toContain('2731');
+  });
+});
+
+/**
+ * DE QUEM É A CONTA.
+ *
+ * Uma credencial de API abre UMA conta, e a tela oferece todas as do banco.
+ * Esta é a mesma conferência que o OFX já fazia pelo número da conta — sem
+ * ela, puxar com a conta errada selecionada arquiva o dinheiro de um CNPJ
+ * debaixo de outro e o erro só aparece no fechamento.
+ */
+describe('o titular da conta', () => {
+  it('o CNPJ do titular sai do header, só com os dígitos', () => {
+    const t = traduzirExtratoCora(resposta([entrada()], {
+      header: { businessName: 'HC QUALITY CORPORATE', businessDocument: '45.704.956/0002-93' },
+    }));
+    expect(t.titularDocumento).toBe('45704956000293');
+    expect(t.titularNome).toBe('HC QUALITY CORPORATE');
+  });
+
+  it('sem header, não inventa titular — a trava simplesmente não dispara', () => {
+    const t = traduzirExtratoCora(resposta([entrada()]));
+    expect(t.titularDocumento).toBeNull();
+  });
+
+  it('CNPJ com e sem máscara são o mesmo número', () => {
+    expect(soDigitos('45.704.956/0002-93')).toBe(soDigitos('45704956000293'));
+  });
+
+  it('as duas contas do mesmo grupo NÃO se confundem — é a raiz igual que engana', () => {
+    // Matriz Barueri e filial Muriaé têm a mesma raiz e são contas diferentes.
+    expect(soDigitos('45704956000102')).not.toBe(soDigitos('45704956000293'));
   });
 });
 
