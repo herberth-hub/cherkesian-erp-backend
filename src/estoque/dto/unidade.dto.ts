@@ -15,6 +15,17 @@ export class EntradaEstoqueDto {
   quantidade!: number;
   /** Unidade de medida da entrada (matéria-prima/aviamento): m, kg, un, cone... */
   @IsOptional() @IsString() @MaxLength(10) unidadeMedida?: string;
+  /**
+   * VOLUMES FÍSICOS (rolos, fardos, caixas) que essa medida ocupa — só para
+   * matéria-prima/aviamento. 200 m de malha chegam em 2 rolos: a medida é uma
+   * (200), os volumes são dois, e cada rolo precisa da SUA etiqueta para poder
+   * ser endereçado e bipado na prateleira.
+   *
+   * Sem este campo o serviço gerava uma etiqueta só por lote, e os rolos 2..N
+   * ficavam sem identificação nenhuma. Ausente = 1 volume (comportamento de
+   * sempre, para não mexer em quem já chama esta rota).
+   */
+  @IsOptional() @IsInt() @IsPositive() volumes?: number;
   @IsOptional() @IsString() @MaxLength(40) loteFornecedor?: string;
   @IsOptional() @IsIn(['estoque', 'expedicao']) destino?: 'estoque' | 'expedicao';
   // A = acabado · B = matéria-prima · C = pilar (só caixa master, sem andar).

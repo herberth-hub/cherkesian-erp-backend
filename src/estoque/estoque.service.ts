@@ -306,6 +306,8 @@ export class EstoqueService {
   async entrada(dto: {
     tipo: string; produtoId?: number; materialId?: number; descricao?: string; ref?: string; cor?: string; tamanho?: string;
     quantidade: number; unidadeMedida?: string; destino?: 'estoque' | 'expedicao'; coluna?: string; andar?: string; caixaMaster?: string;
+    /** Rolos/fardos que essa medida ocupa (só granel): 1 etiqueta por volume. */
+    volumes?: number;
     /** Coluna C = comodato: a peça nasce na loja deste cliente, não no armazém. */
     comodatoClienteId?: number;
     pedidoId?: number; origem?: string; loteFornecedor?: string; loteEntrada?: string;
@@ -323,8 +325,26 @@ export class EstoqueService {
     const granel = dto.tipo === 'materia' || dto.tipo === 'aviamento';
     const qtdMedida = Number(dto.quantidade);
     if (!(qtdMedida > 0)) throw new BadRequestException('Informe a quantidade (> 0).');
-    const qtd = granel ? 1 : Math.floor(qtdMedida);
+    // UMA ETIQUETA POR VOLUME FÍSICO.
+    //
+    // Matéria-prima entra por MEDIDA (200 m) e chega em N rolos. Antes isto era
+    // `granel ? 1`: o lote inteiro saía com uma etiqueta só e os rolos 2..N
+    // ficavam sem identificação na prateleira — ninguém conseguia endereçar nem
+    // bipar. Numa NF real de 16/11/2026 saíram 4 etiquetas para 5 rolos.
+    const volumes = granel ? Math.max(1, Math.floor(Number(dto.volumes ?? 1) || 1)) : 0;
+    if (granel && volumes > 500) throw new BadRequestException('Máximo de 500 volumes (rolos) por lote. Divida em lotes menores.');
+    const qtd = granel ? volumes : Math.floor(qtdMedida);
     if (!granel && (qtd < 1)) throw new BadRequestException('Informe a quantidade (>= 1).');
+    /**
+     * A medida de CADA volume.
+     *
+     * A nota traz o total do item (200 m) e não diz quanto tem em cada rolo, que
+     * é informação que só existe no rolo. O rateio igual mantém a SOMA dos
+     * volumes batendo com a nota — que é o número do saldo e do financeiro — e
+     * erra no máximo dentro do lote. Gravar o total em cada rolo, isso sim,
+     * multiplicaria o estoque pelo número de rolos.
+     */
+    const medidaPorVolume = granel ? qtdMedida / volumes : qtdMedida;
     // O lote inteiro nasce numa escrita só (createMany, abaixo), então o teto
     // agora é a impressão: 2.000 etiquetas já são ~70 folhas A4. Acima disso é
     // erro de digitação muito mais provável que uma entrada de verdade.
@@ -395,7 +415,7 @@ export class EstoqueService {
     const comum = {
       empresaId, tipo: dto.tipo, produtoId: dto.produtoId, materialId: dto.materialId,
       descricao, cor: dto.cor, tamanho: dto.tamanho, origem: dto.origem ?? 'entrada',
-      ...(granel ? { quantidade: new Prisma.Decimal(qtdMedida.toFixed(3)) } : {}),
+      ...(granel ? { quantidade: new Prisma.Decimal(medidaPorVolume.toFixed(3)) } : {}),
       coluna: comodato ? null : dto.coluna,
       andar: comodato || soCaixa ? null : dto.andar,
       caixaMaster: comodato ? null : dto.caixaMaster,
@@ -422,7 +442,9 @@ export class EstoqueService {
     }
 
     // Gera as etiquetas (código de barras) das unidades criadas.
-    const qtdFmt = qtdMedida.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+    // A etiqueta mostra a medida DAQUELE rolo, não a do lote inteiro: é o
+    // número que a pessoa confere com o rolo na mão.
+    const qtdFmt = medidaPorVolume.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
     const pecas = [];
     for (const c of criadas) {
       const bc = await bwipjs.toBuffer({ bcid: 'code128', text: c.codigo, scale: 2, height: 12, includetext: false, padding: 0 });
