@@ -93,6 +93,39 @@ function podeVerDinheiro(acesso?: Acesso): boolean {
   return !!acesso && perfilPodeAcessar(acesso, 'receber');
 }
 
+/**
+ * TEXTO NUMA CAIXA DE ALTURA CONHECIDA — a cura do encavalamento.
+ *
+ * `{ lineBreak: false, ellipsis: true }` NÃO impede a quebra de linha: no
+ * pdfkit 0.19 esse par desenha o texto quebrado em várias linhas do mesmo
+ * jeito (medido: 20,8 pt — duas linhas — para a descrição da PRD-CAL-0018 numa
+ * caixa de 275 pt). Como a ficha posicionava cada linha num deslocamento FIXO,
+ * acreditando que tudo ocupava uma linha só, o texto que quebrava era escrito
+ * por cima da linha de baixo: "CALCA TOTAL ELASTICO … NO GANCHO - COLETOR"
+ * saiu em cima de "Cor VERDE BANDEIRA" e do título das especificações.
+ *
+ * Quem corta de verdade é `height` + `ellipsis`. Estas duas funções andam
+ * juntas: `alturaEmLinhas` mede ANTES (para a faixa zebrada saber o tamanho) e
+ * `caixaTexto` desenha e devolve a altura REAL ocupada, que é por onde o
+ * layout desce. Nada de deslocamento fixo onde o texto é do cadastro.
+ */
+function alturaEmLinhas(doc: Pdf, texto: unknown, largura: number, maxLinhas: number): number {
+  const t = String(texto ?? '—');
+  return Math.min(doc.heightOfString(t, { width: largura }), doc.currentLineHeight(true) * maxLinhas);
+}
+
+/** Desenha dentro da caixa (cortando com reticências) e devolve a altura usada. */
+function caixaTexto(
+  doc: Pdf, texto: unknown, x: number, y: number, largura: number,
+  maxLinhas = 1, extra: Record<string, unknown> = {},
+): number {
+  const t = String(texto ?? '—');
+  // O +0.5 é folga de arredondamento: sem ele, um texto de exatamente N linhas
+  // às vezes perde a última para o corte.
+  doc.text(t, x, y, { width: largura, height: doc.currentLineHeight(true) * maxLinhas + 0.5, ellipsis: true, ...extra });
+  return doc.y - y;
+}
+
 /** Telefone com DDD, fixo (10) ou celular (11). Fora disso, devolve o original. */
 function formatarTelefone(v?: string | null): string {
   const d = String(v ?? '').replace(/\D/g, '');
@@ -2152,18 +2185,22 @@ export class DocumentosService {
 
     // ===== Cliente / Projeto =====
     const rot = (t: string, x: number, y: number) => { doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7.5); txt(t, x, y); };
-    const val = (t: string, x: number, y: number, larg: number) => {
+    /** Devolve onde o valor TERMINOU — razão social e projeto são longos e ocupam duas linhas. */
+    const val = (t: unknown, x: number, y: number, larg: number): number => {
       doc.fillColor(CINZA).font('Helvetica').fontSize(9);
-      doc.text(String(t ?? '—'), x, y, { width: larg, lineBreak: false, ellipsis: true });
+      return y + caixaTexto(doc, t, x, y, larg, 2);
     };
     rot('CLIENTE', M, 160);
-    val(cliente?.nome ?? produto.clienteGrupo ?? produto.marca ?? '—', M, 172, 240);
+    const fimCliente = val(cliente?.nome ?? produto.clienteGrupo ?? produto.marca ?? '—', M, 172, 240);
     rot('PROJETO', 286, 160);
-    val(produto.projeto ?? produto.descricao, 286, 172, W - M - 286);
+    const fimProjeto = val(produto.projeto ?? produto.descricao, 286, 172, W - M - 286);
 
     // ===== Coluna esquerda: vista frontal =====
     const COL_E = M, COL_D = 286, LARG_D = W - M - COL_D;
-    let yE = 196;
+    // O conteúdo começa abaixo do maior dos dois cabeçalhos. Com nomes curtos
+    // dá 196, o valor de sempre — não mexe nas fichas que já estavam certas.
+    const Y_CONTEUDO = Math.max(196, fimCliente + 10, fimProjeto + 10);
+    let yE = Y_CONTEUDO;
     const fotoPeca = await this.fotoDaPeca(produto);
     if (fotoPeca) {
       const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(fotoPeca);
@@ -2174,7 +2211,7 @@ export class DocumentosService {
     }
 
     // ===== Coluna direita: personalização + especificações =====
-    let yD = 196;
+    let yD = Y_CONTEUDO;
     const aplicacoes = Array.isArray(produto.aplicacoes)
       ? (produto.aplicacoes as Array<{ tipo?: string; tamanho?: string; local?: string }>)
       : [];
@@ -2215,14 +2252,18 @@ export class DocumentosService {
             [a.tipo, a.tamanho, a.local].map((x) => String(x ?? '').trim()).filter(Boolean).join(' · ') || '—',
           ])
         : [['MAPA', produto.mapaDtfNome ?? 'anexado ao produto']];
-      pares.forEach(([r, v], i) => {
-        const y = yD + i * 15;
-        doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(6.5); txt(r, xTab, y);
+      // Cada arte desce pelo que ELA ocupou: "Silk · 15X10 · LOGO CENTRALIZADO
+      // NAS COSTAS" não cabe numa linha, e com passo fixo de 15 a ARTE 2 era
+      // escrita por cima da segunda linha da ARTE 1.
+      let yArte = yD;
+      pares.forEach(([r, v]) => {
+        doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(6.5); txt(r, xTab, yArte);
         doc.fillColor(LARANJA).font('Helvetica').fontSize(7.5);
-        doc.text(v, xTab + 50, y - 1, { width: W - M - (xTab + 50), lineBreak: false, ellipsis: true });
+        const h = caixaTexto(doc, v, xTab + 50, yArte - 1, W - M - (xTab + 50), 2);
+        yArte += Math.max(15, h + 2);
       });
       // Desce pelo que for mais alto: o texto das artes ou a miniatura do mapa.
-      yD += Math.max(15 * pares.length, hMapa) + 14;
+      yD = Math.max(yArte, yD + hMapa) + 14;
     }
 
     // Especificações da peça (tabela zebrada de duas colunas)
@@ -2240,14 +2281,20 @@ export class DocumentosService {
     doc.fillColor(LARANJA).font('Helvetica-Bold').fontSize(9);
     txt('ESPECIFICAÇÕES DA PEÇA', COL_D, yD);
     yD += 14;
+    // A LINHA CRESCE COM O TEXTO. Descrição de peça real não cabe em 7 pt numa
+    // caixa de 190 pt: com altura fixa de 13,4 a segunda linha da "Peça" era
+    // escrita por cima da "Cor", e a faixa zebrada cortava o texto ao meio.
+    const LARG_VAL = LARG_D - 76;
     espec.forEach(([r, v], i) => {
-      const y = yD + i * 13.4;
-      if (i % 2 === 0) doc.rect(COL_D, y - 2, LARG_D, 13.4).fill(ZEBRA);
-      doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7); txt(r, COL_D + 8, y + 1.5);
+      doc.font('Helvetica').fontSize(7);
+      const hLinha = Math.max(13.4, alturaEmLinhas(doc, v, LARG_VAL, 3) + 5);
+      if (i % 2 === 0) doc.rect(COL_D, yD - 2, LARG_D, hLinha).fill(ZEBRA);
+      doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(7); txt(r, COL_D + 8, yD + 1.5);
       doc.fillColor(CINZA).font('Helvetica').fontSize(7);
-      doc.text(v, COL_D + 68, y + 1.5, { width: LARG_D - 76, lineBreak: false, ellipsis: true });
+      caixaTexto(doc, v, COL_D + 68, yD + 1.5, LARG_VAL, 3);
+      yD += hLinha;
     });
-    yD += espec.length * 13.4 + 12;
+    yD += 12;
 
     // ===== Tabela de medidas (largura total) =====
     // A seção sai SEMPRE: é o que o cliente confere e assina. Sem linhas
@@ -2284,7 +2331,10 @@ export class DocumentosService {
         linhas.forEach((md, i) => {
           if (i % 2 === 0) doc.rect(M, y, LARG, 17).fill(ZEBRA);
           doc.fillColor(ONIX).font('Helvetica').fontSize(7);
-          doc.text(md.descricao, M + 8, y + 5.5, { width: cLarg - 12, lineBreak: false, ellipsis: true });
+          // Uma linha e ponto: as linhas da tabela de medidas têm altura fixa
+          // de 17, então nome de medida comprido precisa ser CORTADO, não
+          // quebrado — quebrado, invadiria a medida de baixo.
+          caixaTexto(doc, md.descricao, M + 8, y + 5.5, cLarg - 12, 1);
           if (temTol) {
             doc.fillColor(CINZA);
             doc.text(String(md.tolerancia ?? '').trim() || '—', M + cLarg, y + 5.5, { width: tolLarg, align: 'center', lineBreak: false });

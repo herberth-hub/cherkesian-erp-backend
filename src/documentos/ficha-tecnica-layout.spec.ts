@@ -56,7 +56,7 @@ const OBS_CURTA = 'Camisa social feminina de manga longa.';
 const OBS_LONGA = Array.from({ length: 60 }, (_, i) =>
   `Linha ${i + 1}: aplicação da logomarca conforme manual da marca, cores verde, cinza e preto, medida 7,0 x 7,0 cm centralizada no bolso do peito.`).join('\n');
 
-function servico(observacoes: string, medidas: Array<Record<string, unknown>> = []) {
+function servico(observacoes: string, medidas: Array<Record<string, unknown>> = [], extra: Record<string, unknown> = {}) {
   const prisma = {
     produto: {
       findUnique: () => Promise.resolve({
@@ -67,9 +67,15 @@ function servico(observacoes: string, medidas: Array<Record<string, unknown>> = 
         projeto: 'CAMISA SOCIAL M.L FEM.', revisao: null, detalhes: null,
         especificacoes: null, observacoes, fotoModelo: null, mapaDtf: null,
         aplicacoes: null, clienteId: 7, referencia: null, medidas,
+        ...extra,
       }),
     },
-    cliente: { findUnique: () => Promise.resolve({ nome: 'DELPHOS SERVICOS DE VIGILANCIA E SEGURANCA LTDA', fantasia: null }) },
+    cliente: {
+      findUnique: () => Promise.resolve({
+        nome: (extra.clienteNome as string) ?? 'DELPHOS SERVICOS DE VIGILANCIA E SEGURANCA LTDA',
+        fantasia: null,
+      }),
+    },
     // A foto da peça cai no mockup da cor quando `fotoModelo` está vazio; aqui
     // o produto não tem cor cadastrada, então a ficha sai sem foto, como antes.
     produtoCor: { findMany: () => Promise.resolve([]) },
@@ -80,8 +86,8 @@ function servico(observacoes: string, medidas: Array<Record<string, unknown>> = 
 }
 
 /** Encerra o doc sem escrever em lugar nenhum — só queremos as coordenadas. */
-async function desenhar(observacoes: string, medidas: Array<Record<string, unknown>> = []) {
-  const doc = await servico(observacoes, medidas).pdfFichaTecnica(247, 1, 'FT-TESTE');
+async function desenhar(observacoes: string, medidas: Array<Record<string, unknown>> = [], extra: Record<string, unknown> = {}) {
+  const doc = await servico(observacoes, medidas, extra).pdfFichaTecnica(247, 1, 'FT-TESTE');
   doc.end();
 }
 
@@ -159,5 +165,96 @@ describe('ficha técnica: o pé da página', () => {
     expect(linhas.length).toBeGreaterThan(0);
     for (const m of linhas) expect(m.y).toBeLessThan(Y_APROVACAO);
     expect(achar('na ficha de produção').length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * FRASES ENCAVALADAS — a FT-0017 da PRD-CAL-0018 (Sanepav, 17/11/2026).
+ *
+ * A ficha posicionava cada linha num deslocamento FIXO porque acreditava que
+ * `{ lineBreak: false, ellipsis: true }` cortava o texto em uma linha. Não
+ * corta: no pdfkit 0.19 esse par quebra a linha do mesmo jeito. Com uma
+ * descrição de peça real — "CALCA TOTAL ELASTICO C/ FX REFLETIVA C/ REFORCO NO
+ * GANCHO - COLETOR" — a segunda linha era escrita POR CIMA da linha de baixo:
+ * o título das especificações caiu em cima do PROJETO e a "Cor" em cima da
+ * "Peça", numa folha que vai para o cliente assinar.
+ *
+ * Agora quem manda é a altura MEDIDA do texto. Estes testes provam que nada é
+ * desenhado em cima de nada quando o cadastro traz nome comprido.
+ */
+const DESC_LONGA = 'CALCA TOTAL ELASTICO C/ FX REFLETIVA C/ REFORCO NO GANCHO  - COLETOR';
+const ARTES_LONGAS = [
+  { tipo: 'Silk', tamanho: '8x6', local: 'LOGO NO PEITO ESQUERDO SOBRE O BOLSO' },
+  { tipo: 'Silk', tamanho: '15X10', local: 'LOGO CENTRALIZADO NAS COSTAS NA ALTURA DAS OMOPLATAS' },
+];
+
+/** Uma marca invade a outra quando começa antes do fim dela e na mesma faixa. */
+const encavala = (a: Marca, b: Marca) => b.y < a.fim - 0.5 && b.fim > a.y + 0.5;
+
+describe('ficha técnica: frases encavaladas', () => {
+  it('a descrição longa ocupa DUAS linhas — é o caso que quebrava', async () => {
+    await desenhar(OBS_CURTA, [], { descricao: DESC_LONGA, projeto: DESC_LONGA });
+    const peca = achar(DESC_LONGA.slice(0, 20))[0];
+    expect(peca).toBeDefined();
+    expect(peca.fim - peca.y).toBeGreaterThan(12); // uma linha só teria ~10,4
+  });
+
+  it('ESPECIFICAÇÕES DA PEÇA não cai em cima do PROJETO', async () => {
+    await desenhar(OBS_CURTA, [], { descricao: DESC_LONGA, projeto: DESC_LONGA });
+    const projeto = achar(DESC_LONGA.slice(0, 20)).sort((a, b) => a.y - b.y)[0];
+    const titulo = achar('ESPECIFICAÇÕES DA PEÇA')[0];
+    expect(titulo).toBeDefined();
+    expect(titulo.y).toBeGreaterThanOrEqual(projeto.fim);
+  });
+
+  it('a Cor não é escrita em cima da segunda linha da Peça', async () => {
+    await desenhar(OBS_CURTA, [], { descricao: DESC_LONGA, cor: 'VERDE BANDEIRA' });
+    const peca = achar(DESC_LONGA.slice(0, 20)).sort((a, b) => a.y - b.y).pop() as Marca;
+    const cor = achar('VERDE BANDEIRA')[0];
+    expect(cor).toBeDefined();
+    expect(encavala(peca, cor)).toBe(false);
+  });
+
+  it('nenhuma linha das especificações invade a seguinte', async () => {
+    await desenhar(OBS_CURTA, [], { descricao: DESC_LONGA, cor: 'VERDE BANDEIRA' });
+    const rotulos = ['Peça', 'Cor', 'Modelagem', 'Tecido', 'Composição', 'Grade']
+      .map((r) => achar(r)[0]).filter(Boolean).sort((a, b) => a.y - b.y);
+    expect(rotulos.length).toBeGreaterThan(3);
+    for (let i = 1; i < rotulos.length; i++) {
+      expect(rotulos[i].y).toBeGreaterThanOrEqual(rotulos[i - 1].y + 11);
+    }
+  });
+
+  it('ARTE 2 não é escrita em cima da segunda linha da ARTE 1', async () => {
+    await desenhar(OBS_CURTA, [], { aplicacoes: ARTES_LONGAS });
+    const a1 = achar('LOGO NO PEITO ESQUERDO')[0];
+    const a2 = achar('LOGO CENTRALIZADO NAS COSTAS')[0];
+    expect(a1).toBeDefined();
+    expect(a2).toBeDefined();
+    expect(encavala(a1, a2)).toBe(false);
+  });
+
+  /**
+   * O conserto não pode mexer nas fichas que já saíam certas: com cliente e
+   * projeto de uma linha, o conteúdo continua começando exatamente em 196 —
+   * o mesmo valor fixo de antes.
+   */
+  it('cliente e projeto curtos: o conteúdo continua começando em 196', async () => {
+    await desenhar(OBS_CURTA, [], { clienteNome: 'SANEPAV LTDA', projeto: 'CALCA ELASTICO' });
+    const titulo = achar('ESPECIFICAÇÕES DA PEÇA')[0];
+    expect(titulo.y).toBeCloseTo(196, 0);
+  });
+
+  /**
+   * Razão social longa também quebra em duas linhas, e o conteúdo da esquerda
+   * (a foto) precisa descer junto — senão a segunda linha do nome fica dentro
+   * da imagem da peça.
+   */
+  it('razão social de duas linhas empurra o conteúdo para baixo', async () => {
+    await desenhar(OBS_CURTA, [], { clienteNome: 'DELPHOS SERVICOS DE VIGILANCIA E SEGURANCA PATRIMONIAL LTDA' });
+    const nome = achar('DELPHOS')[0];
+    const titulo = achar('ESPECIFICAÇÕES DA PEÇA')[0];
+    expect(nome.fim - nome.y).toBeGreaterThan(12);
+    expect(titulo.y).toBeGreaterThanOrEqual(nome.fim);
   });
 });
