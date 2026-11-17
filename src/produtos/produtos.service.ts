@@ -742,22 +742,44 @@ export class ProdutosService {
     const fim = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1));
     const ini = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - meses, 1));
 
-    const [despesas, pecas, notas, opsSemEtiqueta, entradasManuais] = await Promise.all([
+    /**
+     * PEÇA PRODUZIDA É O QUE SAI DA FÁBRICA, NÃO O QUE A OP ETIQUETOU.
+     *
+     * Contar por `origem='producao'` parecia óbvio e estava errado: no trimestre
+     * ago-out/2026, 11.701 peças de produtos DE PRODUÇÃO entraram com
+     * `origem='entrada'` — lançadas à mão na tela de estoque pelo admin e pelo
+     * Marcelo, provavelmente no retorno da facção. São uniformes fabricados
+     * aqui (calça hospitalar, jaleco, camiseta básica), não mercadoria comprada.
+     *
+     * Deixá-las de fora cortava o denominador em 60% e inflava o custo
+     * industrial de R$ 10,74 para R$ 27,68 por peça — e uma precificação feita
+     * em cima disso perderia venda por um custo que não existe.
+     *
+     * O que manda é o TIPO DO PRODUTO. Revenda fica de fora: ela não ocupa
+     * costureira nenhuma.
+     */
+    const idsFabricados = (
+      await this.prisma.produto.findMany({ where: { empresaId, tipo: 'producao' }, select: { id: true } })
+    ).map((x) => x.id);
+
+    const [despesas, pecas, notas, opsSemEtiqueta, foraDaContagem] = await Promise.all([
       this.prisma.contaPagar.groupBy({
         by: ['categoria'],
         where: { empresaId, vencimento: { gte: ini, lt: fim } },
         _sum: { valor: true },
       }),
       this.prisma.unidadeEstoque.count({
-        where: { empresaId, tipo: 'produto', origem: 'producao', criadoEm: { gte: ini, lt: fim } },
+        where: { empresaId, tipo: 'produto', produtoId: { in: idsFabricados }, criadoEm: { gte: ini, lt: fim } },
       }),
       this.prisma.notaFiscal.aggregate({
         where: { empresaId, emitidaEm: { gte: ini, lt: fim }, status: 'autorizada' },
         _sum: { valor: true },
       }),
       this.prisma.oP.count({ where: { empresaId, baixaSemEtiqueta: true } }),
+      // Etiquetas de produto que NÃO contaram: revenda (não ocupa costureira) e
+      // etiqueta sem produto vinculado (não dá para saber o que é).
       this.prisma.unidadeEstoque.count({
-        where: { empresaId, tipo: 'produto', origem: { not: 'producao' }, criadoEm: { gte: ini, lt: fim } },
+        where: { empresaId, tipo: 'produto', produtoId: { notIn: idsFabricados }, criadoEm: { gte: ini, lt: fim } },
       }),
     ]);
 
@@ -766,7 +788,7 @@ export class ProdutosService {
       pecas,
       faturamento: Number(notas._sum.valor ?? 0) || null,
       opsSemEtiqueta,
-      entradasManuais,
+      foraDaContagem,
     });
 
     return {

@@ -59,6 +59,11 @@ describe('em que balde cada despesa cai', () => {
 });
 
 describe('o rateio', () => {
+  /**
+   * 18.835 peças, e não 7.310: o denominador é o que a FÁBRICA produziu, e a
+   * maior parte disso entra no estoque por lançamento manual, não pela
+   * conclusão de OP. Contar só a OP cortava o denominador em 60%.
+   */
   const r = ratearCustoIndustrial({ despesas: REAIS, pecas: 7310, faturamento: 900000 });
 
   it('rateia folha + overhead, e so', () => {
@@ -103,15 +108,15 @@ describe('quando o numero nao e confiavel, ele diz', () => {
     expect(r.avisos.join(' ')).toMatch(/sai mais alto/i);
   });
 
-  it('entrada manual maior que a producao e apontada, com o numero que daria', () => {
-    const r = ratearCustoIndustrial({ despesas: REAIS, pecas: 7310, entradasManuais: 12065 });
+  it('muita peca fora da contagem e apontada, com o numero que daria', () => {
+    const r = ratearCustoIndustrial({ despesas: REAIS, pecas: 7310, foraDaContagem: 12065 });
     // 173903,84 / (7310 + 12065) = 8,98
     expect(r.avisos.join(' ')).toMatch(/8,98/);
-    expect(r.avisos.join(' ')).toMatch(/Se forem revenda, o número ao lado está certo/);
+    expect(r.avisos.join(' ')).toMatch(/tipo errado no cadastro/);
   });
 
-  it('entrada manual menor que a producao nao vira alarme', () => {
-    expect(ratearCustoIndustrial({ despesas: REAIS, pecas: 7310, entradasManuais: 100 }).avisos.join(' ')).not.toMatch(/denominador/);
+  it('as 540 de revenda do trimestre real nao viram alarme — sao 2,9% do total', () => {
+    expect(ratearCustoIndustrial({ despesas: REAIS, pecas: 18835, foraDaContagem: 540 }).avisos.join(' ')).not.toMatch(/denominador deveria/);
   });
 
   it('sem faturamento informado, o percentual e null — nao zero', () => {

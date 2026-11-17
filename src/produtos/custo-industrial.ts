@@ -85,15 +85,13 @@ export function ratearCustoIndustrial(args: {
   /** OPs concluídas sem etiqueta: peça produzida que a contagem não vê. */
   opsSemEtiqueta?: number;
   /**
-   * Etiquetas de produto lançadas como ENTRADA no período.
+   * Etiquetas de produto que ficaram FORA da contagem: revenda, que não ocupa
+   * costureira, e etiqueta sem produto vinculado, que ninguém sabe o que é.
    *
-   * O denominador conta só o que a conclusão de OP etiquetou (`origem=producao`).
-   * Peça acabada que entrou pela tela de estoque fica de fora — e deve mesmo,
-   * se for revenda. Mas se for produção lançada à mão, o denominador está
-   * pequeno e o custo por peça sai inflado na mesma proporção. Quem sabe qual é
-   * o caso é quem lançou, então o número aparece do lado para ser conferido.
+   * Aparece para ser conferido: se virar um número grande, é cadastro de
+   * produto com o tipo errado, e aí o denominador está menor do que deveria.
    */
-  entradasManuais?: number;
+  foraDaContagem?: number;
 }): RateioIndustrial {
   const porCategoria = args.despesas
     .map((d) => ({ categoria: d.categoria, total: Number(d.total) || 0, balde: baldeDaCategoria(d.categoria) }))
@@ -117,10 +115,10 @@ export function ratearCustoIndustrial(args: {
     );
   }
   if (!industrial) avisos.push('Nenhuma despesa indireta lançada no período.');
-  if (args.entradasManuais && pecas && args.entradasManuais > pecas) {
-    const juntas = pecas + args.entradasManuais;
+  if (args.foraDaContagem && pecas && args.foraDaContagem > pecas * 0.1) {
+    const juntas = pecas + args.foraDaContagem;
     avisos.push(
-      `Além das ${pecas.toLocaleString('pt-BR')} peças etiquetadas pela conclusão de OP, outras ${args.entradasManuais.toLocaleString('pt-BR')} entraram pela tela de estoque. Se essas também forem produção sua, o denominador deveria ser ${juntas.toLocaleString('pt-BR')} e o custo cairia para R$ ${(industrial / juntas).toFixed(2).replace('.', ',')} por peça. Se forem revenda, o número ao lado está certo.`,
+      `${args.foraDaContagem.toLocaleString('pt-BR')} peças etiquetadas no período ficaram de fora da contagem por serem revenda ou estarem sem produto vinculado. Se alguma delas for fabricada aqui e estiver com o tipo errado no cadastro, o denominador deveria chegar a ${juntas.toLocaleString('pt-BR')} e o custo cairia para R$ ${(industrial / juntas).toFixed(2).replace('.', ',')} por peça.`,
     );
   }
 
