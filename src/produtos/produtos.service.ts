@@ -10,6 +10,7 @@ import { CreateProdutoDto } from './dto/create-produto.dto';
 import { UpdateProdutoDto } from './dto/update-produto.dto';
 import { proximoCodigo } from '../common/utils/codigo.util';
 import { ArquivosService } from '../arquivos/arquivos.service';
+import { consumoSuspeito, custoDaLinha } from './custo-material';
 
 @Injectable()
 export class ProdutosService {
@@ -712,30 +713,74 @@ export class ProdutosService {
     const bom = await this.prisma.consumo.findMany({
       where: { produtoId: id },
       include: {
-        material: { select: { codigo: true, descricao: true, unidade: true, custo: true } },
+        material: {
+          select: {
+            codigo: true, descricao: true, unidade: true, custo: true,
+            largura: true, gramatura: true,
+          },
+        },
       },
     });
-    let custoMaterial = new Prisma.Decimal(0);
+    let custoMaterial = 0;
+    // Linha sem conversão possível não entra no total COMO ZERO — entra como
+    // lacuna declarada. O total de um produto meio contado é uma mentira barata.
+    const pendencias: string[] = [];
     const itens = bom.map((b) => {
       // Família sem material fixo: usa o custo MÉDIO das cores dessa família, senão
       // o custo do produto sairia menor do que é só porque a cor não foi escolhida.
-      const custoUnit = b.material?.custo ?? new Prisma.Decimal(0);
-      const subtotal = b.quantidade.mul(custoUnit);
-      custoMaterial = custoMaterial.plus(subtotal);
+      const linha = custoDaLinha({
+        quantidade: b.quantidade,
+        unidadeReceita: b.unidade,
+        material: b.material,
+      });
+      const codigo = b.material?.codigo ?? '—';
+      if (linha.subtotal == null) pendencias.push(`${codigo}: ${linha.aviso}`);
+      else custoMaterial += linha.subtotal;
+      const suspeito = consumoSuspeito(b.quantidade, b.unidade);
+      if (suspeito) pendencias.push(`${codigo}: ${suspeito}`);
       return {
-        material: b.material?.codigo ?? '—',
+        material: codigo,
         descricao: b.material?.descricao ?? (b.familia ? `${b.familia} (família — cor do pedido)` : '—'),
         quantidade: b.quantidade.toFixed(4),
         unidade: b.unidade,
-        custoUnit: custoUnit.toFixed(2),
-        subtotal: subtotal.toFixed(2),
+        /** Quantidade na unidade do PREÇO — é ela que multiplica o custo unitário. */
+        quantidadeCusto: linha.quantidade == null ? null : linha.quantidade.toFixed(4),
+        unidadeCusto: linha.unidade,
+        custoUnit: linha.custoUnit.toFixed(2),
+        subtotal: linha.subtotal == null ? null : linha.subtotal.toFixed(2),
+        aviso: linha.aviso ?? suspeito,
       };
     });
+    // Bordado, silk e DTF são comprados por PEÇA, de terceiro, e não aparecem em
+    // lugar nenhum da BOM — mas estão no preço da peça tanto quanto o tecido.
+    const aplicacoes = (Array.isArray(produto.aplicacoes) ? produto.aplicacoes : [])
+      .filter((a) => !!a && typeof a === 'object' && !Array.isArray(a))
+      .map((a) => a as Record<string, unknown>)
+      .map((a) => ({
+        tipo: String(a.tipo ?? ''),
+        tamanho: a.tamanho == null ? null : String(a.tamanho),
+        local: a.local == null ? null : String(a.local),
+        custo: Number(a.custo ?? 0) || 0,
+      }));
+    const custoAplicacoes = aplicacoes.reduce((s, a) => s + a.custo, 0);
+    const semPreco = aplicacoes.filter((a) => !a.custo).length;
+    if (semPreco) {
+      pendencias.push(
+        `${semPreco} aplicação(ões) sem custo por peça. Bordado e silk entram no preço da peça — preencha na receita.`,
+      );
+    }
+
     return {
       produto: { id: produto.id, codigo: produto.codigo, descricao: produto.descricao },
       precoBase: produto.precoBase ? produto.precoBase.toFixed(2) : null,
       itens,
       custoMaterial: custoMaterial.toFixed(2),
+      aplicacoes,
+      custoAplicacoes: custoAplicacoes.toFixed(2),
+      /** Material + aplicações: o que a peça custa antes da mão de obra. */
+      custoDireto: (custoMaterial + custoAplicacoes).toFixed(2),
+      /** Vazio = o total conta tudo. Com itens, o total está INCOMPLETO. */
+      pendencias,
     };
   }
 

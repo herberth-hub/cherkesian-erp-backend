@@ -160,6 +160,18 @@ export class AplicacaoDto {
   @IsString() @IsNotEmpty({ message: 'Informe o tipo da aplicação.' }) @MaxLength(40) tipo!: string;
   @IsOptional() @IsString() @MaxLength(60) tamanho?: string;
   @IsOptional() @IsString() @MaxLength(80) local?: string;
+  /**
+   * Quanto a aplicação custa POR PEÇA, em reais.
+   *
+   * Bordado e silk são comprados de terceiro e cobrados por peça, não por metro
+   * de tecido. Sem este campo o custo do produto só contava o pano: uma camiseta
+   * com dois silks parecia custar o mesmo que a lisa, e a margem saía dessa
+   * diferença sem ninguém ver.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo da aplicação deve ter no máximo 2 casas decimais.' })
+  @Min(0, { message: 'custo da aplicação não pode ser negativo.' })
+  custo?: number;
 }
 
 export class CreateProdutoDto extends ProdutoFichaDto {
