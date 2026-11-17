@@ -44,6 +44,12 @@ export class UpdateProdutoDto extends ProdutoFichaDto {
   @Min(0)
   custo?: number;
 
+  /** O que a facção cobra para costurar UMA peça deste produto. */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo de facção deve ter no máximo 2 casas decimais.' })
+  @Min(0, { message: 'custo de facção não pode ser negativo.' })
+  custoFaccao?: number;
+
   @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
 
   @IsOptional()

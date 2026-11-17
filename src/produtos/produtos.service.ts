@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { UpdateProdutoDto } from './dto/update-produto.dto';
 import { proximoCodigo } from '../common/utils/codigo.util';
 import { ArquivosService } from '../arquivos/arquivos.service';
 import { consumoSuspeito, custoDaLinha } from './custo-material';
+import { aliquotaDeVenda, ratearCustoIndustrial } from './custo-industrial';
 
 @Injectable()
 export class ProdutosService {
@@ -355,6 +357,7 @@ export class ProdutosService {
             clienteId: dto.clienteId,
             setor: dto.setor,
             custo: dto.custo,
+            custoFaccao: dto.custoFaccao,
             tipo: dto.tipo,
             componentes: (dto.componentes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
             aplicacoes: (dto.aplicacoes ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
@@ -447,6 +450,7 @@ export class ProdutosService {
           clienteId: dto.clienteId,
           setor: dto.setor,
           custo: dto.custo,
+          custoFaccao: dto.custoFaccao,
           tipo: dto.tipo,
           componentes:
             dto.componentes === undefined
@@ -708,7 +712,81 @@ export class ProdutosService {
    * Ficha de custo do produto: BOM (Consumo) × custo unitário do material.
    * Base da precificação — a margem/impostos são aplicados pelo cliente da API.
    */
-  async custo(id: number, empresaId: number) {
+  /**
+   * O CUSTO DA PEÇA É SÓ DO DONO.
+   *
+   * Quem monta a receita (PCP, engenharia) precisa ver material, consumo e
+   * unidade; o que a peça custa, não. Saber a margem de cada produto é o que se
+   * leva embora ao sair da empresa, e a trava tem de estar AQUI, não no
+   * `display:none` da tela: esconder no navegador deixa o número na resposta da
+   * API, a um F12 de distância.
+   */
+  private soDono(acesso: string | undefined, oQue: string): void {
+    if (acesso !== 'total') {
+      throw new ForbiddenException(`${oQue} é visível apenas para o administrador.`);
+    }
+  }
+
+  /**
+   * CUSTO INDUSTRIAL RATEADO — quanto a fábrica custa por peça.
+   *
+   * Base: últimos 3 MESES FECHADOS. O mês corrente fica de fora de propósito —
+   * ele tem despesa lançada e produção ainda acontecendo, e entraria no rateio
+   * com o numerador cheio e o denominador pela metade, inflando o custo de toda
+   * peça nos primeiros dias do mês.
+   */
+  async custoIndustrial(empresaId: number, acesso?: string, meses = 3) {
+    this.soDono(acesso, 'O custo industrial');
+    const hoje = new Date();
+    const fim = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1));
+    const ini = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - meses, 1));
+
+    const [despesas, pecas, notas, opsSemEtiqueta, entradasManuais] = await Promise.all([
+      this.prisma.contaPagar.groupBy({
+        by: ['categoria'],
+        where: { empresaId, vencimento: { gte: ini, lt: fim } },
+        _sum: { valor: true },
+      }),
+      this.prisma.unidadeEstoque.count({
+        where: { empresaId, tipo: 'produto', origem: 'producao', criadoEm: { gte: ini, lt: fim } },
+      }),
+      this.prisma.notaFiscal.aggregate({
+        where: { empresaId, emitidaEm: { gte: ini, lt: fim }, status: 'autorizada' },
+        _sum: { valor: true },
+      }),
+      this.prisma.oP.count({ where: { empresaId, baixaSemEtiqueta: true } }),
+      this.prisma.unidadeEstoque.count({
+        where: { empresaId, tipo: 'produto', origem: { not: 'producao' }, criadoEm: { gte: ini, lt: fim } },
+      }),
+    ]);
+
+    const rateio = ratearCustoIndustrial({
+      despesas: despesas.map((d) => ({ categoria: d.categoria, total: Number(d._sum.valor ?? 0) })),
+      pecas,
+      faturamento: Number(notas._sum.valor ?? 0) || null,
+      opsSemEtiqueta,
+      entradasManuais,
+    });
+
+    return {
+      periodo: { de: ini.toISOString().slice(0, 10), ate: fim.toISOString().slice(0, 10), meses },
+      ...rateio,
+    };
+  }
+
+  /** Alíquota de venda de cada filial, para a receita mostrar a margem líquida. */
+  async aliquotasDeVenda(empresaId: number, acesso?: string) {
+    this.soDono(acesso, 'A alíquota de venda');
+    const filiais = await this.prisma.filial.findMany({
+      where: { empresaId, ativa: true },
+      select: { id: true, nome: true, regimeTributario: true, pisAliquota: true, cofinsAliquota: true, matriz: true },
+      orderBy: [{ matriz: 'desc' }, { nome: 'asc' }],
+    });
+    return filiais.map((f) => ({ id: f.id, nome: f.nome, matriz: f.matriz, ...aliquotaDeVenda(f) }));
+  }
+
+  async custo(id: number, empresaId: number, acesso?: string) {
+    this.soDono(acesso, 'O custo da peça');
     const produto = await this.findOne(id, empresaId);
     const bom = await this.prisma.consumo.findMany({
       where: { produtoId: id },
@@ -770,6 +848,11 @@ export class ProdutosService {
       );
     }
 
+    const custoFaccao = Number(produto.custoFaccao ?? 0) || 0;
+    if (!custoFaccao) {
+      pendencias.push('Facção não lançada. Sem ela o custo da peça é só o material — e a costura é o segundo maior gasto da fábrica.');
+    }
+
     return {
       produto: { id: produto.id, codigo: produto.codigo, descricao: produto.descricao },
       precoBase: produto.precoBase ? produto.precoBase.toFixed(2) : null,
@@ -777,8 +860,13 @@ export class ProdutosService {
       custoMaterial: custoMaterial.toFixed(2),
       aplicacoes,
       custoAplicacoes: custoAplicacoes.toFixed(2),
-      /** Material + aplicações: o que a peça custa antes da mão de obra. */
-      custoDireto: (custoMaterial + custoAplicacoes).toFixed(2),
+      custoFaccao: custoFaccao.toFixed(2),
+      /**
+       * Material + aplicações + facção: tudo que é APONTÁVEL nesta peça.
+       * O custo industrial não entra aqui — ele é rateio, vem da empresa
+       * inteira, e somar os dois num campo só esconderia qual é qual.
+       */
+      custoDireto: (custoMaterial + custoAplicacoes + custoFaccao).toFixed(2),
       /** Vazio = o total conta tudo. Com itens, o total está INCOMPLETO. */
       pendencias,
     };

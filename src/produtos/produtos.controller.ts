@@ -51,8 +51,13 @@ export class ProdutosController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.produtosService.findOne(id, user.empresaId);
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    const p = await this.produtosService.findOne(id, user.empresaId);
+    // O que a peça CUSTA é só do dono. A receita técnica abre com este payload,
+    // e deixar o custo aqui faria a trava da tela ser só cosmética — o número
+    // estaria na resposta da API, a um F12 de distância.
+    if (user.acesso !== 'total') return { ...p, custoFaccao: null, custo: null };
+    return p;
   }
 
   // ---------- Cores do produto (cada uma com o seu mockup) ----------
@@ -95,10 +100,28 @@ export class ProdutosController {
     return this.produtosService.removerCor(id, corId, user.empresaId);
   }
 
+  /**
+   * Rateio do custo industrial (folha + despesas indiretas ÷ peças produzidas).
+   *
+   * Vem ANTES de `:id/custo` de propósito: o Nest casa as rotas na ordem em que
+   * são declaradas, e `:id` engoliria "custo-industrial" como se fosse um id.
+   */
+  @Get('custo-industrial')
+  custoIndustrial(@CurrentUser() user: AuthUser, @Query('meses') meses?: string) {
+    const m = Math.min(12, Math.max(1, Number(meses) || 3));
+    return this.produtosService.custoIndustrial(user.empresaId, user.acesso, m);
+  }
+
+  /** Alíquota de imposto sobre venda de cada filial — para a margem líquida. */
+  @Get('aliquotas-venda')
+  aliquotasVenda(@CurrentUser() user: AuthUser) {
+    return this.produtosService.aliquotasDeVenda(user.empresaId, user.acesso);
+  }
+
   /** Ficha de custo (BOM × custo do material) — base da precificação. */
   @Get(':id/custo')
   custo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.produtosService.custo(id, user.empresaId);
+    return this.produtosService.custo(id, user.empresaId, user.acesso);
   }
 
   @Post()

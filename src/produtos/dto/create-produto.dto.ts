@@ -211,6 +211,18 @@ export class CreateProdutoDto extends ProdutoFichaDto {
   @Min(0)
   custo?: number;
 
+  /**
+   * O que a facção cobra para costurar UMA peça deste produto.
+   *
+   * Lançado peça a peça, e não rateado junto com a folha e o aluguel, porque a
+   * costura varia demais entre produtos — ratear igual encareceria a peça
+   * simples e barataria a complexa.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'custo de facção deve ter no máximo 2 casas decimais.' })
+  @Min(0, { message: 'custo de facção não pode ser negativo.' })
+  custoFaccao?: number;
+
   /** produção (industrializado, gera OP) | revenda (comprado p/ revender). */
   @IsOptional() @IsIn(['producao', 'revenda']) tipo?: string;
 
