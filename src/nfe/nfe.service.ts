@@ -10,6 +10,7 @@ import { Cliente, Filial, Fornecedor, NFeStatus, NotaFiscal, Pedido, PedidoItem,
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { renderPreviaNfe, PreviaNfeData } from './nfe-previa.renderer';
+import { conferirQuantidades } from './quantidade-item';
 
 /** Só dígitos (CNPJ/CPF/CEP/telefone). */
 const digitos = (v?: string | null) => (v ?? '').replace(/\D/g, '');
@@ -531,19 +532,37 @@ export class NfeService {
     const itens: Array<{ descricao: string; quantidade: number; valorUnit: Prisma.Decimal; produtoId: number | null; ncm?: string | null }> = [];
     let valor = new Prisma.Decimal(0);
     let totalQtd = 0;
+    /** Para a trava de quantidade: a unidade comercial de cada item. */
+    const paraConferir: Array<{ descricao: string; quantidade: number; unidade?: string | null }> = [];
     for (const it of dto.itens) {
       let descricao = it.descricao;
+      let unidade: string | null = 'UN';
       if (it.produtoId) {
         const produto = await this.prisma.produto.findUnique({ where: { id: it.produtoId } });
         if (!produto || produto.empresaId !== empresaId) throw new NotFoundException(`Produto ${it.produtoId} não encontrado.`);
         descricao = descricao ?? produto.descricao;
+        unidade = produto.unidadeComercial ?? 'UN';
       }
       if (!descricao) throw new BadRequestException('Cada item precisa de descrição ou de um produtoId válido.');
       const valorUnit = new Prisma.Decimal(it.valorUnit);
       valor = valor.plus(valorUnit.mul(it.quantidade));
       totalQtd += Number(it.quantidade);
       const ncm = (it.ncm ?? '').replace(/\D/g, '');
+      paraConferir.push({ descricao, quantidade: Number(it.quantidade), unidade });
       itens.push({ produtoId: it.produtoId ?? null, descricao, quantidade: it.quantidade, valorUnit, ncm: ncm || null });
+    }
+
+    /**
+     * TRAVA: 0,001 peça não existe.
+     *
+     * A rodinha do mouse sobre o campo de quantidade transformava uma nota de
+     * R$ 121,50 numa de R$ 0,12 sem ninguém perceber (16/11/2026). A nota ia
+     * autorizada para a SEFAZ com o valor errado — e NF autorizada só se
+     * resolve com cancelamento. Ver `quantidade-item.ts`.
+     */
+    const problemas = conferirQuantidades(paraConferir);
+    if (problemas.length) {
+      throw new BadRequestException('Quantidade inválida — a nota NÃO foi emitida: ' + problemas.join(' | '));
     }
 
     // Frete cobrado do cliente: entra no TOTAL da nota e, por consequência, na duplicata.
@@ -1741,6 +1760,12 @@ export class NfeService {
         origem: p?.origem ?? 0,
       });
       valorTotal += valorUnit * quantidade;
+    }
+
+    // Mesma trava da NF avulsa: peça não se vende fracionada (ver quantidade-item.ts).
+    const probRem = conferirQuantidades(itens);
+    if (probRem.length) {
+      throw new BadRequestException('Quantidade inválida — a remessa NÃO foi emitida: ' + probRem.join(' | '));
     }
 
     if (token) {
