@@ -8,7 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AREAS_KEY } from '../decorators/acesso.decorator';
-import { Area, perfilPodeAcessar } from '../rbac/acesso.config';
+import { Area, AREAS_DO_DONO, perfilPodeAcessar, podeVerFinanceiro } from '../rbac/acesso.config';
 import { JwtPayload } from '../../auth/auth.types';
 
 /**
@@ -38,10 +38,21 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Usuário não autenticado.');
     }
 
-    const permitido = areas.some((area) => perfilPodeAcessar(user.acesso, area));
+    // Uma área DO DONO só libera se, além do perfil, o LOGIN também puder. A
+    // checagem é por área e não pela rota inteira: `@Areas('receber','vendas')`
+    // continua passando por `vendas` para quem tem vendas — fechar a rota toda
+    // tiraria do comercial uma tela que não é financeira.
+    const permitido = areas.some(
+      (area) =>
+        perfilPodeAcessar(user.acesso, area) &&
+        (!AREAS_DO_DONO.includes(area) || podeVerFinanceiro(user)),
+    );
     if (!permitido) {
+      const soDoDono = areas.every((a) => AREAS_DO_DONO.includes(a));
       throw new ForbiddenException(
-        `Perfil "${user.acesso}" não tem acesso a esta operação.`,
+        soDoDono && perfilPodeAcessar(user.acesso, areas[0])
+          ? 'Contas a pagar e a receber são visíveis apenas para o administrador, o financeiro e a contabilidade.'
+          : `Perfil "${user.acesso}" não tem acesso a esta operação.`,
       );
     }
     return true;

@@ -49,10 +49,13 @@ describe('visão financeira da empresa', () => {
       expect(podeVerDinheiroDaEmpresa(acesso)).toBe(false);
     });
 
-    it('inclui o comercial, que tem `receber` e ainda assim não vê o caixa', () => {
-      // É este o par que derrubava a trava antiga: acompanhar a cobrança da
-      // carteira não é enxergar o dinheiro da casa.
-      expect(perfilPodeAcessar('comercial', 'receber')).toBe(true);
+    it('inclui o comercial, que desde 17/11/2026 nem `receber` tem mais', () => {
+      // Antes o comercial tinha `receber` para acompanhar a cobrança da carteira
+      // dele e ainda assim não via o caixa — era este par que derrubava a trava
+      // antiga. Agora contas a receber saiu do perfil por inteiro: é do dono, do
+      // financeiro e da contabilidade. O acompanhamento da carteira ficou na
+      // própria tela de pedidos, que mostra o que está pago e o que não está.
+      expect(perfilPodeAcessar('comercial', 'receber')).toBe(false);
       expect(podeVerDinheiroDaEmpresa('comercial')).toBe(false);
     });
 

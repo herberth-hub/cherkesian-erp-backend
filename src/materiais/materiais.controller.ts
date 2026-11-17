@@ -15,6 +15,7 @@ import { UpdateMaterialDto } from './dto/update-material.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
+import { podeVerCusto } from '../common/rbac/acesso.config';
 
 // Produção (cadastros/estoque/compras); admin sempre.
 @Areas('cadastros', 'estoque', 'compras')
@@ -29,9 +30,17 @@ export class MateriaisController {
    * morto.
    */
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query('inativos') inativos?: string) {
+  async findAll(@CurrentUser() user: AuthUser, @Query('inativos') inativos?: string) {
     const incluir = inativos === '1' || inativos === 'true';
-    return this.materiaisService.findAll(user.empresaId, incluir);
+    const lista = await this.materiaisService.findAll(user.empresaId, incluir);
+    // O PREÇO DE COMPRA É SÓ DO DONO.
+    //
+    // Quem separa material, lança nota e faz ordem de compra precisa do código,
+    // da descrição, da unidade e do saldo; do que o rolo custou, não. E é por
+    // aqui que a receita técnica calculava o custo da peça — esconder só na tela
+    // deixaria o número na resposta da API, a um F12 de distância.
+    if (podeVerCusto(user)) return lista;
+    return lista.map((m) => ({ ...m, custo: null }));
   }
 
   @Get('abaixo-minimo')
@@ -40,8 +49,10 @@ export class MateriaisController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.materiaisService.findOne(id, user.empresaId);
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    const m = await this.materiaisService.findOne(id, user.empresaId);
+    // Mesma regra da lista: a ficha do material não entrega o preço de compra.
+    return podeVerCusto(user) ? m : { ...m, custo: null };
   }
 
   @Post()
@@ -55,7 +66,11 @@ export class MateriaisController {
     @Body() dto: UpdateMaterialDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.materiaisService.update(id, dto, user.empresaId);
+    // Quem não enxerga o custo também não o escreve. A tela já esconde o campo,
+    // mas sem isto um PATCH com `custo: 0` — de uma aba antiga em cache, ou de
+    // qualquer cliente — apagaria o preço de compra sem deixar rastro.
+    const limpo = podeVerCusto(user) ? dto : { ...dto, custo: undefined };
+    return this.materiaisService.update(id, limpo, user.empresaId);
   }
 
   @Delete(':id')

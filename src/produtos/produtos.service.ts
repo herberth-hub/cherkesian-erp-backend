@@ -13,6 +13,7 @@ import { proximoCodigo } from '../common/utils/codigo.util';
 import { ArquivosService } from '../arquivos/arquivos.service';
 import { consumoSuspeito, custoDaLinha } from './custo-material';
 import { aliquotaDeVenda, ratearCustoIndustrial } from './custo-industrial';
+import { podeVerCusto } from '../common/rbac/acesso.config';
 
 @Injectable()
 export class ProdutosService {
@@ -721,8 +722,8 @@ export class ProdutosService {
    * `display:none` da tela: esconder no navegador deixa o número na resposta da
    * API, a um F12 de distância.
    */
-  private soDono(acesso: string | undefined, oQue: string): void {
-    if (acesso !== 'total') {
+  private soDono(user: { usuario?: string | null } | undefined, oQue: string): void {
+    if (!podeVerCusto(user)) {
       throw new ForbiddenException(`${oQue} é visível apenas para o administrador.`);
     }
   }
@@ -735,8 +736,8 @@ export class ProdutosService {
    * com o numerador cheio e o denominador pela metade, inflando o custo de toda
    * peça nos primeiros dias do mês.
    */
-  async custoIndustrial(empresaId: number, acesso?: string, meses = 3) {
-    this.soDono(acesso, 'O custo industrial');
+  async custoIndustrial(empresaId: number, user?: { usuario?: string | null }, meses = 3) {
+    this.soDono(user, 'O custo industrial');
     const hoje = new Date();
     const fim = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1));
     const ini = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - meses, 1));
@@ -775,8 +776,8 @@ export class ProdutosService {
   }
 
   /** Alíquota de venda de cada filial, para a receita mostrar a margem líquida. */
-  async aliquotasDeVenda(empresaId: number, acesso?: string) {
-    this.soDono(acesso, 'A alíquota de venda');
+  async aliquotasDeVenda(empresaId: number, user?: { usuario?: string | null }) {
+    this.soDono(user, 'A alíquota de venda');
     const filiais = await this.prisma.filial.findMany({
       where: { empresaId, ativa: true },
       select: { id: true, nome: true, regimeTributario: true, pisAliquota: true, cofinsAliquota: true, matriz: true },
@@ -785,8 +786,8 @@ export class ProdutosService {
     return filiais.map((f) => ({ id: f.id, nome: f.nome, matriz: f.matriz, ...aliquotaDeVenda(f) }));
   }
 
-  async custo(id: number, empresaId: number, acesso?: string) {
-    this.soDono(acesso, 'O custo da peça');
+  async custo(id: number, empresaId: number, user?: { usuario?: string | null }) {
+    this.soDono(user, 'O custo da peça');
     const produto = await this.findOne(id, empresaId);
     const bom = await this.prisma.consumo.findMany({
       where: { produtoId: id },

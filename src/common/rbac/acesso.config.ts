@@ -53,6 +53,9 @@ export const ALL_AREAS = '*' as const;
  */
 export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = {
   total: ALL_AREAS,
+  // SEM `receber` desde 17/11/2026: contas a receber passou a ser do dono e do
+  // financeiro. O comercial acompanha a cobrança da carteira dele pela própria
+  // tela de pedidos, que mostra o que está pago e o que não está.
   comercial: [
     'vendas',
     'crm',
@@ -60,7 +63,6 @@ export const ACESSO_AREAS: Record<Acesso, readonly Area[] | typeof ALL_AREAS> = 
     'medidas',
     'comissoes',
     'precificacao',
-    'receber',
     'dashboard',
     'tv',
     'anomalias',
@@ -143,4 +145,60 @@ export function perfilPodeAcessar(acesso: Acesso, area: Area): boolean {
  */
 export function podeVerDinheiroDaEmpresa(acesso: Acesso): boolean {
   return perfilPodeAcessar(acesso, 'diretoria');
+}
+
+// ===========================================================================
+// TRAVA POR LOGIN — acima do perfil
+// ===========================================================================
+/**
+ * POR QUE ISTO NÃO É UM PERFIL.
+ *
+ * O perfil `total` é de cinco pessoas (admin, bruna, marcelo, ISRAEL.LUCAS e o
+ * login do assistente de IA). O que a peça CUSTA e o CONTAS A PAGAR/RECEBER não
+ * são de todas elas — decisão do Herberth em 17/11/2026: "apenas o perfil do adm
+ * e a IA podem ver".
+ *
+ * Criar um perfil novo para isso obrigaria a remanejar os outros quatro e
+ * mudaria tudo o que eles já fazem. A trava por LOGIN fica acima do perfil e
+ * mexe só no que precisa mexer.
+ *
+ * O preço disso: `scripts/rbac-check.js` compara MENU × PERFIL e não enxerga
+ * esta camada. Por isso o frontend esconde as mesmas telas pelo mesmo critério
+ * — se um dia divergirem, o menu oferece e a API nega.
+ *
+ * Trocar o login do Herberth (hoje `admin`) sem mexer aqui FECHA o acesso dele.
+ */
+export const LOGINS_DONO: readonly string[] = ['admin', 'agente'];
+
+/** Áreas que, além do perfil, exigem um login desta lista (ou perfil financeiro). */
+export const AREAS_DO_DONO: readonly Area[] = ['receber', 'pagar'];
+
+/**
+ * Perfis que continuam vendo o financeiro mesmo não sendo login do dono.
+ *
+ * A DELTACONT (contabilidade) toca contas a pagar e a receber — é o trabalho
+ * dela. Cortá-la junto deixaria o escritório pedindo os números por WhatsApp.
+ */
+const PERFIS_FINANCEIROS: readonly Acesso[] = ['financeiro', 'contabilidade'];
+
+export function ehLoginDoDono(usuario: string | null | undefined): boolean {
+  const u = String(usuario ?? '').trim().toLowerCase();
+  return !!u && LOGINS_DONO.some((d) => d.toLowerCase() === u);
+}
+
+/** Contas a pagar e a receber. */
+export function podeVerFinanceiro(user: { usuario?: string | null; acesso?: Acesso } | null | undefined): boolean {
+  if (!user) return false;
+  if (ehLoginDoDono(user.usuario)) return true;
+  return !!user.acesso && PERFIS_FINANCEIROS.includes(user.acesso);
+}
+
+/**
+ * O que a PEÇA custa e o que o MATERIAL custa.
+ *
+ * Mais fechado que o financeiro: nem a contabilidade entra. Saber a margem de
+ * cada produto é o que se leva embora ao sair da empresa.
+ */
+export function podeVerCusto(user: { usuario?: string | null } | null | undefined): boolean {
+  return ehLoginDoDono(user?.usuario);
 }

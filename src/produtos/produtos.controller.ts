@@ -18,6 +18,7 @@ import { AtualizarCorProdutoDto, CorProdutoDto } from './dto/cor-produto.dto';
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
+import { podeVerCusto } from '../common/rbac/acesso.config';
 
 // Produção (cadastros) e Comercial (vendas, p/ montar pedidos); admin sempre.
 @Areas('cadastros', 'vendas')
@@ -56,7 +57,7 @@ export class ProdutosController {
     // O que a peça CUSTA é só do dono. A receita técnica abre com este payload,
     // e deixar o custo aqui faria a trava da tela ser só cosmética — o número
     // estaria na resposta da API, a um F12 de distância.
-    if (user.acesso !== 'total') return { ...p, custoFaccao: null, custo: null };
+    if (!podeVerCusto(user)) return { ...p, custoFaccao: null, custo: null };
     return p;
   }
 
@@ -109,19 +110,19 @@ export class ProdutosController {
   @Get('custo-industrial')
   custoIndustrial(@CurrentUser() user: AuthUser, @Query('meses') meses?: string) {
     const m = Math.min(12, Math.max(1, Number(meses) || 3));
-    return this.produtosService.custoIndustrial(user.empresaId, user.acesso, m);
+    return this.produtosService.custoIndustrial(user.empresaId, user, m);
   }
 
   /** Alíquota de imposto sobre venda de cada filial — para a margem líquida. */
   @Get('aliquotas-venda')
   aliquotasVenda(@CurrentUser() user: AuthUser) {
-    return this.produtosService.aliquotasDeVenda(user.empresaId, user.acesso);
+    return this.produtosService.aliquotasDeVenda(user.empresaId, user);
   }
 
   /** Ficha de custo (BOM × custo do material) — base da precificação. */
   @Get(':id/custo')
   custo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.produtosService.custo(id, user.empresaId, user.acesso);
+    return this.produtosService.custo(id, user.empresaId, user);
   }
 
   @Post()
