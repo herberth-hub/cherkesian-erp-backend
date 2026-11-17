@@ -2070,6 +2070,20 @@ export class DocumentosService {
     const doc = novoDocumentoLimpo('Ficha Técnica', numero);
     const W = doc.page.width, H = doc.page.height;
     const M = 34, LARG = W - M * 2;
+    /**
+     * O PÉ DA PÁGINA É RESERVADO, e nada desenha dentro dele.
+     *
+     * A ficha do cliente é UMA folha e termina sempre igual: bloco de aprovação
+     * e rodapé. Antes o bloco era posicionado com `Math.min(y, H - 130)` — ou
+     * seja, quando o texto crescia, o bloco SUBIA e era desenhado por cima das
+     * observações, em vez de o texto ser contido. Agora a âncora é fixa e quem
+     * cede é o texto, que é cortado com reticências.
+     *
+     * Y_APROVACAO: topo do bloco de assinatura (altura dele ≈ 65 + rodapé 52).
+     * Y_FIM_CONTEUDO: até onde qualquer conteúdo pode ir.
+     */
+    const Y_APROVACAO = H - 130;
+    const Y_FIM_CONTEUDO = Y_APROVACAO - 14;
     const txt = (t: string, x: number, y: number, o: Record<string, unknown> = {}) => doc.text(String(t ?? ''), x, y, { lineBreak: false, ...o });
 
     // ===== Cabeçalho (fundo branco, marca à esquerda, tagline à direita) =====
@@ -2223,7 +2237,8 @@ export class DocumentosService {
         // A ficha do cliente é UMA folha: o bloco de aprovação fica preso ao pé
         // da página, então linha que não couber antes dele seria desenhada por
         // baixo da assinatura. Melhor cortar e dizer quantas ficaram de fora.
-        const yLimite = H - 130 - 26; // sobra para OBSERVAÇÕES antes da aprovação
+        // Deixa espaço para o título OBSERVAÇÕES e algumas linhas dele.
+        const yLimite = Y_FIM_CONTEUDO - 46;
         const cabem = Math.max(1, Math.floor((yLimite - y) / 17));
         const linhas = produto.medidas.slice(0, cabem);
         const sobraram = produto.medidas.length - linhas.length;
@@ -2265,11 +2280,24 @@ export class DocumentosService {
     doc.fillColor(CINZA).font('Helvetica-Bold').fontSize(8); txt('OBSERVAÇÕES', M, y);
     y += 12;
     doc.fillColor(ONIX).font('Helvetica').fontSize(7.5);
-    doc.text(notas, M, y, { width: LARG });
-    y = Math.max(doc.y + 14, y + 30);
+    /**
+     * O texto cabe no que sobrou — e só nisso. Observação de peça é longa
+     * (aplicação de logo, cores, manual da marca): deixá-la correr livre
+     * escrevia por cima da assinatura do cliente.
+     */
+    const alturaDisp = Math.max(0, Y_FIM_CONTEUDO - y);
+    const cortou = doc.heightOfString(notas, { width: LARG }) > alturaDisp;
+    // Quando corta, guarda uma linha para AVISAR que cortou: ficha de cliente
+    // que esconde texto sem dizer é pior que ficha truncada.
+    const alturaTexto = cortou ? Math.max(0, alturaDisp - 11) : alturaDisp;
+    if (alturaTexto > 0) doc.text(notas, M, y, { width: LARG, height: alturaTexto, ellipsis: true });
+    if (cortou) {
+      doc.fillColor(CINZA).font('Helvetica-Oblique').fontSize(6.5);
+      doc.text('Observações completas na ficha de produção.', M, Y_FIM_CONTEUDO - 9, { width: LARG, lineBreak: false });
+    }
 
     // ===== Aprovação do cliente =====
-    const yAp = Math.min(y, H - 130);
+    const yAp = Y_APROVACAO;
     doc.rect(M, yAp, 132, 18).fill(ONIX);
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7.5); txt('APROVAÇÃO DO CLIENTE', M + 10, yAp + 5.5);
     let xo = M + 152;
