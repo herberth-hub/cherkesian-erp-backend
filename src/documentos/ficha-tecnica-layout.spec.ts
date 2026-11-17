@@ -70,6 +70,9 @@ function servico(observacoes: string, medidas: Array<Record<string, unknown>> = 
       }),
     },
     cliente: { findUnique: () => Promise.resolve({ nome: 'DELPHOS SERVICOS DE VIGILANCIA E SEGURANCA LTDA', fantasia: null }) },
+    // A foto da peça cai no mockup da cor quando `fotoModelo` está vazio; aqui
+    // o produto não tem cor cadastrada, então a ficha sai sem foto, como antes.
+    produtoCor: { findMany: () => Promise.resolve([]) },
   };
   const arquivos = { dataUri: () => Promise.resolve(null) };
   const svc = new DocumentosService(arquivos as never, prisma as never, null as never);

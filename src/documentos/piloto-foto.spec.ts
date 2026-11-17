@@ -41,6 +41,10 @@ function servico(produto: Record<string, unknown> | null = { ...PRODUTO }) {
     piloto: { findUnique: () => Promise.resolve({ ...PILOTO }) },
     produto: { findUnique: () => Promise.resolve(produto) },
     cliente: { findUnique: () => Promise.resolve({ nome: 'ZAMP S.A.' }) },
+    // A ficha da piloto também cai no mockup da cor quando não há foto. Aqui
+    // não há cor cadastrada, então a ordem de preferência testada abaixo
+    // (foto da piloto > foto do produto > desenho da modelagem) fica intacta.
+    produtoCor: { findMany: () => Promise.resolve([]) },
     pedido: { findUnique: () => Promise.resolve(null) },
     empresa: { findUnique: () => Promise.resolve({ logo: null }) },
   };

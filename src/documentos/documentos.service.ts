@@ -125,6 +125,43 @@ export class DocumentosService {
     return alvo;
   }
 
+  /**
+   * A FOTO DA PEÇA para os documentos.
+   *
+   * `fotoModelo` é o campo oficial, mas quase ninguém o preenche: quem tem
+   * imagem no cadastro é a COR, no mockup que a tela de produtos já mostra na
+   * listagem (`produtos.service` cai no `cores[0].mockupFrente` exatamente
+   * assim). Sem o mesmo fallback aqui, a ficha sai SEM foto enquanto a tela
+   * mostra uma — foi o que aconteceu com a PRD-CAM-0085, que tem mockup de
+   * frente e de costas e `fotoModelo` vazio.
+   *
+   * Escolhe o mockup da cor do produto quando ela existe; senão, o primeiro
+   * cadastrado. Devolve data URI pronto para desenhar, ou null.
+   */
+  private async fotoDaPeca(produto: { id: number; cor?: string | null; fotoModelo?: string | null } | null): Promise<string | null> {
+    if (!produto) return null;
+    if (produto.fotoModelo && produto.fotoModelo.trim()) return produto.fotoModelo;
+
+    const cores = await this.prisma.produtoCor.findMany({
+      where: { produtoId: produto.id },
+      select: { nome: true, mockupFrente: true },
+      orderBy: { ordem: 'asc' },
+    });
+    // `{ not: null }` não bastaria: mockup salvo e depois apagado fica string vazia.
+    const comImagem = cores.filter((c) => c.mockupFrente && c.mockupFrente.trim());
+    if (!comImagem.length) return null;
+
+    const alvo = DocumentosService.semAcento(produto.cor);
+    const escolhida = (alvo && comImagem.find((c) => DocumentosService.semAcento(c.nome) === alvo)) || comImagem[0];
+    const r = await this.resolverAnexos({ img: escolhida.mockupFrente as string }, ['img']);
+    return r?.img ?? null;
+  }
+
+  /** "Verde Bandeira" e "VERDE BANDEIRA" são a mesma cor na hora de casar o mockup. */
+  private static semAcento(s: unknown): string {
+    return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  }
+
   constructor(
     private readonly arquivos: ArquivosService,
     private readonly prisma: PrismaService,
@@ -883,8 +920,9 @@ export class DocumentosService {
       ]);
       // Imagem do modelo para o cortador identificar a peça (ou moldura em branco).
       secao(doc, 'Modelo da peça');
-      if (produto.fotoModelo) {
-        imagem(doc, produto.fotoModelo, 128);
+      const fotoPeca = await this.fotoDaPeca(produto);
+      if (fotoPeca) {
+        imagem(doc, fotoPeca, 128);
       } else {
         const x = 50, w = doc.page.width - 100, h = 92;
         const y = doc.y + 2;
@@ -2126,8 +2164,9 @@ export class DocumentosService {
     // ===== Coluna esquerda: vista frontal =====
     const COL_E = M, COL_D = 286, LARG_D = W - M - COL_D;
     let yE = 196;
-    if (produto.fotoModelo) {
-      const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(produto.fotoModelo);
+    const fotoPeca = await this.fotoDaPeca(produto);
+    if (fotoPeca) {
+      const m = /^data:image\/[a-zA-Z+]+;base64,(.+)$/s.exec(fotoPeca);
       if (m) { try { doc.image(Buffer.from(m[1], 'base64'), COL_E, yE, { fit: [236, 300], align: 'center' }); } catch { /* imagem inválida */ } }
       yE += 306;
       doc.fillColor(ONIX).font('Helvetica-Bold').fontSize(8);
@@ -2370,9 +2409,10 @@ export class DocumentosService {
       // Preço NÃO entra: ficha técnica, não comercial.
     ]);
 
-    if (produto.fotoModelo) {
+    const fotoPeca = await this.fotoDaPeca(produto);
+    if (fotoPeca) {
       secao(doc, 'Modelo');
-      imagem(doc, produto.fotoModelo, 230);
+      imagem(doc, fotoPeca, 230);
     }
 
     if (produto.especificacoes?.trim()) {
@@ -2711,8 +2751,9 @@ export class DocumentosService {
 
     // Foto do modelo (ou moldura em branco p/ anexar).
     secao(doc, 'Modelo da peça');
-    if (produto?.fotoModelo) {
-      imagem(doc, produto.fotoModelo, 200);
+    const fotoPeca = await this.fotoDaPeca(produto);
+    if (fotoPeca) {
+      imagem(doc, fotoPeca, 200);
     } else {
       const x = 50, w = doc.page.width - 100, h = 120, y = doc.y + 2;
       doc.roundedRect(x, y, w, h, 6).lineWidth(0.8).dash(3, { space: 3 }).strokeColor('#C9A227').stroke().undash();
@@ -2844,7 +2885,10 @@ export class DocumentosService {
     // não tem produto (ele só nasce depois da aprovação), então sem a primeira
     // a moldura saía vazia.
     let desenhou = false;
-    for (const fonte of [pilotoFoto, produto?.fotoModelo, produto?.fotoModelagem]) {
+    // O mockup da cor entra entre a foto do produto e o desenho da modelagem:
+    // é imagem real da peça, melhor que o molde, e pior que a foto da piloto.
+    const mockupCor = await this.fotoDaPeca(produto);
+    for (const fonte of [pilotoFoto, produto?.fotoModelo, mockupCor, produto?.fotoModelagem]) {
       if (!fonte || desenhou) continue;
       try {
         doc.image(Buffer.from(String(fonte).split(',').pop() || '', 'base64'), x0 + 8, y + 18, { fit: [W - 16, hDes - 26], align: 'center', valign: 'center' });
