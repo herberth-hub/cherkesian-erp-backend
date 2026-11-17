@@ -4200,15 +4200,31 @@ async function saveProdutoRevenda(){
   catch(e){ toast(e.message,'err'); }
 }
 // ===== Receita (BOM): materiais + consumo por tamanho + componentes do conjunto =====
+/**
+ * O CUSTO DA PEÇA É SÓ DO DONO.
+ *
+ * Quem monta a receita precisa ver material, consumo e unidade; o que a peça
+ * custa e quanto ela dá de margem, não. A API já recusa para os outros perfis —
+ * isto aqui é só para a tela não mostrar campo vazio nem pedir dado que vai
+ * voltar 403.
+ */
+function recVeValores(){ return (S.user&&S.user.acesso)==='total'; }
 async function formReceita(id){
-  let prod, consumos, materiais, produtos;
+  let prod, consumos, materiais, produtos, industrial=null, aliquotas=[];
   try{
     [prod, consumos, materiais, produtos] = await Promise.all([
       api('/produtos/'+id), api('/consumo?produtoId='+id), api('/materiais'), api('/produtos')
     ]);
+    if(recVeValores()){
+      // Falha aqui não derruba a receita: sem o rateio a tela ainda serve para
+      // montar a ficha, só não fecha o custo.
+      try{ [industrial, aliquotas] = await Promise.all([api('/produtos/custo-industrial'), api('/produtos/aliquotas-venda')]); }catch(_){}
+    }
   }catch(e){ toast(e.message,'err'); return; }
   window.__REC = {
-    id, prod,
+    id, prod, industrial, aliquotas,
+    filialSel: (aliquotas&&aliquotas[0]&&aliquotas[0].id)||null,
+    margemAlvo: 40,
     grade: (prod.grade||'').split(/[,;/ ]+/).map(s=>s.trim().toUpperCase()).filter(Boolean).slice(0,16),
     consumos: consumos||[],
     materiais: materiais||[],
@@ -4261,6 +4277,7 @@ function recCustoLinha(cs){
 function recProdName(pid){ const p=(window.__REC.produtos||[]).find(x=>x.id===pid)|| (window.__REC.prod.id===pid?window.__REC.prod:null); return p?(p.codigo+' · '+p.descricao):('#'+pid); }
 function renderReceita(){
   const R=window.__REC; if(!R) return;
+  const verR$ = recVeValores();
   const isConj = (R.componentes&&R.componentes.length)>0;
   // ----- Linhas de material (BOM) -----
   const bomRows = (R.consumos||[]).map(cs=>{
@@ -4283,10 +4300,10 @@ function renderReceita(){
         <td style="padding:6px 8px;border-top:1px solid #eee"><span class="mono gold">${esc(recMatName(cs.materialId).split(' · ')[0])}</span> ${esc((recMatName(cs.materialId).split(' · ')[1])||'')}</td>
         <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" id="qt_${cs.id}" type="number" step="0.0001" min="0" onwheel="this.blur()" value="${esc(String(cs.quantidade))}" style="width:88px;text-align:right;padding:5px 6px;font-size:12px"></td>
         <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" id="un_${cs.id}" value="${esc(cs.unidade)}" style="width:56px;padding:5px 6px;font-size:12px"></td>
-        <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right">
+        ${verR$?`<td style="padding:4px 8px;border-top:1px solid #eee;text-align:right">
           ${mat?`<input class="inp" id="cu_${cs.id}" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(Number(mat.custo||0).toFixed(2)))}" onchange="APP.recSalvarCusto(${cs.id})" title="Preço de compra do material. Salvar aqui muda a ficha do material — vale para TODOS os produtos que o usam." style="width:86px;text-align:right;padding:5px 6px;font-size:12px">
             <div class="muted" style="font-size:10px;margin-top:2px">R$ / ${esc(mat.unidade||'un')}</div>`:'<span class="muted" style="font-size:11px">—</span>'}</td>
-        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right">${subCel}</td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right">${subCel}</td>`:''}
         <td style="padding:6px 8px;border-top:1px solid #eee;text-align:center">${temPT?'<span class="pill green" style="font-size:10px">'+Object.keys(pt).length+' tam.</span>':'<span class="muted" style="font-size:11px">—</span>'}</td>
         <td style="padding:6px 8px;border-top:1px solid #eee;white-space:nowrap;text-align:right">
           <button class="btn-sm" onclick="APP.recSalvarLinha(${cs.id})">💾</button>
@@ -4312,7 +4329,7 @@ function renderReceita(){
       <td style="padding:4px 8px;border-top:1px solid #eee"><select class="inp" onchange="APP.recAplicSet(${i},'tipo',this.value)" style="padding:5px 6px;font-size:12px;min-width:110px">${ops.map(t=>`<option value="${esc(t)}" ${a.tipo===t?'selected':''}>${esc(t)}</option>`).join('')}</select></td>
       <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.tamanho||'')}" onchange="APP.recAplicSet(${i},'tamanho',this.value)" placeholder="ex.: 10 x 8 cm" style="padding:5px 6px;font-size:12px"></td>
       <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.local||'')}" onchange="APP.recAplicSet(${i},'local',this.value)" placeholder="opcional (ex.: peito esq.)" style="padding:5px 6px;font-size:12px"></td>
-      <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(Number(a.custo||0).toFixed(2)))}" onchange="APP.recAplicSet(${i},'custo',this.value)" title="Quanto esta aplicação custa POR PEÇA" style="width:86px;text-align:right;padding:5px 6px;font-size:12px"></td>
+      ${verR$?`<td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(Number(a.custo||0).toFixed(2)))}" onchange="APP.recAplicSet(${i},'custo',this.value)" title="Quanto esta aplicação custa POR PEÇA" style="width:86px;text-align:right;padding:5px 6px;font-size:12px"></td>`:''}
       <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.recAplicDel(${i})">✕</button></td></tr>`;
   }).join('');
   const custoAplic = (R.aplicacoes||[]).reduce((s,a)=>s+(Number(a.custo)||0),0);
@@ -4335,11 +4352,11 @@ function renderReceita(){
 
     ${secDivisor('MATERIAIS / TECIDOS (BOM)')}
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
-      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Material</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd base</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Un.</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo un.</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Subtotal</th><th style="text-align:center;padding:7px 8px;background:#F4F2ED;font-size:11px">Por tam.</th><th style="background:#F4F2ED"></th></tr></thead>
-      <tbody>${bomRows||'<tr><td colspan="7" style="padding:8px;text-align:center;color:#999">Sem materiais na receita.</td></tr>'}</tbody></table></div>
-    <div style="margin-top:6px;font-size:12px">Custo de material (qtd base): <b style="font-size:14px">${money(custoTot)}</b>
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Material</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd base</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Un.</th>${verR$?'<th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo un.</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Subtotal</th>':''}<th style="text-align:center;padding:7px 8px;background:#F4F2ED;font-size:11px">Por tam.</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${bomRows||`<tr><td colspan="${verR$?7:5}" style="padding:8px;text-align:center;color:#999">Sem materiais na receita.</td></tr>`}</tbody></table></div>
+    ${verR$?`<div style="margin-top:6px;font-size:12px">Custo de material (qtd base): <b style="font-size:14px">${money(custoTot)}</b>
       ${nPend?`<span class="pill" style="background:#fff2d8;color:#8a5a1b;font-size:10px;margin-left:6px">incompleto · ${nPend} linha(s) sem conversão</span>`:''}
-      <div class="muted" style="font-size:11px;margin-top:2px">Tecido comprado por quilo e consumido em metro é convertido pela ficha do material (largura × gramatura). O custo unitário é o preço de compra — editar aqui muda a ficha do material.</div></div>
+      <div class="muted" style="font-size:11px;margin-top:2px">Tecido comprado por quilo e consumido em metro é convertido pela ficha do material (largura × gramatura). O custo unitário é o preço de compra — editar aqui muda a ficha do material.</div></div>`:''}
     <div style="display:flex;gap:6px;align-items:end;margin-top:8px">
       <div style="flex:1"><label class="fl">Adicionar material</label><input id="rec_mat" class="inp" list="rec_mats" placeholder="digite código ou descrição…"><datalist id="rec_mats">${matOpts}</datalist></div>
       <div style="width:110px"><label class="fl">Qtd base</label><input id="rec_qt" class="inp" type="number" step="0.0001" placeholder="0.0000"></div>
@@ -4350,26 +4367,156 @@ function renderReceita(){
     ${secDivisor('APLICAÇÕES (Bordado / DTF / Silk)')}
     <div class="muted" style="font-size:11.5px;margin:-2px 0 6px">Aplicações da peça e o tamanho de cada uma (aparecem na ficha técnica enviada ao cliente). O custo é <b>por peça</b> — é o que a bordadeira/serigrafia cobra de cada unidade.</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
-      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Aplicação</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Tamanho</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Local</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo / peça</th><th style="background:#F4F2ED"></th></tr></thead>
-      <tbody>${aplicRows||'<tr><td colspan="5" style="padding:8px;text-align:center;color:#999">Nenhuma aplicação.</td></tr>'}</tbody></table></div>
-    <div style="margin-top:6px;font-size:12px">Custo das aplicações: <b>${money(custoAplic)}</b>
-      ${aplicSemPreco?`<span class="pill" style="background:#fff2d8;color:#8a5a1b;font-size:10px;margin-left:6px">${aplicSemPreco} sem preço</span>`:''}</div>
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Aplicação</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Tamanho</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Local</th>${verR$?'<th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo / peça</th>':''}<th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${aplicRows||`<tr><td colspan="${verR$?5:4}" style="padding:8px;text-align:center;color:#999">Nenhuma aplicação.</td></tr>`}</tbody></table></div>
+    ${verR$?`<div style="margin-top:6px;font-size:12px">Custo das aplicações: <b>${money(custoAplic)}</b>
+      ${aplicSemPreco?`<span class="pill" style="background:#fff2d8;color:#8a5a1b;font-size:10px;margin-left:6px">${aplicSemPreco} sem preço</span>`:''}</div>`:''}
     <div style="display:flex;gap:6px;align-items:end;margin-top:6px;flex-wrap:wrap">
       <div style="width:150px"><label class="fl">Aplicação</label><select id="rec_apltipo" class="inp">${TIPOS_APLIC.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
       <div style="flex:1;min-width:110px"><label class="fl">Tamanho</label><input id="rec_apltam" class="inp" placeholder="ex.: 10 x 8 cm"></div>
       <div style="flex:1;min-width:110px"><label class="fl">Local (opcional)</label><input id="rec_apllocal" class="inp" placeholder="ex.: peito esq., costas"></div>
-      <div style="width:110px"><label class="fl">Custo / peça</label><input id="rec_aplcusto" class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" placeholder="0,00"></div>
+      ${verR$?`<div style="width:110px"><label class="fl">Custo / peça</label><input id="rec_aplcusto" class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" placeholder="0,00"></div>`:''}
       <button class="btn-sm" onclick="APP.recAplicAdd()">+ Adicionar</button>
     </div>
     <div style="margin-top:6px"><button class="btn-primary" onclick="APP.recAplicSalvar()">Salvar aplicações</button></div>
 
-    <div style="margin-top:14px;padding:10px 12px;background:#F7F5EF;border:1px solid #e7e3d8;border-radius:10px">
-      <div style="font-size:12px">Material ${money(custoTot)} + aplicações ${money(custoAplic)} =
-        <b style="font-size:16px">${money(custoTot+custoAplic)}</b> <span class="muted" style="font-size:11px">por peça, antes da mão de obra</span></div>
-      ${(nPend||aplicSemPreco)?`<div style="font-size:11px;color:#8a5a1b;margin-top:3px">⚠ Este número está incompleto — ${[nPend?nPend+' linha(s) de material sem conversão':'',aplicSemPreco?aplicSemPreco+' aplicação(ões) sem preço':''].filter(Boolean).join(' e ')}.</div>`:''}
-    </div>
+    ${verR$?recFechamentoCusto(custoTot, custoAplic, nPend, aplicSemPreco):''}
 
     <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+/**
+ * O FECHAMENTO DO CUSTO DA PEÇA.
+ *
+ * Quatro parcelas, e cada uma de uma natureza diferente — por isso aparecem
+ * separadas em vez de somadas num campo só:
+ *
+ *   MATERIAL    sai da BOM, por peça, já convertido metro↔quilo.
+ *   APLICAÇÕES  bordado/silk, por peça, lançadas na receita.
+ *   FACÇÃO      a costura desta peça, lançada no produto. Varia demais entre
+ *               produtos para entrar num rateio igual.
+ *   INDUSTRIAL  rateio: (folha + despesas indiretas) ÷ peças produzidas nos
+ *               últimos 3 meses fechados. É igual para toda peça, e por isso
+ *               subestima a complexa e encarece a simples — a tela diz isso.
+ *
+ * O IMPOSTO fica fora da soma de custo e entra depois: ele incide sobre o
+ * PREÇO, não sobre o que se gastou, e muda conforme o CNPJ que emite.
+ */
+function recFechamentoCusto(custoMat, custoAplic, nPend, aplicSemPreco){
+  const R=window.__REC;
+  const ind=R.industrial;
+  const faccao=Number((R.prod&&R.prod.custoFaccao)||0)||0;
+  const indPorPeca=(ind&&ind.custoPorPeca!=null)?Number(ind.custoPorPeca):null;
+  const producao = custoMat + custoAplic + faccao + (indPorPeca||0);
+
+  const fil=(R.aliquotas||[]).find(f=>f.id===R.filialSel)||(R.aliquotas||[])[0]||null;
+  const aliq=Number(R.aliqManual!=null?R.aliqManual:(fil?fil.aliquota:5.93))||0;
+  const preco=Number((R.prod&&R.prod.precoBase)||0)||0;
+  const imposto=preco*aliq/100;
+  const custoTotal=producao+imposto;
+  const lucro=preco-custoTotal;
+  const margemPct=preco?(lucro/preco*100):null;
+
+  // Preço que entrega a margem desejada: o imposto e a margem saem do PREÇO,
+  // então é markup divisor, não "custo + x%".
+  const alvo=Number(R.margemAlvo||0)||0;
+  const divisor=1-(aliq+alvo)/100;
+  const precoSug=divisor>0?producao/divisor:null;
+
+  const linha=(rot,val,obs,forte)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0${forte?';border-top:1px solid #ddd8c8;margin-top:3px;padding-top:6px':''}">
+    <span style="font-size:12px${forte?';font-weight:700':''}">${rot}${obs?`<span class="muted" style="font-size:10.5px;font-weight:400"> ${obs}</span>`:''}</span>
+    <span style="font-size:${forte?'14px':'12.5px'};font-weight:${forte?'700':'600'};white-space:nowrap">${val}</span></div>`;
+
+  const indObs = indPorPeca==null
+    ? '<span style="color:#8a5a1b">sem base de rateio</span>'
+    : `· ${ind.pecas.toLocaleString('pt-BR')} peças em ${ind.periodo.meses} meses${ind.percentualDoFaturamento!=null?` · ${String(ind.percentualDoFaturamento).replace('.',',')}% do faturamento`:''}`;
+
+  return `<div style="margin-top:16px;padding:12px 14px;background:#F7F5EF;border:1px solid #e7e3d8;border-radius:10px">
+    <div style="font-size:11px;letter-spacing:.08em;color:#8a7f5c;font-weight:700;margin-bottom:6px">FECHAMENTO DO CUSTO · POR PEÇA</div>
+    ${linha('Material', money(custoMat))}
+    ${linha('Aplicações', money(custoAplic))}
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 0">
+      <span style="font-size:12px">Facção / costura<span class="muted" style="font-size:10.5px"> · o que a facção cobra desta peça</span></span>
+      <input class="inp" id="rec_faccao" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(faccao.toFixed(2)))}" onchange="APP.recSalvarFaccao()" style="width:96px;text-align:right;padding:4px 6px;font-size:12px">
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0">
+      <span style="font-size:12px">Custo industrial <a href="javascript:void(0)" onclick="APP.recIndustrialDetalhe()" style="font-size:10.5px;color:#8a6d1b">(${R.verIndustrial?'esconder':'ver composição'})</a><span class="muted" style="font-size:10.5px"> ${indObs}</span></span>
+      <span style="font-size:12.5px;font-weight:600;white-space:nowrap">${indPorPeca==null?'—':money(indPorPeca)}</span>
+    </div>
+    ${R.verIndustrial?recIndustrialHtml():''}
+    ${linha('Custo de produção', money(producao), '', true)}
+
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 0 3px;margin-top:6px;border-top:1px dashed #ddd8c8">
+      <span style="font-size:12px">Imposto sobre a venda
+        ${(R.aliquotas||[]).length>1?`<select class="inp" onchange="APP.recFilialSel(this.value)" style="width:auto;padding:2px 5px;font-size:11px;margin-left:4px">${R.aliquotas.map(f=>`<option value="${f.id}" ${f.id===R.filialSel?'selected':''}>${esc(f.nome.slice(0,22))}</option>`).join('')}</select>`:''}
+        <input class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(aliq))}" onchange="APP.recAliq(this.value)" style="width:66px;text-align:right;padding:2px 5px;font-size:11px">%
+        <span class="muted" style="font-size:10.5px">sobre ${money(preco)}</span></span>
+      <span style="font-size:12.5px;font-weight:600;white-space:nowrap">${money(imposto)}</span>
+    </div>
+    ${fil?`<div class="muted" style="font-size:10.5px;margin:-2px 0 2px">${esc(fil.origem)}</div>`:''}
+    ${linha('Custo total da peça', money(custoTotal), '', true)}
+
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #ddd8c8">
+      ${preco
+        ? `<div style="display:flex;justify-content:space-between;gap:10px">
+            <span style="font-size:12px">Preço de tabela</span><span style="font-size:12.5px;font-weight:600">${money(preco)}</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-top:2px">
+            <span style="font-size:13px;font-weight:700;color:${lucro>=0?'#2a6a2a':'#c14a34'}">Margem líquida</span>
+            <span style="font-size:16px;font-weight:700;color:${lucro>=0?'#2a6a2a':'#c14a34'}">${money(lucro)} <span style="font-size:12px">(${margemPct==null?'—':margemPct.toFixed(1).replace('.',',')}%)</span></span></div>`
+        : `<div class="muted" style="font-size:12px">Produto sem preço de tabela — cadastre o preço para ver a margem.</div>`}
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed #ddd8c8">
+        <span style="font-size:12px">Preço sugerido para margem de
+          <input class="inp" type="number" step="1" min="0" onwheel="this.blur()" value="${esc(String(R.margemAlvo||40))}" onchange="APP.recMargemAlvo(this.value)" style="width:58px;text-align:right;padding:2px 5px;font-size:11px">%</span>
+        <span style="font-size:15px;font-weight:700;color:#8a6d1b">${precoSug==null?'—':money(precoSug)}</span>
+      </div>
+      ${precoSug!=null&&preco?`<div class="muted" style="font-size:10.5px;text-align:right">${precoSug>preco?`${money(precoSug-preco)} acima da tabela`:`${money(preco-precoSug)} de folga sobre a tabela`}</div>`:''}
+    </div>
+
+    ${(nPend||aplicSemPreco||!faccao||indPorPeca==null)?`<div style="font-size:11px;color:#8a5a1b;margin-top:8px;padding-top:6px;border-top:1px solid #ecdfc4">⚠ Incompleto: ${[
+      nPend?nPend+' material(is) sem conversão':'',
+      aplicSemPreco?aplicSemPreco+' aplicação(ões) sem preço':'',
+      !faccao?'facção não lançada':'',
+      indPorPeca==null?'sem rateio industrial':''].filter(Boolean).join(' · ')}. A margem acima está otimista.</div>`:''}
+  </div>`;
+}
+function recFilialSel(v){ const R=window.__REC; R.filialSel=Number(v)||null; R.aliqManual=null; renderReceita(); }
+function recAliq(v){ window.__REC.aliqManual=Number(String(v).replace(',','.'))||0; renderReceita(); }
+function recMargemAlvo(v){ window.__REC.margemAlvo=Number(String(v).replace(',','.'))||0; renderReceita(); }
+async function recSalvarFaccao(){
+  const R=window.__REC; const v=Number(val('rec_faccao'));
+  if(!(v>=0)||isNaN(v)){ toast('Custo de facção inválido.','err'); renderReceita(); return; }
+  try{
+    await api('/produtos/'+R.id,{method:'PATCH',body:{custoFaccao:Number(v.toFixed(2))},silent:true});
+    R.prod.custoFaccao=Number(v.toFixed(2)); toast('Facção salva.','ok'); renderReceita();
+  }catch(e){ toast(e.message,'err'); renderReceita(); }
+}
+/**
+ * De onde veio o rateio: sem isso o custo industrial é um número que caiu do céu.
+ *
+ * Abre DENTRO da receita, e não num modal por cima: `openModal` troca o conteúdo
+ * do modal atual, e quem clicasse aqui perderia a receita de vista.
+ */
+function recIndustrialDetalhe(){ const R=window.__REC; R.verIndustrial=!R.verIndustrial; renderReceita(); }
+function recIndustrialHtml(){
+  const ind=window.__REC&&window.__REC.industrial;
+  if(!ind) return '';
+  const cor={industrial:'#2a6a2a',direto:'#6b6b6b',faccao:'#8a5a00',imposto:'#2a5a8a',financeiro:'#c14a34'};
+  const rot={industrial:'rateado',direto:'fora · já está na BOM',faccao:'fora · lançado por peça',imposto:'fora · incide na venda',financeiro:'fora · custo de capital'};
+  return `<div style="margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #e7e3d8;border-radius:8px">
+    <div class="muted" style="font-size:11.5px;margin-bottom:6px">Período: <b>${esc(ind.periodo.de)}</b> a <b>${esc(ind.periodo.ate)}</b> (${ind.periodo.meses} meses fechados). O mês corrente fica de fora: ele tem despesa lançada e produção ainda acontecendo, e inflaria o custo de toda peça.</div>
+    <div style="display:flex;justify-content:space-between;font-size:12px"><span>Despesas rateadas</span><b>${money(ind.industrial)}</b></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px"><span>Peças produzidas (etiquetadas)</span><b>${ind.pecas.toLocaleString('pt-BR')}</b></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;border-top:1px solid #eee;margin-top:4px;padding-top:4px"><b>Custo industrial por peça</b><b style="font-size:15px">${ind.custoPorPeca==null?'—':money(ind.custoPorPeca)}</b></div>
+    ${ind.percentualDoFaturamento!=null?`<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:3px"><span>Peso sobre o faturamento (${money(ind.faturamento)})</span><b>${String(ind.percentualDoFaturamento).replace('.',',')}%</b></div>`:''}
+    ${ind.avisos&&ind.avisos.length?`<div style="background:#fff7ed;border:1px solid #f3dcc0;border-radius:6px;padding:7px 9px;font-size:11px;color:#8a5a1b;margin-top:7px"><b>Ressalvas:</b><ul style="margin:3px 0 0 15px;padding:0">${ind.avisos.map(a=>`<li>${esc(a)}</li>`).join('')}</ul>
+      <div style="margin-top:3px">O rateio é <b>igual para toda peça</b>: uma calça recebe o mesmo que uma faixa de cabeça, embora ocupe muito mais costureira.</div></div>`:''}
+    <div style="max-height:220px;overflow:auto;margin-top:8px;border:1px solid #eee;border-radius:6px">
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+        <thead><tr><th style="text-align:left;padding:5px 7px;background:#F4F2ED;position:sticky;top:0">Categoria</th><th style="text-align:right;padding:5px 7px;background:#F4F2ED;position:sticky;top:0">Valor</th><th style="text-align:left;padding:5px 7px;background:#F4F2ED;position:sticky;top:0">Destino</th></tr></thead>
+        <tbody>${ind.porCategoria.map(l=>`<tr><td style="padding:4px 7px;border-top:1px solid #f0efe9">${esc(l.categoria)}</td>
+          <td style="padding:4px 7px;border-top:1px solid #f0efe9;text-align:right">${money(l.total)}</td>
+          <td style="padding:4px 7px;border-top:1px solid #f0efe9;color:${cor[l.balde]||'#666'}">${esc(rot[l.balde]||l.balde)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="muted" style="font-size:10.5px;margin-top:5px">Categoria nova e desconhecida entra como <b>rateada</b> — o destino conservador. Se alguma linha estiver no balde errado, me avise que eu reclassifico.</div>
+  </div>`;
 }
 function recToggle(cid){ window.__REC.open = cid||null; renderReceita(); }
 async function recAddMaterial(){
@@ -7659,6 +7806,43 @@ function opRestante(o){
   if(cort){ for(const [t,n] of Object.entries(alvo)){ const d=Number(n)-Number(cort[t]||0); if(d>0) aCortar[t]=d; } }
   return { total, feito: total-falta, falta, porTam, aCortar: Object.keys(aCortar).length?aCortar:null };
 }
+/**
+ * TODAS as fases em que a OP tem peça AGORA.
+ *
+ * Uma OP pode estar em duas ao mesmo tempo: o corte parcial manda 50 peças para
+ * a costura e deixa 70 no corte. `setorAtual` só sabe contar uma — a OP-0041
+ * está marcada "Costura" e tem 6 peças no Acabamento. Filtrar só por `setorAtual`
+ * esconderia do Acabamento uma OP que tem peça lá, e o encarregado concluiria
+ * que não tem trabalho.
+ */
+function fasesDaOp(o){
+  const fases=new Set();
+  const g=o.gradeFases;
+  if(g&&typeof g==='object'){
+    for(const nome of Object.keys(g)){
+      const grade=g[nome];
+      if(grade&&typeof grade==='object'&&Object.values(grade).some(q=>Number(q)>0)) fases.add(nome);
+    }
+  }
+  const i=opFaseIdx(o);
+  fases.add(i>=0?OP_FASES[i].nome:'A INICIAR');
+  return fases;
+}
+/** Fases escolhidas no filtro. Vazio = todas (nenhum filtro). */
+function opFasesFiltro(){ return Array.isArray(window.__opFases)?window.__opFases:[]; }
+function opFaseToggle(nome){
+  const sel=opFasesFiltro().slice();
+  const i=sel.indexOf(nome);
+  if(i>=0) sel.splice(i,1); else sel.push(nome);
+  window.__opFases=sel;
+  opFasesAplicar();
+}
+function opFasesLimpar(){ window.__opFases=[]; opFasesAplicar(); }
+/** Redesenha os chips e o corpo SEM refazer a API — não perde o que está digitado na busca. */
+function opFasesAplicar(){
+  const el=$('op_chips'); if(el) el.outerHTML=opControlsBar(true);
+  opRenderBody();
+}
 /** Quando a grade está espalhada por mais de uma fase, mostra onde cada parte está. */
 function opFasesResumo(o){
   const f = o.gradeFases;
@@ -7739,15 +7923,25 @@ function opOsBadges(o){
 // Arraste o card para a coluna do próximo setor p/ mover a OP (drag-and-drop).
 function opsKanban(arr){
   const cols=[{k:'A INICIAR',t:o=>opFaseIdx(o)<0}].concat(OP_FASES.map(f=>({k:f.nome,t:o=>{const i=opFaseIdx(o);return i>=0&&OP_FASES[i].nome===f.nome;}})));
+  const fsel=opFasesFiltro();
+  // A coluna escondida continua ocupando o seu índice: `ci` é o que o drop usa
+  // para saber para qual fase mover. Reindexar aqui moveria a OP para a fase
+  // errada, em silêncio.
   return `<div class="kanban">${cols.map((col,ci)=>{
-    const items=arr.filter(col.t);
-    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4><div class="kbody">${items.length?items.map(o=>`<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
+    if(fsel.length && !fsel.includes(col.k)) return '';
+    // Com filtro ligado, a coluna também recolhe a OP que tem PARTE da grade
+    // aqui, mesmo que o setorAtual dela seja outro. Sem filtro, nada muda.
+    const items=arr.filter(fsel.length ? (o=>col.t(o)||fasesDaOp(o).has(col.k)) : col.t);
+    return `<div class="kcol" data-ci="${ci}" ondragover="APP.opDragOver(event)" ondragleave="APP.opDragLeave(event)" ondrop="APP.opDrop(event,${ci})"><h4>${esc(col.k)} <span class="n">${items.length}</span></h4><div class="kbody">${items.length?items.map(o=>{
+      const aqui = col.t(o); // false = está aqui só por um pedaço da grade
+      return `<div class="kcard" draggable="true" ondragstart="APP.opDragStart(event,${o.id})" ondragend="APP.opDragEnd(event)" onclick="APP.opAbrirCard(${o.id})" style="cursor:pointer${o.corteParcial?';border-left:3px solid #e08a00':''}" title="Clique para abrir · arraste para mover de setor">
       <div class="kt"><span class="mono gold">${esc(o.numero)}${o.corteParcial?' <span class="pill" style="background:#fff3e0;color:#9a5a00;border:1px solid #e7c98a;font-size:9px;padding:1px 5px">PARCIAL</span>':''}</span><span>${(()=>{const r=opRestante(o); return r.feito&&o.status!=='concluido' ? `${r.falta} de ${o.quantidade} pç` : `${o.quantidade} pç`;})()}</span></div>
       ${o.produtoDescricao?`<div style="font-size:12px;font-weight:600;color:#2a2f2b;margin:2px 0 1px">${esc(o.produtoDescricao)}${o.cor?' · '+esc(o.cor):''}</div>`:''}
       <div class="kmuted">${esc(o.pedido?o.pedido.numero:'—')}${o.setorAtual?(' · '+esc(o.setorAtual)):''}</div>
+      ${aqui?'':`<div style="font-size:10px;color:#8a5a1b;margin-top:2px" title="A OP está marcada em ${esc(o.setorAtual||'—')}; parte da grade está nesta fase">↳ parte da grade aqui${(()=>{const g=(o.gradeFases||{})[col.k]; return g?': '+Object.entries(g).filter(([,q])=>Number(q)>0).map(([t,q])=>esc(t)+' '+q).join(', '):'';})()}</div>`}
       ${opOsBadges(o)}
       <div class="kbar"><i style="width:${Math.max(2,o.progresso||0)}%"></i></div>
-    </div>`).join(''):'<div class="kempty">— <span style="font-size:10px">solte aqui</span></div>'}</div></div>`;
+    </div>`;}).join(''):'<div class="kempty">— <span style="font-size:10px">solte aqui</span></div>'}</div></div>`;
   }).join('')}</div>`;
 }
 // ---- Drag-and-drop do Kanban de OPs ----
@@ -7849,7 +8043,7 @@ async function viewProducao(c){
   opRenderBody();
 }
 // Barra de busca (digitar p/ filtrar) + ordenação das OPs.
-function opControlsBar(){
+function opControlsBar(soChips){
   const kanban = window.__opKanban && !window.__opVerFin;
   const b=esc(window.__opBusca||'');
   const s=window.__opSort||'';
@@ -7858,7 +8052,25 @@ function opControlsBar(){
       <select id="op_sort" class="inp" style="width:auto;padding:5px 8px;font-size:12px" onchange="APP.opRenderBody()">
         ${opt('','Padrão (por pedido)')}${opt('az','Produto A → Z')}${opt('venc','Vencimento (mais próximo)')}${opt('novo','Mais recentes')}${opt('prior','Prioridade')}
       </select></label>`;
-  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px">
+  // Chips de fase: o contador de cada uma conta a OP que TEM peça ali, não só a
+  // que está marcada ali — por isso a soma dos chips pode passar do total.
+  const base=(window.__OPS||[]).filter(o=> window.__opVerFin ? o.status==='concluido' : o.status!=='concluido');
+  const sel=opFasesFiltro();
+  const nomes=['A INICIAR'].concat(OP_FASES.map(f=>f.nome));
+  const chip=(nome)=>{
+    const n=base.filter(o=>fasesDaOp(o).has(nome)).length;
+    const on=sel.includes(nome);
+    return `<button class="btn-sm" onclick="APP.opFaseToggle('${nome.replace(/'/g,"\\'")}')" title="${on?'Tirar':'Mostrar só'} ${esc(nome)}"
+      style="padding:4px 9px;font-size:11.5px;${on?'background:var(--gold);border-color:var(--gold);color:#2a2410;font-weight:700':(n?'':'opacity:.45')}">${esc(nome)} <span style="opacity:.75">${n}</span></button>`;
+  };
+  const chips=`<div id="op_chips" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin:0 0 10px">
+    <span class="muted" style="font-size:11.5px">Fase:</span>
+    <button class="btn-sm" onclick="APP.opFasesLimpar()" style="padding:4px 9px;font-size:11.5px;${sel.length?'':'background:var(--gold);border-color:var(--gold);color:#2a2410;font-weight:700'}">Todas <span style="opacity:.75">${base.length}</span></button>
+    ${nomes.map(chip).join('')}
+    ${sel.length>1?`<span class="muted" style="font-size:11px">· ${sel.length} fases selecionadas</span>`:''}
+  </div>`;
+  if(soChips) return chips;
+  return chips + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px">
     <input id="op_busca" class="inp" autocomplete="off" value="${b}" placeholder="🔍 Buscar OP, produto, cor, pedido, fase…" oninput="APP.opRenderBody()" style="flex:1;min-width:220px;max-width:420px;padding:7px 10px">
     ${sortSel}
     <span id="op_count" class="muted" style="font-size:11.5px"></span>
@@ -7874,12 +8086,15 @@ function opRenderBody(){
   const sEl=$('op_sort'); if(sEl) window.__opSort=sEl.value;
   const q=bnorm(window.__opBusca||'');
   if(q){ const terms=q.split(/\s+/); arr=arr.filter(o=>{ const s=bnorm([o.numero,o.produtoDescricao,o.produtoCodigo,o.cor,(o.pedido&&o.pedido.numero)||'',o.setorAtual,o.status,o.responsavel].filter(Boolean).join(' ')); return terms.every(t=>s.includes(t)); }); }
+  // Filtro de fase: fica com a OP que TEM peça em alguma das fases escolhidas.
+  const fsel=opFasesFiltro();
+  if(fsel.length){ arr=arr.filter(o=>{ const f=fasesDaOp(o); return fsel.some(n=>f.has(n)); }); }
   const kanban = window.__opKanban && !verFin;
   const sort = window.__opSort||'';
   if(kanban){ bodyEl.innerHTML=opsKanban(arr); }
   else if(sort){ bodyEl.innerHTML=opsFlat(arr, sort); }
   else { bodyEl.innerHTML=opsAgrupadas(arr, verFin); }
-  const cnt=$('op_count'); if(cnt) cnt.textContent = arr.length+' OP(s)'+(q?' encontrada(s)':'');
+  const cnt=$('op_count'); if(cnt) cnt.textContent = arr.length+' OP(s)'+(q||fsel.length?' no filtro':'');
 }
 // Lista PLANA ordenada (A-Z / vencimento / mais recentes / prioridade) — usada quando há ordenação escolhida.
 function opsFlat(arr, sort){
@@ -17754,7 +17969,7 @@ window.APP = {
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
-  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarCusto, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
+  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarCusto, recSalvarFaccao, recFilialSel, recAliq, recMargemAlvo, recIndustrialDetalhe, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, imprimirResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
@@ -17766,7 +17981,7 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, etiqComposicao, etiqComposicaoImprimir, etiqComposicaoFila, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, opVencimento, opVencimentoSalvar, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, pilotoFoto, pilotoFotoSalvar, pilotoFotoRemover, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, etiqComposicao, etiqComposicaoImprimir, etiqComposicaoFila, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opFaseToggle, opFasesLimpar, opReimprimir, opVencimento, opVencimentoSalvar, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, pilotoFoto, pilotoFotoSalvar, pilotoFotoRemover, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, kitUnificar, kitUnificarGrupo, kitsDaOs, kitsAgruparToggle, kitsToggleFin, viewBi,
   formCompra, ocDescricaoHtml, ocEditarItens, ocItensSoma, ocItensSalvar, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
