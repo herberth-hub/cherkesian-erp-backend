@@ -2075,9 +2075,20 @@ async function viewMateriais(c){
   // Famílias já usadas — alimenta o autocompletar do cadastro (evita "MALHA PV" e
   // "Malha Pv" virarem duas famílias).
   window.__FAMILIAS=[...new Set(todos.filter(m=>m.ativo!==false).map(m=>m.familia).filter(Boolean))].sort();
-  const list = todos.filter(m=>!m.codigo.startsWith('AVI-'));
+  window.__MATLIST = todos.filter(m=>!m.codigo.startsWith('AVI-'));
+  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()',
+      `<input id="mat_q" class="inp" placeholder="🔍 buscar código, descrição, família, cor…" oninput="APP.matRender()" style="width:300px;font-size:12px;padding:6px 10px">` + relBtn('materiais'))
+    + `<div id="mat_tbl"></div>`;
+  matRender();
+}
+function matRender(){
+  const box=$('mat_tbl'); if(!box) return;
+  // bnorm nos dois lados: "poliester" acha "POLIÉSTER", "malha" acha "MALHA PV".
+  const q=bnorm(val('mat_q')||'');
+  let list=(window.__MATLIST||[]);
+  if(q){ const t=q.split(/\s+/); list=list.filter(m=>{ const s=bnorm([m.codigo,m.descricao,m.familia,m.cor,m.categoria,m.artigo,m.codigoArtigo,m.composicao,m.unidade].filter(Boolean).join(' ')); return t.every(x=>s.includes(x)); }); }
   const nIna = list.filter(m=>m.ativo===false).length;
-  c.innerHTML = toolbar('Matéria-prima e insumos', 'Novo material', 'APP.formMaterial()', relBtn('materiais'))
+  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${list.length} material(is)${q?' no filtro':''}</div>`
     + (nIna?`<div class="card" style="background:#f6f4ee;border-color:#ddd5c2;font-size:11.5px;margin-bottom:8px">${nIna} material(is) <b>inativo(s)</b> — continuam aqui e no histórico, mas não aparecem mais para escolher na ficha técnica, na nota de entrada nem na ordem de compra.</div>`:'')
     + panelTable(
     ['Código','Família','Descrição','Un.','Saldo','Mínimo','Custo','Ações'],
@@ -2096,7 +2107,7 @@ async function viewMateriais(c){
           +`<button class="btn-sm" onclick="APP.matAtivo(${m.id},${off?'true':'false'})" title="${off?'Voltar a oferecer este material nas telas de escolha':'Tirar das telas de escolha, sem apagar nada'}">${off?'↩ Reativar':'🚫 Inativar'}</button>`
           +`<button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/materiais',${m.id})">Excluir</button></div>`
       ];
-    }), list.length?null:'Nenhum material ainda.');
+    }), list.length?null:(q?'Nenhum material encontrado para "'+esc(val('mat_q'))+'".':'Nenhum material ainda.'));
 }
 async function viewFornecedores(c){
   const list = await api('/fornecedores');
@@ -4203,12 +4214,50 @@ async function formReceita(id){
     materiais: materiais||[],
     produtos: (produtos||[]).filter(p=>p.id!==id),
     componentes: Array.isArray(prod.componentes)? prod.componentes.map(c=>({produtoId:c.produtoId, quantidade:Number(c.quantidade)||1})) : [],
-    aplicacoes: Array.isArray(prod.aplicacoes)? prod.aplicacoes.map(a=>({tipo:a.tipo||'', tamanho:a.tamanho||'', local:a.local||''})) : [],
+    aplicacoes: Array.isArray(prod.aplicacoes)? prod.aplicacoes.map(a=>({tipo:a.tipo||'', tamanho:a.tamanho||'', local:a.local||'', custo:Number(a.custo||0)})) : [],
     open: null, // id do consumo com o painel "por tamanho" aberto
   };
   renderReceita();
 }
-function recMatName(mid){ const m=(window.__REC.materiais||[]).find(x=>x.id===mid); return m?(m.codigo+' · '+m.descricao):('#'+mid); }
+function recMat(mid){ return (window.__REC.materiais||[]).find(x=>x.id===mid)||null; }
+function recMatName(mid){ const m=recMat(mid); return m?(m.codigo+' · '+m.descricao):('#'+mid); }
+/**
+ * Custo de uma linha da receita, com a conversão metro↔quilo.
+ *
+ * Espelha src/produtos/custo-material.ts — a regra está explicada lá. Aqui a
+ * cópia existe para a tela dar o número na hora em que se digita, sem ida ao
+ * servidor. Mexeu num lado, mexa no outro.
+ */
+const REC_UN = u => { const s=String(u||'').trim().toUpperCase().replace(/[.\s]/g,'');
+  if(!s) return '';
+  if(['M','MT','MTS','METRO','METROS','ML'].includes(s)) return 'M';
+  if(['KG','KGS','K','QUILO','QUILOS','QUILOGRAMA','QUILOGRAMAS'].includes(s)) return 'KG';
+  if(['G','GR','GRAMA','GRAMAS'].includes(s)) return 'G';
+  if(['UN','UND','UNID','UNIDADE','UNIDADES','PC','PÇ','PCS','PECA','PEÇA'].includes(s)) return 'UN';
+  return s; };
+function recKgPorMetro(m){ const L=Number(m&&m.largura||0), G=Number(m&&m.gramatura||0); return (L>0&&G>0)?(L*G)/1000:null; }
+function recCustoLinha(cs){
+  const m = recMat(cs.materialId);
+  const qtd = Number(cs.quantidade||0), custo = Number((m&&m.custo)||0);
+  const unRec = REC_UN(cs.unidade), unMat = REC_UN(m&&m.unidade);
+  const suspeito = ((unRec==='M'||unRec==='KG') && qtd>=20)
+    ? `${qtd} ${unRec==='M'?'metros':'quilos'} por peça. Veja se não é centímetro ou grama digitado no campo de metro/quilo.` : null;
+  const nada = (aviso)=>({subtotal:null, qtdConv:null, unCusto:unMat||unRec, fator:null, aviso, suspeito});
+  if(!m) return nada('Material não encontrado no cadastro.');
+  if(!unMat || !unRec || unMat===unRec) return {subtotal:qtd*custo, qtdConv:qtd, unCusto:unMat||unRec, fator:1, aviso:null, suspeito};
+  const kgM = recKgPorMetro(m);
+  if(unRec==='M' && unMat==='KG'){
+    if(kgM==null) return nada('A receita está em metros e o material é cobrado por quilo. Preencha largura e gramatura na ficha do material para converter.');
+    return {subtotal:qtd*kgM*custo, qtdConv:qtd*kgM, unCusto:'KG', fator:kgM, aviso:null, suspeito};
+  }
+  if(unRec==='KG' && unMat==='M'){
+    if(!(kgM>0)) return nada('A receita está em quilos e o material é cobrado por metro. Preencha largura e gramatura na ficha do material para converter.');
+    return {subtotal:(qtd/kgM)*custo, qtdConv:qtd/kgM, unCusto:'M', fator:1/kgM, aviso:null, suspeito};
+  }
+  if(unRec==='G' && unMat==='KG') return {subtotal:(qtd/1000)*custo, qtdConv:qtd/1000, unCusto:'KG', fator:0.001, aviso:null, suspeito};
+  if(unRec==='KG' && unMat==='G') return {subtotal:(qtd*1000)*custo, qtdConv:qtd*1000, unCusto:'G', fator:1000, aviso:null, suspeito};
+  return nada(`A receita está em "${cs.unidade}" e o material é cobrado em "${m.unidade}". Acerte a unidade de um dos dois.`);
+}
 function recProdName(pid){ const p=(window.__REC.produtos||[]).find(x=>x.id===pid)|| (window.__REC.prod.id===pid?window.__REC.prod:null); return p?(p.codigo+' · '+p.descricao):('#'+pid); }
 function renderReceita(){
   const R=window.__REC; if(!R) return;
@@ -4224,19 +4273,31 @@ function renderReceita(){
         <div style="display:flex;flex-wrap:wrap;gap:8px">${grid.map(t=>`<div style="display:flex;flex-direction:column;width:76px"><label class="fl" style="font-size:10px">${esc(t)}</label><input class="inp" id="pt_${cs.id}_${esc(t)}" type="number" step="0.0001" value="${pt[t]!=null?pt[t]:''}" style="padding:5px 6px;font-size:12px"></div>`).join('')||'<span class="muted" style="font-size:12px">Defina a grade de tamanhos no produto para editar por tamanho.</span>'}</div>
         <div style="margin-top:8px;display:flex;gap:6px"><button class="btn-primary" onclick="APP.recSalvarPorTamanho(${cs.id})">Salvar por tamanho</button><button class="btn-sm" onclick="APP.recLimparPorTamanho(${cs.id})">Limpar</button><button class="btn-sm" onclick="APP.recToggle(0)">Fechar</button></div>
       </td></tr>` : '';
+    const mat = recMat(cs.materialId);
+    const L = recCustoLinha(cs);
+    const subCel = L.subtotal==null
+      ? `<span class="muted" style="font-size:11px">—</span>`
+      : `<b>${money(L.subtotal)}</b>${L.fator!==1?`<br><span class="muted" style="font-size:10px">${L.qtdConv.toFixed(3)} ${esc(L.unCusto)}</span>`:''}`;
+    const avisoRow = (L.aviso||L.suspeito) ? `<tr><td colspan="7" style="background:#fff7ed;border-top:1px solid #f3dcc0;padding:6px 10px;font-size:11.5px;color:#8a5a1b">⚠ ${esc(L.aviso||L.suspeito)}</td></tr>` : '';
     return `<tr>
         <td style="padding:6px 8px;border-top:1px solid #eee"><span class="mono gold">${esc(recMatName(cs.materialId).split(' · ')[0])}</span> ${esc((recMatName(cs.materialId).split(' · ')[1])||'')}</td>
-        <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" id="qt_${cs.id}" type="number" step="0.0001" value="${esc(String(cs.quantidade))}" style="width:88px;text-align:right;padding:5px 6px;font-size:12px"></td>
+        <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" id="qt_${cs.id}" type="number" step="0.0001" min="0" onwheel="this.blur()" value="${esc(String(cs.quantidade))}" style="width:88px;text-align:right;padding:5px 6px;font-size:12px"></td>
         <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" id="un_${cs.id}" value="${esc(cs.unidade)}" style="width:56px;padding:5px 6px;font-size:12px"></td>
+        <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right">
+          ${mat?`<input class="inp" id="cu_${cs.id}" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(Number(mat.custo||0).toFixed(2)))}" onchange="APP.recSalvarCusto(${cs.id})" title="Preço de compra do material. Salvar aqui muda a ficha do material — vale para TODOS os produtos que o usam." style="width:86px;text-align:right;padding:5px 6px;font-size:12px">
+            <div class="muted" style="font-size:10px;margin-top:2px">R$ / ${esc(mat.unidade||'un')}</div>`:'<span class="muted" style="font-size:11px">—</span>'}</td>
+        <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right">${subCel}</td>
         <td style="padding:6px 8px;border-top:1px solid #eee;text-align:center">${temPT?'<span class="pill green" style="font-size:10px">'+Object.keys(pt).length+' tam.</span>':'<span class="muted" style="font-size:11px">—</span>'}</td>
         <td style="padding:6px 8px;border-top:1px solid #eee;white-space:nowrap;text-align:right">
           <button class="btn-sm" onclick="APP.recSalvarLinha(${cs.id})">💾</button>
           <button class="btn-sm" onclick="APP.recToggle(${aberto?0:cs.id})">📐 tam.</button>
           <button class="btn-sm" style="color:#c14a34" onclick="APP.recRemover(${cs.id})">✕</button>
-        </td></tr>${ptEditor}`;
+        </td></tr>${avisoRow}${ptEditor}`;
   }).join('');
   const matOpts = (R.materiais||[]).map(m=>`<option value="${esc(m.codigo)} · ${esc(m.descricao)}">`).join('');
-  const custoTot = (R.consumos||[]).reduce((s,cs)=>{ const m=(R.materiais||[]).find(x=>x.id===cs.materialId); return s + (m?Number(m.custo||0)*Number(cs.quantidade||0):0); },0);
+  const linhas = (R.consumos||[]).map(cs=>recCustoLinha(cs));
+  const custoTot = linhas.reduce((s,L)=> s + (L.subtotal||0), 0);
+  const nPend = linhas.filter(L=>L.subtotal==null).length;
   // ----- Componentes do conjunto -----
   const compRows = (R.componentes||[]).map((c,i)=>`<tr>
       <td style="padding:6px 8px;border-top:1px solid #eee">${esc(recProdName(c.produtoId))}</td>
@@ -4251,8 +4312,11 @@ function renderReceita(){
       <td style="padding:4px 8px;border-top:1px solid #eee"><select class="inp" onchange="APP.recAplicSet(${i},'tipo',this.value)" style="padding:5px 6px;font-size:12px;min-width:110px">${ops.map(t=>`<option value="${esc(t)}" ${a.tipo===t?'selected':''}>${esc(t)}</option>`).join('')}</select></td>
       <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.tamanho||'')}" onchange="APP.recAplicSet(${i},'tamanho',this.value)" placeholder="ex.: 10 x 8 cm" style="padding:5px 6px;font-size:12px"></td>
       <td style="padding:4px 8px;border-top:1px solid #eee"><input class="inp" value="${esc(a.local||'')}" onchange="APP.recAplicSet(${i},'local',this.value)" placeholder="opcional (ex.: peito esq.)" style="padding:5px 6px;font-size:12px"></td>
+      <td style="padding:4px 8px;border-top:1px solid #eee;text-align:right"><input class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(Number(a.custo||0).toFixed(2)))}" onchange="APP.recAplicSet(${i},'custo',this.value)" title="Quanto esta aplicação custa POR PEÇA" style="width:86px;text-align:right;padding:5px 6px;font-size:12px"></td>
       <td style="padding:6px 8px;border-top:1px solid #eee;text-align:right"><button class="btn-sm" style="color:#c14a34" onclick="APP.recAplicDel(${i})">✕</button></td></tr>`;
   }).join('');
+  const custoAplic = (R.aplicacoes||[]).reduce((s,a)=>s+(Number(a.custo)||0),0);
+  const aplicSemPreco = (R.aplicacoes||[]).filter(a=>!(Number(a.custo)>0)).length;
 
   openModal(`<h3>🧬 Receita técnica — ${esc(R.prod.codigo)} <span class="muted" style="font-size:12px;font-weight:400">${esc(R.prod.descricao)}</span></h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 10px">Grade: ${R.grade.length?R.grade.map(esc).join(' · '):'<i>sem grade — defina em Produto p/ consumo por tamanho</i>'}</div>
@@ -4271,9 +4335,11 @@ function renderReceita(){
 
     ${secDivisor('MATERIAIS / TECIDOS (BOM)')}
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
-      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Material</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd base</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Un.</th><th style="text-align:center;padding:7px 8px;background:#F4F2ED;font-size:11px">Por tam.</th><th style="background:#F4F2ED"></th></tr></thead>
-      <tbody>${bomRows||'<tr><td colspan="5" style="padding:8px;text-align:center;color:#999">Sem materiais na receita.</td></tr>'}</tbody></table></div>
-    <div class="muted" style="font-size:12px;margin-top:6px">Custo de material (qtd base): <b>${money(custoTot)}</b></div>
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Material</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Qtd base</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Un.</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo un.</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Subtotal</th><th style="text-align:center;padding:7px 8px;background:#F4F2ED;font-size:11px">Por tam.</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${bomRows||'<tr><td colspan="7" style="padding:8px;text-align:center;color:#999">Sem materiais na receita.</td></tr>'}</tbody></table></div>
+    <div style="margin-top:6px;font-size:12px">Custo de material (qtd base): <b style="font-size:14px">${money(custoTot)}</b>
+      ${nPend?`<span class="pill" style="background:#fff2d8;color:#8a5a1b;font-size:10px;margin-left:6px">incompleto · ${nPend} linha(s) sem conversão</span>`:''}
+      <div class="muted" style="font-size:11px;margin-top:2px">Tecido comprado por quilo e consumido em metro é convertido pela ficha do material (largura × gramatura). O custo unitário é o preço de compra — editar aqui muda a ficha do material.</div></div>
     <div style="display:flex;gap:6px;align-items:end;margin-top:8px">
       <div style="flex:1"><label class="fl">Adicionar material</label><input id="rec_mat" class="inp" list="rec_mats" placeholder="digite código ou descrição…"><datalist id="rec_mats">${matOpts}</datalist></div>
       <div style="width:110px"><label class="fl">Qtd base</label><input id="rec_qt" class="inp" type="number" step="0.0001" placeholder="0.0000"></div>
@@ -4282,17 +4348,26 @@ function renderReceita(){
     </div>
 
     ${secDivisor('APLICAÇÕES (Bordado / DTF / Silk)')}
-    <div class="muted" style="font-size:11.5px;margin:-2px 0 6px">Aplicações da peça e o tamanho de cada uma (aparecem na ficha técnica enviada ao cliente).</div>
+    <div class="muted" style="font-size:11.5px;margin:-2px 0 6px">Aplicações da peça e o tamanho de cada uma (aparecem na ficha técnica enviada ao cliente). O custo é <b>por peça</b> — é o que a bordadeira/serigrafia cobra de cada unidade.</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e7e3d8;border-radius:10px;overflow:hidden">
-      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Aplicação</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Tamanho</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Local</th><th style="background:#F4F2ED"></th></tr></thead>
-      <tbody>${aplicRows||'<tr><td colspan="4" style="padding:8px;text-align:center;color:#999">Nenhuma aplicação.</td></tr>'}</tbody></table></div>
+      <thead><tr><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Aplicação</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Tamanho</th><th style="text-align:left;padding:7px 8px;background:#F4F2ED;font-size:11px">Local</th><th style="text-align:right;padding:7px 8px;background:#F4F2ED;font-size:11px">Custo / peça</th><th style="background:#F4F2ED"></th></tr></thead>
+      <tbody>${aplicRows||'<tr><td colspan="5" style="padding:8px;text-align:center;color:#999">Nenhuma aplicação.</td></tr>'}</tbody></table></div>
+    <div style="margin-top:6px;font-size:12px">Custo das aplicações: <b>${money(custoAplic)}</b>
+      ${aplicSemPreco?`<span class="pill" style="background:#fff2d8;color:#8a5a1b;font-size:10px;margin-left:6px">${aplicSemPreco} sem preço</span>`:''}</div>
     <div style="display:flex;gap:6px;align-items:end;margin-top:6px;flex-wrap:wrap">
       <div style="width:150px"><label class="fl">Aplicação</label><select id="rec_apltipo" class="inp">${TIPOS_APLIC.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
-      <div style="flex:1;min-width:120px"><label class="fl">Tamanho</label><input id="rec_apltam" class="inp" placeholder="ex.: 10 x 8 cm"></div>
-      <div style="flex:1;min-width:120px"><label class="fl">Local (opcional)</label><input id="rec_apllocal" class="inp" placeholder="ex.: peito esq., costas"></div>
+      <div style="flex:1;min-width:110px"><label class="fl">Tamanho</label><input id="rec_apltam" class="inp" placeholder="ex.: 10 x 8 cm"></div>
+      <div style="flex:1;min-width:110px"><label class="fl">Local (opcional)</label><input id="rec_apllocal" class="inp" placeholder="ex.: peito esq., costas"></div>
+      <div style="width:110px"><label class="fl">Custo / peça</label><input id="rec_aplcusto" class="inp" type="number" step="0.01" min="0" onwheel="this.blur()" placeholder="0,00"></div>
       <button class="btn-sm" onclick="APP.recAplicAdd()">+ Adicionar</button>
     </div>
     <div style="margin-top:6px"><button class="btn-primary" onclick="APP.recAplicSalvar()">Salvar aplicações</button></div>
+
+    <div style="margin-top:14px;padding:10px 12px;background:#F7F5EF;border:1px solid #e7e3d8;border-radius:10px">
+      <div style="font-size:12px">Material ${money(custoTot)} + aplicações ${money(custoAplic)} =
+        <b style="font-size:16px">${money(custoTot+custoAplic)}</b> <span class="muted" style="font-size:11px">por peça, antes da mão de obra</span></div>
+      ${(nPend||aplicSemPreco)?`<div style="font-size:11px;color:#8a5a1b;margin-top:3px">⚠ Este número está incompleto — ${[nPend?nPend+' linha(s) de material sem conversão':'',aplicSemPreco?aplicSemPreco+' aplicação(ões) sem preço':''].filter(Boolean).join(' e ')}.</div>`:''}
+    </div>
 
     <div class="mactions"><button class="btn-primary" onclick="APP.closeModal()">Fechar</button></div>`);
 }
@@ -4313,6 +4388,27 @@ async function recSalvarLinha(cid){
   try{ await api('/consumo/'+cid,{method:'PATCH',body:{quantidade:qt, unidade:un||undefined}}); toast('Linha salva.','ok');
     const cs=window.__REC.consumos.find(x=>x.id===cid); if(cs){ cs.quantidade=qt; if(un)cs.unidade=un; } renderReceita();
   }catch(e){ toast(e.message,'err'); }
+}
+/**
+ * Preço de compra do material, editado de dentro da receita.
+ *
+ * Grava na FICHA DO MATERIAL, não na linha da receita: é o mesmo rolo para todo
+ * mundo. Por isso avisa quantos outros produtos vão sentir a mudança — mudar o
+ * preço do tecido aqui remarca o custo de dezenas de peças de uma vez.
+ */
+async function recSalvarCusto(cid){
+  const R=window.__REC; const cs=(R.consumos||[]).find(x=>x.id===cid); if(!cs) return;
+  const m=recMat(cs.materialId); if(!m) return;
+  const novo=Number(val('cu_'+cid));
+  if(!(novo>=0) || isNaN(novo)){ toast('Custo inválido.','err'); renderReceita(); return; }
+  if(Number(Number(m.custo||0).toFixed(2))===Number(novo.toFixed(2))) return;
+  const ok=await uiConfirm({tipo:'warn', titulo:'Mudar o preço deste material?', ok:'Salvar preço', cancel:'Cancelar',
+    msg:`${m.codigo} · ${m.descricao}\n\nDe ${money(m.custo)} para ${money(novo)} por ${m.unidade||'un'}.\n\nIsto muda a FICHA DO MATERIAL: o custo de todos os produtos que usam este artigo passa a ser calculado com o preço novo.`});
+  if(!ok){ renderReceita(); return; }
+  try{
+    await api('/materiais/'+m.id,{method:'PATCH',body:{custo:novo}});
+    m.custo=novo; toast('Preço do material atualizado.','ok'); renderReceita();
+  }catch(e){ toast(e.message,'err'); renderReceita(); }
 }
 async function recSalvarPorTamanho(cid){
   const R=window.__REC; const grid=R.grade.length?R.grade:Object.keys((R.consumos.find(x=>x.id===cid)||{}).porTamanho||{});
@@ -4349,24 +4445,37 @@ async function recSalvarComponentes(){
 // Cada adição/edição/remoção PERSISTE na hora (PATCH), pra não se perder se a receita recarregar.
 async function recAplicPersist(silent){
   const R=window.__REC;
-  const lista=(R.aplicacoes||[]).map(a=>({tipo:(a.tipo||'').trim(), tamanho:(a.tamanho||'').trim()||undefined, local:(a.local||'').trim()||undefined})).filter(a=>a.tipo);
+  const lista=(R.aplicacoes||[]).map(a=>{
+    const c=Number(a.custo)||0;
+    return {tipo:(a.tipo||'').trim(), tamanho:(a.tamanho||'').trim()||undefined, local:(a.local||'').trim()||undefined,
+      // O DTO recusa mais de 2 casas; arredonda aqui em vez de derrubar o save.
+      custo: c>0 ? Number(c.toFixed(2)) : undefined};
+  }).filter(a=>a.tipo);
   try{ await api('/produtos/'+R.id,{method:'PATCH',body:{aplicacoes:lista},silent:true}); R.prod.aplicacoes=lista.slice(); if(!silent) toast('Aplicações salvas.','ok'); return true; }
   catch(e){ toast(e.message,'err'); return false; }
 }
 function recAplicAdd(){
   const R=window.__REC; const tipo=(val('rec_apltipo')||'').trim(); const tamanho=(val('rec_apltam')||'').trim(); const local=(val('rec_apllocal')||'').trim();
+  const custo=Number(val('rec_aplcusto')||0)||0;
   if(!tipo){ toast('Escolha a aplicação.','err'); return; }
-  R.aplicacoes.push({tipo, tamanho, local}); renderReceita(); recAplicPersist(true).then(ok=>{ if(ok) toast('Aplicação "'+tipo+'" adicionada.','ok'); });
+  R.aplicacoes.push({tipo, tamanho, local, custo}); renderReceita(); recAplicPersist(true).then(ok=>{ if(ok) toast('Aplicação "'+tipo+'" adicionada.','ok'); });
 }
-function recAplicSet(i,campo,v){ const R=window.__REC; if(R.aplicacoes[i]){ R.aplicacoes[i][campo]=String(v==null?'':v).trim(); recAplicPersist(true); } }
+function recAplicSet(i,campo,v){
+  const R=window.__REC; if(!R.aplicacoes[i]) return;
+  // custo é número: `.trim()` numa string transformaria "12,50" em texto e o
+  // total somaria zero sem reclamar.
+  R.aplicacoes[i][campo] = campo==='custo' ? (Number(String(v).replace(',','.'))||0) : String(v==null?'':v).trim();
+  recAplicPersist(true);
+}
 function recAplicDel(i){ window.__REC.aplicacoes.splice(i,1); renderReceita(); recAplicPersist(true); }
 async function recAplicSalvar(){
   const R=window.__REC;
   // Captura uma linha digitada no rodapé e ainda não adicionada (evita salvar vazio por engano).
   const tipo=(val('rec_apltipo')||'').trim(), tam=(val('rec_apltam')||'').trim(), loc=(val('rec_apllocal')||'').trim();
-  if(tipo && (tam||loc) && !R.aplicacoes.some(a=>a.tipo===tipo && (a.tamanho||'')===tam && (a.local||'')===loc)){ R.aplicacoes.push({tipo, tamanho:tam, local:loc}); }
+  const cus=Number(val('rec_aplcusto')||0)||0;
+  if(tipo && (tam||loc||cus) && !R.aplicacoes.some(a=>a.tipo===tipo && (a.tamanho||'')===tam && (a.local||'')===loc)){ R.aplicacoes.push({tipo, tamanho:tam, local:loc, custo:cus}); }
   const ok=await recAplicPersist(false);
-  if(ok){ R.aplicacoes=(R.prod.aplicacoes||[]).map(a=>({tipo:a.tipo, tamanho:a.tamanho||'', local:a.local||''})); renderReceita(); }
+  if(ok){ R.aplicacoes=(R.prod.aplicacoes||[]).map(a=>({tipo:a.tipo, tamanho:a.tamanho||'', local:a.local||'', custo:Number(a.custo||0)})); renderReceita(); }
 }
 
 async function formMaterial(id){
@@ -6022,17 +6131,17 @@ async function bancoStatusApi(){
   let st=[]; try{ st=await api('/bancos/extrato/api/status'); }catch(e){ toast(e.message,'err'); return; }
   if(!st.length){ toast('Nenhuma conta Cora cadastrada.','info'); return; }
   const linhas=st.map(c=>{
-    const v=c.variaveis||{};
+    const v=Array.isArray(c.variaveis)?c.variaveis:[];
     const cab=`<div style="font-weight:700;font-size:13px">${esc(c.apelido||c.conta)} ${c.configurada?'<span class="pill green">puxa sozinha</span>':'<span class="pill gold">falta credencial</span>'}${c.propria?'':(c.configurada?' <span class="pill gray" title="Usando as variáveis padrão, sem CNPJ no nome">padrão</span>':'')}</div>
       <div class="muted" style="font-size:11px">${esc(c.empresa||'')} · CNPJ ${esc(c.cnpj||'—')}</div>`;
     const probs=(c.problemas||[]).length?`<div style="margin-top:6px;background:#fdf1ef;border:1px solid #e8bfb6;border-radius:7px;padding:7px 9px">
         <div style="font-size:11.5px;color:#a33a26;font-weight:700;margin-bottom:3px">As variáveis existem, mas o valor está errado:</div>
         ${c.problemas.map(x=>`<div style="font-size:11.5px;color:#a33a26">• ${esc(x)}</div>`).join('')}</div>`:'';
     const vars=(c.configurada||((c.faltando||[]).length===0))?probs:`<div style="margin-top:6px;background:#fbfaf7;border:1px solid #e7e4dd;border-radius:7px;padding:7px 9px">
-        <div class="muted" style="font-size:10.5px;margin-bottom:4px">Crie no Render estas três variáveis:</div>
-        ${[v.clientId,v.cert,v.key].map(n=>`<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
-          <code style="font-size:11px;flex:1;word-break:break-all">${esc(n)}</code>
-          <button class="btn-sm" style="padding:1px 7px" onclick="APP.copiarTexto('${esc(n)}')">copiar</button></div>`).join('')}
+        <div class="muted" style="font-size:10.5px;margin-bottom:4px">Crie no Render ${v.length===1?'esta variável':'estas '+v.length+' variáveis'}:</div>
+        ${v.map(x=>`<div style="display:flex;gap:6px;align-items:center;margin:2px 0">
+          <code style="font-size:11px;flex:1;word-break:break-all">${esc(x.nome)}<span class="muted" style="font-size:10px"> — ${esc(x.oQueE||'')}</span></code>
+          <button class="btn-sm" style="padding:1px 7px" onclick="APP.copiarTexto('${esc(x.nome)}')">copiar</button></div>`).join('')}
       </div>`;
     return `<div style="border:1px solid #e7e4dd;border-radius:9px;padding:10px 12px;margin-bottom:8px">${cab}${vars}
       ${c.configurada?`<div style="margin-top:6px"><button class="btn-sm" onclick="APP.closeModal();APP.bancoTestarConta(${c.id})">🔌 Testar esta conta</button></div>`:''}</div>`;
@@ -6286,7 +6395,7 @@ async function bancosBoletoPdf(id){
 async function bancosContasSelect(id, soProntas){
   const contas=await api('/bancos/contas').catch(()=>[]);
   const list=soProntas?contas.filter(c=>c.pronta):contas;
-  return { contas, html:`<select id="${id}" class="inp">${list.map(c=>`<option value="${c.id}">${esc(c.filial?c.filial.nome:'')} · ${esc(c.banco)}${c.agencia?' ag '+esc(c.agencia):''}${c.conta?' cc '+esc(c.conta):''}${c.pronta?'':' (sem convênio: '+esc((c.faltando||[]).join(', '))+')'}</option>`).join('')}</select>` };
+  return { contas, html:`<select id="${id}" class="inp">${list.map(c=>`<option value="${c.id}">${esc(c.filial?c.filial.nome:'')} · ${esc(c.banco)}${c.agencia?' ag '+esc(c.agencia):''}${c.conta?' cc '+esc(c.conta)+(c.contaDv?'-'+esc(c.contaDv):''):''}${c.pronta?'':' (sem convênio: '+esc((c.faltando||[]).join(', '))+')'}</option>`).join('')}</select>` };
 }
 async function bancosRemessaSel(){
   const chks=[...document.querySelectorAll('.rc_chk')].filter(c=>c.checked);
@@ -7733,7 +7842,10 @@ async function viewProducao(c){
     : `<button class="btn-sm" onclick="APP.opToggleFin(true)">📁 Finalizadas (${fin.length})</button>`;
   const btnViewOp = verFin?'':`<button class="btn-sm" onclick="APP.opToggleView()">${window.__opKanban?'☰ Lista':'🔲 Kanban'}</button> `;
   const btnAvulsa = canAccess('pcp')?`<button class="btn-primary" style="padding:2px 10px" onclick="APP.formOpAvulsa()">+ OP avulsa</button> `:'';
-  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnViewOp+btnFin+' '+relBtn('ops')) + aguardMaterialHtml(aguard) + opControlsBar() + `<div id="op_body"></div>`;
+  // A fila da etiqueta de composição: é o que o PCP abre de manhã para saber
+  // o que imprimir antes das peças chegarem na costura.
+  const btnEtiq = `<button class="btn-sm" title="OPs que já tiveram o corte apontado e ainda devem etiqueta de composição" onclick="APP.etiqComposicaoFila()">🏷 Etiquetas de composição</button> `;
+  c.innerHTML = toolbar(verFin?'Ordens de produção · Finalizadas':'Ordens de produção', '', '', btnAvulsa+btnEtiq+btnViewOp+btnFin+' '+relBtn('ops')) + aguardMaterialHtml(aguard) + opControlsBar() + `<div id="op_body"></div>`;
   opRenderBody();
 }
 // Barra de busca (digitar p/ filtrar) + ordenação das OPs.
@@ -8062,6 +8174,7 @@ function formOp(o){
     <div style="margin:-4px 0 6px;display:flex;gap:4px;flex-wrap:wrap">${['PP','P','M','G','GG','G1','G2','G3'].map(t=>`<button class="btn-sm" type="button" onclick="APP.gradeAddTam('${t}')">+${t}</button>`).join('')}</div>
     <div class="muted" style="font-size:11px;margin-bottom:8px">Clique nos tamanhos para adicionar à grade. Aparece em caixinhas no PDF da OP e vira 1 kit por tamanho.</div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
+      <button class="btn-sm" title="Etiqueta de composição (a costurada na peça): composição, tamanho e o número da OP" onclick="APP.closeModal();APP.etiqComposicao(${o.id})">🏷 Etiqueta de composição</button>
       <button class="btn-sm" onclick="APP.opConcluirEtiquetas(${o.id})" title="Finalizar a OP: gerar etiqueta por peça — ou, se a peça já foi entregue, dar baixa sem etiqueta">🏭 Concluir / dar baixa</button>
       <button class="btn-primary" onclick="APP.saveOp(${o.id})">Salvar</button></div>`);
 }
@@ -8512,6 +8625,88 @@ async function saveCorte(id){
       + (extra>0?' '+extra+' peça(s) a mais vão para estoque livre ao finalizar.':''), r.corteParcial?'err':'ok');
     loadRoute();
   }catch(e){ toast(e.message,'err'); }
+}
+
+/* ============ ETIQUETA DE COMPOSIÇÃO (a costurada na peça) ============
+ * Nasce no apontamento do corte e só morre quando o PCP marca como impressa.
+ * A OP não fecha sem ela — a trava fica na conclusão, não no meio do fluxo,
+ * para impressora quebrada não parar a linha de costura. */
+async function etiqComposicao(id){
+  let r; try{ r=await api('/ops/'+id+'/etiqueta-composicao'); }catch(e){ toast(e.message,'err'); return; }
+  window.__ETIQCOMP=r;
+  const probs=[].concat.apply([],(r.linhas||[]).map(l=>l.problemas||[]));
+  const unicos=probs.filter((v,i)=>probs.indexOf(v)===i);
+  const linhas=(r.linhas||[]).map(l=>`<tr>
+    <td><b>${esc(l.rotulo)}</b></td>
+    <td style="text-align:right">${l.devidas}</td>
+    <td style="text-align:right">${l.impressas}</td>
+    <td style="text-align:right">${l.faltam>0?`<b style="color:#a33a26">${l.faltam}</b>`:'<span class="pill green" style="font-size:9px">ok</span>'}</td>
+    <td style="text-align:right"><button class="btn-sm" onclick="APP.etiqComposicaoImprimir(${id},'${esc(l.tamanho)}')">🏷 Imprimir ${l.faltam>0?l.faltam:l.devidas}</button></td></tr>`).join('');
+  openModal(`<h3>🏷 Etiquetas de composição — ${esc(r.op)}</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">${esc((r.produto&&r.produto.descricao)||'')}${r.cor?' · 🎨 '+esc(r.cor):''} · <b>${esc((r.produto&&r.produto.composicao)||'composição não cadastrada')}</b></div>
+    ${unicos.length?`<div class="card" style="background:#fdf1ef;border-color:#e8bfb6;color:#a33a26;font-size:12px;margin-bottom:8px">
+      <b>Antes de gastar fita:</b>${unicos.map(p=>'<div>• '+esc(p)+'</div>').join('')}</div>`:''}
+    <table class="tb"><thead><tr><th>Tamanho</th><th style="text-align:right">Cortadas</th><th style="text-align:right">Impressas</th><th style="text-align:right">Faltam</th><th></th></tr></thead>
+      <tbody>${linhas||'<tr><td colspan="5" class="muted">Nenhum corte apontado nesta OP ainda.</td></tr>'}</tbody></table>
+    <div class="muted" style="font-size:11px;margin-top:7px">Uma etiqueta por peça. O número da OP sai impresso e no QR — é o que rastreia a peça de volta até esta ordem.</div>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
+}
+async function etiqComposicaoImprimir(id, tamanho){
+  const r=window.__ETIQCOMP||{};
+  const l=(r.linhas||[]).filter(x=>String(x.tamanho)===String(tamanho))[0];
+  if(!l){ toast('Tamanho não encontrado.','err'); return; }
+  const sugerida=l.faltam>0?l.faltam:l.devidas;
+  if(window.BrowserPrint){
+    window.BrowserPrint.getDefaultDevice('printer',
+      dev=>dev.send(l.zpl, ()=>{}, ()=>etiqComposicaoPreview(r,l)),
+      ()=>etiqComposicaoPreview(r,l));
+  } else { etiqComposicaoPreview(r,l); }
+  // A impressora não avisa quando come uma etiqueta: quem imprimiu confirma
+  // quantas saíram de verdade.
+  const qtd=prompt('Quantas etiquetas do tamanho '+l.rotulo+' saíram da impressora?', String(sugerida));
+  if(qtd===null) return;
+  const n=Number(qtd);
+  if(!(n>0)){ toast('Quantidade inválida.','err'); return; }
+  const grade={}; grade[tamanho]=n;
+  try{
+    const res=await api('/ops/'+id+'/etiqueta-composicao/impresso',{method:'POST',body:{grade}});
+    toast(res.totalFaltante>0?('Registrado. Ainda faltam '+res.totalFaltante+' etiqueta(s).'):'Etiquetas desta OP completas.', res.totalFaltante>0?'info':'ok');
+    etiqComposicao(id);
+  }catch(e){ toast(e.message,'err'); }
+}
+function etiqComposicaoPreview(r,l){
+  const w=window.open('','_blank','width=420,height=620'); if(!w) return;
+  w.document.write(`<html><head><title>Etiqueta ${esc(r.op)} ${esc(l.rotulo)}</title>
+    <style>body{font:13px system-ui;padding:14px}.et{border:1px solid #999;width:200px;padding:10px;text-align:center;margin:10px auto}
+    .b{font-size:12px}.t{font-size:22px;font-weight:800;margin:6px 0}</style></head><body>
+    <div class="et"><div style="font-weight:800;font-size:20px">HC</div>
+      <div class="b">${esc(r.fabricante.nome||'')}</div>
+      <div class="b">CNPJ: ${esc(r.fabricante.cnpj||'')}</div>
+      <div class="b">${esc((r.produto&&r.produto.composicao)||'COMPOSICAO NAO CADASTRADA')}</div>
+      <div class="b">TAMANHO</div><div class="t">${esc(l.rotulo)}</div>
+      <div class="b">FABRICADO NO BRASIL</div>
+      <div class="b">${esc(r.fabricante.telefone||'')}</div>
+      <div class="b" style="margin-top:6px"><b>${esc(r.op)}</b></div></div>
+    <div style="text-align:center">${l.faltam>0?l.faltam:l.devidas} etiqueta(s)</div>
+    <div class="bar" style="text-align:center;margin-top:10px"><button onclick="zpl()">Baixar ZPL</button></div>
+    <script>var Z=${JSON.stringify(l.zpl)};function zpl(){var b=new Blob([Z],{type:'text/plain'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='composicao-${esc(r.op)}-${esc(l.rotulo)}.zpl';a.click();}<\/script>
+    </body></html>`);
+  w.document.close();
+}
+/** A fila do PCP: toda OP que ainda deve etiqueta de composição. */
+async function etiqComposicaoFila(){
+  let list; try{ list=await api('/ops/etiquetas-composicao'); }catch(e){ toast(e.message,'err'); return; }
+  if(!list.length){ uiAlert({tipo:'ok',titulo:'Nenhuma etiqueta pendente',ok:'Fechar',msg:'Toda OP com corte apontado já teve as etiquetas de composição impressas.'}); return; }
+  const linhas=list.map(o=>`<tr>
+    <td><b>${esc(o.op)}</b><div class="muted" style="font-size:10.5px">${esc((o.produto&&o.produto.descricao)||'')}${o.cor?' · '+esc(o.cor):''}</div></td>
+    <td>${esc(o.setor||o.status||'')}</td>
+    <td style="text-align:right"><b style="color:#a33a26">${o.totalFaltante}</b><div class="muted" style="font-size:10.5px">${o.faltam.map(f=>esc(f.tamanho||'ÚNICO')+': '+f.faltam).join(' · ')}</div></td>
+    <td style="text-align:right"><button class="btn-sm" onclick="APP.closeModal();APP.etiqComposicao(${o.id})">Abrir</button></td></tr>`).join('');
+  const total=list.reduce((s,o)=>s+o.totalFaltante,0);
+  openModal(`<h3>🏷 Etiquetas de composição pendentes</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 8px">${list.length} OP(s) · <b>${total}</b> etiqueta(s) a imprimir. A OP mais antiga está mais perto da costura — comece por ela.</div>
+    <table class="tb"><thead><tr><th>OP</th><th>Fase</th><th style="text-align:right">Faltam</th><th></th></tr></thead><tbody>${linhas}</tbody></table>
+    <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Fechar</button></div>`);
 }
 
 async function viewPiloto(c){
@@ -9737,14 +9932,25 @@ async function gerarUnidadesMP(destino){
   try{
     for(let i=0;i<itens.length;i++){
       const it=itens[i];
-      for(const r of (L[i]||[])){
+      const rows=(L[i]||[]);
+      // A metragem da NOTA é do item inteiro; os rolos estão distribuídos entre
+      // os lotes. Rateia proporcionalmente para a soma dos rolos continuar
+      // batendo com a nota — mandar a metragem cheia em cada rolo multiplicaria
+      // o estoque pelo número de rolos.
+      const rolosItem=rows.reduce((s,r)=>s+Math.max(0,Math.round(Number(r.vol)||0)),0);
+      const medidaItem=Number(it.quantidade)||0;
+      for(const r of rows){
         const q=Math.min(500, Math.max(0, Math.round(Number(r.vol)||0))); if(!q) continue;
+        const medida=(medidaItem>0&&rolosItem>0)?Number((medidaItem*q/rolosItem).toFixed(3)):q;
         // VÍNCULO COM O MATERIAL: sem ele a etiqueta nasce solta e a ficha do
         // material diz "não tem nenhuma etiqueta" mesmo com os rolos impressos —
         // foi o que aconteceu com 167 das 291 etiquetas de matéria-prima.
         // `somarSaldo:false` porque a NF de entrada JÁ somou o saldo; aqui só se
         // etiqueta o rolo (senão o saldo dobrava).
-        const body={tipo:'materia', descricao:String(it.descricao||'').slice(0,160), quantidade:q, origem:'entrada', destino, somarSaldo:false};
+        // `quantidade` = metragem (o que o rolo TEM) · `volumes` = quantos rolos
+        // (quantas etiquetas sair). Antes os dois iam no mesmo campo: o sistema
+        // lia o nº de rolos como se fosse a metragem e gerava 1 etiqueta só.
+        const body={tipo:'materia', descricao:String(it.descricao||'').slice(0,160), quantidade:medida, volumes:q, origem:'entrada', destino, somarSaldo:false};
         if(it.materialId) body.materialId=it.materialId;
         const lote=(r.lote||'').trim(); if(lote) body.loteFornecedor=lote;
         const res=await api('/estoque/entrada',{method:'POST',body});
@@ -9757,7 +9963,9 @@ async function gerarUnidadesMP(destino){
     if(destino==='estoque'){
       imprimirEtqUnidades(todas,{loteEntrada:'ENTRADA-MP'});
       toast(todas.length+' etiqueta(s) de volume gerada(s) — bipe para endereçar.','ok');
-      setTimeout(()=>APP.formEnderecar(),500);
+      // Leva as etiquetas recém-geradas para a tela de endereçar: quem imprimiu
+      // está com elas na mão, não faz sentido mandar bipar de novo.
+      setTimeout(()=>APP.formEnderecar(todas),500);
     } else {
       imprimirEtqUnidades(todas,{loteEntrada:'MP-EXPEDICAO'});
       toast(todas.length+' volume(s) reservado(s) para expedição.','ok');
@@ -10393,7 +10601,19 @@ function estCardsGranel(arr){
     const ehAvi=/AVI-/.test(String(m.codigo||''));
     if(E.cat==='materia' && ehAvi) return false;
     if(E.cat==='aviamento' && !ehAvi) return false;
-    if(E.status && E.status!=='estoque') return false;      // status é de etiqueta
+    /**
+     * STATUS é da ETIQUETA, não do material — mas isso não quer dizer que o
+     * material suma. `arr` já veio filtrado por status, então `porMat` só tem
+     * os ROLOS daquele status: o cartão aparece quando o material tem algum.
+     *
+     * Antes era `return false`, e aí "Matéria-prima + Recebimento" dava "Nada
+     * neste filtro" mesmo com rolos aguardando endereço — exatamente a tela que
+     * alguém abre para ir endereçar o que acabou de chegar.
+     *
+     * "Em estoque" segue de fora da regra: ali interessa também o material que
+     * tem saldo no cadastro e nenhuma etiqueta ainda.
+     */
+    if(E.status && E.status!=='estoque') return porMat.has(m.id);
     if(E.col||E.andar) return porMat.has(m.id);              // filtro de endereço
     if(E.semMetragem) return (porMat.get(m.id)||[]).some(u=>u.quantidade==null);
     if(q && !bnorm(m.codigo+' '+m.descricao+' '+(m.cor||'')).includes(q)) return porMat.has(m.id);
@@ -11999,9 +12219,33 @@ function enAndar(){
   if(!c) return;
   c.innerHTML='<option value="">—</option>'+(col?edCaixas(col, val('en_and')).map(x=>'<option>'+x+'</option>').join('') : '');
 }
-async function formEnderecar(){
-  openModal(`<h3>🏷 Endereçar unidades (bipar)</h3>
+/**
+ * `pendentes` = as etiquetas que ACABARAM de ser geradas (entrada de NF, fim de
+ * OP). Elas já estão na mão de quem imprimiu: pedir para bipar uma a uma é
+ * refazer um trabalho que o sistema já fez. Com a lista aqui, é escolher o
+ * endereço e endereçar o lote inteiro de uma vez. O campo de bipar continua,
+ * para etiqueta que veio de outro lugar.
+ */
+async function formEnderecar(pendentes){
+  const pend=(pendentes||[]).filter(p=>p&&p.codigo);
+  window.__EDPEND=pend;
+  const linhasPend=pend.map(p=>`<label style="display:flex;gap:7px;align-items:center;padding:3px 0;border-bottom:1px solid #f0ece0;cursor:pointer">
+      <input type="checkbox" class="edchk" value="${esc(p.codigo)}" checked>
+      <span style="font-family:'Courier New',monospace;font-weight:700;font-size:11.5px">${esc(p.codigo)}</span>
+      <span style="flex:1;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.descricao||'')}${p.tamanho?(' · TAM '+esc(p.tamanho)):''}${p.qtdLote?(' · '+esc(p.qtdLote)+' '+esc(p.unLote||'')):''}${p.loteFornecedor?(' · LOTE '+esc(p.loteFornecedor)):''}</span>
+    </label>`).join('');
+  const blocoPend=pend.length?`<div id="ed_pend" style="border:1px solid #e0d3a8;background:#fbf7e8;border-radius:9px;padding:9px 11px;margin-bottom:9px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+        <b style="font-size:13px">📦 ${pend.length} etiqueta(s) desta entrada</b>
+        <span class="muted" style="font-size:11px;flex:1">já estão na sua mão — não precisa bipar</span>
+        <button class="btn-sm" style="font-size:11px" onclick="APP.edMarcarTodas()">marcar/desmarcar</button>
+      </div>
+      <div style="max-height:26vh;overflow:auto">${linhasPend}</div>
+      <button class="btn-primary" style="width:100%;margin-top:7px" onclick="APP.enderecarSelecionados()">📍 Endereçar as selecionadas</button>
+    </div>`:'';
+  openModal(`<h3>🏷 Endereçar unidades${pend.length?'':' (bipar)'}</h3>
     <div class="muted" style="font-size:12px;margin:-4px 0 8px">Coluna <b>A</b> = produto acabado · Coluna <b>B</b> = matéria-prima · Coluna <b>C</b> = pilar da loja (não tem andar: a <b>caixa</b> é o endereço) · <b>Comodato</b> = loja do cliente. As opções de andar e caixa mudam conforme a coluna.</div>
+    ${blocoPend}
     <div class="grid3"><div class="mrow"><label class="fl">Coluna *</label><select id="ed_col" class="inp" onchange="APP.edCol()"><option value="A">${COL_LABEL.A}</option><option value="C">${COL_LABEL.C}</option><option value="${COL_COMODATO}">🤝 Comodato (loja do cliente)</option><option value="B">${COL_LABEL.B}</option></select></div>
       <div class="mrow" id="ed_andbox"><label class="fl">Andar *</label><select id="ed_and" class="inp" onchange="APP.edAndar()"></select></div>
       <div class="mrow" id="ed_cxbox"><label class="fl">Caixa Master <span class="muted" id="ed_cxlabel">(opcional)</span></label><select id="ed_cx" class="inp"></select></div></div>
@@ -12020,21 +12264,66 @@ async function formEnderecar(){
   comodatoPreencher('ed_comcli');
   setTimeout(()=>{const i=$('ed_bip'); if(i)i.focus();},50);
 }
-async function enderecarBip(){
-  const codigo=val('ed_bip'); if(!codigo){ return; }
+/**
+ * O DESTINO escolhido na tela (coluna/andar/caixa, ou o cliente do comodato),
+ * já validado. Devolve `null` quando falta algo — o aviso já foi dado.
+ *
+ * É uma função só porque bipar uma etiqueta e endereçar o lote inteiro têm de
+ * mandar exatamente o mesmo destino; duas cópias dessa validação divergiriam
+ * na primeira correção.
+ */
+function edDestino(){
   const col=val('ed_col');
-  const body={ codigo, coluna:col, andar:val('ed_and'), caixaMaster:val('ed_cx') };
+  const body={ coluna:col, andar:val('ed_and'), caixaMaster:val('ed_cx') };
   // Comodato: o destino é a loja do cliente — sem ele não dá para endereçar.
   if(col===COL_COMODATO){
     const cli=Number(val('ed_comcli')||0);
-    if(!cli){ toast('Comodato: escolha o cliente antes de bipar.','err'); const s=$('ed_comcli'); if(s) s.focus(); return; }
+    if(!cli){ toast('Comodato: escolha o cliente antes.','err'); const s=$('ed_comcli'); if(s) s.focus(); return null; }
     body.comodatoClienteId=cli; delete body.andar; delete body.caixaMaster;
   }
   // Pilar: não tem andar, e sem caixa a peça ficaria perdida na estante inteira.
   else if(colSoCaixa(col)){
     delete body.andar;
-    if(!body.caixaMaster){ toast('Coluna '+col+': escolha a caixa master — é ela que localiza a peça.','err'); const s=$('ed_cx'); if(s) s.focus(); return; }
+    if(!body.caixaMaster){ toast('Coluna '+col+': escolha a caixa master — é ela que localiza a peça.','err'); const s=$('ed_cx'); if(s) s.focus(); return null; }
   }
+  return body;
+}
+function edMarcarTodas(){
+  const chks=document.querySelectorAll('.edchk'); if(!chks.length) return;
+  let algumDesmarcado=false; chks.forEach(c=>{ if(!c.checked) algumDesmarcado=true; });
+  chks.forEach(c=>{ c.checked=algumDesmarcado; });
+}
+/** Endereça de uma vez as etiquetas que acabaram de ser geradas. */
+async function enderecarSelecionados(){
+  const dest=edDestino(); if(!dest) return;
+  const cods=[]; document.querySelectorAll('.edchk').forEach(c=>{ if(c.checked) cods.push(c.value); });
+  if(!cods.length){ toast('Marque ao menos uma etiqueta.','err'); return; }
+  try{
+    const r=await api('/estoque/enderecar-lote',{method:'POST',body:Object.assign({codigos:cods},dest),procLabel:'Endereçando…'});
+    const ok=Number(r.enderecadas||0);
+    beepOk();
+    // O serviço não devolve o que DEU certo, devolve o que ignorou. Então o que
+    // sai da lista é o que não foi recusado — etiqueta recusada FICA na tela,
+    // senão ela sumiria daqui sem ter sido endereçada em lugar nenhum.
+    const ign=r.ignoradas||{};
+    const recusadas=[].concat(ign.despachadas||[],ign.naoAchadas||[],ign.reservadasBloqueadas||[]);
+    const ruins=new Set(recusadas);
+    document.querySelectorAll('.edchk').forEach(c=>{ if(!ruins.has(c.value)){ const l=c.closest('label'); if(l) l.remove(); } });
+    const resto=document.querySelectorAll('.edchk').length;
+    const log=$('ed_log');
+    if(log){
+      let h=`<div style="padding:4px 0;border-bottom:1px solid #eee">✅ ${ok} etiqueta(s) endereçada(s)${r.endereco?(' → '+esc(r.endereco)):''}${r.reservadas?(' <span style="color:#8a6d3b">('+r.reservadas+' reservada(s) só mudaram de lugar)</span>'):''}</div>`;
+      if(recusadas.length) h=`<div style="padding:4px 0;border-bottom:1px solid #eee;color:#a33a26">⚠️ ${recusadas.length} não entrou: ${esc(recusadas.slice(0,6).join(', '))}${recusadas.length>6?'…':''}</div>`+h;
+      log.innerHTML=h+log.innerHTML;
+    }
+    if(!resto){ const b=$('ed_pend'); if(b) b.remove(); }
+    toast(ok+' etiqueta(s) endereçada(s).'+(resto?(' '+resto+' continua(m) na lista.'):''),resto?'info':'ok');
+  }catch(e){ beepErro(); toast('Falha: '+(e.message||e),'err'); }
+}
+async function enderecarBip(){
+  const codigo=val('ed_bip'); if(!codigo){ return; }
+  const dest=edDestino(); if(!dest) return;
+  const body=Object.assign({codigo},dest);
   try{
     let r=await api('/estoque/enderecar',{method:'POST',body});
     // Já está exatamente neste endereço → avisa e NÃO duplica.
@@ -12134,7 +12423,8 @@ async function consExcluir(){
 async function formMov(){
   const [prods, mats] = await Promise.all([api('/produtos'), api('/materiais').catch(()=>[])]);
   window.__MOVPROD=prods; window.__MOVMAT=mats;
-  openModal(`<h3>Movimentar estoque</h3>
+  openModal(`<h3>Entrada / saída manual de estoque</h3>
+    <div class="muted" style="font-size:12px;margin:-4px 0 9px">Esta tela <b>soma ou subtrai quantidade</b> do saldo. Ela <b>não muda o lugar</b> de nada — para guardar o rolo ou a peça numa coluna/andar, use <b>Endereçar (bipar)</b>.</div>
     <div class="mrow"><label class="fl">O que movimentar *</label><select id="f_alvo" class="inp" onchange="APP.movAlvo()">
       <option value="produto">Produto acabado</option><option value="materia">Matéria-prima</option><option value="aviamento">Aviamento</option></select></div>
     <div class="mrow" style="position:relative"><label class="fl" id="f_itemlab">Produto *</label>
@@ -12142,10 +12432,16 @@ async function formMov(){
       <div id="f_itemdd" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9c98f;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.20);max-height:290px;overflow-y:auto;margin-top:3px"></div></div>
     <div id="f_movinfo" style="display:none;margin:-4px 0 8px;font-size:12px;padding:7px 10px;background:#eef6ff;border:1px solid #bcd8f5;border-radius:8px"></div>
     <div class="grid3">
-      <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp"><option value="entrada">entrada</option><option value="saida">saída</option></select></div>
+      <div><label class="fl">Tipo *</label><select id="f_tipo" class="inp" onchange="APP.movPrever()">
+        <option value="">— escolha —</option>
+        <option value="entrada">entrada (SOMA ao saldo)</option><option value="saida">saída (SUBTRAI do saldo)</option></select></div>
       <div id="f_tamwrap">${field('f_tam','Tamanho *','placeholder="M, G, G2..."')}</div>
-      <div><label class="fl" id="f_qtdlab">Quantidade *</label><div style="display:flex;gap:6px;align-items:center"><input id="f_qtd" class="inp" type="number" min="1" step="1" style="flex:1"><span id="f_unlbl" class="muted" style="display:none;font-weight:700"></span></div></div>
+      <div><label class="fl" id="f_qtdlab">Quantidade *</label><div style="display:flex;gap:6px;align-items:center"><input id="f_qtd" class="inp" type="number" min="1" step="1" style="flex:1" oninput="APP.movPrever()"><span id="f_unlbl" class="muted" style="display:none;font-weight:700"></span></div></div>
     </div>
+    <!-- O SALDO QUE VAI FICAR, antes de confirmar. Em 16/11/2026 uma entrada
+         feita aqui por engano levou o MP-TEC-0030 de 200 para 400 m: a tela não
+         dizia em lugar nenhum o que o Confirmar ia fazer com o número. -->
+    <div id="f_prev" style="display:none;margin:7px 0 0;font-size:12.5px;padding:8px 11px;border:1px solid #cfe6d5;background:#f2f9f4;border-radius:8px"></div>
     <div id="f_locwrap"></div>
     <div class="mactions"><button class="btn-sm" onclick="APP.closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="APP.saveMov()">Confirmar</button></div>`);
@@ -12307,6 +12603,33 @@ function movItemPick(id){
   const dd=$('f_itemdd'); if(dd) dd.style.display='none';
   const isMat=(val('f_alvo')==='materia'||val('f_alvo')==='aviamento');
   const unl=$('f_unlbl'); if(unl){ if(isMat){ unl.textContent=x.unidade||''; unl.style.display=''; } else unl.style.display='none'; }
+  movPrever();
+}
+/**
+ * O SALDO QUE VAI FICAR — mostrado antes de confirmar.
+ *
+ * É a trava que faltava. Quem abre "Movimentar" pensando em MOVER o rolo de
+ * lugar confirma uma entrada e dobra o estoque sem ver número nenhum: foi o que
+ * aconteceu com o MP-TEC-0030 em 16/11/2026 (200 → 400 m). Dizendo "vai de 200
+ * para 400" a conta fica na frente de quem decide.
+ */
+function movPrever(){
+  const box=$('f_prev'); if(!box) return;
+  const alvo=val('f_alvo'); const isMat=(alvo==='materia'||alvo==='aviamento');
+  const id=Number(window.__MOVITEMID||0);
+  const tipo=val('f_tipo'); const q=Number(String(val('f_qtd')||'').replace(',','.'));
+  const m=isMat?(window.__MOVMAT||[]).find(x=>x.id===id):null;
+  if(!m||!tipo||!(q>0)){ box.style.display='none'; return; }
+  const atual=Number(m.saldo||0);
+  const depois=tipo==='entrada'?(atual+q):(atual-q);
+  const fmt=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:3});
+  const neg=depois<0;
+  box.style.display='';
+  box.style.background=neg?'#fdf1ef':'#f2f9f4';
+  box.style.borderColor=neg?'#e8bfb6':'#cfe6d5';
+  box.innerHTML=`<b>${esc(m.codigo)}</b> — saldo vai de <b>${fmt(atual)}</b> para <b>${fmt(depois)}</b> ${esc(m.unidade||'')}`
+    +(tipo==='entrada'?`<div style="color:#8a6d3b;margin-top:3px">▲ Isto <b>SOMA</b> ao estoque, como se tivesse chegado mercadoria nova. Se o rolo só vai mudar de lugar, feche e use <b>Endereçar (bipar)</b>.</div>`:'')
+    +(neg?`<div style="color:#a33a26;margin-top:3px">⚠️ O saldo ficaria <b>negativo</b>.</div>`:'');
 }
 async function saveMov(){
   // Etiqueta bipada: a baixa é NA PEÇA, não no agregado por produto+tamanho.
@@ -12325,6 +12648,9 @@ async function saveMov(){
   if(isMat) body.materialId=id; else { body.produtoId=id; body.tamanho=val('f_tam'); }
   if(isMat){ const loc=val('f_loc'); if(loc) body.localizacao=loc; }
   if(!id){ toast('Selecione o item (digite e escolha na lista).','err'); return; }
+  // Tipo sem padrão: entrada vinha pré-escolhida e quem só queria mexer no
+  // lugar da peça confirmava uma SOMA ao estoque sem ter escolhido nada.
+  if(!body.tipo){ toast('Escolha se é entrada (soma) ou saída (subtrai).','err'); const s=$('f_tipo'); if(s) s.focus(); return; }
   if(isMat){ if(!(body.quantidade>0)){ toast('Informe a quantidade.','err'); return; } }
   else { if(!body.tamanho||!(body.quantidade>0)){ toast('Preencha tamanho e quantidade.','err'); return; } }
   try{ const r=await api('/estoque/movimentar',{method:'POST',body}); closeModal();
@@ -13179,16 +13505,26 @@ async function loadCusto(){
   out.innerHTML = '<div class="spin"></div>';
   try{
     const d = await api('/produtos/'+id+'/custo');
-    window.__CUSTO = Number(d.custoMaterial);
+    // Bordado/silk são custo da peça tanto quanto o tecido: entram no mesmo bolo
+    // que vai virar preço, senão a margem some na nota da bordadeira.
+    window.__CUSTO = Number(d.custoDireto!=null?d.custoDireto:d.custoMaterial);
     out.innerHTML = `
       <div class="sect" style="margin-top:0"><h3>Consumo (BOM) · ${esc(d.produto.codigo)}</h3>` +
       (d.itens.length ? panelTable(['Material','Descrição','Qtd','Custo unit.','Subtotal'],
-        d.itens.map(i=>[`<span class="mono gold">${esc(i.material)}</span>`, esc(i.descricao), esc(i.quantidade)+' '+esc(i.unidade), money(i.custoUnit), `<b>${money(i.subtotal)}</b>`]))
-        : '<div class="panel"><div class="empty">Este produto ainda não tem receita (BOM) cadastrada.</div></div>') + `</div>
+        d.itens.map(i=>[`<span class="mono gold">${esc(i.material)}</span>`, esc(i.descricao),
+          esc(i.quantidade)+' '+esc(i.unidade)+(i.quantidadeCusto&&i.unidadeCusto!==i.unidade?`<br><span class="muted" style="font-size:10px">= ${esc(i.quantidadeCusto)} ${esc(i.unidadeCusto)}</span>`:''),
+          money(i.custoUnit)+(i.unidadeCusto?`<span class="muted" style="font-size:10px"> /${esc(i.unidadeCusto)}</span>`:''),
+          i.subtotal==null?'<span class="muted" style="font-size:11px">—</span>':`<b>${money(i.subtotal)}</b>`]))
+        : '<div class="panel"><div class="empty">Este produto ainda não tem receita (BOM) cadastrada.</div></div>')
+      + ((d.aplicacoes||[]).length?`<h3 style="margin-top:14px">Aplicações (bordado / silk / DTF)</h3>`+panelTable(['Aplicação','Tamanho','Local','Custo / peça'],
+          d.aplicacoes.map(a=>[esc(a.tipo), esc(a.tamanho||'—'), esc(a.local||'—'), a.custo?`<b>${money(a.custo)}</b>`:'<span class="muted" style="font-size:11px">sem preço</span>'])):'')
+      // Total incompleto tem de dizer que é incompleto: precificar em cima de um
+      // custo com buraco é errar o preço sem saber que errou.
+      + ((d.pendencias||[]).length?`<div class="card" style="background:#fff7ed;border-color:#f3dcc0;font-size:11.5px;color:#8a5a1b;margin-top:8px"><b>O custo abaixo está incompleto:</b><ul style="margin:4px 0 0 16px;padding:0">${d.pendencias.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></div>`:'') + `</div>
       <div class="sect"><h3>Composição do preço</h3>
         <div class="panel" style="padding:18px">
           <div class="grid3">
-            <div><label class="fl">Custo de material (BOM)</label><input class="inp" value="${money(d.custoMaterial)}" disabled></div>
+            <div><label class="fl">Material + aplicações</label><input class="inp" value="${money(d.custoDireto!=null?d.custoDireto:d.custoMaterial)}" disabled title="Material ${money(d.custoMaterial)} + aplicações ${money(d.custoAplicacoes||0)}"></div>
             ${field('pr_mo','Mão de obra + facção (R$)','type="number" step="0.01" value="0" oninput="APP.calcPreco()"')}
             ${field('pr_outros','Outros custos (R$)','type="number" step="0.01" value="0" oninput="APP.calcPreco()"')}
           </div>
@@ -13219,9 +13555,20 @@ function calcPreco(){
 async function viewAviamentos(c){
   // `?inativos=1`: a tela de CADASTRO precisa enxergar o inativo p/ dar para
   // reativar. As telas que OFERECEM material chamam sem isso e não o veem.
-  const list = (await api('/materiais?inativos=1')).filter(m=>m.codigo.startsWith('AVI-'));
+  window.__AVILIST = (await api('/materiais?inativos=1')).filter(m=>m.codigo.startsWith('AVI-'));
+  c.innerHTML = toolbar('Aviamentos (botões, zíperes, etiquetas...)', 'Novo aviamento', 'APP.formAviamento()',
+      `<input id="avi_q" class="inp" placeholder="🔍 buscar código, descrição, cor…" oninput="APP.aviRender()" style="width:300px;font-size:12px;padding:6px 10px">`)
+    + `<div id="avi_tbl"></div>`;
+  aviRender();
+}
+function aviRender(){
+  const box=$('avi_tbl'); if(!box) return;
+  // bnorm nos dois lados: "botao" acha "BOTÃO", "preto" acha "Preto".
+  const q=bnorm(val('avi_q')||'');
+  let list=(window.__AVILIST||[]);
+  if(q){ const t=q.split(/\s+/); list=list.filter(m=>{ const s=bnorm([m.codigo,m.descricao,m.cor,m.categoria,m.familia,m.unidade].filter(Boolean).join(' ')); return t.every(x=>s.includes(x)); }); }
   const nIna = list.filter(m=>m.ativo===false).length;
-  c.innerHTML = toolbar('Aviamentos (botões, zíperes, etiquetas...)', 'Novo aviamento', 'APP.formAviamento()')
+  box.innerHTML = `<div class="muted" style="font-size:11.5px;margin-bottom:6px">${list.length} aviamento(s)${q?' no filtro':''}</div>`
     + (nIna?`<div class="card" style="background:#f6f4ee;border-color:#ddd5c2;font-size:11.5px;margin-bottom:8px">${nIna} aviamento(s) <b>inativo(s)</b> — continuam aqui e no histórico, mas não aparecem mais para escolher na ficha técnica, na nota de entrada nem na ordem de compra.</div>`:'')
     + panelTable(
     ['Código','Descrição','Cor','Un.','Saldo','Mínimo','Custo',''],
@@ -13236,7 +13583,7 @@ async function viewAviamentos(c){
         `<b style="${baixo&&!off?'color:#c14a34':(off?'opacity:.6':'')}">${esc(m.saldo)}</b>`, esc(m.minimo), money(m.custo),
         `<button class="btn-sm" onclick="APP.matAtivo(${m.id},${off?'true':'false'})" title="${off?'Voltar a oferecer este aviamento nas telas de escolha':'Tirar das telas de escolha, sem apagar nada'}">${off?'↩ Reativar':'🚫 Inativar'}</button>`
       ];
-    }), list.length?null:'Nenhum aviamento cadastrado.');
+    }), list.length?null:(q?'Nenhum aviamento encontrado para "'+esc(val('avi_q'))+'".':'Nenhum aviamento cadastrado.'));
 }
 /**
  * Liga/desliga um material. Não apaga: nota, receita e OC antigas continuam
@@ -14718,12 +15065,12 @@ async function formNfeAvulsa(){
     <div class="dz">
       <div class="dz-hd"><span>Fatura / Duplicatas · Transporte</span></div>
       <div class="dz-r">
-        <div class="dz-c" id="nf_vencrow" style="flex:2"><span class="dz-l">Vencimento (dias após o faturamento)</span><input id="nf_venc" type="number" min="0" placeholder="ex.: 20"></div>
-        <div class="dz-c" id="nf_volrow" style="flex:1"><span class="dz-l">Volumes</span><input id="nf_vol" type="number" min="1" value="1"></div>
+        <div class="dz-c" id="nf_vencrow" style="flex:2"><span class="dz-l">Vencimento (dias após o faturamento)</span><input id="nf_venc" type="number" min="0" placeholder="ex.: 20" onwheel="this.blur()"></div>
+        <div class="dz-c" id="nf_volrow" style="flex:1"><span class="dz-l">Volumes</span><input id="nf_vol" type="number" min="1" value="1" onwheel="this.blur()"></div>
         <div class="dz-c" style="flex:2"><span class="dz-l">Ordem de compra do cliente (PO/SAP)</span><input id="nf_oc" placeholder="ex.: 4100676333"></div>
       </div>
       <div class="dz-r" id="nf_freterow">
-        <div class="dz-c" style="flex:1"><span class="dz-l">Valor do frete (R$)</span><input id="nf_frete" type="number" step="0.01" min="0" placeholder="0,00" oninput="APP.nfCalc()"></div>
+        <div class="dz-c" style="flex:1"><span class="dz-l">Valor do frete (R$)</span><input id="nf_frete" type="number" step="0.01" min="0" placeholder="0,00" oninput="APP.nfCalc()" onwheel="this.blur()"></div>
         <div class="dz-c" style="flex:2"><span class="dz-l">Modalidade do frete</span><select id="nf_fretemod">
           <option value="">— pela regra (com frete = CIF) —</option>
           <option value="0">0 · CIF — por conta do emitente</option>
@@ -14739,6 +15086,7 @@ async function formNfeAvulsa(){
       <div class="dz-hd"><span>Dados dos produtos / serviços</span>
         <button class="btn-sm" onclick="APP.nfAdd()" style="font-size:10px;padding:1px 8px;height:auto">+ item</button></div>
       <div id="nfitens"></div>
+      <div id="nf_alerta" style="display:none"></div>
     </div>
 
     <div class="dz">
@@ -14796,8 +15144,8 @@ function nfRender(){
       <div><input id="nf_desc_${i}" placeholder="descrição *" value="${esc(it.descricao||'')}"></div>
       <div><input id="nf_ncm_${i}" placeholder="8 dígitos" title="NCM — usado quando o item não é um produto cadastrado" value="${esc(it.ncm||'')}" inputmode="numeric" maxlength="10"></div>
       <div><input value="UN" disabled style="color:#8c8575"></div>
-      <div><input id="nf_qtd_${i}" type="number" step="0.001" placeholder="0" value="${it.quantidade!=null?it.quantidade:''}" oninput="APP.nfCalc()"></div>
-      <div><input id="nf_vu_${i}" type="number" step="0.01" placeholder="0,00" value="${it.valorUnit!=null?it.valorUnit:''}" oninput="APP.nfCalc()"></div>
+      <div><input id="nf_qtd_${i}" type="number" step="1" min="0" placeholder="0" value="${it.quantidade!=null?it.quantidade:''}" oninput="APP.nfCalc()" onwheel="this.blur()"></div>
+      <div><input id="nf_vu_${i}" type="number" step="0.01" min="0" placeholder="0,00" value="${it.valorUnit!=null?it.valorUnit:''}" oninput="APP.nfCalc()" onwheel="this.blur()"></div>
       <div><input id="nf_tot_${i}" value="${tot?money(tot):''}" disabled style="color:#111;font-weight:700"></div>
       <div>${NFITENS.length>1?`<button class="btn-sm" onclick="APP.nfDel(${i})" style="padding:0 6px;height:22px;line-height:1">×</button>`:''}</div>
     </div>`;
@@ -14806,6 +15154,39 @@ function nfRender(){
        <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#5b564a;display:flex;align-items:center;justify-content:flex-end">Total da nota</div>
        <div><input id="nf_totgeral" value="" disabled style="color:#111;font-weight:800"></div><div></div></div>`;
   nfCalc();
+}
+/** Unidades que contam PEÇA — fração aqui é erro de digitação. Espelha src/nfe/quantidade-item.ts. */
+const NF_UN_CONTAVEIS=['UN','UND','UNID','UNIDADE','PC','PÇ','PCS','PECA','PEÇA','PAR','CX','CAIXA','KIT','JG','JOGO','PCT','PACOTE','DZ','DUZIA','DÚZIA'];
+/** Unidade comercial do item: a do produto cadastrado, ou UN (é o que o formulário manda). */
+function nfUnidade(i){
+  const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i));
+  return String((p&&p.unidadeComercial)||'UN').trim().replace(/\./g,'').toUpperCase();
+}
+/**
+ * CONFERÊNCIA DOS NÚMEROS DA NOTA — o que faltava em 16/11/2026.
+ *
+ * O campo de quantidade é <input type="number">: a RODINHA DO MOUSE e as
+ * setinhas mudam o valor sem ninguém digitar nada, e o passo do campo era
+ * 0,001. Uma NF-e da Calça Hospitalar (R$ 40,50) saiu com 0,001 e 0,002 peça —
+ * total R$ 0,12 em vez de R$ 121,50. A multiplicação estava CERTA; a
+ * quantidade é que era absurda, e nada avisava.
+ *
+ * Agora o passo é 1, a rodinha não mexe mais no campo (onwheel → blur) e isto
+ * aqui aponta o que ficou estranho. Devolve a lista de problemas (vazia = ok).
+ */
+function nfProblemas(){
+  const p=[]; const inteiro=n=>Math.abs(n-Math.round(n))<1e-9; let soma=0;
+  NFITENS.forEach((_,i)=>{
+    const el=$('nf_qtd_'+i); if(!el) return;
+    const q=Number(el.value||0), v=Number((($('nf_vu_'+i)||{}).value)||0);
+    soma+=q*v;
+    const nome=(val('nf_desc_'+i)||('item '+(i+1))).slice(0,45);
+    const un=nfUnidade(i);
+    if(q>0 && !inteiro(q) && NF_UN_CONTAVEIS.includes(un))
+      p.push('Item '+(i+1)+' · '+nome+': quantidade '+String(q).replace('.',',')+' '+un+' — não existe fração de peça. Confira antes de emitir.');
+  });
+  if(soma>0 && soma<1) p.push('Total dos itens '+money(soma)+' — nota de menos de um real é quase sempre quantidade errada.');
+  return p;
 }
 /** Recalcula o total de cada linha e o total da nota (só visual — o valor fiscal sai do backend). */
 function nfCalc(){
@@ -14819,6 +15200,17 @@ function nfCalc(){
   // Total da nota = itens + frete (é assim que o backend monta, e é o que vai na duplicata).
   const fr=Number((($('nf_frete')||{}).value)||0);
   const tn=$('nf_totnota'); if(tn) tn.value = (soma+fr)? money(soma+fr) : '';
+  // Aviso na cara, enquanto ele digita — não só na hora de emitir.
+  const al=$('nf_alerta');
+  if(al){
+    const probs=nfProblemas();
+    al.style.display = probs.length?'':'none';
+    al.innerHTML = probs.length
+      ? '<div style="background:#fdf0e6;border:1px solid #e0a070;border-radius:4px;padding:6px 8px;margin-top:6px;font-size:11.5px;color:#8a4a20">'
+        + '<b>⚠ Confira antes de emitir</b><ul style="margin:4px 0 0;padding-left:16px">'
+        + probs.map(t=>'<li>'+esc(t)+'</li>').join('') + '</ul></div>'
+      : '';
+  }
 }
 function nfSync(){ NFITENS.forEach((it,i)=>{ const d=$('nf_desc_'+i); if(!d)return; it.descricao=d.value; it.quantidade=val('nf_qtd_'+i); it.valorUnit=val('nf_vu_'+i); const nc=$('nf_ncm_'+i); it.ncm=nc?nc.value:''; const p=prodByLabel(window.__NFPROD,val('nf_prod_'+i)); it.produtoId=p?p.id:undefined; }); }
 function nfAdd(){ nfSync(); NFITENS.push({}); nfRender(); }
@@ -14871,6 +15263,13 @@ async function saveNfeAvulsa(){
   const itens = NFITENS.filter(it=>((it.descricao&&it.descricao.trim())||it.produtoId)&&Number(it.quantidade)>0&&Number(it.valorUnit)>0)
     .map(it=>{ const o={ quantidade:Number(it.quantidade), valorUnit:Number(it.valorUnit) }; if(it.produtoId)o.produtoId=it.produtoId; if(it.descricao&&it.descricao.trim())o.descricao=it.descricao.trim(); const ncm=String(it.ncm||'').replace(/\D/g,''); if(ncm)o.ncm=ncm; return o; });
   if(!itens.length){ toast('Adicione ao menos um item (produto ou descrição, com qtd e valor).','err'); return; }
+  // Última parada antes da SEFAZ: NF autorizada com valor errado só sai por cancelamento.
+  const probs=nfProblemas();
+  if(probs.length){
+    const ok=await uiConfirm({tipo:'warn', titulo:'Os números não batem', perigo:true, ok:'Emitir assim mesmo', cancel:'Voltar e corrigir',
+      msg:probs.join('\n\n')+'\n\nEmitir mesmo assim? A nota vai autorizada na SEFAZ com estes valores — depois só se resolve com cancelamento.'});
+    if(!ok) return;
+  }
   if(remessa){
     const forn=nfResolveForn();
     if(!forn){ toast('Fornecedor destinatário não encontrado — digite o nome de um fornecedor cadastrado (com CNPJ).','err'); return; }
@@ -15462,7 +15861,7 @@ function renderContasModal(){
     const cs=porFil[f.id]||[];
     const linhas = cs.length? cs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid #f0e7d0">
         <div style="min-width:0">
-          <div style="font-weight:700">${esc(c.banco)}${c.agencia?' · Ag '+esc(c.agencia):''}${c.conta?' · CC '+esc(c.conta):''} ${c.principal?'<span class="pill gold" style="font-size:9px">principal</span>':''} ${c.ativa===false?'<span class="pill red" style="font-size:9px">inativa</span>':''}</div>
+          <div style="font-weight:700">${esc(c.banco)}${c.agencia?' · Ag '+esc(c.agencia):''}${c.conta?' · CC '+esc(c.conta)+(c.contaDv?'-'+esc(c.contaDv):''):''} ${c.principal?'<span class="pill gold" style="font-size:9px">principal</span>':''} ${c.ativa===false?'<span class="pill red" style="font-size:9px">inativa</span>':''}</div>
           <div class="muted" style="font-size:11px">${esc(TIPOCONTA[c.tipo]||c.tipo||'')}${c.apelido?' · '+esc(c.apelido):''}${c.pixChave?' · PIX '+esc(c.pixChave):''}</div>
         </div>
         <div style="white-space:nowrap;display:flex;gap:5px">
@@ -17355,7 +17754,7 @@ window.APP = {
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
-  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
+  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarCusto, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, imprimirResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
@@ -17367,18 +17766,18 @@ window.APP = {
   formComissao, comTot, comPrev, saveComissao, pagarComissao, excluirComissao, comRender, comFiltrar,
   comIrPedido, comIrNota,
   fluxoAba, fluxoMesNav, fluxoDiaDet, fluxoExcel,
-  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, opVencimento, opVencimentoSalvar, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, pilotoFoto, pilotoFotoSalvar, pilotoFotoRemover, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
+  formOp, saveOp, formOpAvulsa, saveOpAvulsa, opavAdd, opavDel, opavSync, formCorte, corteTotal, saveCorte, etiquetaOp, etiqComposicao, etiqComposicaoImprimir, etiqComposicaoFila, opConcluirEtiquetas, opConcluirGerar, opConcluirSoma, opConcluirDestino, opBaixarSemEtiqueta, opAvancarForm, opAvancarDe, opAvancarSoma, opAvancarConfirmar, opOferecerExpedicao, opAvancarFase, opDragStart, opDragEnd, opDragOver, opDragLeave, opDrop, opAbrirCard, abrirOS, opFaccaoExterna, fxFornDD, fxFornHide, fxFornPick, fxGradeSync, opFaccaoEnviar, opToggleFin, opToggleView, opRenderBody, opReimprimir, opVencimento, opVencimentoSalvar, gradeAddTam, formPiloto, savePiloto, formPilotoAvulso, savePilotoAvulso, aprovarPiloto, pilotoEtiqueta, pilotoFoto, pilotoFotoSalvar, pilotoFotoRemover, formBriefingPiloto, briefRender, briefMedCalc, briefFluxoRender, briefFluxoTog, saveBriefing,
   formRomaneio, conferirRomaneioBip, imprimirRomaneio, salvarLotesRomaneio, formOS, gerarOS, osMarcar,
   viewKits, kitBipar, kitBiparControle, emitirRemessaFaccao, kitAcao, kitFicha, formRetornoFaccao, retornoTipoToggle, gerarOsRetorno, retornoFaltasToggle, retornoReporToggle, retornoFaccaoSubmit, formKitLote, saveKitLote, formKitsDaOp, saveKitsDaOp, kitEtiqueta, kitBuscar, kitDetalhe, kitCaixas, kitUnificar, kitUnificarGrupo, kitsDaOs, kitsAgruparToggle, kitsToggleFin, viewBi,
   formCompra, ocDescricaoHtml, ocEditarItens, ocItensSoma, ocItensSalvar, ocSelMudou, ocUnificar, ocProd, ocGradeSync, ocCalc, ocCalcInfo, ocBusca, ocBuscaHide, ocItemPick, ocItemLimpar, saveCompra, receberCompra, cancelarCompra, ocWhats, ocWhatsPlanoB, ocPdfFile, ocSituacao, formReposicao, repCalc, saveReposicao,
   formNotaEntrada, editNotaEntrada, neFiltrar, neLimpar, formDevolucao, devCalc, devRascunho, devEmitir, neAdd, neDel, neDD, neDDHide, neDDPick, neCpToggle, nePagoToggle, neCatToggle, neParcGerar, neParcSync, neParcDel, saveNotaEntrada, perguntarDestinoMP, gerarUnidadesMP, mpLoteAdd, mpLoteDel, mpContaEtq, emitirEtiquetasNF, buscarSefaz, importarSefaz, lerNfEntrada, biparChaveEntrada, puxarSefazChave, buscarCnpjEntrada, viewCtes,
   formMov, movAlvo, movItemDD, movItemHide, movItemPick, movBip, movAutoBip, saveMov, verMovimentos, movFiltro, movFiltroBusca, movRender, verLotes, formExpedicao, saveExpedicao,
-  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBuscaNoBanco, estRecarregar, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
+  formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, edDestino, edMarcarTodas, enderecarSelecionados, movPrever, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBuscaNoBanco, estRecarregar, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
   viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
-  formAviamento, saveAviamento, matAtivo, gerarDoc,
+  formAviamento, saveAviamento, matAtivo, aviRender, matRender, gerarDoc,
   notifCiente, notifCienteTodas, notifImprimir,
   emitirNfe, emitirNfePrompt, emitirNfeConfirmar, formFaturamento, fatCalc, emitirFaturamentoConfirmar, emitirRemessaFuturaPrompt, emitirRemessaFuturaConfirmar, etiquetaExpedicao, etiquetaExpedicaoPrompt, etiquetasUnitariasExp, estornarExp, canhotoExp, verCanhoto, abrirScanner, fecharScanner, formConferencia, conferirBip, devolverBip, confToggleDevolver, confSetCaixa, confSetTipo, confNovaCaixa, faturarConferido, despacharConferidoSemNf, formEditarExpItens, saveEditarExpItens, zerarConferencia, zerarCaixaConf, despacharExp, despacharDireto, expToggleDone, renderExpedicoes, expBuscar, renderExpTable, formEmailDoc, formEmailOc, sendEmailDoc,
   formCaixas, cxSetCombo, cxSetQtd, cxSetPeso, cxSetTipo, cxAddLinha, cxDelLinha, cxAddBox, cxDelBox, saveCaixas, imprimirEtiquetasCaixas,
