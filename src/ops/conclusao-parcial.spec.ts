@@ -24,6 +24,14 @@ function servico(op: Partial<typeof OP_BASE> = {}) {
   const gravado: Array<Record<string, unknown>> = [];
   const logs: Array<Record<string, unknown>> = [];
   const prisma = {
+    // As OPs destes testes são anteriores à obrigação da etiqueta de
+    // composição: sem nenhuma linha, a trava não se aplica — é a regra que
+    // impede um deploy de parar as ordens que já estavam em produção.
+    etiquetaComposicao: {
+      findMany: () => Promise.resolve([]),
+      createMany: () => Promise.resolve({ count: 0 }),
+      update: () => Promise.resolve({}),
+    },
     oP: {
       findUnique: () => Promise.resolve(estado),
       update: ({ data }: { data: Record<string, unknown> }) => {

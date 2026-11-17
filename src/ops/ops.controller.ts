@@ -42,6 +42,34 @@ export class OpsController {
     return this.opsService.criarAvulsaLote(dto, user.empresaId);
   }
 
+  /**
+   * A FILA DO PCP: todas as OPs que devem etiqueta de composição.
+   *
+   * Vem ANTES de `@Get(':id')` de propósito — depois dela, o Nest leria
+   * "etiquetas-composicao" como se fosse um id de OP.
+   */
+  @Get('etiquetas-composicao')
+  pendenciasEtiqueta(@CurrentUser() user: AuthUser) {
+    return this.opsService.pendenciasDeEtiqueta(user.empresaId);
+  }
+
+  /** Etiqueta de composição da OP (a que é costurada na peça): dados + ZPL por tamanho. */
+  @Get(':id/etiqueta-composicao')
+  etiquetaComposicao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.opsService.etiquetaComposicao(id, user.empresaId);
+  }
+
+  /** Confirma quantas etiquetas de composição saíram da impressora. */
+  @Post(':id/etiqueta-composicao/impresso')
+  @HttpCode(HttpStatus.OK)
+  marcarEtiquetaImpressa(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { grade?: Record<string, unknown> },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.opsService.registrarImpressaoEtiquetas(id, body?.grade ?? {}, user.empresaId, user.usuario);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     return this.opsService.findOne(id, user.empresaId);

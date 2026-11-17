@@ -7,6 +7,10 @@ import { CreateOpAvulsaLoteDto } from './dto/create-op-avulsa-lote.dto';
 import { proximoSequencial } from '../common/utils/codigo.util';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { podeMoverFase, recadoDeBloqueio } from '../common/rbac/setores-op';
+import {
+  conferirEtiqueta, DadosEtiquetaComposicao, faltamImprimir, montarZplComposicao,
+  PendenciaEtiqueta, recadoPendencia, rotuloTamanho, totalFaltante,
+} from './etiqueta-composicao';
 
 type RomLinha = { materialId: number; codigo: string; descricao: string; localizacao?: string | null; quantidade: number; unidade: string; conferido: boolean; conferidoEm?: string; conferidoPor?: string; lotes?: string[] };
 
@@ -503,7 +507,238 @@ export class OpsService {
         gradeFases: (fasesPosCorte ?? {}) as Prisma.InputJsonValue,
       },
     });
+    // A OBRIGAÇÃO DA ETIQUETA DE COMPOSIÇÃO NASCE AQUI.
+    //
+    // É neste ponto, e não antes, que se sabe quantas peças existem de verdade
+    // em cada tamanho. A etiqueta é costurada na peça durante a costura, então
+    // ela precisa estar impressa entre o corte e a costura — e quem imprime é
+    // o PCP, que não fica sabendo do corte se ninguém avisar.
+    await this.sincronizarEtiquetas(id, empresaId, limpa);
+    // O aviso é aviso: se ele falhar, o corte apontado continua valendo. O
+    // cortador não pode perder o apontamento porque o mural de notificações
+    // estava fora do ar.
+    try {
+      await this.notificacoes.criar(empresaId, {
+        tipo: 'etiqueta_composicao',
+        areas: ['pcp', 'producao'],
+        titulo: `Imprimir etiquetas de composição · ${op.numero}`,
+        mensagem:
+          `Corte apontado: ${total} peça(s). Imprima ${total} etiqueta(s) de composição ` +
+          `(${Object.entries(limpa).map(([t, n]) => `${rotuloTamanho(t)}: ${n}`).join(', ')}) ` +
+          'antes das peças irem para a costura.',
+        refTipo: 'op',
+        refId: op.id,
+      });
+    } catch { /* segue o corte */ }
+
     return { ...op2, excedente, totalExcedente } as OP & { excedente: Record<string, number>; totalExcedente: number };
+  }
+
+  /**
+   * Acerta as linhas de etiqueta desta OP contra o corte apontado.
+   *
+   * O apontamento de corte é CUMULATIVO e total (quem reaponta informa o total
+   * cortado), então `devidas` é sobrescrito, nunca somado — senão reapontar o
+   * corte dobraria a dívida de etiquetas.
+   *
+   * O que já foi impresso NUNCA é apagado: é o rastro de quem imprimiu e
+   * quando. Tamanho que sumiu do corte fica com `devidas: 0` em vez de ser
+   * removido, pelo mesmo motivo.
+   *
+   * Duas idas ao banco no caso comum (ler + criar), porque o Neon derruba
+   * transação longa.
+   */
+  private async sincronizarEtiquetas(opId: number, empresaId: number, cortada: Record<string, number>) {
+    const atuais = await this.prisma.etiquetaComposicao.findMany({ where: { opId } });
+    const porTamanho = new Map(atuais.map((e) => [e.tamanho, e]));
+
+    const novas = Object.entries(cortada)
+      .filter(([t]) => !porTamanho.has(t))
+      .map(([tamanho, devidas]) => ({ empresaId, opId, tamanho, devidas }));
+    if (novas.length) await this.prisma.etiquetaComposicao.createMany({ data: novas, skipDuplicates: true });
+
+    for (const e of atuais) {
+      const devidas = Number(cortada[e.tamanho] ?? 0);
+      if (devidas === e.devidas) continue;
+      await this.prisma.etiquetaComposicao.update({ where: { id: e.id }, data: { devidas } });
+    }
+  }
+
+  /**
+   * A trava: nenhuma peça vira etiqueta de estoque sem a etiqueta de
+   * composição impressa.
+   *
+   * OP SEM NENHUMA LINHA passa direto. São as ordens cujo corte foi apontado
+   * antes desta obrigação existir — havia 72 em produção no dia em que isto
+   * foi escrito. Cobrar delas uma dívida que ninguém chegou a contrair pararia
+   * a fábrica inteira num deploy.
+   */
+  private async exigirEtiquetasImpressas(opId: number, numero: string, concluido: Record<string, number>) {
+    const linhas = await this.prisma.etiquetaComposicao.findMany({ where: { opId } });
+    if (!linhas.length) return;
+    const impressas = new Map(linhas.map((l) => [l.tamanho, l.impressas]));
+    const estouro: PendenciaEtiqueta[] = [];
+    for (const [t, n] of Object.entries(concluido)) {
+      const tem = Number(impressas.get(t) ?? 0);
+      if (Number(n) > tem) estouro.push({ tamanho: t, devidas: Number(n), impressas: tem });
+    }
+    if (estouro.length) throw new BadRequestException(recadoPendencia(numero, estouro));
+  }
+
+  /**
+   * A FILA DO PCP: toda OP que deve etiqueta de composição.
+   *
+   * É a tela que a Thaís abre de manhã. Ordena pela OP mais antiga primeiro —
+   * é a que está mais perto da costura e, portanto, a mais urgente.
+   */
+  async pendenciasDeEtiqueta(empresaId: number) {
+    const linhas = await this.prisma.etiquetaComposicao.findMany({
+      where: { empresaId },
+      include: { op: { select: { id: true, numero: true, status: true, setorAtual: true, produtoId: true, cor: true } } },
+      orderBy: [{ opId: 'asc' }, { tamanho: 'asc' }],
+    });
+    const porOp = new Map<number, { id: number; op: string; status: string; setor: string | null; cor: string | null; produtoId: number | null; linhas: PendenciaEtiqueta[] }>();
+    for (const l of linhas) {
+      if (!l.op || l.op.status === 'cancelado' || l.op.status === 'concluido') continue;
+      const atual = porOp.get(l.opId) ?? {
+        id: l.opId, op: l.op.numero, status: String(l.op.status),
+        setor: l.op.setorAtual, cor: l.op.cor, produtoId: l.op.produtoId, linhas: [],
+      };
+      atual.linhas.push({ tamanho: l.tamanho, devidas: l.devidas, impressas: l.impressas });
+      porOp.set(l.opId, atual);
+    }
+    const produtoIds = [...new Set([...porOp.values()].map((x) => x.produtoId).filter((x): x is number => !!x))];
+    const produtos = produtoIds.length
+      ? await this.prisma.produto.findMany({ where: { id: { in: produtoIds } }, select: { id: true, codigo: true, descricao: true, composicao: true } })
+      : [];
+    const pMap = new Map(produtos.map((p) => [p.id, p]));
+
+    return [...porOp.values()]
+      .map((x) => {
+        const prod = x.produtoId ? pMap.get(x.produtoId) : null;
+        return {
+          ...x,
+          produto: prod ? { codigo: prod.codigo, descricao: prod.descricao, composicao: prod.composicao } : null,
+          faltam: faltamImprimir(x.linhas),
+          totalFaltante: totalFaltante(x.linhas),
+        };
+      })
+      .filter((x) => x.totalFaltante > 0)
+      .sort((a, b) => a.id - b.id);
+  }
+
+  /**
+   * A etiqueta pronta para a impressora: um ZPL por tamanho.
+   *
+   * Um ZPL por tamanho, e não um só para a OP inteira, porque o tamanho está
+   * IMPRESSO na etiqueta — não existe "etiqueta da OP", existe etiqueta do M,
+   * etiqueta do G. Cada uma é um trabalho de impressão com a sua quantidade.
+   */
+  async etiquetaComposicao(id: number, empresaId: number) {
+    const op = await this.prisma.oP.findUnique({
+      where: { id },
+      include: {
+        pedido: { select: { empresaId: true, filialId: true } },
+        filial: true,
+      },
+    });
+    if (!op || (op.empresaId ?? op.pedido?.empresaId) !== empresaId) throw new NotFoundException(`OP ${id} não encontrada.`);
+
+    // A filial da OP é quem fabrica; sem ela, a do pedido; sem nenhuma, a matriz.
+    const filial = op.filial
+      ?? (op.pedido?.filialId ? await this.prisma.filial.findUnique({ where: { id: op.pedido.filialId } }) : null)
+      ?? await this.prisma.filial.findFirst({ where: { empresaId, matriz: true } })
+      ?? await this.prisma.filial.findFirst({ where: { empresaId } });
+
+    const produto = op.produtoId
+      ? await this.prisma.produto.findUnique({ where: { id: op.produtoId }, select: { codigo: true, descricao: true, composicao: true } })
+      : null;
+
+    const linhas = await this.prisma.etiquetaComposicao.findMany({ where: { opId: id }, orderBy: { tamanho: 'asc' } });
+    const agora = new Date();
+    const fabricante = {
+      nome: filial?.nomeFantasia || filial?.nome || '',
+      cnpj: filial?.cnpj ?? null,
+      telefone: filial?.telefone ?? null,
+      site: null as string | null,
+    };
+
+    const saida = linhas.map((l) => {
+      const faltam = Math.max(0, l.devidas - l.impressas);
+      const dados: DadosEtiquetaComposicao = {
+        fabricante,
+        op: op.numero,
+        codigoProduto: produto?.codigo ?? null,
+        descricaoProduto: produto?.descricao ?? null,
+        composicao: produto?.composicao ?? null,
+        tamanho: l.tamanho,
+        // Já impresso tudo? O ZPL vem com a grade cheia, para reimpressão de
+        // etiqueta rasgada — mas a quantidade sugerida é o que falta.
+        quantidade: faltam > 0 ? faltam : l.devidas,
+        data: agora,
+      };
+      return {
+        tamanho: l.tamanho,
+        rotulo: rotuloTamanho(l.tamanho),
+        devidas: l.devidas,
+        impressas: l.impressas,
+        faltam,
+        impressaEm: l.impressaEm,
+        impressaPor: l.impressaPor,
+        problemas: conferirEtiqueta(dados),
+        zpl: montarZplComposicao(dados),
+      };
+    });
+
+    return {
+      op: op.numero,
+      opId: op.id,
+      cor: op.cor,
+      produto,
+      fabricante,
+      linhas: saida,
+      totalFaltante: totalFaltante(linhas.map((l) => ({ tamanho: l.tamanho, devidas: l.devidas, impressas: l.impressas }))),
+    };
+  }
+
+  /**
+   * Marca o que foi impresso. Quem imprime confirma a quantidade — a
+   * impressora não avisa ninguém quando come uma etiqueta.
+   */
+  async registrarImpressaoEtiquetas(
+    id: number,
+    grade: Record<string, unknown>,
+    empresaId: number,
+    usuario: string,
+  ) {
+    const op = await this.findOne(id, empresaId);
+    const linhas = await this.prisma.etiquetaComposicao.findMany({ where: { opId: id } });
+    if (!linhas.length) throw new BadRequestException(`A ${op.numero} não tem etiqueta de composição a imprimir — aponte o corte primeiro.`);
+    const porTamanho = new Map(linhas.map((l) => [l.tamanho, l]));
+
+    const aGravar: Array<{ id: number; impressas: number }> = [];
+    for (const [tamanhoRaw, qtd] of Object.entries(grade ?? {})) {
+      const t = String(tamanhoRaw).trim().toUpperCase();
+      const chave = porTamanho.has(t) ? t : (porTamanho.has('') && !t ? '' : t);
+      const linha = porTamanho.get(chave);
+      const n = Number(qtd);
+      if (!linha) throw new BadRequestException(`${rotuloTamanho(t)} não faz parte do corte desta OP.`);
+      if (!Number.isInteger(n) || n < 0) throw new BadRequestException(`Quantidade inválida para ${rotuloTamanho(t)}: "${qtd}".`);
+      if (n === 0) continue;
+      aGravar.push({ id: linha.id, impressas: linha.impressas + n });
+    }
+    if (!aGravar.length) throw new BadRequestException('Informe ao menos 1 etiqueta impressa.');
+
+    const agora = new Date();
+    for (const g of aGravar) {
+      await this.prisma.etiquetaComposicao.update({
+        where: { id: g.id },
+        data: { impressas: g.impressas, impressaEm: agora, impressaPor: usuario.slice(0, 60) },
+      });
+    }
+    const depois = await this.prisma.etiquetaComposicao.findMany({ where: { opId: id } });
+    const pend = depois.map((l) => ({ tamanho: l.tamanho, devidas: l.devidas, impressas: l.impressas }));
+    return { op: op.numero, faltam: faltamImprimir(pend), totalFaltante: totalFaltante(pend) };
   }
 
   /**
@@ -571,6 +806,16 @@ export class OpsService {
     const novo: Record<string, number> = { ...jaFeito };
     for (const [t, n] of Object.entries(agora)) novo[t] = Number(novo[t] ?? 0) + n;
     const totalConcluido = Object.values(novo).reduce((s, n) => s + n, 0);
+
+    // TRAVA DA ETIQUETA DE COMPOSIÇÃO — no acabamento, não no meio do fluxo.
+    //
+    // A peça anda livre pela costura; o que ela não pode é virar etiqueta de
+    // estoque sem ter a etiqueta de composição impressa. Travar aqui pega o
+    // erro antes da peça sair da fábrica sem parar a linha quando a impressora
+    // falha. A baixa SEM etiqueta continua passando: ali a peça já foi
+    // entregue, e cobrar etiqueta de algo que não está mais aqui não conserta
+    // nada.
+    if (!semEtiqueta) await this.exigirEtiquetasImpressas(op.id, op.numero, novo);
     const totalBase = Object.values(base).reduce((s, n) => s + Number(n), 0);
     // A OP fecha contra o PLANEJADO, nunca contra o cortado.
     //

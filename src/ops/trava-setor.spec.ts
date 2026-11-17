@@ -22,6 +22,12 @@ function servico(setoresDoUsuario: string[] | null) {
   };
   const lidos: number[] = [];
   const prisma = {
+    // OP anterior à obrigação da etiqueta de composição: sem linha, sem trava.
+    etiquetaComposicao: {
+      findMany: () => Promise.resolve([]),
+      createMany: () => Promise.resolve({ count: 0 }),
+      update: () => Promise.resolve({}),
+    },
     oP: {
       findUnique: () => Promise.resolve(estado),
       update: ({ data }: { data: Record<string, unknown> }) => { Object.assign(estado, data); return Promise.resolve({ ...estado }); },

@@ -950,6 +950,35 @@ model OP {
   // Nulo = OP antiga/ainda não movimentada por tamanho: tudo está em setorAtual.
   gradeFases     Json?
   lotes          Lote[]
+  etiquetasComposicao EtiquetaComposicao[]
+}
+
+/// OBRIGAÇÃO DE IMPRIMIR A ETIQUETA DE COMPOSIÇÃO (a etiqueta costurada na peça).
+///
+/// Uma linha por OP e tamanho. Ela nasce quando o CORTE é apontado — é ali que
+/// se sabe quantas peças existem de verdade, tamanho a tamanho — e só morre
+/// quando o PCP marca as etiquetas como impressas.
+///
+/// Existe como tabela, e não como um campo "etiquetasImpressas" na OP, por dois
+/// motivos: a quantidade é POR TAMANHO (a etiqueta traz o tamanho impresso, não
+/// dá para somar tudo), e quem imprimiu e quando é informação que precisa
+/// sobreviver — é o rastro que liga a peça à ordem de produção.
+model EtiquetaComposicao {
+  id          Int      @id @default(autoincrement())
+  empresaId   Int
+  opId        Int
+  op          OP       @relation(fields: [opId], references: [id], onDelete: Cascade)
+  tamanho     String   // "" = OP sem grade (lote único), como no resto do módulo
+  /// Quantas etiquetas a OP deve: é o CORTADO deste tamanho. Reapontar o corte
+  /// reescreve este número (o apontamento de corte é cumulativo e total).
+  devidas     Int      @default(0)
+  impressas   Int      @default(0)
+  criadoEm    DateTime @default(now())
+  impressaEm  DateTime?
+  impressaPor String?
+
+  @@unique([opId, tamanho])
+  @@index([empresaId, opId])
 }
 
 model OrdemCompra {

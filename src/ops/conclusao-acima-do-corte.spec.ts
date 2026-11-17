@@ -19,6 +19,12 @@ function servico(op: Record<string, unknown>) {
     gradeFases: null, status: 'em_producao', setorAtual: 'Separação 1', ...op };
   const gravado: Array<Record<string, unknown>> = [];
   const prisma = {
+    // OP anterior à obrigação da etiqueta de composição: sem linha, sem trava.
+    etiquetaComposicao: {
+      findMany: () => Promise.resolve([]),
+      createMany: () => Promise.resolve({ count: 0 }),
+      update: () => Promise.resolve({}),
+    },
     oP: {
       update: ({ data }: { data: Record<string, unknown> }) => { gravado.push(data); return Promise.resolve({ ...estado, ...data }); },
     },
