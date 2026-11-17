@@ -90,7 +90,8 @@ describe('leitor de OFX', () => {
       const a = lerOfx(semId).lancamentos[0].fitid;
       const b = lerOfx(semId).lancamentos[0].fitid;
       expect(a).toBe(b);
-      expect(a).toContain('SEMFITID');
+      // Mesma chave sintética que as APIs sem identificador usam (Bradesco).
+      expect(a).toMatch(/^SEM-ID-/);
     });
 
     it('duas linhas IDÊNTICAS no mesmo arquivo não viram uma só', () => {

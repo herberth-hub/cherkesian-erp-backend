@@ -36,6 +36,7 @@ export class BancosService {
     });
     return contas.map((c) => ({
       id: c.id, filial: c.filial, banco: c.banco, codigoBanco: c.codigoBanco, agencia: c.agencia, conta: c.conta, apelido: c.apelido,
+      agenciaDv: c.agenciaDv, contaDv: c.contaDv,
       integracao: c.integracao, cnabVersao: c.cnabVersao, carteira: c.carteira, convenio: c.convenio,
       pronta: this.faltando(c).length === 0, faltando: this.faltando(c),
       proximoNossoNumero: c.proximoNossoNumero, remessaSeq: c.remessaSeq,

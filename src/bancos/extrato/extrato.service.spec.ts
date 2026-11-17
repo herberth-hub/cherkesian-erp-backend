@@ -7,7 +7,7 @@
  *   3. o sistema só baixa sozinho quando a resposta é inequívoca;
  *   4. crédito não quita conta a pagar (e vice-versa).
  */
-import { ExtratoService } from './extrato.service';
+import { ExtratoService, mesmaConta } from './extrato.service';
 
 const OFX = (linhas: string) => `OFXHEADER:100
 <OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>
@@ -126,6 +126,28 @@ describe('importar extrato', () => {
     const { svc } = servico({ conta: { id: 1, empresaId: 1, banco: 'Cora', conta: '99887766' } });
     const r = await svc.importar({ contaBancariaId: 1, conteudo: OFX(TRN('A1', '100.00')), confirmarContaDiferente: true }, 1, 'h');
     expect(r.novos).toBe(1);
+  });
+
+  /**
+   * O Bradesco está cadastrado como "30826-9" (DV dentro do número) e escreve
+   * "0030826" no OFX. Sem tolerância a DV o extrato da conta CERTA era
+   * recusado, e a pessoa tinha que marcar "é a mesma conta" para usar o
+   * sistema — ensinando a ignorar justamente o alarme que protege de misturar
+   * o dinheiro de dois CNPJs.
+   */
+  it('aceita o extrato do Bradesco quando a conta cadastrada traz o DV', async () => {
+    const { svc } = servico({ conta: { id: 1, empresaId: 1, banco: 'Bradesco', conta: '30826-9' } });
+    const ofx = `OFXHEADER:100
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>
+<BANKACCTFROM><BANKID>237<BRANCHID>0895<ACCTID>0030826</BANKACCTFROM>
+<BANKTRANLIST><DTSTART>20261101<DTEND>20261112
+${TRN('B1', '-1250.00', '20261103', 'TARIFA')}
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>4310.22<DTASOF>20261112</LEDGERBAL>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
+    const r = await svc.importar({ contaBancariaId: 1, conteudo: ofx }, 1, 'h');
+    expect(r.novos).toBe(1);
+    expect(r.saldoBanco).toBe(4310.22);
   });
 
   it('arquivo que não é OFX é recusado com mensagem de gente', async () => {
@@ -257,5 +279,39 @@ describe('sugestões para a tela', () => {
     expect(r.sugestoes[0].tituloId).toBe(500);
     expect(r.sugestoes[0].motivos.length).toBeGreaterThan(0);
     expect(r.sugestoes[0].parte).toBe('SANEPAV');
+  });
+});
+
+/**
+ * A tolerância tem que ser larga o bastante para o mesmo número escrito de
+ * outro jeito passar, e estreita o bastante para conta de outra empresa não
+ * passar. O risco dos dois lados é dinheiro.
+ */
+describe('mesma conta, tolerando DV', () => {
+  it('reconhece a mesma conta com DV, sem DV e com zeros à esquerda', () => {
+    expect(mesmaConta('30826-9', '0030826')).toBe(true);
+    expect(mesmaConta('0030826', '30826-9')).toBe(true);
+    expect(mesmaConta('130015142', '130015142')).toBe(true);
+    expect(mesmaConta('4669939', '004669939')).toBe(true);
+  });
+
+  it('não acusa divergência quando um dos lados não informa a conta', () => {
+    expect(mesmaConta(null, '30826')).toBe(true);
+    expect(mesmaConta('30826', '')).toBe(true);
+  });
+
+  it('continua recusando conta de outra empresa', () => {
+    expect(mesmaConta('30826-9', '99887766')).toBe(false);
+    expect(mesmaConta('4669939', '4511095')).toBe(false);
+    expect(mesmaConta('130015142', '130019372')).toBe(false);
+  });
+
+  it('não vale tirar dois dígitos — só o DV', () => {
+    expect(mesmaConta('308269', '3082')).toBe(false);
+  });
+
+  it('conta curta não entra na tolerância, senão 1 viraria 12', () => {
+    expect(mesmaConta('12', '1')).toBe(false);
+    expect(mesmaConta('1234', '123')).toBe(false);
   });
 });

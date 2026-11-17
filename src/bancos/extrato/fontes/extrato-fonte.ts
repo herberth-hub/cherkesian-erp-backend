@@ -52,6 +52,19 @@ export interface FonteExtratoApi {
   readonly nome: string;
   buscar(de: Date, ate: Date): Promise<ExtratoDoBanco>;
   saldo(): Promise<number | null>;
+  /**
+   * `false` = a fonte já AUTENTICA, mas ainda não puxa extrato.
+   *
+   * Uma integração de banco chega em duas partes, e elas levam semanas de
+   * distância: a credencial (certificado + client id/secret), que o cliente
+   * resolve com o banco, e os endpoints, que dependem da documentação ser
+   * liberada. Separar as duas deixa o certificado ser testado no dia em que
+   * entra, em vez de ficar guardado esperando o resto — e foi o certificado,
+   * não o extrato, que custou os dias do Cora.
+   */
+  readonly pronta?: boolean;
+  /** Só autentica. Prova que o certificado e as credenciais estão certos. */
+  conectar?(): Promise<void>;
 }
 
 /** Centavos inteiros (como os bancos mandam) para reais. */

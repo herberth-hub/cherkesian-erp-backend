@@ -7,10 +7,11 @@ import { lerOfx } from './ofx.parser';
 import { sugerir, decidirAuto, TituloCandidato, Sugestao } from './conciliacao.util';
 import { ExtratoDoBanco, FonteExtratoApi } from './fontes/extrato-fonte';
 import {
-  conferirPem, CoraFonte, credenciaisDoAmbiente, nomesDasVariaveis, oQueFalta,
+  conferirPem, CoraFonte, credenciaisDoAmbiente, listaDasVariaveis, oQueFalta,
   temCredencialPropria, validadeDoCertificado,
 } from './fontes/cora.fonte';
 import { soDigitos } from './fontes/cora.traducao';
+import * as santander from './fontes/santander.fonte';
 
 /**
  * Erro de conversa com o banco chega ao usuário COM O MOTIVO.
@@ -28,6 +29,45 @@ async function semErroOpaco<T>(fn: () => Promise<T>): Promise<T> {
     if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
     throw new ServiceUnavailableException(msg);
   }
+}
+
+/**
+ * Mesma conta, tolerando o dígito verificador.
+ *
+ * O banco escreve a conta de três jeitos: com DV ("30826-9"), sem DV ("30826")
+ * e com zeros à esquerda ("0030826"). O cadastro daqui também varia — a conta
+ * do Bradesco nasceu com o DV dentro do próprio número, enquanto as do Cora
+ * têm o DV num campo à parte. Comparar só dígito com dígito reprovaria
+ * "308269" contra "30826" e travaria a importação de um extrato que é da
+ * conta certa, bem na hora em que a pessoa está tentando usar o sistema.
+ *
+ * Então: compara os dígitos sem zeros à esquerda e aceita quando um dos dois é
+ * o outro sem o último dígito. O piso de 5 dígitos existe para a tolerância
+ * não transformar "12" na mesma conta que "1".
+ *
+ * Sem informação de um dos lados NÃO se acusa divergência: o alarme é para
+ * conta trocada, não para arquivo omisso.
+ */
+export function mesmaConta(a: string | null | undefined, b: string | null | undefined): boolean {
+  const so = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
+  const x = so(a);
+  const y = so(b);
+  if (!x || !y) return true;
+  if (x === y) return true;
+  if (x.length >= 5 && x.slice(0, -1) === y) return true;
+  if (y.length >= 5 && y.slice(0, -1) === x) return true;
+  return false;
+}
+
+/**
+ * Esta conta é do Santander?
+ *
+ * Pelo código de compensação (033) ou pelo nome. O nome entra porque conta
+ * cadastrada à mão nem sempre tem o código preenchido — a do Yerevan foi
+ * cadastrada assim.
+ */
+export function ehSantander(conta: { banco: string; codigoBanco?: string | null }): boolean {
+  return String(conta.codigoBanco ?? '') === '033' || /santander/i.test(conta.banco ?? '');
 }
 
 /**
@@ -73,12 +113,8 @@ export class ExtratoService {
     let ofx;
     try { ofx = lerOfx(dto.conteudo); } catch (e) { throw new BadRequestException((e as Error).message); }
 
-    // Conta do arquivo x conta escolhida. Só compara dígito com dígito: o banco
-    // escreve a conta com e sem DV, com e sem zero à esquerda.
-    const so = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
-    const contaArq = so(ofx.conta);
-    const contaSis = so(conta.conta);
-    if (!dto.confirmarContaDiferente && contaArq && contaSis && contaArq !== contaSis) {
+    // Conta do arquivo x conta escolhida, tolerando DV e zero à esquerda.
+    if (!dto.confirmarContaDiferente && !mesmaConta(ofx.conta, conta.conta)) {
       throw new BadRequestException(
         `O extrato é da conta ${ofx.conta} e você escolheu a conta ${conta.conta} (${conta.banco}). ` +
         'Importar assim misturaria o dinheiro de duas contas. Escolha a conta certa — ou confirme que é a mesma conta com outro número.',
@@ -235,6 +271,37 @@ export class ExtratoService {
     const cnpj = conta.cedenteDocumento || conta.filial?.cnpj || null;
     const fonte = this.fonteDaConta(conta);
 
+    /**
+     * INTEGRAÇÃO AINDA EM CONSTRUÇÃO: testa só a conexão.
+     *
+     * O Santander autentica mas ainda não tem endpoint de extrato. Pedir saldo
+     * daria um erro que parece credencial errada — e é justamente a credencial
+     * que este botão existe para provar. Então aqui ele prova o que dá: o
+     * certificado foi aceito no mTLS e a aplicação existe.
+     */
+    if (fonte.pronta === false && fonte.conectar) {
+      await semErroOpaco(() => fonte.conectar!());
+      const credS = santander.credenciaisDoAmbiente(process.env, cnpj);
+      const valS = credS ? validadeDoCertificado(credS.certPem) : null;
+      return {
+        ok: true,
+        parcial: true,
+        mensagem: `Autenticação no ${fonte.nome} OK — o certificado foi aceito e a aplicação existe. `
+          + 'Falta o endpoint de extrato (Documentação Técnica do portal) para a importação virar automática.',
+        banco: fonte.nome,
+        conta: `${conta.banco}${conta.conta ? ' · ' + conta.conta : ''}`,
+        saldo: null,
+        titularNome: null,
+        titularDocumento: null,
+        cnpjCadastrado: soDigitos(cnpj) || null,
+        confere: null,
+        propria: santander.temCredencialPropria(process.env, cnpj),
+        credencialVence: valS?.vence ?? null,
+        credencialDias: valS?.diasRestantes ?? null,
+        credencialPerto: valS?.perto ?? false,
+      };
+    }
+
     const saldo = await semErroOpaco(() => fonte.saldo());
     // Além do saldo, o teste PROVA de quem é a conta que a credencial abriu:
     // uma janela mínima traz o CNPJ do titular. Sem isso, um certificado
@@ -279,9 +346,37 @@ export class ExtratoService {
       orderBy: { id: 'asc' },
     });
     return contas
-      .filter((c) => String(c.codigoBanco ?? '') === '403' || /cora/i.test(c.banco))
+      .filter((c) => String(c.codigoBanco ?? '') === '403' || /cora/i.test(c.banco) || ehSantander(c))
       .map((c) => {
         const cnpj = c.cedenteDocumento || c.filial?.cnpj || null;
+        // Cada banco tem as suas variáveis — o Santander pede quatro (tem
+        // client secret), o Cora três. A tela percorre a lista, então o banco
+        // novo não exige mexer nela.
+        if (ehSantander(c)) {
+          const faltandoS = santander.oQueFalta(process.env, cnpj);
+          const credS = faltandoS.length === 0 ? santander.credenciaisDoAmbiente(process.env, cnpj) : null;
+          const problemasS = credS ? santander.problemasDaCredencial(credS) : [];
+          const valS = credS && !problemasS.length ? validadeDoCertificado(credS.certPem) : null;
+          return {
+            id: c.id,
+            conta: `${c.banco}${c.conta ? ' · ' + c.conta : ''}${c.contaDv ? '-' + c.contaDv : ''}`,
+            apelido: c.apelido,
+            empresa: c.filial?.nome ?? null,
+            cnpj,
+            variaveis: santander.listaDasVariaveis(cnpj),
+            configurada: faltandoS.length === 0 && problemasS.length === 0,
+            propria: santander.temCredencialPropria(process.env, cnpj),
+            faltando: faltandoS,
+            problemas: problemasS,
+            vence: valS?.vence ?? null,
+            venceEm: valS?.diasRestantes ?? null,
+            // A credencial pode estar completa e a importação ainda não rodar:
+            // falta o endpoint. A tela precisa dizer isso, senão "configurada"
+            // promete automação que ainda não existe.
+            aguardandoEndpoint: true,
+            observacao: santander.FALTA_DOCUMENTACAO,
+          };
+        }
         const faltando = oQueFalta(process.env, cnpj);
         // Variável preenchida não quer dizer valor BOM. Confere o formato do
         // PEM aqui: é o que evita caçar a causa no log do servidor.
@@ -296,7 +391,7 @@ export class ExtratoService {
           apelido: c.apelido,
           empresa: c.filial?.nome ?? null,
           cnpj,
-          variaveis: nomesDasVariaveis(cnpj),
+          variaveis: listaDasVariaveis(cnpj),
           configurada: faltando.length === 0 && problemas.length === 0,
           propria: temCredencialPropria(process.env, cnpj),
           faltando,
@@ -317,6 +412,7 @@ export class ExtratoService {
     filial?: { cnpj: string | null } | null;
   }): FonteExtratoApi {
     const ehCora = String(conta.codigoBanco ?? '') === '403' || /cora/i.test(conta.banco);
+    if (ehSantander(conta)) return this.fonteSantander(conta);
     if (!ehCora) {
       throw new BadRequestException(
         `Ainda não existe API de extrato para ${conta.banco}. Hoje a importação automática é só do Cora — ` +
@@ -335,6 +431,27 @@ export class ExtratoService {
       );
     }
     return new CoraFonte({ ...cred, ambiente: conta.apiAmbiente ?? cred.ambiente });
+  }
+
+  /** A conta do Santander, com a credencial do CNPJ dela. */
+  private fonteSantander(conta: {
+    banco: string; apiAmbiente: string | null; conta?: string | null;
+    cedenteDocumento?: string | null; filial?: { cnpj: string | null } | null;
+  }): FonteExtratoApi {
+    const cnpj = conta.cedenteDocumento || conta.filial?.cnpj || null;
+    const cred = santander.credenciaisDoAmbiente(process.env, cnpj);
+    if (!cred) {
+      throw new BadRequestException(
+        `A conta ${conta.banco}${conta.conta ? ' ' + conta.conta : ''} ainda não tem credencial de API. ` +
+        'Cadastre no Render: ' + santander.oQueFalta(process.env, cnpj).join(', ') +
+        '. As quatro saem da aplicação criada EM PRODUÇÃO no developer.santander.com.br, com o certificado A1 anexado.',
+      );
+    }
+    const problemas = santander.problemasDaCredencial(cred);
+    if (problemas.length) {
+      throw new BadRequestException(`A credencial do Santander tem problema — ${problemas.join('; ')}.`);
+    }
+    return new santander.SantanderFonte({ ...cred, ambiente: conta.apiAmbiente ?? cred.ambiente });
   }
 
   /** Títulos em aberto que podem casar com um extrato — uma leitura só. */

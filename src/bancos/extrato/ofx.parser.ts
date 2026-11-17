@@ -14,6 +14,8 @@
  * vem de fora e é tratado como texto, só.
  */
 
+import { chavearLancamentos, MAX_FITID } from './chave-lancamento';
+
 export type LancamentoOfx = {
   /** Identificador único do lançamento no banco (FITID). É a chave anti-duplicata. */
   fitid: string;
@@ -107,8 +109,12 @@ export function lerOfx(conteudo: string): ExtratoOfx {
   const saldo = bal ? numeroOfx(tag(bal[1], 'BALAMT')) : null;
   const saldoEm = bal ? dataOfx(tag(bal[1], 'DTASOF')) : null;
 
-  const lancamentos: LancamentoOfx[] = [];
-  const vistos = new Set<string>();
+  /**
+   * Os lançamentos saem daqui na ORDEM DO ARQUIVO, sem chave. Quem põe a chave
+   * é `chavearLancamentos`, o mesmo caminho que as APIs usam — a regra
+   * anti-duplicata é uma só no sistema, não uma por fonte.
+   */
+  const brutos: Array<LancamentoOfx & { doArquivo: string }> = [];
   // `</STMTTRN>` existe no 2.x e costuma existir no 1.x; quando não existe, o
   // bloco vai até o próximo <STMTTRN> ou até o fim da lista.
   const blocos = [...lista.matchAll(/<STMTTRN>([\s\S]*?)(?=<\/STMTTRN>|<STMTTRN>|$)/gi)];
@@ -122,32 +128,23 @@ export function lerOfx(conteudo: string): ExtratoOfx {
     const trntype = (tag(bloco, 'TRNTYPE') || '').toUpperCase();
     const descricao = [nome, memo].filter(Boolean).join(' · ').slice(0, 250)
       || trntype || 'Lançamento sem descrição';
-    /**
-     * Sem FITID o lançamento não teria chave anti-duplicata, e reimportar o
-     * mesmo extrato duplicaria o dinheiro na tela. Então se o banco não mandar,
-     * a chave é montada do próprio conteúdo: mesma linha gera a mesma chave.
-     */
-    let fitid = (tag(bloco, 'FITID') || '').slice(0, 120);
-    if (!fitid) {
-      fitid = `SEMFITID-${data.toISOString().slice(0, 10)}-${valor.toFixed(2)}-${descricao.slice(0, 40)}`;
-    }
-    // Dois lançamentos idênticos no MESMO arquivo (acontece: duas tarifas
-    // iguais no dia) viram chaves distintas — senão um dos dois sumiria.
-    let chave = fitid;
-    for (let i = 2; vistos.has(chave); i++) chave = `${fitid}#${i}`;
-    vistos.add(chave);
-
-    lancamentos.push({
-      fitid: chave,
+    brutos.push({
+      fitid: '',
       data,
       valor: Math.abs(valor),
       tipo: valor < 0 ? 'debito' : 'credito',
       descricao,
       documento: tag(bloco, 'CHECKNUM') || tag(bloco, 'REFNUM') || null,
+      // O padrão OFX exige FITID, mas banco brasileiro às vezes omite. Quando
+      // falta, a chave sai do conteúdo — mesma regra do Bradesco, que não tem
+      // identificador de lançamento nenhum.
+      doArquivo: (tag(bloco, 'FITID') || '').slice(0, MAX_FITID),
     });
   }
 
-  if (!lancamentos.length) throw new Error('Nenhum lançamento encontrado no arquivo.');
+  if (!brutos.length) throw new Error('Nenhum lançamento encontrado no arquivo.');
+  const lancamentos: LancamentoOfx[] = chavearLancamentos(brutos, (l) => l.doArquivo)
+    .map(({ doArquivo: _descartado, ...l }) => l);
   lancamentos.sort((a, b) => a.data.getTime() - b.data.getTime());
   return { banco, agencia, conta, moeda, periodoIni, periodoFim, saldo, saldoEm, lancamentos };
 }
