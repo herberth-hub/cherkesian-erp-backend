@@ -4432,12 +4432,25 @@ function recFechamentoCusto(custoMat, custoAplic, nPend, aplicSemPreco){
   const R=window.__REC;
   const ind=R.industrial;
   const faccao=Number((R.prod&&R.prod.custoFaccao)||0)||0;
-  const indPorPeca=(ind&&ind.custoPorPeca!=null)?Number(ind.custoPorPeca):null;
+  const precoTab=Number((R.prod&&R.prod.precoBase)||0)||0;
+  const sugerido=(ind&&ind.custoPorPeca!=null)?Number(ind.custoPorPeca):null;
+  /**
+   * O custo industrial da peça: o RATEIO ou a SUA %.
+   *
+   * O rateio divide a despesa igual entre todas as peças — a calça de R$ 150 e
+   * a faixa de cabeça de R$ 13,50 recebem o mesmo valor, o que encarece a
+   * simples e barateia a complexa. A % sobre o preço acompanha o tamanho da
+   * peça, que é como se pensa isso no dia a dia ("minha fábrica come 15% do que
+   * eu vendo"). Nenhum dos dois é certo sozinho, então a tela mostra os dois:
+   * o escolhido manda na conta, o outro fica ao lado como referência.
+   */
+  const pctManual=(R.indPct!==undefined)?R.indPct:((ind&&ind.percentualManual!=null)?Number(ind.percentualManual):null);
+  const indPorPeca = (pctManual!=null) ? (precoTab*pctManual/100) : sugerido;
   const producao = custoMat + custoAplic + faccao + (indPorPeca||0);
 
   const fil=(R.aliquotas||[]).find(f=>f.id===R.filialSel)||(R.aliquotas||[])[0]||null;
   const aliq=Number(R.aliqManual!=null?R.aliqManual:(fil?fil.aliquota:5.93))||0;
-  const preco=Number((R.prod&&R.prod.precoBase)||0)||0;
+  const preco=precoTab;
   const imposto=preco*aliq/100;
   const custoTotal=producao+imposto;
   const lucro=preco-custoTotal;
@@ -4453,9 +4466,11 @@ function recFechamentoCusto(custoMat, custoAplic, nPend, aplicSemPreco){
     <span style="font-size:12px${forte?';font-weight:700':''}">${rot}${obs?`<span class="muted" style="font-size:10.5px;font-weight:400"> ${obs}</span>`:''}</span>
     <span style="font-size:${forte?'14px':'12.5px'};font-weight:${forte?'700':'600'};white-space:nowrap">${val}</span></div>`;
 
-  const indObs = indPorPeca==null
+  // A sugestão fica à vista mesmo quando a % manda na conta: é contra ela que
+  // se percebe que o palpite está longe demais.
+  const sugTxt = sugerido==null
     ? '<span style="color:#8a5a1b">sem base de rateio</span>'
-    : `· ${ind.pecas.toLocaleString('pt-BR')} peças em ${ind.periodo.meses} meses${ind.percentualDoFaturamento!=null?` · ${String(ind.percentualDoFaturamento).replace('.',',')}% do faturamento`:''}`;
+    : `rateio sugere <b>${money(sugerido)}</b>${ind.pecas?` · ${ind.pecas.toLocaleString('pt-BR')} peças em ${ind.periodo.meses} meses`:''}${ind.percentualDoFaturamento!=null?` · ${String(ind.percentualDoFaturamento).replace('.',',')}% do faturamento`:''}`;
 
   return `<div style="margin-top:16px;padding:12px 14px;background:#F7F5EF;border:1px solid #e7e3d8;border-radius:10px">
     <div style="font-size:11px;letter-spacing:.08em;color:#8a7f5c;font-weight:700;margin-bottom:6px">FECHAMENTO DO CUSTO · POR PEÇA</div>
@@ -4465,10 +4480,16 @@ function recFechamentoCusto(custoMat, custoAplic, nPend, aplicSemPreco){
       <span style="font-size:12px">Facção / costura<span class="muted" style="font-size:10.5px"> · o que a facção cobra desta peça</span></span>
       <input class="inp" id="rec_faccao" type="number" step="0.01" min="0" onwheel="this.blur()" value="${esc(String(faccao.toFixed(2)))}" onchange="APP.recSalvarFaccao()" style="width:96px;text-align:right;padding:4px 6px;font-size:12px">
     </div>
-    <div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0">
-      <span style="font-size:12px">Custo industrial <a href="javascript:void(0)" onclick="APP.recIndustrialDetalhe()" style="font-size:10.5px;color:#8a6d1b">(${R.verIndustrial?'esconder':'ver composição'})</a><span class="muted" style="font-size:10.5px"> ${indObs}</span></span>
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 0">
+      <span style="font-size:12px">Custo industrial
+        <label style="font-size:10.5px;margin-left:4px;cursor:pointer" title="Usar uma % sua em vez do rateio calculado">
+          <input type="checkbox" ${pctManual!=null?'checked':''} onchange="APP.recIndPctLigar(this.checked)" style="vertical-align:-1px"> minha %</label>
+        ${pctManual!=null?`<input class="inp" type="number" step="0.5" min="0" max="100" onwheel="this.blur()" value="${esc(String(pctManual))}" onchange="APP.recIndPct(this.value)" style="width:62px;text-align:right;padding:2px 5px;font-size:11px">%
+          <span class="muted" style="font-size:10.5px">sobre ${money(precoTab)}</span>`:''}
+        <a href="javascript:void(0)" onclick="APP.recIndustrialDetalhe()" style="font-size:10.5px;color:#8a6d1b;margin-left:4px">(${R.verIndustrial?'esconder':'ver composição'})</a></span>
       <span style="font-size:12.5px;font-weight:600;white-space:nowrap">${indPorPeca==null?'—':money(indPorPeca)}</span>
     </div>
+    <div class="muted" style="font-size:10.5px;margin:-2px 0 2px">${sugTxt}${pctManual!=null&&sugerido!=null?` · sua % dá ${money(indPorPeca)}, ${indPorPeca>sugerido?'<b>acima</b>':'<b>abaixo</b>'} do rateio`:''}</div>
     ${R.verIndustrial?recIndustrialHtml():''}
     ${linha('Custo de produção', money(producao), '', true)}
 
@@ -4504,6 +4525,36 @@ function recFechamentoCusto(custoMat, custoAplic, nPend, aplicSemPreco){
       !faccao?'facção não lançada':'',
       indPorPeca==null?'sem rateio industrial':''].filter(Boolean).join(' · ')}. A margem acima está otimista.</div>`:''}
   </div>`;
+}
+/**
+ * Liga/desliga a % própria de custo industrial.
+ *
+ * Ao ligar, começa no percentual que o RATEIO representa hoje sobre o
+ * faturamento — assim o número não pula no instante em que se marca a caixa, e
+ * mexer nele a partir dali é uma decisão, não um susto.
+ */
+function recIndPctLigar(on){
+  const R=window.__REC;
+  if(!on){ R.indPct=null; recIndPctSalvar(null); return; }
+  const ind=R.industrial;
+  const inicial = (ind&&ind.percentualDoFaturamento!=null) ? Number(ind.percentualDoFaturamento) : 15;
+  R.indPct=inicial; recIndPctSalvar(inicial);
+}
+function recIndPct(v){
+  const n=Number(String(v).replace(',','.'));
+  if(!(n>=0)||n>100||isNaN(n)){ toast('O percentual precisa ficar entre 0 e 100.','err'); renderReceita(); return; }
+  window.__REC.indPct=n; recIndPctSalvar(n);
+}
+/** Grava na EMPRESA: premissa de precificação vale para todo produto e todo dia. */
+async function recIndPctSalvar(pct){
+  try{
+    await api('/produtos/custo-industrial',{method:'PATCH',body:{percentual:pct},silent:true});
+    const R=window.__REC;
+    if(R.industrial) R.industrial.percentualManual=pct;
+    R.indPct=undefined; // volta a ler do servidor, que agora e a fonte
+    toast(pct==null?'Voltou a usar o rateio calculado.':'Custo industrial: '+String(pct).replace('.',',')+'% do preço.','ok');
+    renderReceita();
+  }catch(e){ toast(e.message,'err'); window.__REC.indPct=undefined; renderReceita(); }
 }
 function recFilialSel(v){ const R=window.__REC; R.filialSel=Number(v)||null; R.aliqManual=null; renderReceita(); }
 function recAliq(v){ window.__REC.aliqManual=Number(String(v).replace(',','.'))||0; renderReceita(); }
@@ -18002,7 +18053,7 @@ window.APP = {
   mkPalette, mkPickBase, mkAddCamada, mkDown, mkCtrl, mkSize, mkCor, mkFrente, mkTras, mkDel, mkLogoUpload, mkNovo, mkLoad, mkSave, mkImprimir,
   viewSGQ, sgqVideo, sgqConcluir, sgqDesmarcar, sgqDelDoc, sgqFormDoc, sgqSaveDoc, sgqFormManual, sgqSaveManual, sgqImprimir,
   closeModal, _winMin, _winClose, _winRestore, _winMax, viewRepresentantes, repMover, formCliente, saveCliente, cliFiltrar, cliUniAdd, cliUniDel, buscarCnpjCliente, nfeCompletarCliente, buscarCnpjUnidade, buscarCepUnidade, buscarCnpjFilial, buscarCepFilial, buscarCepCliente, buscarCnpjForn, buscarCepForn, buscarCepDestAvulso, maskDoc, clienteResumo, formAcessoPortal, apSugereLogin, apVoltar, renderCliPortal, saveAcessoPortal, formCreditoConfig, renderCreditoConfig, creditoCfgToggle, saveCreditoConfig, creditoTestar, consultarCredito, liberarCredito, cadProdDeLivre, formProduto, saveProduto, prodTipoToggle, formProdutoRevenda, saveProdutoRevenda, tecPick, tecDD, tecDDHide, tecDDPick, tecTamToggle, pesoTamToggle, codTamToggle, formEmbalagens, embSalvar, embDel,
-  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarCusto, recSalvarFaccao, recFilialSel, recAliq, recMargemAlvo, recIndustrialDetalhe, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
+  formReceita, recToggle, recAddMaterial, recSalvarLinha, recSalvarCusto, recSalvarFaccao, recFilialSel, recAliq, recMargemAlvo, recIndustrialDetalhe, recIndPctLigar, recIndPct, recSalvarPorTamanho, recLimparPorTamanho, recRemover, recCompAdd, recCompQtd, recCompDel, recSalvarComponentes, recAplicAdd, recAplicSet, recAplicDel, recAplicSalvar,
   formMaterial, saveMaterial, renderMatCores, addCorArtigo, formFornecedor, saveFornecedor, fornRender, fornFiltrar, fornecedorResumo, fornAbrirMaterial, fornNovoMaterial, fornAbrirProduto, fornNovoProduto, cliNovoProduto, verCatalogoForn, uploadCatalogoForn, uploadCatalogoFornGo, fornecedorCredito, saveFornCredito, fornecedorSituacaoReceita,
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, imprimirResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,

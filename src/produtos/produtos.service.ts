@@ -762,7 +762,7 @@ export class ProdutosService {
       await this.prisma.produto.findMany({ where: { empresaId, tipo: 'producao' }, select: { id: true } })
     ).map((x) => x.id);
 
-    const [despesas, pecas, notas, opsSemEtiqueta, foraDaContagem] = await Promise.all([
+    const [despesas, pecas, notas, opsSemEtiqueta, foraDaContagem, empresa] = await Promise.all([
       this.prisma.contaPagar.groupBy({
         by: ['categoria'],
         where: { empresaId, vencimento: { gte: ini, lt: fim } },
@@ -781,6 +781,7 @@ export class ProdutosService {
       this.prisma.unidadeEstoque.count({
         where: { empresaId, tipo: 'produto', produtoId: { notIn: idsFabricados }, criadoEm: { gte: ini, lt: fim } },
       }),
+      this.prisma.empresa.findUnique({ where: { id: empresaId }, select: { custoIndustrialPct: true } }),
     ]);
 
     const rateio = ratearCustoIndustrial({
@@ -794,7 +795,31 @@ export class ProdutosService {
     return {
       periodo: { de: ini.toISOString().slice(0, 10), ate: fim.toISOString().slice(0, 10), meses },
       ...rateio,
+      /**
+       * `null` = a tela usa o rateio acima. Preenchido, o custo industrial da
+       * peça é esta % sobre o preço de tabela DELA, e o rateio continua ali ao
+       * lado como referência: é assim que se vê se o palpite está longe demais.
+       */
+      percentualManual: empresa?.custoIndustrialPct == null ? null : Number(empresa.custoIndustrialPct),
     };
+  }
+
+  /** Grava a % de custo industrial escolhida à mão. `null` volta para o rateio. */
+  async definirPercentualIndustrial(empresaId: number, user: { usuario?: string | null } | undefined, percentual: number | null) {
+    this.soDono(user, 'O custo industrial');
+    if (percentual != null) {
+      const n = Number(percentual);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        throw new BadRequestException('O percentual de custo industrial deve ficar entre 0 e 100.');
+      }
+      percentual = Number(n.toFixed(2));
+    }
+    const e = await this.prisma.empresa.update({
+      where: { id: empresaId },
+      data: { custoIndustrialPct: percentual },
+      select: { custoIndustrialPct: true },
+    });
+    return { percentualManual: e.custoIndustrialPct == null ? null : Number(e.custoIndustrialPct) };
   }
 
   /** Alíquota de venda de cada filial, para a receita mostrar a margem líquida. */

@@ -51,6 +51,41 @@ export class ProdutosController {
     return this.produtosService.mockups(body?.ids ?? [], user.empresaId);
   }
 
+  /**
+   * Rateio do custo industrial (folha + despesas indiretas ÷ peças produzidas).
+   *
+   * AS ROTAS DE NOME FIXO VÊM ANTES DE `:id`.
+   *
+   * O Nest casa as rotas na ordem em que são declaradas. Declaradas depois,
+   * `custo-industrial` e `aliquotas-venda` eram engolidas por `@Get(':id')`, o
+   * ParseIntPipe recusava "custo-industrial" como id e a chamada voltava 400 —
+   * a tela mostrava "sem base de rateio" como se não houvesse produção, quando
+   * o que não havia era rota.
+   */
+  @Get('custo-industrial')
+  custoIndustrial(@CurrentUser() user: AuthUser, @Query('meses') meses?: string) {
+    const m = Math.min(12, Math.max(1, Number(meses) || 3));
+    return this.produtosService.custoIndustrial(user.empresaId, user, m);
+  }
+
+  /**
+   * Define (ou limpa) o percentual de custo industrial escolhido à mão.
+   * `null` volta a usar o rateio calculado.
+   */
+  @Patch('custo-industrial')
+  definirCustoIndustrial(
+    @Body() body: { percentual?: number | null },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.produtosService.definirPercentualIndustrial(user.empresaId, user, body?.percentual ?? null);
+  }
+
+  /** Alíquota de imposto sobre venda de cada filial — para a margem líquida. */
+  @Get('aliquotas-venda')
+  aliquotasVenda(@CurrentUser() user: AuthUser) {
+    return this.produtosService.aliquotasDeVenda(user.empresaId, user);
+  }
+
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
     const p = await this.produtosService.findOne(id, user.empresaId);
@@ -99,24 +134,6 @@ export class ProdutosController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.produtosService.removerCor(id, corId, user.empresaId);
-  }
-
-  /**
-   * Rateio do custo industrial (folha + despesas indiretas ÷ peças produzidas).
-   *
-   * Vem ANTES de `:id/custo` de propósito: o Nest casa as rotas na ordem em que
-   * são declaradas, e `:id` engoliria "custo-industrial" como se fosse um id.
-   */
-  @Get('custo-industrial')
-  custoIndustrial(@CurrentUser() user: AuthUser, @Query('meses') meses?: string) {
-    const m = Math.min(12, Math.max(1, Number(meses) || 3));
-    return this.produtosService.custoIndustrial(user.empresaId, user, m);
-  }
-
-  /** Alíquota de imposto sobre venda de cada filial — para a margem líquida. */
-  @Get('aliquotas-venda')
-  aliquotasVenda(@CurrentUser() user: AuthUser) {
-    return this.produtosService.aliquotasDeVenda(user.empresaId, user);
   }
 
   /** Ficha de custo (BOM × custo do material) — base da precificação. */
