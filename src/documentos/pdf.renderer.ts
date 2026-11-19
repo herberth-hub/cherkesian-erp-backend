@@ -425,10 +425,14 @@ export function tabelaMedidas(doc: Pdf, tamanhos: string[], linhas: Array<{ desc
 export function totalDestaque(doc: Pdf, rotulo: string, valor: string): void {
   const w = 220;
   const x = doc.page.width - 50 - w;
+  // A caixa inteira (40pt) tem de caber acima da margem inferior. Sem esta
+  // checagem o rótulo cabia, mas o valor (15pt) passava do limite e o PDFKit o
+  // jogava sozinho na página seguinte — a caixa saía vazia (PV245).
+  if (doc.y + 6 + 40 > doc.page.height - doc.page.margins.bottom) doc.addPage();
   const y = doc.y + 6;
   doc.rect(x, y, w, 40).fill(ONIX);
-  doc.fillColor(OURO).font('Helvetica').fontSize(8).text(rotulo.toUpperCase(), x + 14, y + 8);
-  doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(15).text(valor, x + 14, y + 19);
+  doc.fillColor(OURO).font('Helvetica').fontSize(8).text(rotulo.toUpperCase(), x + 14, y + 8, { width: w - 28, lineBreak: false });
+  doc.fillColor(MARFIM).font('Helvetica-Bold').fontSize(15).text(valor, x + 14, y + 19, { width: w - 28, lineBreak: false });
   doc.x = 50;
   doc.y = y + 52;
   doc.fillColor(TINTA).font('Helvetica').fontSize(10);
