@@ -1667,7 +1667,7 @@ export class DocumentosService {
     const tituloSecao = (t: string) => { doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(9).text(t.toUpperCase(), X, doc.y, { characterSpacing: 0.5 }); doc.moveTo(X, doc.y + 2).lineTo(W - X, doc.y + 2).lineWidth(0.6).strokeColor(LINHA).stroke(); doc.moveDown(0.6); doc.fillColor(TINTA); };
 
     // ===== ITENS (várias linhas numa ordem só) =====
-    const itens = (oc as unknown as { itens?: Array<{ descricao: string; codigoFornecedor: string | null; quantidade: unknown; unidade: string; valorUnit: unknown; valor: unknown }> }).itens ?? [];
+    const itens = (oc as unknown as { itens?: Array<{ descricao: string; codigoFornecedor: string | null; quantidade: unknown; unidade: string; valorUnit: unknown; valor: unknown; grade?: unknown }> }).itens ?? [];
     if (itens.length) {
       tituloSecao(`Itens (${itens.length})`);
       const colsW = [CW - 300, 90, 95, 115];
@@ -1680,10 +1680,20 @@ export class DocumentosService {
       };
       th(0, 'DESCRIÇÃO'); th(1, 'QTD', 'right'); th(2, 'VALOR UNIT.', 'right'); th(3, 'TOTAL', 'right');
       let ly = ty0 + 18;
+      // Grade por tamanho de cada item: sem ela o fornecedor via só o total
+      // (ex.: "24 PC") e não sabia quantas peças fazer de cada tamanho.
+      const ESC_ITEM = ['PP', 'P', 'M', 'G', 'GG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8'];
+      const ordTamItem = (a: string, b: string) => { const A = a.toUpperCase(), B = b.toUpperCase(); const na = Number(A), nb = Number(B); if (!isNaN(na) && !isNaN(nb)) return na - nb; const i = ESC_ITEM.indexOf(A), j = ESC_ITEM.indexOf(B); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); };
+      const gradeDoItem = (g: unknown): string => {
+        if (!g || typeof g !== 'object') return '';
+        const pares = Object.entries(g as Record<string, unknown>).filter(([, q]) => Number(q) > 0).sort((a, b) => ordTamItem(a[0], b[0]));
+        return pares.length ? 'Grade: ' + pares.map(([t, q]) => `${t} ${Number(q)}`).join('  ·  ') : '';
+      };
       for (const it of itens) {
-        const desc = it.codigoFornecedor ? `${it.descricao}\n${it.codigoFornecedor}` : it.descricao;
-        const hL = doc.font('Helvetica-Bold').fontSize(9.5).heightOfString(it.descricao, { width: colsW[0] - 16 })
-          + (it.codigoFornecedor ? 10 : 0);
+        const gradeTxt = gradeDoItem(it.grade);
+        const hDescItem = doc.font('Helvetica-Bold').fontSize(9.5).heightOfString(it.descricao, { width: colsW[0] - 16 });
+        const hGrade = gradeTxt ? doc.font('Helvetica-Bold').fontSize(8.5).heightOfString(gradeTxt, { width: colsW[0] - 16 }) + 3 : 0;
+        const hL = hDescItem + hGrade + (it.codigoFornecedor ? 10 : 0);
         const linhaH = Math.max(22, hL + 10);
         if (ly + linhaH > doc.page.height - 90) { doc.addPage(); ly = 60; }
         doc.moveTo(X, ly).lineTo(X + CW, ly).lineWidth(0.5).strokeColor(LINHA).stroke();
@@ -1692,7 +1702,8 @@ export class DocumentosService {
           doc.fillColor(TINTA).font(neg ? 'Helvetica-Bold' : 'Helvetica').fontSize(9.5).text(t, cx + 8, ly + 6, { width: colsW[i] - 16, align: alinha });
         };
         doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9.5).text(it.descricao, X + 8, ly + 6, { width: colsW[0] - 16 });
-        if (it.codigoFornecedor) doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(`cód. no fornecedor: ${it.codigoFornecedor}`, X + 8, ly + 6 + hL - 8, { width: colsW[0] - 16 });
+        if (gradeTxt) doc.fillColor(GOLD).font('Helvetica-Bold').fontSize(8.5).text(gradeTxt, X + 8, ly + 6 + hDescItem + 3, { width: colsW[0] - 16 });
+        if (it.codigoFornecedor) doc.fillColor(CINZA).font('Helvetica').fontSize(8).text(`cód. no fornecedor: ${it.codigoFornecedor}`, X + 8, ly + 6 + hDescItem + hGrade + 2, { width: colsW[0] - 16 });
         td(1, `${this.qtdBR(it.quantidade as never)} ${it.unidade}`, false, 'right');
         td(2, money(Number(it.valorUnit)), false, 'right');
         td(3, money(Number(it.valor)), true, 'right');
