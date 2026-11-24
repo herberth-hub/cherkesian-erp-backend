@@ -14,7 +14,10 @@ import { ArquivosService } from '../arquivos/arquivos.service';
 
 type FilialResumo = { id: number; nome: string; cnpj: string | null };
 // O boleto (base64) NÃO vai na listagem (baixa via endpoint próprio) — só o flag temBoleto.
-export type ContaPagarView = Omit<ContaPagar, 'boleto'> & { status: TituloStatus; saldo: string; temBoleto: boolean; filial?: FilialResumo | null };
+// `extratoEm`: data do débito do extrato bancário conciliado com o título (null =
+// a baixa existe no ERP, mas nenhum débito do banco foi casado com ela — é o
+// caso do "achei que tinha pago" que a tela de Contas Pagas ajuda a achar).
+export type ContaPagarView = Omit<ContaPagar, 'boleto'> & { status: TituloStatus; saldo: string; temBoleto: boolean; filial?: FilialResumo | null; extratoEm?: Date | null };
 
 @Injectable()
 export class ContasPagarService {
@@ -29,7 +32,15 @@ export class ContasPagarService {
       include: { filial: { select: { id: true, nome: true, cnpj: true } } },
       orderBy: { vencimento: 'asc' },
     });
-    return titulos.map((t) => this.comStatus(t)).filter((t) => !status || t.status === status);
+    const conciliados = await this.prisma.extratoLancamento.findMany({
+      where: { empresaId, status: 'conciliado', contaPagarId: { not: null } },
+      select: { contaPagarId: true, data: true },
+    });
+    const extrato = new Map<number, Date>();
+    for (const l of conciliados) if (l.contaPagarId != null) extrato.set(l.contaPagarId, l.data);
+    return titulos
+      .map((t) => ({ ...this.comStatus(t), extratoEm: extrato.get(t.id) ?? null }))
+      .filter((t) => !status || t.status === status);
   }
 
   async create(dto: CreateContaPagarDto, empresaId: number): Promise<ContaPagarView> {
