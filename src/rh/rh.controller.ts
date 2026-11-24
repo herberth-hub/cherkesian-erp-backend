@@ -4,6 +4,10 @@ import { CreateFuncionarioDto, FeriasDto, PontoBatchDto, PontoItemDto, UpdateFun
 import { Areas } from '../common/decorators/acesso.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.types';
+import { ehLoginDoDono } from '../common/rbac/acesso.config';
+
+/** Salário, VT, VR e adiantamento: só o dono (admin/agente). */
+const verDinheiro = (u: AuthUser) => ehLoginDoDono(u.usuario);
 
 // RH: admin (total) + financeiro + contabilidade (para baixar a folha).
 @Areas('rh')
@@ -14,22 +18,22 @@ export class RhController {
   // ---- Funcionários ----
   @Get('funcionarios')
   listar(@CurrentUser() user: AuthUser) {
-    return this.rh.listar(user.empresaId);
+    return this.rh.listar(user.empresaId, verDinheiro(user));
   }
 
   @Get('funcionarios/:id')
   obter(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    return this.rh.obter(id, user.empresaId);
+    return this.rh.obterVisivel(id, user.empresaId, verDinheiro(user));
   }
 
   @Post('funcionarios')
   criar(@Body() dto: CreateFuncionarioDto, @CurrentUser() user: AuthUser) {
-    return this.rh.criar(dto, user.empresaId);
+    return this.rh.criar(dto, user.empresaId, verDinheiro(user));
   }
 
   @Patch('funcionarios/:id')
   atualizar(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateFuncionarioDto, @CurrentUser() user: AuthUser) {
-    return this.rh.atualizar(id, dto, user.empresaId);
+    return this.rh.atualizar(id, dto, user.empresaId, verDinheiro(user));
   }
 
   @Delete('funcionarios/:id')
@@ -61,7 +65,7 @@ export class RhController {
   // ---- Resumo mensal (folha p/ contabilidade) ----
   @Get('resumo')
   resumo(@Query('mes') mes: string, @CurrentUser() user: AuthUser) {
-    return this.rh.resumoMes(user.empresaId, mes);
+    return this.rh.resumoMes(user.empresaId, mes, verDinheiro(user));
   }
 
   // ---- Férias / afastamentos ----

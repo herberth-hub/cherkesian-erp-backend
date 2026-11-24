@@ -12,6 +12,8 @@ export class CreateFuncionarioDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) jornadaDiaria?: number;
   @IsOptional() @IsInt() @Min(1) diasSemana?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) valeTransporte?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) valeRefeicao?: number;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) adiantamento?: number;
   @IsOptional() @IsString() @MaxLength(120) banco?: string;
   @IsOptional() @IsString() @MaxLength(140) pixChave?: string;
   @IsOptional() @IsBoolean() ativo?: boolean;

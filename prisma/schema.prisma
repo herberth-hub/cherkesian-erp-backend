@@ -1734,7 +1734,9 @@ model Funcionario {
   salario        Decimal?  @db.Decimal(12,2)
   jornadaDiaria  Decimal   @default(8) @db.Decimal(5,2) // horas/dia
   diasSemana     Int       @default(5)
-  valeTransporte Decimal?  @db.Decimal(12,2)
+  valeTransporte Decimal?  @db.Decimal(12,2) // VT do mês
+  valeRefeicao   Decimal?  @db.Decimal(12,2) // VR/VA do mês
+  adiantamento   Decimal?  @db.Decimal(12,2) // vale do dia 20; vazio = 40% do salário
   banco          String?
   pixChave       String?
   ativo          Boolean   @default(true)

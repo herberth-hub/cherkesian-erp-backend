@@ -49,12 +49,27 @@ export class RhService {
   }
 
   // ===== Funcionários =====
-  listar(empresaId: number) {
-    return this.prisma.funcionario.findMany({
+  /**
+   * Salário, VT, VR e adiantamento são só do dono (login admin/agente). O RH
+   * também é aberto a financeiro e contabilidade (ponto, férias) — para eles
+   * esses campos saem nulos e não podem ser gravados.
+   */
+  static readonly CAMPOS_DINHEIRO = ['salario', 'valeTransporte', 'valeRefeicao', 'adiantamento'] as const;
+
+  private ocultarDinheiro<T extends object>(f: T, verDinheiro: boolean): T {
+    if (verDinheiro) return f;
+    const r = { ...f } as Record<string, unknown>;
+    for (const k of RhService.CAMPOS_DINHEIRO) if (k in r) r[k] = null;
+    return r as T;
+  }
+
+  async listar(empresaId: number, verDinheiro = true) {
+    const fs = await this.prisma.funcionario.findMany({
       where: { empresaId },
       orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
       include: { _count: { select: { pontos: true, ferias: true } } },
     });
+    return fs.map((f) => this.ocultarDinheiro(f, verDinheiro));
   }
 
   async obter(id: number, empresaId: number) {
@@ -66,16 +81,22 @@ export class RhService {
     return f;
   }
 
-  async criar(dto: CreateFuncionarioDto, empresaId: number) {
-    return this.prisma.funcionario.create({ data: this.dadosFuncionario(dto, empresaId) });
+  async obterVisivel(id: number, empresaId: number, verDinheiro: boolean) {
+    return this.ocultarDinheiro(await this.obter(id, empresaId), verDinheiro);
   }
 
-  async atualizar(id: number, dto: UpdateFuncionarioDto, empresaId: number) {
+  async criar(dto: CreateFuncionarioDto, empresaId: number, verDinheiro = true) {
+    const f = await this.prisma.funcionario.create({ data: this.dadosFuncionario(dto, empresaId, false, verDinheiro) });
+    return this.ocultarDinheiro(f, verDinheiro);
+  }
+
+  async atualizar(id: number, dto: UpdateFuncionarioDto, empresaId: number, verDinheiro = true) {
     await this.obter(id, empresaId);
-    return this.prisma.funcionario.update({ where: { id }, data: this.dadosFuncionario(dto, empresaId, true) });
+    const f = await this.prisma.funcionario.update({ where: { id }, data: this.dadosFuncionario(dto, empresaId, true, verDinheiro) });
+    return this.ocultarDinheiro(f, verDinheiro);
   }
 
-  private dadosFuncionario(dto: CreateFuncionarioDto, empresaId: number, parcial = false) {
+  private dadosFuncionario(dto: CreateFuncionarioDto, empresaId: number, parcial = false, verDinheiro = true) {
     const d: Prisma.FuncionarioUncheckedCreateInput = {
       empresaId,
       nome: dto.nome?.trim(),
@@ -88,6 +109,8 @@ export class RhService {
       jornadaDiaria: dto.jornadaDiaria != null ? new Prisma.Decimal(dto.jornadaDiaria) : new Prisma.Decimal(8),
       diasSemana: dto.diasSemana ?? 5,
       valeTransporte: dto.valeTransporte != null ? new Prisma.Decimal(dto.valeTransporte) : null,
+      valeRefeicao: dto.valeRefeicao != null ? new Prisma.Decimal(dto.valeRefeicao) : null,
+      adiantamento: dto.adiantamento != null ? new Prisma.Decimal(dto.adiantamento) : null,
       banco: dto.banco?.trim() || null,
       pixChave: dto.pixChave?.trim() || null,
       ativo: dto.ativo ?? true,
@@ -100,6 +123,8 @@ export class RhService {
       if (dto.ativo == null) delete (d as Record<string, unknown>).ativo;
       delete (d as Record<string, unknown>).empresaId;
     }
+    // Quem não vê o dinheiro também não grava (nem apaga) o dinheiro.
+    if (!verDinheiro) for (const k of RhService.CAMPOS_DINHEIRO) delete (d as Record<string, unknown>)[k];
     return d;
   }
 
@@ -186,7 +211,7 @@ export class RhService {
   }
 
   // ===== Resumo mensal (folha para a contabilidade) =====
-  async resumoMes(empresaId: number, mes: string) {
+  async resumoMes(empresaId: number, mes: string, verDinheiro = true) {
     const range = this.rangeMes(mes);
     if (!range) throw new BadRequestException('Informe o mês no formato AAAA-MM.');
     const funcs = await this.prisma.funcionario.findMany({ where: { empresaId }, orderBy: { nome: 'asc' } });
@@ -232,6 +257,11 @@ export class RhService {
       valorExtras: Number(linhas.reduce((s, l) => s + l.valorExtras, 0).toFixed(2)),
       folha: Number(linhas.reduce((s, l) => s + l.totalComExtras, 0).toFixed(2)),
     };
+    if (!verDinheiro) {
+      // Horas e faltas ficam; o que deriva do salário sai nulo.
+      for (const l of linhas as Record<string, unknown>[]) for (const k of ['salario', 'valorHora', 'valorHoraExtra', 'valorExtras', 'totalComExtras']) l[k] = null;
+      return { mes, linhas, totais: { ...totais, valorExtras: null, folha: null }, semValores: true };
+    }
     return { mes, linhas, totais };
   }
 

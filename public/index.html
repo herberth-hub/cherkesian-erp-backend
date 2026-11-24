@@ -13525,22 +13525,53 @@ function rhBaixarCsv(nome, csv){
   try{ const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=nome; document.body.appendChild(a); a.click(); setTimeout(()=>{a.remove();URL.revokeObjectURL(url);},1500); }
   catch(e){ toast('Falha ao baixar: '+e.message,'err'); }
 }
+/**
+ * Previsão do que sai no dia 5 e no dia 20, a partir do cadastro (só o dono vê).
+ * Dia 20 = adiantamento (vazio = 40% do salário). Dia 5 = saldo do salário.
+ * VT + VR entram no dia escolhido (5 ou 20). Valores BRUTOS: sem INSS, IRRF,
+ * desconto de 6% do VT nem horas extras — é uma ideia do caixa, não o holerite.
+ */
+function rhDiaVales(){ try{ return localStorage.getItem('rh_dia_vales')==='20'?'20':'5'; }catch(e){ return '5'; } }
+function rhSetDiaVales(d){ try{ localStorage.setItem('rh_dia_vales',d); }catch(e){} loadRoute(); }
+function rhPrevisao(list){
+  const ativos=(list||[]).filter(f=>f.ativo&&!f.demissao);
+  const dv=rhDiaVales(); let d5=0,d20=0,sal=0,vt=0,vr=0,adt=0,semSal=0;
+  for(const f of ativos){
+    const s=Number(f.salario||0); if(!s) semSal++;
+    const a=f.adiantamento!=null?Number(f.adiantamento):s*0.4;
+    const v=Number(f.valeTransporte||0), r=Number(f.valeRefeicao||0);
+    sal+=s; adt+=a; vt+=v; vr+=r;
+    d20+=a; d5+=s-a; if(dv==='20') d20+=v+r; else d5+=v+r;
+  }
+  const card=(t,v,sub)=>`<div class="panel" style="flex:1;min-width:180px;padding:10px 14px"><div class="muted" style="font-size:11.5px">${t}</div><div style="font-size:20px;font-weight:800">${money(v)}</div><div class="muted" style="font-size:11px">${sub}</div></div>`;
+  return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 6px">`
+    + card('Dia 5 — saldo do salário'+(dv==='5'?' + VT + VR':''), d5, `Salários ${money(sal)} − adiantamento ${money(adt)}`+(dv==='5'?` + VT ${money(vt)} + VR ${money(vr)}`:''))
+    + card('Dia 20 — adiantamento'+(dv==='20'?' + VT + VR':''), d20, `Adiantamento ${money(adt)}`+(dv==='20'?` + VT ${money(vt)} + VR ${money(vr)}`:''))
+    + card('Total do mês', d5+d20, `${ativos.length} funcionário(s) ativo(s)`+(semSal?` · <b style="color:#c14a34">${semSal} sem salário</b>`:''))
+    + `</div><div class="muted" style="font-size:11.5px;margin:0 0 10px">🔒 Só o admin vê estes valores. VT + VR pagos no dia <select class="inp" style="width:auto;padding:1px 4px;font-size:11.5px" onchange="APP.rhSetDiaVales(this.value)"><option value="5" ${dv==='5'?'selected':''}>5</option><option value="20" ${dv==='20'?'selected':''}>20</option></select> · Valores brutos (sem INSS/IRRF, desconto do VT e horas extras). Adiantamento vazio = 40% do salário.</div>`;
+}
 async function viewRh(c){
   const list = await api('/rh/funcionarios');
   window.__FUNCS = list||[];
+  const dono = ehDonoUI();
   c.innerHTML = toolbar('Funcionários', 'Novo funcionário', 'APP.formFuncionario()',
       `<button class="btn-sm" onclick="APP.rhImportar()">📤 Importar ponto</button> <button class="btn-sm" onclick="APP.rhFerias()">📅 Férias / afastamentos</button> <button class="btn-primary" style="padding:2px 10px" onclick="APP.rhFolha()">📊 Folha do mês</button>`)
     + `<div class="muted" style="font-size:12px;margin:-4px 0 10px">Cadastro, ponto (entrada/almoço/saída), horas extras e férias. A contabilidade acessa e baixa a folha aqui.</div>`
+    + (dono ? rhPrevisao(list) : '')
     + panelTable(
-      ['Nome','Cargo / Setor','Admissão','Salário','Jornada','Registros','Situação','Ações'],
+      dono ? ['Nome','Cargo / Setor','Admissão','Salário','VT + VR','Jornada','Registros','Situação','Ações'] : ['Nome','Cargo / Setor','Admissão','Jornada','Registros','Situação','Ações'],
       (list||[]).map(f=>{
         const jornada=Number(f.jornadaDiaria||8)+'h/dia · '+(f.diasSemana||5)+'d';
         const reg=f._count?f._count.pontos:0;
+        const vales=Number(f.valeTransporte||0)+Number(f.valeRefeicao||0);
         return [
           `<b>${esc(f.nome)}</b>${f.cpf?'<br><span class="muted" style="font-size:11px">'+esc(f.cpf)+'</span>':''}`,
           (f.cargo?esc(f.cargo):'—')+(f.setor?'<br><span class="muted" style="font-size:11px">'+esc(f.setor)+'</span>':''),
           f.admissao?rhFmtD(f.admissao):'<span class="muted">—</span>',
-          f.salario!=null?('<b>'+money(f.salario)+'</b>'):'<span class="muted">—</span>',
+          ...(dono ? [
+            f.salario!=null?('<b>'+money(f.salario)+'</b>'+(f.adiantamento!=null?'<br><span class="muted" style="font-size:11px">adto '+money(f.adiantamento)+'</span>':'')):'<span class="muted">—</span>',
+            vales?(money(vales)+'<br><span class="muted" style="font-size:11px">VT '+money(f.valeTransporte||0)+' · VR '+money(f.valeRefeicao||0)+'</span>'):'<span class="muted">—</span>',
+          ] : []),
           jornada,
           `<span class="pill gray">${reg}</span>`,
           f.ativo?'<span class="pill green">Ativo</span>':'<span class="pill gray">Inativo</span>',
@@ -13559,7 +13590,11 @@ async function formFuncionario(id){
   openModal(`<h3>${id?'Editar funcionário':'Novo funcionário'}</h3>
     <div class="grid2">${field('fu_nome','Nome *','value="'+esc(g('nome'))+'"')}${field('fu_cpf','CPF','value="'+esc(g('cpf'))+'"')}</div>
     <div class="grid2">${field('fu_cargo','Cargo','value="'+esc(g('cargo'))+'"')}${field('fu_setor','Setor','value="'+esc(g('setor'))+'"')}</div>
-    <div class="grid3">${field('fu_adm','Admissão','type="date" value="'+(f&&f.admissao?String(f.admissao).slice(0,10):'')+'"')}${field('fu_sal','Salário (R$)','type="number" step="0.01" min="0" value="'+(f&&f.salario!=null?Number(f.salario):'')+'"')}${field('fu_vt','Vale-transporte (R$)','type="number" step="0.01" min="0" value="'+(f&&f.valeTransporte!=null?Number(f.valeTransporte):'')+'"')}</div>
+    <div class="grid3">${field('fu_adm','Admissão','type="date" value="'+(f&&f.admissao?String(f.admissao).slice(0,10):'')+'"')}</div>
+    ${ehDonoUI()?(()=>{ const nv=k=>(f&&f[k]!=null?Number(f[k]):''); const nf=(id2,lb,k,ph)=>field(id2,lb,'type="number" step="0.01" min="0" value="'+nv(k)+'"'+(ph?' placeholder="'+ph+'"':''));
+      return `<div class="panel" style="padding:8px 10px;margin:4px 0 8px;background:#faf6ea"><div class="muted" style="font-size:11.5px;margin-bottom:4px">🔒 Valores — só o admin vê</div>
+      <div class="grid2">${nf('fu_sal','Salário mensal (R$)','salario')}${nf('fu_adt','Adiantamento dia 20 (R$)','adiantamento','vazio = 40% do salário')}</div>
+      <div class="grid2">${nf('fu_vt','Vale-transporte mensal (R$)','valeTransporte')}${nf('fu_vr','Vale-refeição mensal (R$)','valeRefeicao')}</div></div>`; })():''}
     <div class="grid3">${field('fu_jor','Jornada (h/dia)','type="number" step="0.5" min="0" value="'+(f?Number(f.jornadaDiaria||8):8)+'"')}${field('fu_dias','Dias/semana','type="number" step="1" min="1" max="7" value="'+(f?(f.diasSemana||5):5)+'"')}${field('fu_dem','Demissão','type="date" value="'+(f&&f.demissao?String(f.demissao).slice(0,10):'')+'"')}</div>
     <div class="grid2">${field('fu_banco','Banco','value="'+esc(g('banco'))+'"')}${field('fu_pix','Chave PIX','value="'+esc(g('pixChave'))+'"')}</div>
     <div class="mrow"><label class="fl">Observações</label><textarea id="fu_obs" class="inp" rows="2" style="resize:vertical">${esc(g('obs'))}</textarea></div>
@@ -13573,8 +13608,12 @@ async function saveFuncionario(id){
     admissao:val('fu_adm'), demissao:val('fu_dem'), banco:val('fu_banco'), pixChave:val('fu_pix'), obs:val('fu_obs'),
     ativo: $('fu_ativo')?$('fu_ativo').checked:true };
   const num=(id2)=>{ const v=val(id2); return v!==''?Number(v):undefined; };
-  const sal=num('fu_sal'); if(sal!=null) body.salario=sal;
-  const vt=num('fu_vt'); if(vt!=null) body.valeTransporte=vt;
+  if(ehDonoUI()){
+    const sal=num('fu_sal'); if(sal!=null) body.salario=sal;
+    const adt=num('fu_adt'); if(adt!=null) body.adiantamento=adt;
+    const vt=num('fu_vt'); if(vt!=null) body.valeTransporte=vt;
+    const vr=num('fu_vr'); if(vr!=null) body.valeRefeicao=vr;
+  }
   const jor=num('fu_jor'); if(jor!=null) body.jornadaDiaria=jor;
   const dias=num('fu_dias'); if(dias!=null) body.diasSemana=dias;
   Object.keys(body).forEach(k=>{ if(body[k]==='') delete body[k]; });
@@ -13682,29 +13721,32 @@ async function rhFolha(mes){
   let d; try{ d=await api('/rh/resumo?mes='+mes); }catch(e){ toast(e.message,'err'); return; }
   window.__RH_FOLHA=d;
   const t=d.totais||{};
+  // Sem o login do dono a API manda os valores nulos: mostra só horas e faltas.
+  const sv=!!d.semValores;
   const rows=(d.linhas||[]).map(l=>`<tr>
     <td style="padding:4px 6px">${esc(l.nome)}${l.cargo?'<br><span class="muted" style="font-size:10.5px">'+esc(l.cargo)+'</span>':''}</td>
-    <td style="padding:4px 6px;text-align:right">${money(l.salario)}</td>
+    ${sv?'':`<td style="padding:4px 6px;text-align:right">${money(l.salario)}</td>`}
     <td style="padding:4px 6px;text-align:center">${l.diasTrabalhados}</td>
     <td style="padding:4px 6px;text-align:center">${l.faltas||0}</td>
     <td style="padding:4px 6px;text-align:right">${l.horasTrabalhadas.toFixed(2)}h</td>
     <td style="padding:4px 6px;text-align:right;color:#b5731a;font-weight:700">${l.horasExtras.toFixed(2)}h</td>
-    <td style="padding:4px 6px;text-align:right">${money(l.valorExtras)}</td>
-    <td style="padding:4px 6px;text-align:right;font-weight:700">${money(l.totalComExtras)}</td></tr>`).join('');
+    ${sv?'':`<td style="padding:4px 6px;text-align:right">${money(l.valorExtras)}</td>
+    <td style="padding:4px 6px;text-align:right;font-weight:700">${money(l.totalComExtras)}</td>`}</tr>`).join('');
   openModal(`<h3>📊 Folha do mês</h3>
     <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 10px;flex-wrap:wrap">
       <input id="rh_fmes" class="inp" type="month" value="${mes}" style="width:auto" onchange="APP.rhFolha(this.value)">
-      <span class="muted" style="font-size:12px">${d.linhas?d.linhas.length:0} funcionário(s) · Extras: <b style="color:#b5731a">${(t.horasExtras||0).toFixed(2)}h</b> (${money(t.valorExtras||0)}) · Folha: <b>${money(t.folha||0)}</b></span>
+      <span class="muted" style="font-size:12px">${d.linhas?d.linhas.length:0} funcionário(s) · Extras: <b style="color:#b5731a">${(t.horasExtras||0).toFixed(2)}h</b>${sv?'':` (${money(t.valorExtras||0)}) · Folha: <b>${money(t.folha||0)}</b>`}</span>
       <button class="btn-sm" onclick="APP.rhFolhaCsv()">⬇ Baixar CSV (contabilidade)</button>
     </div>
     <div class="panel" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#faf6ea;color:#8a6d1e">
-      <th style="padding:5px 6px;text-align:left">Funcionário</th><th style="padding:5px 6px;text-align:right">Salário</th><th style="padding:5px 6px;text-align:center">Dias</th><th style="padding:5px 6px;text-align:center">Faltas</th><th style="padding:5px 6px;text-align:right">Horas</th><th style="padding:5px 6px;text-align:right">Extras</th><th style="padding:5px 6px;text-align:right">R$ Extras</th><th style="padding:5px 6px;text-align:right">Total</th></tr></thead>
+      <th style="padding:5px 6px;text-align:left">Funcionário</th>${sv?'':'<th style="padding:5px 6px;text-align:right">Salário</th>'}<th style="padding:5px 6px;text-align:center">Dias</th><th style="padding:5px 6px;text-align:center">Faltas</th><th style="padding:5px 6px;text-align:right">Horas</th><th style="padding:5px 6px;text-align:right">Extras</th>${sv?'':'<th style="padding:5px 6px;text-align:right">R$ Extras</th><th style="padding:5px 6px;text-align:right">Total</th>'}</tr></thead>
       <tbody>${rows||'<tr><td colspan=8 class="muted" style="padding:10px">Sem funcionários.</td></tr>'}</tbody></table></div>`, {wide:true});
 }
 function rhFolhaCsv(){
   const d=window.__RH_FOLHA; if(!d){ return; }
-  const head=['Funcionario','CPF','Cargo','Salario','Dias trabalhados','Faltas','Horas trabalhadas','Horas extras','Valor hora','Valor hora extra','Valor extras','Total com extras'];
-  const linhas=(d.linhas||[]).map(l=>[l.nome,l.cpf||'',l.cargo||'',l.salario,l.diasTrabalhados,l.faltas||0,l.horasTrabalhadas,l.horasExtras,l.valorHora,l.valorHoraExtra,l.valorExtras,l.totalComExtras]);
+  const sv=!!d.semValores;
+  const head=sv?['Funcionario','CPF','Cargo','Dias trabalhados','Faltas','Horas trabalhadas','Horas extras']:['Funcionario','CPF','Cargo','Salario','Dias trabalhados','Faltas','Horas trabalhadas','Horas extras','Valor hora','Valor hora extra','Valor extras','Total com extras'];
+  const linhas=(d.linhas||[]).map(l=>sv?[l.nome,l.cpf||'',l.cargo||'',l.diasTrabalhados,l.faltas||0,l.horasTrabalhadas,l.horasExtras]:[l.nome,l.cpf||'',l.cargo||'',l.salario,l.diasTrabalhados,l.faltas||0,l.horasTrabalhadas,l.horasExtras,l.valorHora,l.valorHoraExtra,l.valorExtras,l.totalComExtras]);
   const esc2=v=>{ const s=String(v==null?'':v); return /[";\n]/.test(s)?('"'+s.replace(/"/g,'""')+'"'):s; };
   const csv=[head.join(';')].concat(linhas.map(r=>r.map(esc2).join(';'))).join('\n');
   rhBaixarCsv('folha_ponto_'+(d.mes||'mes')+'.csv', csv);
@@ -18074,7 +18116,7 @@ window.APP = {
   formEntradaEstoque, enTipo, enItemFilter, enItemBlur, enItemPick, enDest, enPedidoAviso, enCol, enAndar, saveEntradaEstoque, verRetalhos, formEntradaEstoqueRetalho, reciclarRetalhos, delRetalho, etiquetaRetalho, imprimirEtqRetalho, formEnderecar, edCol, edAndar, enderecarBip, edDestino, edMarcarTodas, enderecarSelecionados, movPrever, formConsultaEtiqueta, consultarEtiqueta, consFechar, consReimprimir, consQuarentena, consResolver, consExcluir, consultarCaixa, verCaixa, etiquetasCaixasMaster, cxmCol, gerarCaixasMaster, reimprimirUnidade, reimprimirVisiveis, excluirUnidade, unSel, unSelAll, unBulkReimprimir, unBulkExcluir, renderUnidades, estSugestao, estMais, estMaisFecha, estSet, estToggleSemMetragem, estVisao, estLightbox, fotoQuebrada, estBusca, estBuscaNoBanco, estRecarregar, estBip, estLimparBip, estLimpar, estRender, estBuscaAplica, estRenderChips, estRenderLista, estChips, dwTodas, dwConta, dwExcluir, estDestinoTxt, estVincPill, estMultiAbrir, estMultiBip, estMultiRender, estMultiTirar, estMultiLimpar, estMultiMover, estMultiReimprimir, estMultiExcluir, segPill, estSegFiltro, estSegundaForm, estSegundaOutro, estSegundaSalvar, estSegundaVoltar, estSegundaEnviar, enSeg, enSegOutro, enSegDefeito, enCarregarDefeitos, dwMover, dmCx, dwMoverAcao, dwMoverConfirmar, comodatoPreencher, comodatoVenda, comodatoVendaRecalc, comodatoVendaConfirmar, estMultiComodatoVenda, estLocCampo, estEnderecosOpc, estMostrarMais, estDrawer, estDrawerMaterial, estDrawerFechar, unLimparSel, unBulkQuarentena, unBulkReimprimirCods, consultarCaixaCodigo, formExpAvulsa, avMotivo, avAddItem, avDelItem, avSync, avRender, avResumo, avBorda, avSalvar,  enviarQuarentena, resolverQuarentena, formQuarentena, saveQuarentena,
   formUsuario, saveUsuario, usuAcessoToggle, removeUsuario, desbloquearUsuario, enviarAcessoPortal, enviarAcessoPortalConfirmar,
   logsFiltrar, logsLimpar, logsPdf,
-  viewRh, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
+  viewRh, rhSetDiaVales, formFuncionario, saveFuncionario, rhDelFunc, rhPonto, rhAddPonto, rhDelPonto, rhImportar, rhFileToTxt, rhImportarGo, rhFolha, rhFolhaCsv, rhFerias, rhAddFerias, rhDelFerias,
   formMedida, saveMedida, removeMedida, loadCusto, calcPreco,
   formAviamento, saveAviamento, matAtivo, aviRender, matRender, gerarDoc,
   notifCiente, notifCienteTodas, notifImprimir,

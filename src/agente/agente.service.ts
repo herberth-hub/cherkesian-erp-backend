@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { Acesso } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../auth/auth.types';
-import { Area, perfilPodeAcessar, podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
+import { Area, ehLoginDoDono, perfilPodeAcessar, podeVerDinheiroDaEmpresa } from '../common/rbac/acesso.config';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { RhService } from '../rh/rh.service';
@@ -405,7 +405,7 @@ export class AgenteService {
       {
         areas: ['rh'],
         def: { name: 'consultar_rh', description: 'RH: folha do mês por funcionário (dias, faltas, horas trabalhadas, HORAS EXTRAS, valor das extras e total) + totais. Informe o mês AAAA-MM (padrão: mês atual). Ex.: "horas extras do mês", "folha de setembro".', input_schema: { type: 'object', properties: { mes: { type: 'string', description: 'AAAA-MM (opcional; padrão mês atual).' } } } },
-        run: (empresaId, input) => this.rhResumo(empresaId, input),
+        run: (empresaId, input) => this.rhResumo(empresaId, input, ehLoginDoDono(user.usuario)),
       },
       {
         areas: ['producao', 'pcp'],
@@ -787,11 +787,11 @@ export class AgenteService {
     return { total: lista.length, porStatus, kits: lista.slice(0, 60) };
   }
 
-  private async rhResumo(empresaId: number, input: Record<string, unknown> = {}) {
+  private async rhResumo(empresaId: number, input: Record<string, unknown> = {}, verSalarios = false) {
     const agora = new Date();
     const mes = String(input?.mes ?? '').trim() || `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`;
     try {
-      return await this.rh.resumoMes(empresaId, mes);
+      return await this.rh.resumoMes(empresaId, mes, verSalarios);
     } catch (e) {
       return { erro: e instanceof Error ? e.message : 'Não foi possível montar a folha do mês.' };
     }
