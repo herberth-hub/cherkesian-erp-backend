@@ -330,8 +330,8 @@ const ACCESS = {
   producao:['dashboard','tv','pcp','producao','kits','piloto','compras','estoque','entrada','medidas','produtos','materia','aviamentos','regras','agente','sgq','engenharia'],
   chao:['tv','producao','kits','piloto','estoque','sgq'],
   expedicao:['dashboard','tv','estoque','expedicao','kits','notas','agente','sgq','anomalias'],
-  financeiro:['dashboard','diretoria','tv','receber','pagar','pagas','banco','fluxo','impostos','comissoes','rh','notas','agente','sgq','anomalias'],
-  contabilidade:['dashboard','diretoria','tv','receber','pagar','pagas','banco','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq','anomalias'],
+  financeiro:['dashboard','diretoria','tv','receber','pagar','banco','fluxo','impostos','comissoes','rh','notas','agente','sgq','anomalias'],
+  contabilidade:['dashboard','diretoria','tv','receber','pagar','banco','fluxo','impostos','comissoes','vendas','contratos','clientes','rh','notas','entrada','agente','sgq','anomalias'],
   consultoria:['dashboard','tv','bi','pcp','producao','kits','expedicao','estoque','vendas','clientes','sgq','anomalias'],
   cliente:['portal'],
 };
@@ -351,7 +351,7 @@ const ROTA_AREAS = {
   comissoes:['comissoes'], precificacao:['cadastros','vendas'],
   pcp:['pcp'], producao:['pcp','producao'], kits:['pcp','producao','expedicao','estoque'], piloto:['piloto'], compras:['compras'],
   estoque:['estoque'], expedicao:['expedicao'], notas:['vendas','expedicao','receber'], entrada:['compras'],
-  receber:['receber'], pagar:['pagar'], pagas:['pagar'], banco:['pagar','fluxo'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
+  receber:['receber'], pagar:['pagar'], banco:['pagar','fluxo'], fluxo:['fluxo'], impostos:['impostos'], rh:['rh'],
   sgq:['dashboard','tv','producao','estoque','expedicao','vendas','rh','pcp','usuarios'],
   produtos:['cadastros','vendas'], engenharia:['cadastros'], materia:['cadastros','estoque','compras'],
   aviamentos:['cadastros','estoque','compras'], fornecedores:['cadastros','compras'],
@@ -364,7 +364,7 @@ const NAVDEF = [
   ['Comercial', [['vendas','Vendas / Pedidos','cart'],['crm','CRM · Funil','trend'],['anomalias','Anomalias','shield'],['contratos','Contratos','file'],['clientes','Clientes','users'],['representantes','Representantes','users'],['medidas','Ficha de Medidas','ruler'],['comissoes','Comissões','pct'],['precificacao','Precificação','tag']]],
   ['Produção / PCP', [['pcp','Painel de PCP','cal'],['producao','Ordens de Produção','fact'],['kits','Kits / Rastreio','box'],['piloto','Peças Piloto','clip'],['compras','Ordens de Compra','bag']]],
   ['Estoque & Logística', [['estoque','Estoque','box'],['expedicao','Expedição','truck'],['notas','Notas Fiscais','file'],['entrada','Notas de Entrada','bag']]],
-  ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['pagas','Contas Pagas','check'],['banco','Conciliação Bancária','trend'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
+  ['Financeiro', [['receber','A Receber','in'],['pagar','A Pagar','out'],['banco','Conciliação Bancária','trend'],['fluxo','Fluxo de Caixa','trend'],['impostos','Impostos','file']]],
   ['Recursos Humanos', [['rh','Funcionários / Ponto','users']]],
   ['Qualidade / SGQ', [['sgq','SGQ · Universidade','book']]],
   ['Cadastros', [['produtos','Produtos','shirt'],['engenharia','Engenharia de Produtos','layers'],['materia','Matéria-prima','layers'],['aviamentos','Aviamentos','scissors'],['fornecedores','Fornecedores','users'],['regras','Categorias & Regras','book']]],
@@ -379,7 +379,7 @@ const NAV_SIGLA = {
   'Integrações':'IN', 'Administração':'AD', 'Portal':'PT',
 };
 // telas já implementadas nesta fatia vertical
-const READY = new Set(['dashboard','diretoria','bi','banco','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','pagas','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia','anomalias']);
+const READY = new Set(['dashboard','diretoria','bi','banco','clientes','contratos','crm','rh','produtos','vendas','materia','fornecedores','receber','pagar','fluxo','comissoes','impostos','pcp','producao','kits','piloto','compras','estoque','expedicao','usuarios','logs','medidas','precificacao','aviamentos','tv','regras','empresa','notas','entrada','agente','filiais','mercadolivre','tray','whatsapp','portal','representantes','pct','sgq','engenharia','anomalias']);
 const TITLES = {
   dashboard:['Dashboard','Visão geral · indicadores consolidados'],
   diretoria:['Painel do Diretor','Índice de acompanhamento por pilar: Clientes, Pedidos, Produção, Entrega e Faturamento'],
@@ -397,7 +397,6 @@ const TITLES = {
   receber:['Contas a Receber','O que os clientes devem'],
   banco:['Conciliação Bancária','O extrato do banco lado a lado com os títulos — o que já entrou e o que ninguém explicou'],
   pagar:['Contas a Pagar','Fornecedores, facção e despesas'],
-  pagas:['Contas Pagas','O que já foi baixado — confira se saiu mesmo do banco'],
   rh:['RH / Funcionários','Ponto, horas extras, férias e folha p/ contabilidade'],
   fluxo:['Fluxo de Caixa','Realizado e projeção por vencimento'],
   comissoes:['Comissões','Comissão por venda e por vendedor'],
@@ -441,7 +440,6 @@ const ICONS = {
   truck:'M3 6h11v9H3zM14 9h4l3 3v3h-7M7 19a1.5 1.5 0 100-.01M18 19a1.5 1.5 0 100-.01',
   in:'M12 3v12M7 10l5 5 5-5M4 21h16',
   out:'M12 15V3M7 8l5-5 5 5M4 21h16',
-  check:'M4 12l5 5L20 6',
   trend:'M3 17l6-6 4 4 8-8M15 7h6v6',
   file:'M6 2h9l5 5v15H6zM14 2v6h6',
   shirt:'M6 4l3-2 3 2 3-2 3 2-3 3v13H9V7z',
@@ -583,7 +581,7 @@ function logout(silent){
 const LOGINS_DONO_UI = ['admin','agente'];
 function ehDonoUI(){ return LOGINS_DONO_UI.includes(String((S.user&&S.user.usuario)||'').trim().toLowerCase()); }
 /** Telas de contas a pagar/receber: dono, financeiro ou contabilidade. */
-const ROTAS_DO_DONO = ['receber','pagar','pagas'];
+const ROTAS_DO_DONO = ['receber','pagar'];
 function podeVerFinanceiroUI(){
   if(ehDonoUI()) return true;
   const a=(S.user&&S.user.acesso)||'';
@@ -973,7 +971,6 @@ async function despacharRota(c){
     if(S.route==='receber') return await viewReceber(c);
     if(S.route==='banco') return await viewBanco(c);
     if(S.route==='pagar') return await viewPagar(c);
-    if(S.route==='pagas') return await viewPagas(c);
     if(S.route==='fluxo') return await viewFluxo(c);
     if(S.route==='comissoes') return await viewComissoes(c);
     if(S.route==='impostos') return await viewImpostos(c);
@@ -6513,6 +6510,30 @@ async function bancoDesconciliar(id){
   }catch(e){ toast(e.message,'err'); }
 }
 
+/* Situação do título nas telas A Receber / A Pagar. Puxando um cliente ou
+   fornecedor, a tela mostra o que está em aberto, o que vai vencer e o que já
+   foi pago — os cards de cima somam cada situação e filtram com um clique. */
+function statusOpcoes(st,rotPago){
+  const o=(v,l)=>`<option value="${v}"${(st||'')===v?' selected':''}>${l}</option>`;
+  return o('','Todos')+o('aberto','Em aberto')+o('avencer','A vencer')+o('vencido','Vencidos')+o('pago',rotPago);
+}
+function statusBate(t,st){
+  if(!st) return true;
+  if(st==='aberto') return t.status!=='pago';
+  if(st==='avencer') return t.status==='a_vencer'||t.status==='vencendo';
+  if(st==='vencido') return t.status==='vencida';
+  if(st==='pago') return t.status==='pago';
+  return true;
+}
+function statusCards(base,st,selId,refiltrar,rotPago){
+  const sum=(arr,f)=>arr.reduce((s,t)=>s+f(t),0);
+  const av=base.filter(t=>statusBate(t,'avencer')), ve=base.filter(t=>statusBate(t,'vencido')), pg=base.filter(t=>Number(t.pago)>0);
+  const card=(v,k,val,sub,cor)=>{ const on=(st||'')===v;
+    return `<div class="card" style="padding:10px 14px;cursor:pointer;${on?'border-color:'+cor+';box-shadow:0 0 0 2px '+cor+'33':''}" title="Clique para filtrar" onclick="(function(){var s=document.getElementById('${selId}');s.value=s.value==='${v}'?'':'${v}';${refiltrar};})()"><div class="k" style="font-size:11px;color:var(--muted)">${k}${on?' ✕':''}</div><div style="font-size:18px;font-weight:800;color:${cor}">${money(val)}</div><div class="s" style="font-size:11px">${sub}</div></div>`; };
+  return card('avencer','A VENCER',sum(av,t=>Number(t.saldo)),av.length+' título(s)','#1F4E79')
+    + card('vencido','VENCIDO',sum(ve,t=>Number(t.saldo)),ve.length+' título(s)','#c14a34')
+    + card('pago',rotPago.toUpperCase(),sum(pg,t=>Number(t.pago)+Number(t.juros||0)),pg.length+' título(s)'+(pg.some(t=>t.status!=='pago')?' · inclui parciais':''),'#3a8f4f');
+}
 async function viewReceber(c){
   const [list, clientes] = await Promise.all([api('/financeiro/receber'), api('/clientes')]);
   let F=window.__RCFILTERS; if(!F){ try{ F=JSON.parse(sessionStorage.getItem('rcfilt')||'{}'); }catch(_){ F={}; } window.__RCFILTERS=F; }
@@ -6524,7 +6545,7 @@ async function viewReceber(c){
         <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (cliente, CNPJ, doc., valor)</label><input id="rc_busca" class="inp" style="padding:6px" placeholder="ex.: Unimed, 12.345, 500,00" value="${esc(F.q||'')}" oninput="APP.receberFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="rc_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.receberFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="rc_ate" class="inp" type="date" style="padding:6px" value="${esc(F.ate||'')}" onchange="APP.receberFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="rc_status" class="inp" style="padding:6px;width:auto" onchange="APP.receberFiltrar()"><option value=""${sel(F.st,'')}>Todos</option><option value="aberto"${sel(F.st,'aberto')}>Em aberto</option><option value="pago"${sel(F.st,'pago')}>Recebidos</option></select></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="rc_status" class="inp" style="padding:6px;width:auto" onchange="APP.receberFiltrar()">${statusOpcoes(F.st,'Recebidos')}</select></div>
         <button class="btn-sm" onclick="APP.receberPreset('mes')">Este mês</button>
         <button class="btn-sm" onclick="APP.receberPreset('7')">Próx. 7 dias</button>
         <button class="btn-sm" onclick="APP.receberPreset('venc')">Vencidos</button>
@@ -6542,12 +6563,10 @@ function receberFiltrar(){
   const qraw=(val('rc_busca')||'').trim(); const q=bnorm(qraw); const qn=_numBusca(q); const emp=window.__RCEMP||'';
   window.__RCFILTERS = { q:qraw, de, ate, st, emp };
   try{ sessionStorage.setItem('rcfilt', JSON.stringify(window.__RCFILTERS)); }catch(_){}
-  const fil=list.filter(t=>{
+  const base=list.filter(t=>{
     const v=String(t.vencimento).slice(0,10);
     if(de && v<de) return false;
     if(ate && v>ate) return false;
-    if(st==='aberto' && t.status==='pago') return false;
-    if(st==='pago' && t.status!=='pago') return false;
     if(emp){ const en=t.filial?t.filial.nome:'Sem empresa'; if(en!==emp) return false; }
     if(q){
       const hay=bnorm([nome[t.clienteId]||'', cnpj[t.clienteId]||'', t.documento||'', t.nfNumero||'', t.filial?t.filial.nome:''].join(' '));
@@ -6556,13 +6575,13 @@ function receberFiltrar(){
     }
     return true;
   });
-  const totalAberto=fil.filter(t=>t.status!=='pago').reduce((s,t)=>s+Number(t.saldo),0);
+  const fil=base.filter(t=>statusBate(t,st));
   const porEmp={}; fil.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
   const chips=Object.keys(porEmp).sort().map(k=>{const on=emp===k;return `<div class="card" style="padding:10px 14px;cursor:pointer;${on?'border-color:#3a8f4f;box-shadow:0 0 0 2px #c4e3ca':''}" title="Clique para filtrar por esta empresa" onclick="APP.receberEmp('${encodeURIComponent(k)}')"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}${on?' ✕':''}</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a receber</div></div>`;}).join('');
   const ef=$('receber_empfiltro'); if(ef) ef.innerHTML = emp?`<div style="margin:-4px 0 12px;font-size:12px">Filtrando por empresa: <b>${esc(emp)}</b> <button class="btn-sm" style="padding:1px 8px" onclick="APP.receberEmp('${encodeURIComponent(emp)}')">✕ limpar</button></div>`:'';
   const totJuros=fil.reduce((s,t)=>s+Number(t.juros||0),0);
   const jurosCard=totJuros>0?`<div class="card" style="padding:10px 14px;border-color:#bfe0c4"><div class="k" style="font-size:11px;color:var(--muted)">JUROS/MULTA RECEBIDOS</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totJuros)}</div><div class="s" style="font-size:11px">no filtro</div></div>`:'';
-  const kp=$('receber_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#3a8f4f">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s) a receber</div></div>`+jurosCard+chips;
+  const kp=$('receber_kpis'); if(kp) kp.innerHTML=statusCards(base,st,'rc_status','APP.receberFiltrar()','Recebido')+jurosCard+chips;
   const body=$('receber_body'); if(!body) return;
   window.__RECSEL = new Set(); // reseta seleção ao refiltar
   const bulkBar = `<div id="receber_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#eef6ee;border:1px solid #bfe0c4;border-radius:8px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
@@ -6839,7 +6858,7 @@ async function viewPagar(c){
         <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (fornecedor, CNPJ, ref., valor)</label><input id="pg_busca" class="inp" style="padding:6px" placeholder="ex.: Maria, 12.345, 144,00" value="${esc(F.q||'')}" oninput="APP.pagarFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Vencimento de</label><input id="pg_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.pagarFiltrar()"></div>
         <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="pg_ate" class="inp" type="date" style="padding:6px" value="${esc(F.ate||'')}" onchange="APP.pagarFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="pg_status" class="inp" style="padding:6px;width:auto" onchange="APP.pagarFiltrar()"><option value=""${sel(F.st,'')}>Todos</option><option value="aberto"${sel(F.st,'aberto')}>Em aberto</option><option value="pago"${sel(F.st,'pago')}>Pagos</option></select></div>
+        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Status</label><select id="pg_status" class="inp" style="padding:6px;width:auto" onchange="APP.pagarFiltrar()">${statusOpcoes(F.st,'Pagos')}</select></div>
         <button class="btn-sm" onclick="APP.pagarPreset('mes')">Este mês</button>
         <button class="btn-sm" onclick="APP.pagarPreset('7')">Próx. 7 dias</button>
         <button class="btn-sm" onclick="APP.pagarPreset('venc')">Vencidos</button>
@@ -6902,12 +6921,10 @@ function pagarFiltrar(){
   // Guarda o estado dos filtros p/ manter aplicado após executar tarefas (baixa, exclusão…) e após F5.
   window.__PGFILTERS = { q:qraw, de, ate, st, emp };
   try{ sessionStorage.setItem('pgfilt', JSON.stringify(window.__PGFILTERS)); }catch(_){}
-  const fil=list.filter(t=>{
+  const base=list.filter(t=>{
     const v=String(t.vencimento).slice(0,10);
     if(de && v<de) return false;
     if(ate && v>ate) return false;
-    if(st==='aberto' && t.status==='pago') return false;
-    if(st==='pago' && t.status!=='pago') return false;
     if(emp){ const en=t.filial?t.filial.nome:'Sem empresa'; if(en!==emp) return false; }
     if(q){
       const hay=bnorm([nome[t.fornecedorId]||'', cnpj[t.fornecedorId]||'', t.referencia||'', t.categoria||'', t.filial?t.filial.nome:''].join(' '));
@@ -6916,13 +6933,14 @@ function pagarFiltrar(){
     }
     return true;
   });
+  const fil=base.filter(t=>statusBate(t,st));
   const porEmp={}; fil.filter(t=>t.status!=='pago').forEach(t=>{ const k=t.filial?t.filial.nome:'Sem empresa'; porEmp[k]=(porEmp[k]||0)+Number(t.saldo); });
   const totalAberto=fil.filter(t=>t.status!=='pago').reduce((s,t)=>s+Number(t.saldo),0);
   const chips=Object.keys(porEmp).sort().map(k=>{const on=emp===k;return `<div class="card" style="padding:10px 14px;cursor:pointer;${on?'border-color:#c14a34;box-shadow:0 0 0 2px #f0c9c0':''}" title="Clique para filtrar por esta empresa" onclick="APP.pagarEmp('${encodeURIComponent(k)}')"><div class="k" style="font-size:11px;color:var(--muted)">${esc(k)}${on?' ✕':''}</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(porEmp[k])}</div><div class="s" style="font-size:11px">a pagar</div></div>`;}).join('');
   const ef=$('pagar_empfiltro'); if(ef) ef.innerHTML = emp?`<div style="margin:-4px 0 12px;font-size:12px">Filtrando por empresa: <b>${esc(emp)}</b> <button class="btn-sm" style="padding:1px 8px" onclick="APP.pagarEmp('${encodeURIComponent(emp)}')">✕ limpar</button></div>`:'';
   const totJuros=fil.reduce((s,t)=>s+Number(t.juros||0),0);
   const jurosCard=totJuros>0?`<div class="card" style="padding:10px 14px;border-color:#e0b3a8"><div class="k" style="font-size:11px;color:var(--muted)">JUROS/MULTA PAGOS</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(totJuros)}</div><div class="s" style="font-size:11px">no filtro</div></div>`:'';
-  const kp=$('pagar_kpis'); if(kp) kp.innerHTML=`<div class="card" style="padding:10px 14px;border-color:#efe2b8"><div class="k" style="font-size:11px;color:var(--muted)">TOTAL FILTRADO</div><div style="font-size:18px;font-weight:800;color:#c14a34">${money(totalAberto)}</div><div class="s" style="font-size:11px">${fil.length} título(s)</div></div>`+jurosCard+chips;
+  const kp=$('pagar_kpis'); if(kp) kp.innerHTML=statusCards(base,st,'pg_status','APP.pagarFiltrar()','Pago')+jurosCard+chips;
   const body=$('pagar_body'); if(!body) return;
   const bulkBar = `<div id="pagar_bulk" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:#faf6ea;border:1px solid #efe2b8;border-radius:8px;padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
     <div><b id="pagar_seln">0</b> selecionado(s) — <span id="pagar_selv">R$ 0,00</span></div>
@@ -6939,106 +6957,10 @@ function pagarFiltrar(){
       esc(t.referencia||'—'), money(t.valor), `<b>${money(t.saldo)}</b>`,
       tituloPill(t.status)
         + (t.status==='pago'&&t.pagoEm?`<div style="font-size:10px;color:#4a7a54;margin-top:2px" title="Dia em que o dinheiro saiu — é por ele que a conciliação casa com o extrato">📅 ${dfmt(t.pagoEm)}</div>`:'')
-        + (t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:''),
+        + (t.status==='pago'&&t.bancoPagto?`<div style="font-size:10px;color:#4a7a54;margin-top:2px">🏦 ${esc(t.bancoPagto)}</div>`:'')
+        + (t.status==='pago'&&t.extratoEm?`<div style="font-size:10px;color:#4a7a54;margin-top:2px" title="Débito do extrato bancário casado com este título">✓ conciliado ${dfmt(t.extratoEm)}</div>`:''),
       `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.temBoleto?`<button class="btn-sm" title="Ver/baixar boleto anexado" onclick="APP.verBoleto(${t.id})">📎 Boleto</button>`:''}${t.status!=='pago'?`<button class="btn-sm" onclick="APP.baixar('pagar',${t.id},'${t.saldo}')">Pagar</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button><button class="btn-sm" style="color:#c14a34" onclick="APP.delRec('/financeiro/pagar',${t.id})">Excluir</button></div>`
     ]), fil.length?null:'Nenhum título no filtro selecionado.');
-}
-/* ===================== CONTAS PAGAS =====================
-   O que já foi baixado no A Pagar, organizado pelo DIA EM QUE O DINHEIRO SAIU.
-   Serve para achar a conta que alguém "achou que pagou": baixa sem data, sem
-   banco, sem comprovante, ou que nenhum débito do extrato confirmou. */
-function pagasPeriodo(p){
-  const d=new Date(), iso=x=>x.toISOString().slice(0,10);
-  if(p==='mes') return [iso(new Date(d.getFullYear(),d.getMonth(),1)), iso(d)];
-  if(p==='ant') return [iso(new Date(d.getFullYear(),d.getMonth()-1,1)), iso(new Date(d.getFullYear(),d.getMonth(),0))];
-  if(p==='90'){ const a=new Date(d); a.setDate(a.getDate()-90); return [iso(a), iso(d)]; }
-  return ['',''];
-}
-async function viewPagas(c){
-  const [list, forn] = await Promise.all([api('/financeiro/pagar'), api('/fornecedores')]);
-  window.__PAGAS=(list||[]).filter(t=>t.status==='pago'||Number(t.pago)>0);
-  window.__PAGNOME={}; window.__PAGCNPJ={}; (forn||[]).forEach(f=>{ window.__PAGNOME[f.id]=f.nome; window.__PAGCNPJ[f.id]=f.cnpjCpf||''; });
-  let F={}; try{ F=JSON.parse(sessionStorage.getItem('pgsfilt')||'null')||{}; }catch(_){}
-  if(!F.de&&!F.ate&&!F.tudo){ const [a,b]=pagasPeriodo('90'); F.de=a; F.ate=b; }
-  const emps=[...new Set(window.__PAGAS.map(t=>t.filial?t.filial.nome:'Sem empresa'))].sort();
-  const sel=(v,o)=>v===o?' selected':'';
-  c.innerHTML = toolbar('Contas pagas', null, null, '')
-    + `<div class="muted" style="font-size:12px;margin:-4px 0 10px">Títulos já baixados no A Pagar, pelo <b>dia do pagamento</b>. Use <b>“Só para conferir”</b> para achar baixa sem data, sem banco, sem comprovante ou que o extrato do banco não confirmou — é aí que aparece a conta que ficou para trás.</div>`
-    + `<div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:0 0 12px;padding:10px 12px;background:#f2f8f3;border:1px solid #cfe5d4;border-radius:8px">
-        <div class="mrow" style="margin:0;flex:1;min-width:210px"><label class="fl" style="font-size:11px">🔍 Buscar (fornecedor, CNPJ, ref., valor)</label><input id="ps_busca" class="inp" style="padding:6px" placeholder="ex.: Claro, condomínio, 849,54" value="${esc(F.q||'')}" oninput="APP.pagasFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Pago de</label><input id="ps_de" class="inp" type="date" style="padding:6px" value="${esc(F.de||'')}" onchange="APP.pagasFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">até</label><input id="ps_ate" class="inp" type="date" style="padding:6px" value="${esc(F.ate||'')}" onchange="APP.pagasFiltrar()"></div>
-        <div class="mrow" style="margin:0"><label class="fl" style="font-size:11px">Empresa</label><select id="ps_emp" class="inp" style="padding:6px;width:auto" onchange="APP.pagasFiltrar()"><option value="">Todas</option>${emps.map(e=>`<option${sel(F.emp,e)}>${esc(e)}</option>`).join('')}</select></div>
-        <label style="font-size:12px;cursor:pointer;align-self:center"><input type="checkbox" id="ps_conf" ${F.conf?'checked':''} onchange="APP.pagasFiltrar()"> ⚠ Só para conferir</label>
-        <button class="btn-sm" onclick="APP.pagasPreset('mes')">Este mês</button>
-        <button class="btn-sm" onclick="APP.pagasPreset('ant')">Mês passado</button>
-        <button class="btn-sm" onclick="APP.pagasPreset('90')">90 dias</button>
-        <button class="btn-sm" onclick="APP.pagasPreset('')">Tudo</button>
-      </div>
-      <div id="pagas_kpis" class="cards" style="margin-bottom:14px"></div>
-      <div id="pagas_body"></div>`;
-  pagasFiltrar();
-}
-function pagasPreset(p){ const [a,b]=pagasPeriodo(p); $('ps_de').value=a; $('ps_ate').value=b; pagasFiltrar(p===''); }
-/** Motivos para conferir uma baixa. Vazio = baixa completa e confirmada no extrato. */
-function pagasAlertas(t){
-  const a=[];
-  if(t.status!=='pago') a.push('pago só em parte');
-  if(!t.pagoEm) a.push('sem data de pagamento');
-  if(!t.bancoPagto) a.push('sem banco');
-  if(!t.temBoleto) a.push('sem boleto/comprovante');
-  if(!t.extratoEm) a.push('não conciliado no extrato');
-  return a;
-}
-function pagasFiltrar(tudo){
-  const list=window.__PAGAS||[], nome=window.__PAGNOME||{}, cnpj=window.__PAGCNPJ||{};
-  const de=val('ps_de'), ate=val('ps_ate'), emp=val('ps_emp'), conf=!!($('ps_conf')&&$('ps_conf').checked);
-  const qraw=(val('ps_busca')||'').trim(), q=bnorm(qraw), qn=_numBusca(q);
-  try{ sessionStorage.setItem('pgsfilt', JSON.stringify({q:qraw,de,ate,emp,conf,tudo:!!tudo||(!de&&!ate)})); }catch(_){}
-  // Sem data de pagamento, o título cai no período pelo vencimento.
-  const dia=t=>String(t.pagoEm||t.vencimento).slice(0,10);
-  const fil=list.filter(t=>{
-    const d=dia(t);
-    if(de && d<de) return false;
-    if(ate && d>ate) return false;
-    if(emp && (t.filial?t.filial.nome:'Sem empresa')!==emp) return false;
-    if(conf && !pagasAlertas(t).length) return false;
-    if(q){
-      const hay=bnorm([nome[t.fornecedorId]||'', cnpj[t.fornecedorId]||'', t.referencia||'', t.categoria||'', t.filial?t.filial.nome:'', t.bancoPagto||''].join(' '));
-      const valBate=qn && (Number(t.valor).toFixed(2).includes(qn) || (Number(t.pago)+Number(t.juros||0)).toFixed(2).includes(qn));
-      if(!hay.includes(q) && !valBate) return false;
-    }
-    return true;
-  }).sort((a,b)=>dia(b).localeCompare(dia(a)));
-  const totPago=fil.reduce((s,t)=>s+Number(t.pago)+Number(t.juros||0),0);
-  const totJuros=fil.reduce((s,t)=>s+Number(t.juros||0),0);
-  const nConf=fil.filter(t=>pagasAlertas(t).length).length;
-  const nSemExt=fil.filter(t=>!t.extratoEm).length;
-  const card=(k,v,s,cor)=>`<div class="card" style="padding:10px 14px"><div class="k" style="font-size:11px;color:var(--muted)">${k}</div><div style="font-size:18px;font-weight:800;color:${cor}">${v}</div><div class="s" style="font-size:11px">${s}</div></div>`;
-  const kp=$('pagas_kpis'); if(kp) kp.innerHTML = card('TOTAL PAGO',money(totPago),fil.length+' título(s)','#3a8f4f')
-    + (totJuros>0?card('JUROS/MULTA',money(totJuros),'pagos por atraso','#c14a34'):'')
-    + card('PARA CONFERIR',nConf,'baixa incompleta ou sem extrato',nConf?'#b5731a':'#3a8f4f')
-    + card('SEM EXTRATO',nSemExt,'nenhum débito do banco casado',nSemExt?'#b5731a':'#3a8f4f');
-  const body=$('pagas_body'); if(!body) return;
-  body.innerHTML = panelTable(['Pago em','Vencimento','Empresa','Categoria','Fornecedor','Ref.','Valor','Juros','Total pago','Banco / extrato','Ações'],
-    fil.map(t=>{
-      const al=pagasAlertas(t);
-      return [
-        t.pagoEm?`<b>${dfmt(t.pagoEm)}</b>`:'<span class="pill gold">sem data</span>',
-        dfmt(t.vencimento)+(t.pagoEm&&String(t.pagoEm).slice(0,10)>String(t.vencimento).slice(0,10)?'<div style="font-size:10px;color:#c14a34">pago com atraso</div>':''),
-        t.filial?`<span class="pill gray">${esc(t.filial.nome)}</span>`:'<span class="muted">—</span>',
-        esc(t.categoria),
-        t.fornecedorId?esc(nome[t.fornecedorId]||('#'+t.fornecedorId)):'—',
-        esc(t.referencia||'—'),
-        money(t.valor),
-        Number(t.juros||0)>0?`<span style="color:#c14a34">${money(t.juros)}</span>`:'<span class="muted">—</span>',
-        `<b>${money(Number(t.pago)+Number(t.juros||0))}</b>`+(t.status!=='pago'?`<div style="font-size:10px;color:#b5731a">saldo ${money(t.saldo)}</div>`:''),
-        (t.bancoPagto?`<div style="font-size:11px">🏦 ${esc(t.bancoPagto)}</div>`:'')
-          + (t.extratoEm?`<div style="font-size:10.5px;color:#4a7a54">✓ extrato ${dfmt(t.extratoEm)}</div>`:'')
-          + (al.length?`<div style="font-size:10.5px;color:#b5731a;margin-top:2px" title="${esc(al.join(' · '))}">⚠ ${esc(al.join(' · '))}</div>`:''),
-        `<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${t.temBoleto?`<button class="btn-sm" title="Ver boleto/comprovante" onclick="APP.verBoleto(${t.id})">📎</button>`:''}<button class="btn-sm" onclick="APP.formPagarEdit(${t.id})">Editar</button></div>`,
-      ];
-    }), fil.length?null:'Nenhuma conta paga no filtro selecionado.');
 }
 function pagarSelCount(){
   const chks=[...document.querySelectorAll('.pg_chk')];
@@ -18200,7 +18122,7 @@ window.APP = {
   renderPedidos, pedLimparFiltros, pedToggleView, pedToggleFeitos, pedEncerrado, formPedido, pedidoCopiar, pedPrefillCliente, pedCliPick, pedCliDD, pedCliDDHide, pedCliDDPick, calcVenc, pedComis, pedOcSel, pedOcDel, pedOcAbrir, pedEntregaToggle, pedEntregaCep, pedEntregaPadraoIdent, pedEntregaLimpar, pedEntregaSalvarPadrao, addItem, rmItem, itemGradeInp, itemSync, itemCor, itemCorPick, itemProd, itemDD, itemDDHide, itemDDPick, itemQty, savePedido, aprovarPedido, pedAcoesMenu, pedAcoesRun, pedAcoesFechar, pedObs, pedObsSalvar, pedidoExpedir, retificarPedido, pedBonificar, pedParciais, pedResidual, imprimirResidual, formExpParcial, saveExpParcial, expUsarEstoque, expUsarResidual, expZerar, expListaSeparacao, excluirPedido, cancelarPedido, pedToggleAll, pedSelInfo, pedCancelarSel, pedExcluirSel, pedBaixarSel, pedEmailSel, gerarOp, avisoSemReceita, avisoProntaEntrega, prodFiltrar, prodView, prodGrupo, prodGaleria, prodTabela, prodMargem, prodMargemSelo, prodFotoBox, prodFotosObservar, prodPainel, prodPainelFechar, prodMais, prodDuplicar, menuFlutuante, corHex,
   pcorAbrir, pcorAdicionar, pcorRemover, pcorMockupSel, pcorMockupDel, itemOutraCor, pedTotais, pedPendencias,
   prodAba, prodMargemLive,
-  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagasFiltrar, pagasPreset, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
+  formReceber, saveReceber, formPagar, savePagar, baixar, baixaTotal, confirmBaixar, copiarPix, copiarPixForn, pagarFiltrar, pagarPreset, pagarEmp, pagarSelCount, pagarToggleAll, pagarExcluirSel, pagarPagarSel, receberFiltrar, receberPreset, receberEmp, receberSelCount, receberToggleAll, receberExcluirSel, receberReceberSel, imprimirCobranca, viewCobranca, cobrancaToggleAll, cobrancaSalvarConfig, cobrancaPreview, cobrancaEnviarSel, cobrancaEnviar, formRecorrentes, saveRecorrente, recorToggle, recorDel,
   formReceberEdit, saveReceberEdit, rcParcGerar, rcParcSync, rcParcDel, parcelarReceber, formPagarEdit, savePagarEdit, delRec, pgParcGerar, pgParcGerarNovo, pgParcSync, pgParcDel, parcelarPagar, verBoleto,
   viewContratos, ctrFiltrar, ctrRender, ctrToggle, formContrato, ctrRenderItens, ctrAddItem, ctrDelItem, ctrCliDD, ctrCliDDHide, ctrCliPick, ctrProdDD, ctrProdDDHide, ctrProdPick, saveContrato,
   viewCrm, crmRender, crmFiltrar, formLead, saveLead, crmMover, crmPerder, crmPerderOk, crmDetalhe, crmAddInter, crmConverter, crmGerarOrcamento, crmExcluir, crmTabelaPrecos, crmTabRender, crmCopiaPreco, crmSerasa,
