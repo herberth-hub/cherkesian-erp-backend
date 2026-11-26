@@ -544,6 +544,10 @@ export class ExpedicoesService {
     const pedido = await this.prisma.pedido.findUnique({ where: { id: pedidoId }, include: { itens: true, cliente: true } });
     if (!pedido || pedido.empresaId !== empresaId) throw new NotFoundException(`Pedido ${pedidoId} não encontrado.`);
     if (pedido.etapa === 'orcamento') throw new BadRequestException('Aprove o pedido antes de gerar a expedição.');
+    // Pedido cancelado não expede: a EXP-0194 nasceu no PV04 (cancelado, duplicata
+    // do PV21) e reservou estoque, somou quantidade expedida e tirou o pedido de
+    // "Cancelado" sem ninguém pedir.
+    if (pedido.etapa === 'cancelado') throw new ConflictException(`O pedido ${pedido.numero} está cancelado — não é possível gerar expedição.`);
     return pedido;
   }
 
@@ -1558,6 +1562,21 @@ export class ExpedicoesService {
           data: { quantidadeExpedida: novaQtd, ...(novaGrade ? { gradeExpedida: novaGrade as unknown as Prisma.InputJsonValue } : {}) },
         });
       }
+      // As peças bipadas nesta expedição ficaram "despachado" apontando para ela.
+      // Apagar a expedição sem devolvê-las deixava etiquetas presas: a peça está
+      // na fábrica, mas o sistema diz que saiu e não deixa bipar de novo (159
+      // coletes e 6 camisetas do PV43 ficaram assim após o estorno de 03/11).
+      // Voltam como RESERVADAS ao pedido, como no "zerar conferência".
+      if (exp.pedidoId) {
+        await tx.unidadeEstoque.updateMany({
+          where: { expedicaoId: id, status: 'despachado', pedidoId: null },
+          data: { pedidoId: exp.pedidoId },
+        });
+      }
+      await tx.unidadeEstoque.updateMany({
+        where: { expedicaoId: id, status: 'despachado' },
+        data: { status: 'reservado', expedicaoId: null, saidaEm: null },
+      });
       await tx.expedicao.delete({ where: { id } });
       if (exp.pedidoId) {
         const restam = await tx.expedicao.count({ where: { pedidoId: exp.pedidoId } });
