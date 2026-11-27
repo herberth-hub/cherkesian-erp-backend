@@ -513,7 +513,11 @@ export class DocumentosService {
       ? await this.prisma.clienteUnidade.findUnique({ where: { id: pedido.clienteUnidadeId } })
       : null;
     const cli = pedido.cliente;
-    const destNome = unidade?.nome || cli.nome;
+    // Cliente com mais de um cadastro no mesmo CNPJ (ex.: INTS SACA x INTS HDSA): o
+    // nome fantasia é o que diz QUAL unidade é — vai junto da razão social se ela não o contém.
+    const fant = (cli.fantasia || '').trim();
+    const nomeCli = fant && !cli.nome.toUpperCase().includes(fant.toUpperCase()) ? `${cli.nome} (${fant})` : cli.nome;
+    const destNome = unidade?.nome || nomeCli;
     const destDoc = unidade?.cnpjCpf || cli.cnpjCpf || '—';
     const destCidadeUf = (unidade && (unidade.municipio || unidade.uf))
       ? `${unidade.municipio || ''}${unidade.uf ? '/' + unidade.uf : ''}`

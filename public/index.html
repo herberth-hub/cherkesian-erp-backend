@@ -2345,6 +2345,13 @@ function pedidosKanban(arr){
       </div>`).join(''):'<div class="kempty">—</div>'}</div>`;
   }).join('')}</div>`;
 }
+// Nome fantasia do cliente sob a razão social na lista — é ele que diz QUAL unidade
+// (INTS SACA x INTS HDSA, mesmo CNPJ). Omitido quando a razão social já o contém.
+function pedFantasiaTag(p){
+  const f=String((p.cliente&&p.cliente.fantasia)||'').trim();
+  if(!f || String(p.cliente.nome||'').toUpperCase().includes(f.toUpperCase())) return '';
+  return '<div style="font-size:11px;color:#8a5a00;font-weight:700;margin-top:1px">🏷 '+esc(f)+'</div>';
+}
 function renderPedidos(){
   const list = window.__PEDIDOS||[];
   const q=bnorm(val('ped_q')), et=val('ped_etapa'), fil=val('ped_filial');
@@ -2364,7 +2371,7 @@ function renderPedidos(){
     const compacta=s=>s.replace(/[\s\-./]/g,'');
     const qc=compacta(q);
     arr=arr.filter(p=>{
-      const hay=bnorm([p.numero, p.cliente&&p.cliente.nome, p.unidadeNome, p.unidadeCnpj, p.ordemCompraCliente, p.filial&&p.filial.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].join(' '));
+      const hay=bnorm([p.numero, p.cliente&&p.cliente.nome, p.cliente&&p.cliente.fantasia, p.unidadeNome, p.unidadeCnpj, p.ordemCompraCliente, p.filial&&p.filial.nome, p.etapa, (p.nfs||[]).map(n=>n.numero).join(' ')].join(' '));
       const valBate = qn && Number(p.valorTotal||0).toFixed(2).includes(qn);
       return hay.includes(q) || compacta(hay).includes(qc) || valBate;
     });
@@ -2417,7 +2424,7 @@ function renderPedidos(){
     arr.map(p=>[
       `<input type="checkbox" class="pedck" value="${p.id}" onclick="APP.pedSelInfo()">`,
       `<span class="mono gold">${esc(p.numero)}</span>${p.bonificacao?'<div><span class="pill" style="background:#f3e8ff;color:#6b3fa0;font-size:9px">🎁 bonif.</span></div>':''}${(p.nfs||[]).some(n=>n.tipo==='faturamento'&&n.status!=='cancelada')?'<div style="margin-top:2px"><span class="pill" style="background:#eaf3ff;color:#1e5aa8;font-size:9px" title="NF de faturamento emitida (venda futura) — o pedido continua em produção até expedir">🧾 venda futura</span></div>':''}${pedRefTag(p)}`,
-      `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
+      `${esc(p.cliente?p.cliente.nome:('#'+p.clienteId))}${pedFantasiaTag(p)}${p.unidadeNome?`<div style="font-size:11px;color:#2b4a8b;font-weight:600;margin-top:1px">📍 ${esc(p.unidadeNome)}${p.unidadeCnpj?' · <span class="mono" style="font-weight:400">'+esc(p.unidadeCnpj)+'</span>':''}</div>`:''}`,
       p.filial?`<span class="pill ${p.filial.matriz?'gold':'gray'}">${esc(p.filial.nome)}</span>`:'<span class="muted">—</span>',
       money(p.valorTotal),
       etapaCell(p),

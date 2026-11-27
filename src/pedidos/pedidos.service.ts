@@ -55,7 +55,7 @@ export class PedidosService {
       omit: { ocArquivo: true }, // não trafega o base64 da OC na listagem
       include: {
         itens: true,
-        cliente: { select: { id: true, nome: true } },
+        cliente: { select: { id: true, nome: true, fantasia: true } },
         filial: { select: { id: true, nome: true, matriz: true } },
         ops: { select: { numero: true, status: true } },
       },
@@ -119,7 +119,7 @@ export class PedidosService {
       where: { id },
       include: {
         itens: true,
-        cliente: { select: { id: true, nome: true } },
+        cliente: { select: { id: true, nome: true, fantasia: true } },
         pilotos: true,
         ops: true,
       },
